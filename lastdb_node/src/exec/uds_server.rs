@@ -9,7 +9,6 @@ use tracing::Instrument;
 
 use super::{
     app_api, block_on_data_route, block_on_route, calling_app, database_routes, database_session,
-    mutation,
 };
 use crate::host::Host;
 use crate::lastdb_uds::uds_http::{self, UdsRequest, UdsResponse};
@@ -179,23 +178,27 @@ impl UdsServer {
         }
         let routed = uds_router::route(&req);
         let deferred = match &routed {
-            ControlRoute::Data(
-                r @ (DataRoute::Mutation | DataRoute::MutationBatch | DataRoute::V1Write),
-            ) => Some(Some(*r)),
+            ControlRoute::Data(DataRoute::V1Write) => Some(true),
             ControlRoute::Database if database_routes::is_deferred_database_request(&req) => {
-                Some(None)
+                Some(false)
             }
             _ => None,
         };
-        if let Some(route) = deferred.filter(|_| retain_permits(&mut lease, &req)) {
+        if let Some(write) = deferred.filter(|_| retain_permits(&mut lease, &req)) {
             let (host, replies) = (Arc::clone(&self.host), Arc::clone(&self.mutation_replies));
             self.handle.spawn(
                 async move {
                     let Ok(slot) = replies.acquire_owned().await else {
                         return;
                     };
-                    let resp = if let Some(r) = route {
-                        mutation::execute_deferred_mutation(r, &req, &ctx, &host).await
+                    let resp = if write {
+                        super::execute_data_route_with_timeout(
+                            DataRoute::V1Write,
+                            &req,
+                            &ctx,
+                            &host,
+                        )
+                        .await
                     } else {
                         database_routes::execute_deferred_database_request(&mut req, &ctx, &host)
                             .await

@@ -1,9 +1,7 @@
 //! `lastdb` record reads and writes on `POST /v1/read` and `POST /v1/write`.
 //!
-//! A received database stays on the old routes: `/v1` does not serve one.
-//! An id that is not in the catalog stays there too.
-//! Byte upload, inline files, thumbnails, and removing a file while keeping
-//! the record stay there too. `/v1` carries no file bytes.
+//! A received database is a `database` field on `/v1/read`. A write to one,
+//! and an unknown database, print the node's refusal. A file is a path.
 
 use super::{post_json_with_timeout, DatabaseTarget, RecordListArgs};
 use base64::Engine as _;
@@ -12,10 +10,17 @@ use sha2::{Digest, Sha256};
 use std::time::Duration;
 
 /// A file the write names by path. No bytes cross the request.
-pub(super) struct LinkedFile<'a> {
-    pub(super) path: &'a str,
-    pub(super) name: Option<&'a str>,
-    pub(super) media_type: Option<&'a str>,
+pub(super) struct LinkedFile {
+    pub(super) path: String,
+    pub(super) name: Option<String>,
+    pub(super) media_type: Option<String>,
+}
+
+/// What `/v1/write` receives for `file`. Clear is JSON null. Absent sends no key.
+pub(super) enum WrittenFile<'a> {
+    Absent,
+    Clear,
+    Link(&'a LinkedFile),
 }
 
 pub(super) fn database(target: &DatabaseTarget) -> Option<&str> {
@@ -137,20 +142,22 @@ pub(super) fn key_report(
     Ok(Value::Object(report))
 }
 
-/// One `/v1/write` mutation, or `None` when the old route must keep this write.
+/// One `/v1/write` mutation.
 ///
-/// There is no unconditional put. A create keeps `expected: absent`. A replace
-/// or delete keeps the revision the caller named. A mutation `/v1` cannot
-/// express stays `None` so the caller posts the old route.
+/// A create expects the key to be absent. A replace or delete names the
+/// revision the caller read. Anything else is an invalid mutation.
 pub(super) fn record_write(
     mutation: &Value,
     database: Option<&str>,
-    file: Option<LinkedFile<'_>>,
-) -> Option<Value> {
-    if !v1_capable(mutation, file.is_some()) {
-        return None;
+    file: &WrittenFile<'_>,
+) -> Result<Value, String> {
+    let linking = matches!(file, WrittenFile::Link(_));
+    if !v1_capable(mutation, linking) {
+        return Err("invalid complete mutation".into());
     }
-    let op = mutation["mutation_type"].as_str()?;
+    let Some(op) = mutation["mutation_type"].as_str() else {
+        return Err("invalid complete mutation".into());
+    };
     let mut item = Map::new();
     insert_database(&mut item, database);
     item.insert("schema".into(), mutation["schema"].clone());
@@ -161,15 +168,21 @@ pub(super) fn record_write(
         item.insert("alternates".into(), mutation["alternates"].clone());
     }
     if op != "create" {
-        item.insert(
-            "revision".into(),
-            json!(mutation["expected"]["revision"].as_str()?),
-        );
+        let Some(revision) = mutation["expected"]["revision"].as_str() else {
+            return Err("invalid complete mutation".into());
+        };
+        item.insert("revision".into(), json!(revision));
     }
-    if let Some(link) = file {
-        item.insert("file".into(), file_link(&link));
+    match file {
+        WrittenFile::Link(link) => {
+            item.insert("file".into(), file_link(link));
+        }
+        WrittenFile::Clear => {
+            item.insert("file".into(), Value::Null);
+        }
+        WrittenFile::Absent => {}
     }
-    Some(Value::Object(item))
+    Ok(Value::Object(item))
 }
 
 pub(super) fn receipt(reply: &Value, local: bool) -> Value {
@@ -238,13 +251,13 @@ fn alternates_clear(mutation: &Value) -> bool {
     }
 }
 
-fn file_link(link: &LinkedFile<'_>) -> Value {
+fn file_link(link: &LinkedFile) -> Value {
     let mut file = Map::new();
     file.insert("path".into(), json!(link.path));
-    if let Some(name) = link.name {
+    if let Some(name) = &link.name {
         file.insert("name".into(), json!(name));
     }
-    if let Some(media_type) = link.media_type {
+    if let Some(media_type) = &link.media_type {
         file.insert("media_type".into(), json!(media_type));
     }
     Value::Object(file)

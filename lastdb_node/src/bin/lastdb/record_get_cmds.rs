@@ -2,9 +2,8 @@
 
 use super::v1_records;
 use super::*;
-use lastdb_node::lastdb_uds::{admin_handler_timeout, DEFAULT_CLI_UDS_TIMEOUT_SECS};
+use lastdb_node::lastdb_uds::DEFAULT_CLI_UDS_TIMEOUT_SECS;
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
 use std::path::Path;
 use std::time::Duration;
 
@@ -24,11 +23,6 @@ pub(super) fn list_record_keys(
     target: &DatabaseTarget,
     args: &RecordListArgs,
 ) -> Result<(), String> {
-    // `--key-name` lists alternate addresses. `/v1` keys_only returns primary keys only.
-    // A received database, and an id missing from the catalog, stay on the old route.
-    if target.old_routes || args.key_name.is_some() {
-        return list_record_keys_legacy(target, args);
-    }
     require_reachable(&target.socket)?;
     let timeout = Duration::from_secs(DEFAULT_CLI_UDS_TIMEOUT_SECS);
     let schema = fetch_schema(target, &args.schema)?;
@@ -43,45 +37,6 @@ pub(super) fn list_record_keys(
     Ok(())
 }
 
-fn list_record_keys_legacy(target: &DatabaseTarget, args: &RecordListArgs) -> Result<(), String> {
-    require_reachable(&target.socket)?;
-    let mut path = format!(
-        "/api/list?schema={}&limit={}",
-        percent_encode_query(&args.schema),
-        args.limit.max(1)
-    );
-    for (p, opt) in [
-        ("key_name", &args.key_name),
-        ("hash", &args.key_hash),
-        ("cursor", &args.cursor),
-    ] {
-        if let Some(v) = opt {
-            path.push_str(&format!("&{p}={}", percent_encode_query(v)));
-        }
-    }
-    let timeout = Duration::from_secs(DEFAULT_CLI_UDS_TIMEOUT_SECS);
-    let raw = get_path(&target.socket, &target.path(&path), timeout)?;
-    let r = parse_json_response(&raw, "list")?
-        .get("list")
-        .cloned()
-        .ok_or("response missing list field")?;
-    if let Some(name) = args.key_name.as_deref() {
-        if r["key_name"].as_str() != Some(name) {
-            return Err("node did not honor the requested alternate key; upgrade LastDB".into());
-        }
-        let keys = r["keys"].as_array();
-        if keys.is_none() || keys.map(Vec::len) != r["primary_keys"].as_array().map(Vec::len) {
-            return Err("alternate list lost its primary mutation keys".into());
-        }
-    }
-    if args.json {
-        print_pretty_json(&r);
-    } else {
-        print_list_record_keys_human(&r);
-    }
-    Ok(())
-}
-
 fn print_list_record_keys_human(r: &Value) {
     let empty = Vec::new();
     let keys = r["keys"].as_array().unwrap_or(&empty);
@@ -92,18 +47,12 @@ fn print_list_record_keys_human(r: &Value) {
     let ranged = r.pointer("/key_definition/kind").and_then(Value::as_str) == Some("hash_range");
     let hf = r["hash_filter"].as_str();
     let part = hf.map_or_else(String::new, |h| format!(" --key-hash {h:?}"));
-    let kf = r["key_name"]
-        .as_str()
-        .map_or_else(String::new, |n| format!(" --key-name {n}"));
     let (n, sfx) = (keys.len(), if keys.len() == 1 { "" } else { "s" });
     let (kind, m_str) = (
         if ranged { " hash+range" } else { " hash" },
         if more { " (more)" } else { "" },
     );
-    eprintln!("lastdb get-keys {schema}{kf}{part} — {n} key{sfx}{kind}{m_str}");
-    if !kf.is_empty() {
-        eprintln!("For writes, use primary_keys from --json.");
-    }
+    eprintln!("lastdb get-keys {schema}{part} — {n} key{sfx}{kind}{m_str}");
     eprintln!("{}", if ranged { "hash\trange" } else { "hash" });
     for k in keys {
         let (h, rg) = (
@@ -118,7 +67,7 @@ fn print_list_record_keys_human(r: &Value) {
     }
     if let Some(cur) = r["next_cursor"].as_str().filter(|_| more) {
         let h_flag = hf.map_or_else(String::new, |h| format!(" --key-hash '{h}'"));
-        eprintln!("next: lastdb get-keys {schema}{kf}{h_flag} --cursor '{cur}'");
+        eprintln!("next: lastdb get-keys {schema}{h_flag} --cursor '{cur}'");
     }
 }
 
@@ -135,35 +84,12 @@ fn fetch_schema(target: &DatabaseTarget, schema_name: &str) -> Result<Value, Str
         .ok_or_else(|| "response missing schema field".into())
 }
 
-fn query_record(
-    target: &DatabaseTarget,
-    schema_name: &str,
-    hash: &str,
-    key_range: Option<&str>,
-    timeout: Duration,
-) -> Result<Value, String> {
-    let body = get_query_body(schema_name, hash, key_range);
-    parse_json_response(
-        &post_json_with_timeout(&target.socket, &target.path("/api/query"), &body, timeout)?,
-        "query",
-    )
-}
-
-pub(crate) fn get_query_body(schema: &str, key_hash: &str, key_range: Option<&str>) -> Value {
-    let filter = if let Some(range) = key_range.filter(|s| !s.is_empty()) {
-        json!({ "HashRangeKey": { "hash": key_hash, "range": range } })
-    } else {
-        json!({ "HashKey": key_hash })
-    };
-    json!({ "schema_name": schema, "filter": filter })
-}
-
 pub(super) fn get_record(
     target: &DatabaseTarget,
     schema_name: &str,
     (key_hash, key_range): (Option<&str>, Option<&str>),
     json_only: bool,
-    (hydrate, hydrate_inline): (Option<&Path>, Option<&Path>),
+    hydrate: Option<&Path>,
 ) -> Result<(), String> {
     let Some(hash) = key_hash.map(str::trim).filter(|s| !s.is_empty()) else {
         return Err("get needs --key-hash (and --key-range when the schema is HashRange)".into());
@@ -176,34 +102,60 @@ pub(super) fn get_record(
         return Err("this schema is HashRange; pass --key-range or use get-keys --key-hash".into());
     }
     let timeout = Duration::from_secs(DEFAULT_CLI_UDS_TIMEOUT_SECS);
-    // Hydration checks the file digest. `/v1` returns no digest and no bytes.
-    // A received database, and an id missing from the catalog, stay on the old route.
-    let mut val = if target.old_routes || hydrate.is_some() || hydrate_inline.is_some() {
-        query_record(target, schema_name, hash, key_range, timeout)?
-    } else {
-        let item =
-            v1_records::record_item(schema_name, hash, key_range, v1_records::database(target));
-        let page = v1_records::read_page(target, &item, timeout)?;
-        v1_records::query_view(&page)?
-    };
-    if let Some(out) = hydrate {
-        hydrate_record_file(
-            target,
-            schema_name,
-            &mut val,
-            out,
-            schema["file_required"].as_bool().unwrap_or(false),
-            false,
-        )?;
+    let mut item =
+        v1_records::record_item(schema_name, hash, key_range, v1_records::database(target));
+    if let Some(dir) = hydrate {
+        let absolute = absolute_dir(dir)?;
+        let folder = absolute
+            .to_str()
+            .ok_or("hydrate folder is not a utf-8 path")?;
+        let obj = item.as_object_mut().ok_or("read item is incomplete")?;
+        obj.insert("file".into(), json!(true));
+        obj.insert("file_dir".into(), json!(folder));
     }
-    if let Some(out) = hydrate_inline {
-        hydrate_record_file(target, schema_name, &mut val, out, false, true)?;
+    let page = v1_records::read_page(target, &item, timeout)?;
+    let mut val = v1_records::query_view(&page)?;
+    if hydrate.is_some() {
+        note_hydrated_file(
+            &page,
+            &mut val,
+            schema["file_required"].as_bool().unwrap_or(false),
+        )?;
     }
     if json_only {
         print_pretty_json(&val);
     } else {
         print_get_human(&val);
     }
+    Ok(())
+}
+
+/// Resolve `dir` without creating it. The node still checks ownership and mode.
+fn absolute_dir(dir: &Path) -> Result<std::path::PathBuf, String> {
+    let absolute = std::path::absolute(dir).map_err(|error| format!("hydrate folder: {error}"))?;
+    if !absolute.is_dir() {
+        return Err("hydrate folder must be an existing directory".into());
+    }
+    Ok(absolute)
+}
+
+fn note_hydrated_file(page: &Value, view: &mut Value, file_required: bool) -> Result<(), String> {
+    let file = page.pointer("/records/0/file");
+    let path = file.and_then(|marker| marker["path"].as_str());
+    let Some(path) = path.filter(|path| !path.is_empty()) else {
+        if file.is_some_and(|marker| !marker.is_null()) {
+            return Err("record file has no path".into());
+        }
+        return if file_required {
+            Err("record is missing its required file".into())
+        } else {
+            Ok(())
+        };
+    };
+    let row = view
+        .pointer_mut("/results/0")
+        .ok_or("hydration requires exactly one record")?;
+    row["hydrated_file"] = json!(path);
     Ok(())
 }
 
@@ -240,66 +192,10 @@ fn print_get_human(value: &Value) {
                 );
             }
         }
-        for (hyd, ptr, pfx) in [
-            ("hydrated_file", "/metadata/file", "file"),
-            (
-                "hydrated_inline_file",
-                "/metadata/inline_file",
-                "inline_file",
-            ),
-        ] {
-            if let Some(p) = row.get(hyd).and_then(Value::as_str) {
-                println!("{pfx} {p}");
-            } else if let Some(f) = row.pointer(ptr) {
-                println!("{pfx} {f}");
-            }
+        if let Some(path) = row.get("hydrated_file").and_then(Value::as_str) {
+            println!("file {path}");
+        } else if let Some(file) = row.pointer("/metadata/file") {
+            println!("file {file}");
         }
     }
-}
-
-fn hydrate_record_file(
-    target: &DatabaseTarget,
-    schema: &str,
-    value: &mut Value,
-    out: &Path,
-    file_required: bool,
-    inline: bool,
-) -> Result<(), String> {
-    let (ptr, name, field) = if inline {
-        ("/metadata/inline_file", "inline", "hydrated_inline_file")
-    } else {
-        ("/metadata/file", "blob", "hydrated_file")
-    };
-    let [rec] = value["results"]
-        .as_array_mut()
-        .ok_or("missing query records")?
-        .as_mut_slice()
-    else {
-        return Err("hydration requires exactly one record".into());
-    };
-    let Some(m) = rec.pointer(ptr).filter(|v| !v.is_null()) else {
-        return match (inline, file_required) {
-            (true, _) => Err("record has no inline file".into()),
-            (_, true) => Err("record is missing its required file".into()),
-            _ => Ok(()),
-        };
-    };
-    let size = m["size_bytes"].as_u64().ok_or("file marker has no size")?;
-    let digest = m["sha256"].as_str().ok_or("file marker has no digest")?;
-    let rev = rec["revision"].as_str().ok_or("record has no revision")?;
-    let req_json =
-        json!({ "schema": schema, "key": rec["key"], "expected_revision": rev, "placement": name });
-    let req = build_post_request(
-        &target.path("/api/db/fetch-blob"),
-        "Content-Type: application/json\r\nAccept: application/octet-stream\r\n",
-        &serde_json::to_vec(&req_json).map_err(|e| format!("encode hydrate request: {e}"))?,
-    );
-    let resp = request_with_timeout_bytes(&target.socket, &req, admin_handler_timeout())?;
-    let bytes = split_http_200(&resp, "record hydration")?;
-    if bytes.len() as u64 != size || fold_db::hex::hex_lower(Sha256::digest(bytes)) != digest {
-        return Err("hydrated file differs from the queried record version".into());
-    }
-    crate::write_new_private_file(out, bytes, "hydration output")?;
-    rec[field] = json!(out);
-    Ok(())
 }

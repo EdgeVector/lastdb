@@ -50,7 +50,7 @@ export const APP_API_ERROR_REASONS = [
 /** One value of `APP_API_ERROR_REASONS`. */
 export type ErrorReason = (typeof APP_API_ERROR_REASONS)[number];
 
-/** 1 to 64 bytes: ASCII letters, digits, hyphen, and underscore. Omit the field to use the personal database. An unknown identifier is not_found and its message is "database is not registered on this node". A received database can be read. A write to one is permission_denied because a received database is read only. /v1/x/changes does not serve a received database. */
+/** 1 to 64 bytes: ASCII letters, digits, hyphen, and underscore. With no database session, omit the field to use the personal database. On a request that carries X-LastDB-Database-Session, omit the field to address that session's database. An item that names a different database is permission_denied and its message is "a database session addresses only its own database". An unknown identifier is not_found and its message is "database is not registered on this node". A received database can be read. A write to one is permission_denied because a received database is read only. /v1/x/changes does not serve a received database, and a database session cannot call it. */
 export type DatabaseName = string;
 
 /** Schema name. On the app socket the name must be exact. On the owner socket a loose form can resolve. An empty name is refused on changes. */
@@ -266,7 +266,7 @@ export interface WriteCreate {
   revision?: never;
 }
 
-/** A replace. It carries a record and the revision it replaces. A replace without a revision or without a record is HTTP 400. */
+/** A replace. It carries a record and the revision it replaces. A replace without a revision or without a record is HTTP 400. A file path links that file. JSON null clears the record's file, and the node frees the bytes when no record names them. Omitting file keeps the record's file. */
 export interface WriteReplace {
   database?: DatabaseName;
   schema: SchemaName;
@@ -275,7 +275,8 @@ export interface WriteReplace {
   record: FieldValues;
   alternates?: Alternates;
   revision: string;
-  file?: FileLink;
+  /** A path links that file. JSON null clears the record's file. Omitting the field keeps the record's file. */
+  file?: null | FileLink;
 }
 
 /** A delete. It carries the revision it deletes, no record, and no file. alternates is omitted or empty. The node loads the stored alternates. A record, a file, or a non-empty alternates object is HTTP 400. */

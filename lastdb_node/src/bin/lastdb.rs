@@ -144,8 +144,7 @@ fn run(cli: Cli) -> Result<(), String> {
                 Command::Mutate {
                     request_file,
                     durable,
-                    mutation_id,
-                } => mutate_command(&t, &request_file, durable, mutation_id),
+                } => mutate_command(&t, &request_file, durable),
                 Command::GetKeys(a) => list_record_keys(&t, &a),
                 Command::Get {
                     schema,
@@ -153,13 +152,12 @@ fn run(cli: Cli) -> Result<(), String> {
                     key_range,
                     json,
                     hydrate,
-                    hydrate_inline,
                 } => get_record(
                     &t,
                     &schema,
                     (key_hash.as_deref(), key_range.as_deref()),
                     json,
-                    (hydrate.as_deref(), hydrate_inline.as_deref()),
+                    hydrate.as_deref(),
                 ),
                 _ => unreachable!(),
             }

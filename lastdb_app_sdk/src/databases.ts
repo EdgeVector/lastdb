@@ -10,26 +10,13 @@ import type { DatabaseSession, DatabaseSessionIntent } from './types.js';
 
 /** Canonical LastDB runtime API route strings used by the SDK. */
 export const LASTDB_API_ROUTES = {
-  list: '/api/list',
-  query: '/api/query',
-  /** Several independent `/api/query` bodies in one request. */
-  queryBatch: '/api/queries/batch',
-  mutation: '/api/mutation',
-  /** Atomic batch of complete conditional record mutations. */
-  mutationBatch: '/api/mutations/batch',
+  /** Owner socket. Scoped to `/api/databases/{id}/submissions`. A proposal, not a record write. */
+  shareSubmission: '/api/submissions',
   shareSubmissionStatus: '/api/submissions/status',
-  /** Create or replace a record's blob, inline, or local-reference file. */
-  putBlob: '/api/db/put-blob',
-  /** Fetch a record's blob or inline file bytes. */
-  fetchBlob: '/api/db/fetch-blob',
-  /** Clear a record's blob or inline file via complete replacement. */
-  deleteBlob: '/api/db/delete-blob',
   autoIdentity: '/api/system/auto-identity',
   schemas: '/api/schemas',
   /** Single schema lookup prefix (`/api/schema/<encoded-name>`). */
   schemaPrefix: '/api/schema',
-  /** Owner socket. The response `definition_id` is the definition the app declared. */
-  schemasDeclare: '/api/schemas/declare',
   /** Owner socket database catalog and create endpoint. */
   databases: '/api/databases',
   /** Owner socket owned-database spec binding endpoint. */
@@ -47,7 +34,6 @@ export interface ClientContext {
   readonly appId: string;
   readonly transport: Transport;
   readonly databasePath: string | null;
-  readonly definitionIds: Map<string, string>;
 }
 
 const DATABASE_SELECTOR_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;

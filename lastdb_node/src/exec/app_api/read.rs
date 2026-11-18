@@ -69,14 +69,24 @@ pub(in crate::exec) async fn read_route(
     _ctx: &AccessContext,
     host: &Host,
 ) -> UdsResponse {
+    let session = match crate::exec::database_session::database_id(req, host) {
+        Ok(id) => id,
+        Err(error) => return fail(&error),
+    };
     let items = match parse(&req.body) {
         Ok(items) => items,
         Err(error) => return fail(&error),
     };
-    let reads = items.into_iter().map(|item| async move {
-        read_one(host, item)
-            .await
-            .unwrap_or_else(|error| error_value(&error))
+    let reads = items.into_iter().enumerate().map(|(index, mut item)| {
+        let session = session.clone();
+        async move {
+            if let Err(error) = database::bind_item(host, session.as_deref(), &mut item.database) {
+                return error_value(&error.at(index));
+            }
+            read_one(host, item)
+                .await
+                .unwrap_or_else(|error| error_value(&error))
+        }
     });
     let results: Vec<Value> = futures::stream::iter(reads)
         .buffered(CONCURRENT_READS)

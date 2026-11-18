@@ -12,7 +12,7 @@ use super::uds_http::{UdsRequest, UdsResponse};
 /// The only hand-edited interface version. ci-required fails a change to the
 /// socket surface that leaves it unchanged; after an edit run
 /// `python3 scripts/lints/api_surface.py --write`.
-pub const API_VERSION: u32 = 38;
+pub const API_VERSION: u32 = 39;
 pub const SOCKET_FILE_NAME: &str = "folddb.sock";
 /// The socket for installed apps. It serves only the app API, to a caller
 /// the node has registered by app id.
@@ -128,15 +128,8 @@ pub fn split_database_path(target: &str) -> Option<(&str, &str)> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DataRoute {
-    Query,
-    Mutation,
-    MutationBatch,
-    QueryBatch,
     ListSchemas,
-    ListRecordKeys,
-    Changes,
     GetSchema,
-    DeclareSchema,
     AppsDeclareSchema,
     SeedSystemSchema,
     DropSchema,
@@ -150,9 +143,6 @@ pub enum DataRoute {
     DbNativeStatus,
     DbDeleteLedger,
     DbSchemaRetention,
-    DbPutBlob,
-    DbFetchBlob,
-    DbDeleteBlob,
     BackupSnapshot,
     CloudWake,
     V1Read,
@@ -204,9 +194,6 @@ pub fn route(req: &UdsRequest) -> ControlRoute {
     }
     let exact = match path {
         "/api/schemas" => Some(("GET", ListSchemas)),
-        "/api/list" => Some(("GET", ListRecordKeys)),
-        "/api/changes" => Some(("GET", Changes)),
-        "/api/schemas/declare" => Some(("POST", DeclareSchema)),
         "/api/apps/declare-schema" => Some(("POST", AppsDeclareSchema)),
         "/api/schemas/seed-system" => Some(("POST", SeedSystemSchema)),
         "/api/schemas/drop" => Some(("POST", DropSchema)),
@@ -217,13 +204,6 @@ pub fn route(req: &UdsRequest) -> ControlRoute {
         "/api/db/flush" => Some(("POST", DbFlush)),
         "/api/db/delete-ledger" => Some(("GET", DbDeleteLedger)),
         "/api/db/schema-retention" => Some(("POST", DbSchemaRetention)),
-        "/api/db/put-blob" => Some(("POST", DbPutBlob)),
-        "/api/db/fetch-blob" => Some(("POST", DbFetchBlob)),
-        "/api/db/delete-blob" => Some(("POST", DbDeleteBlob)),
-        "/api/query" => Some(("POST", Query)),
-        "/api/mutation" => Some(("POST", Mutation)),
-        "/api/mutations/batch" => Some(("POST", MutationBatch)),
-        "/api/queries/batch" => Some(("POST", QueryBatch)),
         "/v1/read" => Some(("POST", V1Read)),
         "/v1/write" => Some(("POST", V1Write)),
         "/v1/x/changes" => Some(("POST", V1Changes)),

@@ -137,21 +137,10 @@ def drain(node, schema, span, limit):
 
 
 def range_reads(node):
-    body = {"schema_name": "RecordRun", "filter": {"HashKey": "run"}}
     rows, pages, short = drain(node, "RecordRun", {"hash": "run"}, LIMIT)
     require(ids(rows) == ["a-first", "z-last"],
             "the range read past deleted records differs: " + repr(ids(rows)))
     require(pages >= 2, "the range proof did not exercise its cursor")
-    for extra in [{"expected_total_count": 2}, {"response_format": "count"}]:
-        request = {**body, **extra}
-        try:
-            result = node.call("/api/query", request)[0]
-        except RuntimeError as error:
-            require("HTTP 503" in str(error) and "next_cursor" in str(error),
-                    "complete-count request failed for another reason: " + str(error))
-        else:
-            require(result.get("total_count") == 2,
-                    "completed count differs from the two live keys")
     print(f"Range cursor crossed the erased keys with {short} short pages", flush=True)
     return pages
 

@@ -75,8 +75,6 @@ pub(crate) struct RecordListArgs {
     pub schema: String,
     #[arg(long)]
     pub key_hash: Option<String>,
-    #[arg(long, requires = "key_hash")]
-    pub key_name: Option<String>,
     #[arg(long, default_value_t = 100)]
     pub limit: usize,
     #[arg(long)]
@@ -114,13 +112,16 @@ pub(super) enum Command {
         #[arg(long)]
         timeout: Option<u64>,
     },
+    /// Write one conditional record.
+    ///
+    /// The request names a file by path. The command does not copy the file,
+    /// and the file must stay where it is. On a replace, `"file": null` clears
+    /// the record's file. A request with no `file` key sends no file.
     Mutate {
         #[arg(long)]
         request_file: PathBuf,
         #[arg(long)]
         durable: bool,
-        #[arg(long)]
-        mutation_id: Option<uuid::Uuid>,
     },
     GetKeys(RecordListArgs),
     Get {
@@ -131,10 +132,11 @@ pub(super) enum Command {
         key_range: Option<String>,
         #[arg(long)]
         json: bool,
-        #[arg(long, value_name = "FILE")]
+        /// Folder the node writes the record's file into. A relative path is
+        /// resolved to an absolute path. The folder must already exist. This
+        /// command does not create it.
+        #[arg(long, value_name = "DIR")]
         hydrate: Option<PathBuf>,
-        #[arg(long, value_name = "FILE")]
-        hydrate_inline: Option<PathBuf>,
     },
     #[command(subcommand)]
     App(AppCommand),

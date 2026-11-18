@@ -9,7 +9,7 @@ import {
   type ClientContext,
 } from './databases.js';
 import { mapDataError, NodeTooOldError, UnexpectedResponseError } from './errors.js';
-import { isHex64, isObject, sendJsonObject } from './responseParsers.js';
+import { isObject, sendJsonObject } from './responseParsers.js';
 import type { JsonValue, NodeVersion } from './types.js';
 
 /** One schema entry from `GET /api/schemas` or `GET /api/schema/<name>`. */
@@ -32,21 +32,6 @@ export interface SchemaDescriptor {
 export type AutoIdentityResult =
   | { provisioned: true; userHash: string; publicKey: string | null; userId: string | null }
   | { provisioned: false; reason: string; next: string | null };
-
-/** `POST /api/schemas/declare`. */
-export interface DeclareSchemaRequest {
-  namespace: string;
-  schema: Record<string, unknown>;
-  intent?: 'catalog_sync' | 'check';
-}
-
-/** The definition the declare response named, keyed later by `schemaName`. */
-export interface DeclareSchemaResult {
-  schemaName: string;
-  definitionId: string;
-  identityHash: string | null;
-  resolution: string | null;
-}
 
 function stringOrNull(value: unknown): string | null {
   return typeof value === 'string' ? value : null;
@@ -156,21 +141,6 @@ function resolveLoadedSchema(
 }
 
 /** Record a declared schema's 64-hex `definition_id` for subsequent mutations. */
-export function rememberSchemaDefinition(
-  definitionIds: Map<string, string>,
-  schemaName: string,
-  definitionId: string,
-): void {
-  if (!isHex64(definitionId)) {
-    throw new UnexpectedResponseError(
-      'definition id must be a lowercase SHA-256',
-      0,
-      definitionId,
-    );
-  }
-  definitionIds.set(schemaName, definitionId);
-}
-
 /** `GET /api/version` — client↔node compatibility handshake. */
 export async function executeVersion(ctx: ClientContext): Promise<NodeVersion> {
   const body = await sendJsonObject(
@@ -217,35 +187,6 @@ export async function executeAutoIdentity(ctx: ClientContext): Promise<AutoIdent
     };
   }
   throw mapDataError('auto-identity', res.status, res.body, ctx.appId);
-}
-
-/** `POST /api/schemas/declare` (or database-scoped equivalent). */
-export async function executeDeclareSchema(
-  ctx: ClientContext,
-  request: DeclareSchemaRequest,
-): Promise<DeclareSchemaResult> {
-  const path = scopedApiPath(ctx.databasePath, LASTDB_API_ROUTES.schemasDeclare);
-  const body = await sendJsonObject(ctx.transport, 'POST', path, 'declare schema', ctx.appId, {
-    body: request,
-  });
-  const definitionId = body['definition_id'];
-  const schemaName = body['schema'];
-  if (
-    typeof definitionId !== 'string' ||
-    typeof schemaName !== 'string' ||
-    schemaName.length === 0
-  ) {
-    throw new UnexpectedResponseError('declare returned no definition id', 200, body);
-  }
-  rememberSchemaDefinition(ctx.definitionIds, schemaName, definitionId);
-  const identity = body['identity_hash'];
-  const resolution = body['resolution'];
-  return {
-    schemaName,
-    definitionId,
-    identityHash: typeof identity === 'string' ? identity : null,
-    resolution: typeof resolution === 'string' ? resolution : null,
-  };
 }
 
 /** `GET /api/schemas` (or database-scoped equivalent). */

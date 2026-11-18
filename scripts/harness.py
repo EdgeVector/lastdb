@@ -49,8 +49,7 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         raise self.error() if callable(self.error) else self.error
 SOCKET_OPERATIONS = {
     "/health": "health", "/api/status": "status", "/api/system/boot-identity": "boot_identity",
-    "/api/db/native-status": "native_status", "/api/queries/batch": "query_batch",
-    "/api/mutations/batch": "mutation_batch", "/v1/read": "read", "/v1/write": "write",
+    "/api/db/native-status": "native_status", "/v1/read": "read", "/v1/write": "write",
 }
 SOCKET_REFUSALS = frozenset({
     "cas_conflict", "compaction_behind", "field_value_too_large", "persist_queue_full",
@@ -158,7 +157,6 @@ def mutation(schema, key_value, record, operation="replace", *, alternates=None,
         "type": "mutation", "schema": schema, "key_value": key_value, "record": record,
         "alternates": alternates or {}, "mutation_type": operation,
         "expected": expected if expected is not None else {"type": "absent"} if operation == "create" else None,
-        "durability": "durable", "convergence": "sync",
     }
 
 

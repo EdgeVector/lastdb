@@ -99,7 +99,9 @@ function mutationBody(mutation: Api.WriteItem): Record<string, unknown> {
   }
   body.record = mutation.record;
   if (mutation.alternates !== undefined) body.alternates = alternatesBody(mutation.alternates);
-  if (mutation.file !== undefined) body.file = fileLinkBody(mutation.file);
+  if (mutation.file !== undefined) {
+    body.file = mutation.file === null ? null : fileLinkBody(mutation.file);
+  }
   if (mutation.op === 'replace') body.revision = mutation.revision;
   return body;
 }

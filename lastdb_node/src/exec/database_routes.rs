@@ -16,8 +16,8 @@ enum Selection {
     Signed(Box<RegisteredShare>),
 }
 
-/// Dispatch a database registry operation or route an ordinary record request
-/// to the explicitly selected database on the owner socket.
+/// Dispatch a database registry operation, or a schema read, seed, or drop,
+/// on the explicitly selected database. Record reads and writes use `/v1`.
 pub(in crate::exec) async fn execute_database_request(
     req: &mut UdsRequest,
     ctx: &AccessContext,
@@ -41,10 +41,13 @@ pub(in crate::exec) async fn execute_database_request(
     if let Some(selector) = submission_status_selector(req) {
         return run_submission_status(selector, req, ctx, host).await;
     }
+    if let Some(selector) = submission_selector(req) {
+        return run_submission(selector, req, ctx, host).await;
+    }
     let Some((selector, path)) = split_database_path(&req.target) else {
         return content_free(404, "Not Found");
     };
-    if path == "submissions/status" {
+    if path == "submissions/status" || path == "submissions" {
         return uds_router::method_not_allowed_response("POST");
     }
     if let Some(route) = super::database_share::Route::parse(path) {
@@ -85,22 +88,16 @@ async fn dispatch(
             )
             .await
         }
-        Selection::Signed(share) => match route {
-            DataRoute::Mutation => {
-                super::database_session::submit_signed(req, ctx, host, &share).await
-            }
-            DataRoute::MutationBatch | DataRoute::DbPutBlob | DataRoute::DbDeleteBlob => {
-                error_response(403, "operation is unavailable on a received database", ctx)
-            }
-            _ => super::database_session::read_signed(route, req, ctx, host, share.as_ref()).await,
-        },
+        Selection::Signed(share) => {
+            super::database_session::read_signed(route, req, ctx, host, share.as_ref()).await
+        }
     }
 }
 
 /// Bounded mutation and sharing requests can leave the socket worker.
 pub(in crate::exec) fn is_deferred_database_request(req: &UdsRequest) -> bool {
-    scoped_mutation(req).is_some()
-        || submission_status_selector(req).is_some()
+    submission_status_selector(req).is_some()
+        || submission_selector(req).is_some()
         || split_database_path(&req.target)
             .is_some_and(|(_, path)| super::database_share::Route::parse(path).is_some())
 }
@@ -121,6 +118,14 @@ pub(in crate::exec) async fn execute_deferred_database_request(
         )
         .await;
     }
+    if let Some(selector) = submission_selector(req) {
+        return with_handler_timeout_budget(
+            ctx,
+            handler_timeout(),
+            run_submission(selector, req, ctx, host),
+        )
+        .await;
+    }
     if let Some((selector, route)) = split_database_path(&req.target)
         .and_then(|(selector, path)| Some((selector, super::database_share::Route::parse(path)?)))
     {
@@ -131,46 +136,17 @@ pub(in crate::exec) async fn execute_deferred_database_request(
         )
         .await;
     }
-    let Some((selector, path, route)) = scoped_mutation(req) else {
-        return content_free(404, "Not Found");
-    };
-    let selector = selector.to_owned();
-    req.target = format!("/api/{path}");
-    match resolve_database(&selector, ctx, host) {
-        Ok(Selection::Owner) => mutation::execute_deferred_mutation(route, req, ctx, host).await,
-        Ok(Selection::Owned(store)) => {
-            host.with_records(
-                store,
-                mutation::execute_deferred_mutation(route, req, ctx, host),
-            )
-            .await
-        }
-        Ok(Selection::Signed(share)) => match route {
-            DataRoute::Mutation => {
-                super::database_session::submit_signed(req, ctx, host, &share).await
-            }
-            _ => error_response(403, "operation is unavailable on a received database", ctx),
-        },
-        Err(response) => response,
-    }
-}
-
-fn scoped_mutation(req: &UdsRequest) -> Option<(&str, &str, DataRoute)> {
-    if req.method != "POST" {
-        return None;
-    }
-    let (selector, path) = split_database_path(&req.target)?;
-    let route = match path.split(['?', '#']).next()? {
-        "mutation" => DataRoute::Mutation,
-        "mutations/batch" => DataRoute::MutationBatch,
-        _ => return None,
-    };
-    Some((selector, path, route))
+    content_free(404, "Not Found")
 }
 
 fn submission_status_selector(req: &UdsRequest) -> Option<&str> {
     let (selector, path) = split_database_path(&req.target)?;
     (req.method == "POST" && path == "submissions/status").then_some(selector)
+}
+
+fn submission_selector(req: &UdsRequest) -> Option<&str> {
+    let (selector, path) = split_database_path(&req.target)?;
+    (req.method == "POST" && path == "submissions").then_some(selector)
 }
 
 async fn run_submission_status(
@@ -183,6 +159,22 @@ async fn run_submission_status(
         Ok(Selection::Signed(share)) => {
             super::database_session::submission_status(req, ctx, host, &share).await
         }
+        Ok(_) => error_response(404, "this database has no received submissions", ctx),
+        Err(response) => response,
+    }
+}
+
+async fn run_submission(
+    selector: &str,
+    req: &UdsRequest,
+    ctx: &AccessContext,
+    host: &Host,
+) -> UdsResponse {
+    match resolve_database(selector, ctx, host) {
+        Ok(Selection::Signed(share)) => {
+            super::database_session::submit_signed(req, ctx, host, &share).await
+        }
+        // An owned database is not a receiver. The route does not write a record.
         Ok(_) => error_response(404, "this database has no received submissions", ctx),
         Err(response) => response,
     }
@@ -221,28 +213,10 @@ fn resolve_share(
 }
 
 fn is_database_operation(route: DataRoute) -> bool {
-    matches!(
-        route,
-        DataRoute::Query
-            | DataRoute::QueryBatch
-            | DataRoute::GetSchema
-            | DataRoute::ListSchemas
-            | DataRoute::ListRecordKeys
-            | DataRoute::DbFetchBlob
-            | DataRoute::Mutation
-            | DataRoute::MutationBatch
-            | DataRoute::DbPutBlob
-            | DataRoute::DbDeleteBlob
-    )
+    matches!(route, DataRoute::GetSchema | DataRoute::ListSchemas)
 }
 
 fn is_scoped_operation(route: DataRoute) -> bool {
     is_database_operation(route)
-        || matches!(
-            route,
-            DataRoute::SeedSystemSchema
-                | DataRoute::DeclareSchema
-                | DataRoute::DropSchema
-                | DataRoute::Changes
-        )
+        || matches!(route, DataRoute::SeedSystemSchema | DataRoute::DropSchema)
 }

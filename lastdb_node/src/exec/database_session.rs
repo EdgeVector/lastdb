@@ -86,6 +86,16 @@ pub(in crate::exec) fn admit(req: &UdsRequest, host: &Host) -> bool {
     if req.method == "GET" && req.target == "/api/version" {
         return true;
     }
+    // These record routes are not under `/api/databases/{id}`. A session may
+    // read its own database, and a write session may write it. main did not
+    // admit a changes route, so `POST /v1/x/changes` stays refused.
+    let target = req.target.split(['?', '#']).next().unwrap_or_default();
+    if req.method == "POST" && target == "/v1/read" {
+        return true;
+    }
+    if req.method == "POST" && target == "/v1/write" {
+        return write;
+    }
     let Some((id, path)) = split_database_path(&req.target) else {
         return false;
     };
@@ -93,12 +103,29 @@ pub(in crate::exec) fn admit(req: &UdsRequest, host: &Host) -> bool {
     database.as_str() == id && allowed(&req.method, path, write)
 }
 
+/// The database a session header names.
+///
+/// `None` means the request has no session. A header whose token is missing
+/// or expired refuses the request, so it cannot fall through to the personal
+/// database.
+pub(in crate::exec) fn database_id(
+    req: &UdsRequest,
+    host: &Host,
+) -> Result<Option<String>, HostError> {
+    let Some(token) = req.header(HEADER) else {
+        return Ok(None);
+    };
+    host.database_sessions
+        .get(token)
+        .map(|(id, _write)| Some(id.as_str().to_owned()))
+        .ok_or_else(|| HostError::new(403, "database session refused"))
+}
+
 fn allowed(method: &str, path: &str, write: bool) -> bool {
     match (method, path) {
-        ("POST", "query" | "queries/batch" | "db/fetch-blob" | "submissions/status")
-        | ("GET", "schemas" | "schema" | "list") => true,
+        ("POST", "submissions/status") | ("GET", "schemas" | "schema") => true,
         ("GET", path) if path.starts_with("schema/") => true,
-        ("POST", "mutation" | "mutations/batch" | "db/put-blob" | "db/delete-blob") => write,
+        ("POST", "submissions") => write,
         _ => false,
     }
 }

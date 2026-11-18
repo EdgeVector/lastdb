@@ -6,27 +6,42 @@ and that sync is what writes the durability marker. This operation points
 ExeMem at a closed port. Registering a share on this node would also add a
 database row, and the named-database check requires exactly six rows. There
 is no command that unregisters a share.
+
+A file is a path. `file_dir` is checked on the owner socket. A replace that
+sends JSON null for `file` drops the record's file.
 """
-import base64
-import hashlib
 import json
 import os
 from pathlib import Path
-import stat
 
 from harness import send_unix_request
 import record_app_api_calls
+import v1_records as v1
 from record_app_api_calls import BY_ID, by_id, error_body, read
-from record_runs import MISSING_DATABASE, require
+from record_runs import MISSING_DATABASE, definition, require, system_seed
 
 NOT_REGISTERED = "database is not registered on this node"
 SCHEMA = "RecordFile"
 PHOTO = "photo"
+PAYLOAD = b"owner file by path\n"
+REMOVED = (
+    ("POST", "/api/query"),
+    ("POST", "/api/queries/batch"),
+    ("POST", "/api/mutation"),
+    ("POST", "/api/mutations/batch"),
+    ("GET", "/api/list"),
+    ("POST", "/api/db/put-blob"),
+    ("POST", "/api/db/fetch-blob"),
+    ("POST", "/api/db/delete-blob"),
+    ("POST", "/api/schemas/declare"),
+    ("GET", "/api/changes"),
+)
 
 
 def exercise(node):
     unknown_database(node)
     owner_file(node)
+    removed_routes(node)
 
 
 def unknown_database(node):
@@ -50,20 +65,17 @@ def owner_file(node):
     folder.mkdir(mode=0o700)
     folder.chmod(0o700)
     folder = folder.resolve(strict=True)
-    held = blob(node)
+    source = seed_file(node, root)
     plain = read(node, {"schema": SCHEMA, "key": {"hash": PHOTO}, "file": True})[0]["records"][0]["file"]
-    require(plain.get("path") is None and plain["size"] == len(held),
-            "an owner read without file_dir returned a path: " + repr(plain))
+    require(plain["path"] == str(source) and plain["local"] == str(source)
+            and plain["size"] == len(PAYLOAD) and source.read_bytes() == PAYLOAD,
+            "an owner read did not return the linked file: " + repr(plain))
     placed = one(node, str(folder))
-    path = Path(placed["path"])
-    require(path.parent == folder and path.name == hashlib.sha256(held).hexdigest()
-            and path.read_bytes() == held and stat.S_IMODE(path.stat().st_mode) == 0o600
-            and placed["local"] == placed["path"],
-            "file_dir did not write the held file: " + repr(placed))
-    inode = path.stat().st_ino
+    require(placed["path"] == str(source) and placed["local"] == str(source)
+            and Path(placed["path"]).read_bytes() == PAYLOAD,
+            "file_dir did not return the linked file: " + repr(placed))
     again = one(node, str(folder))
-    require(again["path"] == placed["path"] and Path(again["path"]).stat().st_ino == inode,
-            "a second read did not reuse the file: " + repr(again))
+    require(again["path"] == placed["path"], "a second read returned another path: " + repr(again))
     refuse(node, "files", "absolute path")
     refuse(node, str(folder / "missing"), "existing directory")
     note = folder / "not-a-dir"
@@ -89,12 +101,15 @@ def owner_file(node):
             and "file_dir" in listed["error"]["message"],
             "a key list with file_dir was not refused: " + repr(listed))
     app_refuses(node, folder)
-    path.unlink()
+    clear_file(node)
+    source.unlink()
+    source.parent.rmdir()
     note.unlink()
     link.unlink()
     folder.rmdir()
     wide.rmdir()
-    print("App API files: the owner names a folder and the held file is written there", flush=True)
+    print("App API files: a path on the write, the same path on a file_dir read, "
+          "and file null clears it", flush=True)
 
 
 def one(node, directory):
@@ -133,7 +148,42 @@ def app_refuses(node, folder):
     place.rmdir()
 
 
-def blob(node):
-    body = {"schema": SCHEMA, "key": {"hash": PHOTO, "range": None}, "placement": "blob"}
-    encoded = node.call("/api/db/fetch-blob", body)[0]["file"]["bytes_b64"]
-    return base64.b64decode(encoded)
+def seed_file(node, root):
+    system_seed(node, definition(SCHEMA, "Hash", ["id", "value"]))
+    directory = root / f"app-api-file-src-{os.getpid()}"
+    directory.mkdir(mode=0o700)
+    source = directory / "photo.bin"
+    source.write_bytes(PAYLOAD)
+    v1.commit(node, [v1.create_item(
+        SCHEMA, {"hash": PHOTO}, {"id": PHOTO, "value": "v1"},
+        file={"path": str(source), "name": "photo.bin", "media_type": "application/octet-stream"},
+    )])
+    return source.resolve(strict=True)
+
+
+def clear_file(node):
+    """A replace with JSON null for file drops the file and keeps the record."""
+    current = read(node, {"schema": SCHEMA, "key": {"hash": PHOTO}})[0]["records"][0]["revision"]
+    written = node.call("/v1/write", {"mutations": [{
+        "schema": SCHEMA, "op": "replace", "key": {"hash": PHOTO},
+        "record": {"id": PHOTO, "value": "v1"}, "revision": current, "file": None,
+    }]})[0]
+    require(written.get("written") == 1, "clearing a file did not write: " + repr(written))
+    after = read(node, {"schema": SCHEMA, "key": {"hash": PHOTO}, "file": True})[0]["records"][0]
+    require(after["file"] is None and after["record"]["value"] == "v1",
+            "a replace with file null kept the file: " + repr(after))
+
+
+def removed_routes(node):
+    """Each deleted record route is an unknown path: HTTP 404, body Not Found."""
+    headers = {"Content-Type": "application/json"}
+    paths = list(REMOVED)
+    for name in ("query", "queries/batch", "mutation", "mutations/batch", "list"):
+        method = "GET" if name == "list" else "POST"
+        paths.append((method, f"/api/databases/gone/{name}"))
+    for method, path in paths:
+        status, raw, _, _, _ = send_unix_request(
+            node.socket, method, path, {} if method == "POST" else None, headers)
+        require(status == 404 and raw == b"Not Found",
+                f"{method} {path} was not a plain 404: {status} {raw[:80]!r}")
+    print("Owner socket: the old record routes answer 404", flush=True)

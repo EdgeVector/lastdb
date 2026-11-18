@@ -6,7 +6,7 @@ Existing homes move by a copy into a fresh home, not by an in-place conversion.
 
 Every record write also appends one entry to a numbered list of changed keys, in the same transaction.
 An entry holds a number, the schema, the record key, and a delete flag. It holds no values.
-An app reads `GET /api/changes?after=N&limit=L&schema=A`, keeps the returned `id` and `through`, and reads the records by key.
+An app reads `POST /v1/x/changes` with `after`, `limit`, and `schemas`, keeps the returned `id` and `through`, and reads the records by key.
 LastDB keeps the newest 250,000 entries and no state for a reader. When `gap` is true or `id` differs, the app rebuilds from key pages.
 
 The app API is defined in `lastdb_node/app-api.json`.
@@ -137,13 +137,15 @@ Use `lastdb --help` to see the commands in the installed release.
 | `db` | List the local database and accepted shares. |
 | `admin` | Diagnose or maintain a home. |
 
-Supply file bytes in the same `mutate --request-file` operation as the record.
+Name a file by path in the same `mutate --request-file` operation as the record.
+The command does not copy the file, and the file must stay where it is.
 Use a JSON object with `mutation` set to the complete conditional request and
 `file` set to an object with `source` and optional `name` and `media_type`. The
 source path is relative to the request file, or to the working directory for
 stdin. A record with a required file cannot be written without its file. A
-bare record replacement keeps the existing file. A replacement with
-`file: null` in the same envelope removes an optional file.
+request with no `file` key sends no file, so a bare record replacement keeps
+the existing file. On a replace, `file: null` in the same envelope clears an
+optional file.
 
 ### Publish an app
 
