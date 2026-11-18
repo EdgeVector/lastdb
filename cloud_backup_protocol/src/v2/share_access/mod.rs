@@ -11,8 +11,9 @@
 //! member count.
 //!
 //! [`ShareSettings`] is the one statement per database for who may read the
-//! mutation log and who may write it. No statement means
-//! [`absent_share_settings`]: members read, and members append proposals.
+//! mutation log, where a Submit append goes, and what a member may write for
+//! each schema. No statement means [`absent_share_settings`]: members read,
+//! members append proposals, and the member-write map is empty.
 //!
 //! A signed request uses the `LastDBNode` authorization scheme. The token is
 //! `NodeReadToken` JSON. The second segment is the raw 64-byte Ed25519
@@ -45,8 +46,9 @@ pub use members::{
     MemberListUpdate, ShareMember, ShareMemberRole, ShareMemberState, ShareWriteScope,
 };
 pub use settings::{
-    absent_share_settings, ShareRead, ShareSettings, ShareSettingsGetRequest,
-    ShareSettingsGetResponse, ShareSettingsSetRequest, ShareSettingsSetResponse, ShareWrite,
+    absent_share_settings, member_write_behaviour, MemberWriteBehaviour, ShareRead, ShareSettings,
+    ShareSettingsGetRequest, ShareSettingsGetResponse, ShareSettingsSetRequest,
+    ShareSettingsSetResponse, ShareWrite, MEMBER_WRITES_MAX, MEMBER_WRITE_SCHEMA_NAME_MAX_BYTES,
     SHARE_SETTINGS_GET_PATH, SHARE_SETTINGS_SET_PATH,
 };
 

@@ -16,7 +16,7 @@ Tom, 2026-11-18: "Let's go with mutation log and proposal log."
 
 Tom, 2026-11-18: ExeMem is the one that serves a member only the logs that member should have. A member's node receives every entry ExeMem serves and does not reject one because of who wrote it. ExeMem is the single point of trust and the single configuration.
 
-One sharing mechanism. Two settings per database. ExeMem stores them and enforces them. The underlying database does not change with the settings.
+One sharing mechanism. Two settings per database, plus the per-schema member-write map below. ExeMem stores the statement and enforces `read` and `write`. ExeMem does not interpret the map. The underlying database does not change with the settings.
 
 `read` is `members` or `anyone`. It says who may read the mutation log, the snapshot, and file ranges. `members` means an active member. `anyone` means a caller with no grant reads what a member reads and cannot append. A caller who may read is served every entry in the mutation log. The writer's identity does not hide an entry. The current settings do not hide an entry that is already stored.
 
@@ -30,7 +30,7 @@ In every case only the publisher publishes a snapshot. A receiver (a member, or 
 
 ## What each setting means
 
-ExeMem stores one publisher-signed settings statement per shared database. The statement has `read` and `write`. The stored spellings are `members` or `anyone`, and `proposals` or `direct`. The publisher signs the statement. ExeMem uses it for transport. The publisher's LastDB uses the confirmed configuration on the publisher's machine when it checks a proposal. A change of either setting is the next sequence number and a different pair. The logs' contents are not an input to that check.
+ExeMem stores one publisher-signed settings statement per shared database. The statement has `read`, `write`, and `member_writes`. The stored spellings are `members` or `anyone`, and `proposals` or `direct`. The publisher signs the statement. ExeMem uses `read` and `write` for transport and stores the map without interpreting it. The publisher's LastDB uses the confirmed configuration on the publisher's machine when it checks a proposal. A change of `read`, `write`, or the map is the next sequence number. Repeating all three is refused. The logs' contents are not an input to that check.
 
 ### `members` and `proposals`
 
@@ -68,6 +68,22 @@ The names below are examples of configurations an app might choose. No rule depe
 | Deliver | `anyone` | `proposals` | A caller with no member entry reads every mutation-log entry, and holds the read key from a link. A Submit member still appends to the proposal log while `write` is `proposals`. There may be no such member. |
 | Org | `members` | `direct` | Members read every mutation-log entry. A Submit member appends to the mutation log. ExeMem checks only that the member may write. Order is the order ExeMem assigns at append. |
 
+## Member write behaviours
+
+What a member may do to the records of each schema is a setting of the database. The schema's author does not set it, and it is not set per member. The settings statement carries it as `member_writes`: a map from a canonical schema name, such as `social/Comment`, to one behaviour.
+
+- `owner_only`. A member cannot write records of this schema. A schema that is not in the map has this behaviour. An empty map means every schema is `owner_only`.
+- `own_records`. A member with write access may create a record, and may replace or delete a record only when that member created it.
+- `shared`. A member with write access may create, replace, and delete any record.
+
+The map lives in the one settings statement ExeMem already stores for the database. ExeMem stores the statement and does not interpret the map. It cannot read the entries. The publisher's LastDB enforces the map when it checks a proposal.
+
+While `write` is `direct` there is no proposal check. No third party enforces the map on that path. The map is a statement of intent for apps.
+
+An empty map is valid, and it is what an absent `member_writes` field means. The signed digest omits an empty map, so a statement stored before this field still verifies. A successor is unchanged only when `read`, `write`, and the map are all the same. A change of only the map is a real change.
+
+The map holds at most 256 names. A name is non-empty and at most 128 bytes. `ShareWriteScope::Named` does not cap the byte length. It rejects an empty name, leading or trailing whitespace, and a control character. This map uses that check and adds the 128-byte cap. The largest settings set request those bounds accept is 70,635 bytes. The control JSON limit is 256 KiB (262,144 bytes).
+
 ## Sharing configuration
 
 The publisher sets the sharing rules in Social. Those rules say who can read the whole database and which schemas each person can change. Apps use the rules to show what people can do. The publisher's LastDB checks each write independently, so the rules still hold when a member's app offers the wrong action or sends a write outside that person's permissions.
@@ -80,7 +96,7 @@ For a conditional replacement or delete, the member passes the identity of the r
 
 The database sets `created_by` and `updated_by`. A caller cannot write them. `created_by` is set only when no live record is at the key: a create, or a create on a deleted key. On a replace, `created_by` is whatever the previous live record has, including when it is absent. `updated_by` is the writer. The same rule applies to a local write, an accepted proposal, replay on an own device, a baseline, and replay on a receiver. An existing meta block stays on a member replace. New records have no meta block. A proposal's source file name and metadata map are not stored.
 
-The standard `social/Comment` schema has a fixed write rule on whole-database shares. A member with a current write grant can create comments and edit their own comments. The publisher can edit or delete any comment. A member's delete is discarded. The creator is the live record's `created_by` at the checked revision. The node does not set `author_id`, and it keeps no creator marker. A comment with no `created_by` stays readable and only the publisher can edit it, before and after the publisher edits it. A publisher edit leaves `created_by` absent. Social and apps read `created_by`. LastDB enforces the rule for every grant, including all-schema grants. Other schemas keep their existing write behavior.
+The standard `social/Comment` schema has a fixed write rule on whole-database shares. A member with a current write grant can create comments and edit their own comments. The publisher can edit or delete any comment. A member's delete is discarded. The creator is the live record's `created_by` at the checked revision. The node does not set `author_id`, and it keeps no creator marker. A comment with no `created_by` stays readable and only the publisher can edit it, before and after the publisher edits it. A publisher edit leaves `created_by` absent. Social and apps read `created_by`. LastDB enforces the rule for every grant, including all-schema grants. Other schemas keep their existing write behavior. That fixed rule is what the node does today. The decided configuration is `member_writes` (`own_records` for a schema the publisher lists that way). The node does not read the map yet.
 
 This table is `members` and `proposals`. Members append to the proposal log only while `write` is `proposals`. Entries already there stay until the publisher settles them. While `write` is `direct`, an active Submit member appends to the mutation log instead, and a reader is served that entry with every other mutation-log entry.
 
@@ -130,7 +146,9 @@ Supporting authorized replacement or replicas requires an explicit owner policy.
 
 ## Status
 
-The settings statement and the log model treat `read` and `write` as independent. `ShareSettings::validate` accepts every pair. `ShareAdmission::new` returns the pair and does not fail. The absent value is still `members` and `proposals`. `validate_successor_of` still requires the next sequence and refuses a statement that repeats the same `read` and `write`.
+The settings statement and the log model treat `read` and `write` as independent. `ShareSettings::validate` accepts every pair. `ShareAdmission::new` returns the pair and does not fail. The absent value is still `members` and `proposals`, and the absent member-write map is empty. `validate_successor_of` still requires the next sequence and refuses a statement that repeats the same `read`, `write`, and `member_writes`.
+
+The settings statement can carry `member_writes`. An empty map is left out of the digest, so a statement stored before the field still verifies. The node does not set the map and does not enforce it yet.
 
 `read: anyone` lets a caller with no grant read the mutation log and does not let that caller append. `LogState::append_log` names the log for a writer. `LogState::append` is the mutation log: the publisher, or an active Submit holder while `write` is `direct`. While `write` is `proposals`, a non-publisher append to that log is refused. `LogState::append_proposal` is the proposal log, for the publisher or an active Submit holder. `LogState::reader_allowed` decides who may read. On the mutation log, a caller who may read is served every entry. On the proposal log, only the publisher may read. There is no per-entry writer mark and no per-entry writer signature.
 
