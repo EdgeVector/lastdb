@@ -163,6 +163,20 @@ These are not built:
 
 The node does not yet pass a stored statement into the log model. A page the node applies still has to be written by the publisher. That check is `received_page` in `lastdb_node/src/log_sync/mod.rs` and `check_page` in `lastdb_node/src/database_replay/page.rs`. This change does not remove it. The member's node should apply every entry it is served. That is the next change.
 
+The node does read and write the two settings on the publisher share configuration, and a member's `selfAccess` carries the same pair. `GET /api/databases/{id}/share/config` returns `read` and `write` beside `members`. No stored statement is `members` and `proposals`. `PUT` accepts optional `read` and `write`. When the effective pair differs from the stored pair, the node signs the next statement with the publisher key and sends `POST /api/cloud/backups/v2/share/members/settings/set` before any member entry. When neither field is given, or the effective pair is unchanged, it sends no statement. The service refuses an unchanged pair, so a repeat of a call whose answer was lost must not send one. If the member list would change and `expectedRevision` is not the stored member revision, the node returns that conflict before either write. A settings-only change does not move the member revision. If the settings call fails, no member entry is sent and the caller sees the service code and field. If settings succeed and the member call fails, the caller sees the member error and the new pair is already stored; a repeat of the same body sends no statement and retries the members. `requestId` is echoed and is not sent to the service. The signed statement copies the stored `member_writes` map and does not change it. The node does not decide which pairs are allowed or when a change is allowed.
+
+A member reads the pair with `POST /api/cloud/backups/v2/share/members/settings/get` in the same refresh that reads its own entry (`POST /api/cloud/backups/v2/share/members/read`, header `X-LastDB-Self-Access: 1`). `selfAccess.read` and `selfAccess.write` are that result.
+
+This repository does not prove that a signed statement reaches ExeMem. CI shows that a PUT carrying `read` and `write` has the same shape as a members-only PUT and answers the same 503 when the node has no cloud connection. A two-node DEV proof makes these requests:
+
+1. Publisher `GET /api/databases/{id}/share/config`. No stored statement answers `read` `members` and `write` `proposals`.
+2. Publisher `PUT /api/databases/{id}/share/config` with the same members, `read` `anyone`, and `write` `direct`. The node POSTs `/api/cloud/backups/v2/share/members/settings/get`, signs sequence 1, and POSTs `/api/cloud/backups/v2/share/members/settings/set`. Members are unchanged, so it does not POST `/api/cloud/backups/v2/share/members/set`. The reply is 200, the same member revision, `committed` true.
+3. Publisher `GET /api/databases/{id}/share/config` again. `read` is `anyone` and `write` is `direct`.
+4. Publisher repeats that PUT. The pair is unchanged, so no settings statement and no member set. 200, same revision.
+5. Publisher `PUT /api/databases/{id}/share/config` with only `write` `proposals` (`read` omitted). The node signs sequence 2 (`anyone`, `proposals`) and POSTs `/api/cloud/backups/v2/share/members/settings/set`. No member set.
+6. Publisher `PUT /api/databases/{id}/share/config` that changes a member and sets `read` back to `members`. Settings set goes first (sequence 3, `members` and `proposals`), then the member set. If the member set fails, that member error is the reply and sequence 3 stays stored. A repeat sends no statement and retries the members while `expectedRevision` still matches.
+7. After the member node's sync refresh, `GET /api/databases`. `selfAccess.read` and `selfAccess.write` come from `POST /api/cloud/backups/v2/share/members/settings/get` with the member `LastDBNode` token and `X-LastDB-Self-Access: 1`, in the same refresh as `POST /api/cloud/backups/v2/share/members/read`. No stored statement is `members` and `proposals`.
+
 ## Old names
 
 | Old name | Name |

@@ -377,13 +377,17 @@ export interface DatabasesShareMember {
   writeSchemas?: DatabasesWriteSchemas;
 }
 
-/** The body of PUT /api/databases/{id}/share/config. */
+/** The body of PUT /api/databases/{id}/share/config. read and write are optional. Omit either one to keep the stored value. No stored statement is members and proposals. An unchanged pair sends no settings statement. */
 export interface DatabasesShareConfig {
   /** Decimal revision the caller last read. */
   expectedRevision: string;
   /** Non-nil lowercase UUID. */
   requestId: string;
   members: DatabasesShareMember[];
+  /** Who may read. Omit it to keep the stored value. */
+  read?: 'members' | 'anyone';
+  /** Where a submit append goes. Omit it to keep the stored value. */
+  write?: 'proposals' | 'direct';
 }
 
 /** The schema object the owner declare-schema route parses. name is required. Other fields are that object's fields. */
@@ -695,12 +699,14 @@ export interface DatabasesDeclareReply {
   [key: string]: unknown;
 }
 
-/** The owner share configuration envelope. */
+/** The owner share configuration envelope. read and write are the stored settings. No stored statement is members and proposals. */
 export interface DatabasesShareConfigReply {
   ok: boolean;
   user_hash: string;
   databaseId: string;
   revision: string;
+  read: 'members' | 'anyone';
+  write: 'proposals' | 'direct';
   members: { [key: string]: unknown }[];
   [key: string]: unknown;
 }

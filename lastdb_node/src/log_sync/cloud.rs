@@ -120,6 +120,13 @@ impl CloudLog {
         self.database_id.as_str()
     }
 
+    pub(crate) fn share_stream(&self) -> cloud_backup_protocol::v2::Stream {
+        cloud_backup_protocol::v2::Stream {
+            scope: self.scope.clone(),
+            stream_id: self.database_id.clone(),
+        }
+    }
+
     pub(crate) fn environment(&self) -> &'static str {
         self.environment_label
     }

@@ -5,6 +5,7 @@ mod config;
 mod entries;
 mod exchange;
 mod lock;
+mod settings;
 
 use crate::cloud::load_connected_home_context;
 use crate::cloud_backup_client::{build_shared_http_client, GuestReadPermission};

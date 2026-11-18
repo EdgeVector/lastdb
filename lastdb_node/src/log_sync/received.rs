@@ -8,8 +8,8 @@ use std::sync::Arc;
 
 use cloud_backup_protocol::canonical_bytes;
 use cloud_backup_protocol::v2::share_access::{
-    MemberListReadRequest, MemberListReadResponse, ShareMemberRole, ShareWriteScope,
-    SHARE_MEMBER_LIST_READ_PATH,
+    MemberListReadRequest, MemberListReadResponse, ShareMemberRole, ShareRead, ShareWrite,
+    ShareWriteScope, SHARE_MEMBER_LIST_READ_PATH,
 };
 use cloud_backup_protocol::v2::{Stream, Version};
 use cloud_backup_protocol::{DecimalU64, ErrorCode, Id, ProtocolError};
@@ -29,6 +29,10 @@ use super::session;
 use super::turn::{self, Pause};
 use super::SyncState;
 
+// Beside this file. log_sync/mod.rs is owned by another change.
+#[path = "share_settings.rs"]
+mod share_settings;
+
 const MEMBER_LIMIT: usize = 65_536;
 
 pub(super) enum ObservedAccess {
@@ -46,6 +50,10 @@ pub(super) enum ObservedAccess {
 pub(crate) struct AccessView {
     state: AccessState,
     role: Option<ShareMemberRole>,
+    #[serde(default = "share_settings::default_read")]
+    read: ShareRead,
+    #[serde(default = "share_settings::default_write")]
+    write: ShareWrite,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     write_schemas: Option<ShareWriteScope>,
     revision: Option<DecimalU64>,
@@ -67,6 +75,8 @@ impl AccessView {
         Self {
             state: AccessState::Unknown,
             role: None,
+            read: ShareRead::Members,
+            write: ShareWrite::Proposals,
             write_schemas: None,
             revision: None,
             confirmed_at_ms: None,
@@ -119,7 +129,17 @@ async fn one(host: &Arc<Host>, share: &RegisteredShare) -> Pause {
 
 async fn refresh(host: &Arc<Host>, share: &RegisteredShare, mut log: CloudLog) -> Option<CloudLog> {
     let observed = access(&log).await;
-    record(&host.home, share.id.as_str(), observed.as_ref());
+    let settings = if observed.is_some() {
+        share_settings::read(&log).await
+    } else {
+        None
+    };
+    let confirm = match &observed {
+        Some(ObservedAccess::Active { .. }) if settings.is_none() => None,
+        Some(value) => Some(value),
+        None => None,
+    };
+    record(&host.home, share.id.as_str(), confirm, settings);
     let Some(ObservedAccess::Active {
         revision: fresh, ..
     }) = observed
@@ -267,10 +287,15 @@ pub(crate) fn view(home: &Path, id: &str) -> AccessView {
     result
 }
 
-fn record(home: &Path, id: &str, observed: Option<&ObservedAccess>) {
+fn record(
+    home: &Path,
+    id: &str,
+    observed: Option<&ObservedAccess>,
+    settings: Option<(ShareRead, ShareWrite)>,
+) {
     let mut previous = view(home, id);
     let result = match observed {
-        Some(observed) => confirmed(observed),
+        Some(observed) => confirmed(observed, settings, &previous),
         None if previous.stale => return,
         None => {
             previous.stale = true;
@@ -280,6 +305,8 @@ fn record(home: &Path, id: &str, observed: Option<&ObservedAccess>) {
     };
     if previous.state == result.state
         && previous.role == result.role
+        && previous.read == result.read
+        && previous.write == result.write
         && previous.revision == result.revision
         && previous.write_schemas == result.write_schemas
         && previous.stale == result.stale
@@ -299,7 +326,12 @@ fn save_access(home: &Path, id: &str, result: &AccessView) {
     }
 }
 
-fn confirmed(observed: &ObservedAccess) -> AccessView {
+fn confirmed(
+    observed: &ObservedAccess,
+    settings: Option<(ShareRead, ShareWrite)>,
+    previous: &AccessView,
+) -> AccessView {
+    let (read, write) = settings.unwrap_or((previous.read, previous.write));
     let (state, role, revision, write_schemas) = match observed {
         ObservedAccess::Active {
             revision,
@@ -317,6 +349,8 @@ fn confirmed(observed: &ObservedAccess) -> AccessView {
     AccessView {
         state,
         role,
+        read,
+        write,
         revision,
         write_schemas,
         confirmed_at_ms: Some(DecimalU64::new(fold_db::clock::unix_millis())),

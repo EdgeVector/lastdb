@@ -26,13 +26,20 @@ pub(super) fn pass_owner(response: UdsResponse) -> Result<UdsResponse, HostError
 
 fn message(body: &[u8]) -> String {
     if let Ok(value) = serde_json::from_slice::<Value>(body) {
-        if let Some(text) = text_at(&value, "message") {
-            return text;
+        let detail = text_at(&value, "message");
+        let code = text_at(&value, "error");
+        if let (Some(detail), Some(code)) = (&detail, &code) {
+            if share_sentence(code) == "request refused" {
+                return format!("{code}: {detail}");
+            }
+        }
+        if let Some(detail) = detail {
+            return detail;
         }
         if let Some(text) = text_at(&value, "reason") {
             return text;
         }
-        if let Some(code) = text_at(&value, "error") {
+        if let Some(code) = code {
             return share_sentence(&code).to_owned();
         }
     }
