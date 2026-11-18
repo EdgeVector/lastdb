@@ -22,7 +22,7 @@ use crate::host::owned::registered_databases;
 use crate::host::Host;
 use crate::log_envelope::{self, DatabaseContentKey, LogBinding};
 
-use source::{capture_block, legacy_pending, read_page, LocalUpload, PublishPolicy};
+use source::{capture_block, read_page, LocalUpload, PublishPolicy};
 
 use super::cloud::CloudLog;
 use super::http::paths;
@@ -61,20 +61,9 @@ pub(super) async fn publish_owned(host: &Host, log: &CloudLog) -> Result<(), &'s
     let reader = Arc::clone(&runtime);
     let joined = tokio::task::spawn_blocking(move || read_page(&reader, &material, &policy)).await;
     let failure = match joined {
-        Ok(Ok(Some(page))) => {
-            if private {
-                let pending =
-                    legacy_pending(&page).ok_or("old accepted write metadata unreadable")?;
-                store
-                    .mutation_manager()
-                    .stage_legacy_replay_pending(&pending)
-                    .await
-                    .map_err(|_| "old accepted write could not be protected")?;
-            }
-            send_page(host, log, &runtime, &key, &page, private)
-                .await
-                .err()
-        }
+        Ok(Ok(Some(page))) => send_page(host, log, &runtime, &key, &page, private)
+            .await
+            .err(),
         Ok(Ok(None)) => None,
         Ok(Err(reason)) => Some(reason),
         Err(_) => Some("the local upload queue reader stopped"),

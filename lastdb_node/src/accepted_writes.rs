@@ -57,8 +57,6 @@ pub(crate) struct StreamStatus {
     pub(crate) snapshot_required: bool,
     /// A hole is open. Reads and new commits refuse.
     pub(crate) gap: bool,
-    /// Last outstanding sequence found at open without a captured author clock.
-    pub(crate) legacy_through: u64,
 }
 
 /// The page cannot be published. Do not skip the entry and do not acknowledge it.
@@ -109,7 +107,6 @@ pub(crate) fn status(runtime: &PackRuntime) -> StreamStatus {
         acked: status.acked,
         snapshot_required: status.snapshot_required,
         gap: status.gap,
-        legacy_through: status.legacy_through,
     }
 }
 

@@ -78,7 +78,6 @@ struct Inner {
     frontier: u64,
     history: bool,
     blocked: bool,
-    legacy_through: u64,
 }
 
 pub(in crate::storage) struct Log {
@@ -112,7 +111,6 @@ impl Log {
                 opened_frontier: 0,
                 snapshot_required: true,
                 gap: true,
-                legacy_through: 0,
             },
             |inner| inner.status(),
         )
@@ -174,6 +172,13 @@ impl Log {
         recover::mark_committed(&self.root, frontier_before)
     }
 
+    pub(super) fn mutation_recorded(&self, id: &str) -> Result<bool, Error> {
+        if !id_ok(id) {
+            return Ok(false);
+        }
+        recover::mutation_recorded(&self.root, id)
+    }
+
     fn lock(&self) -> Result<MutexGuard<'_, Inner>, Error> {
         self.inner.lock().map_err(|_| Error::Unavailable)
     }
@@ -204,7 +209,6 @@ impl Inner {
             opened_frontier: state.map_or(0, |state| state.opened_frontier),
             snapshot_required: state.map_or(self.history, |state| state.snapshot_required),
             gap: self.blocked || state.is_some_and(|state| state.gap),
-            legacy_through: self.legacy_through,
         }
     }
 

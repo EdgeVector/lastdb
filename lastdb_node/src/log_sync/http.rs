@@ -28,8 +28,6 @@ pub(in crate::log_sync) mod paths {
     pub(crate) const APPEND: &str = "/api/cloud/backups/v2/mutation-log/append";
     pub(crate) const HEAD: &str = "/api/cloud/backups/v2/mutation-log/head";
     pub(crate) const LIST: &str = "/api/cloud/backups/v2/mutation-log/list";
-    pub(in crate::log_sync) const SETTLE_SUBMISSIONS: &str =
-        "/api/cloud/backups/v2/mutation-log/settle-submissions";
     pub(crate) use cloud_backup_protocol::v2::share_access::MUTATION_LOG_DELIVERY_OBJECT_PATH as DELIVERY_OBJECT;
 }
 

@@ -180,7 +180,9 @@ pub(super) async fn open(
             // Owned siblings are shareable. Capture starts here, before cloud enrollment.
             capture_accepted: true,
             capture_initial_snapshot: false,
-            track_shared_record_revisions: entry.whole_database(),
+            record_log: entry
+                .whole_database()
+                .then(|| crate::host::share_identity::record_log(home, id)),
         },
     )
     .await
