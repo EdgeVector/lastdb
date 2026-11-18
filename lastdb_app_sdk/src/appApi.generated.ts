@@ -498,14 +498,14 @@ export interface DatabasesSchemasRequest {
   mutationId?: never;
 }
 
-/** On the app socket app_id is the calling app and the body must not carry app_id. On the owner socket app_id is required. The schema name must be one the app write grant allows. * allows every schema. */
+/** On the app socket app_id is optional. A present string is passed to the owner handler as the schema namespace. Omit it and app_id is the calling app. On the owner socket app_id is required. The schema name must be one the app write grant allows. * allows every schema. */
 export interface DatabasesDeclareRequest {
   action: 'declare_schema';
   database?: DatabaseSelector;
   schema: DatabasesSchema;
   intent?: 'catalog_sync';
   retention?: DatabasesRetention;
-  /** Owner socket only. */
+  /** Schema namespace. On the app socket, omit it to use the calling app id. On the owner socket it is required. */
   app_id?: string;
   name?: never;
   spec?: never;
