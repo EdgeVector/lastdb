@@ -197,6 +197,7 @@ pub enum Operation {
         #[serde(default)]
         source_file_name: Option<String>,
         /// Ignored. Old proposal bodies may still carry it. The node does not store it.
+        /// `created_by` and `updated_by` in this map are ignored with every other entry.
         #[serde(default)]
         metadata: Option<HashMap<String, String>>,
         file: Option<FileMarker>,
