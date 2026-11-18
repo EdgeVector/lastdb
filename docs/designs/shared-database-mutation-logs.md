@@ -2,19 +2,19 @@
 
 The publisher sets the sharing rules in Social. Those rules say who can read the whole database and which schemas each person can change. Apps use the rules to show what people can do. The publisher's LastDB checks each write independently, so the rules still hold when a receiver's app offers the wrong action or sends a write outside that person's permissions.
 
-Each whole-database share has two logs in ExeMem. Any active receiver can submit a proposed change to the **pending mutation log**. The receiver's LastDB encrypts the change for the publisher before sending it. ExeMem checks that the sender is an active receiver and stores the encrypted request. Only the publisher can read the pending log. Receivers read the **published log**, and every receiver sees the same published changes.
+Each whole-database share has two logs in ExeMem. Any active receiver can submit a proposed change to the **inbox**. The receiver's LastDB encrypts the change for the publisher before sending it. ExeMem checks that the sender is an active receiver and stores the encrypted request. Only the publisher can read the inbox. Receivers read the **publisher log**, and every receiver sees the same published changes.
 
-The publisher's LastDB downloads and decrypts the pending changes. It checks each sender against the current sharing settings on the publisher's machine and checks that the change is valid for the database. It discards requests that fail either check. It saves the accepted changes locally and uploads them to the published log under the publisher's key. Everyone with active access, including the person who suggested the change, gets the result when they sync.
+The publisher's LastDB downloads and decrypts the inbox. It checks each sender against the current sharing settings on the publisher's machine and checks that the change is valid for the database. It discards requests that fail either check. It saves the accepted changes locally and appends them to the publisher log under the publisher's key. Everyone with active access, including the person who suggested the change, gets the result when they sync.
 
 ## Requirements to preserve
 
 These requirements apply as Social adds features and as LastDB and ExeMem change their storage and transport.
 
-- A personal database has one log. A shared database has exactly two logs under the same database ID: the publisher log and the inbox. Their positions are independent. There is no mixed log and no read filter over mixed history.
-- Every active receiver can read the whole published database and send an encrypted proposal, even with an empty write grant. Receivers follow only the published log. Only the publisher can read or settle the pending log, including entries submitted by a receiver who asks for their own.
+- A personal database has one log. A shared database has exactly two logs under the same database ID: the publisher log and the inbox. Their positions are independent.
+- Every active receiver can read the whole publisher log and send an encrypted proposal, even with an empty write grant. Receivers follow only the publisher log. Only the publisher can read or settle the inbox, including entries submitted by a receiver who asks for their own.
 - Keep the current publisher-signed configuration for each database, including its revision, receiver identities, active or revoked state, and schema write grants. ExeMem checks active membership. The publisher's LastDB uses the confirmed configuration on its machine to check every downloaded and decrypted proposal. Apps display the grant.
-- Keep approval, local commit, publication, and settlement in that order. Denied or invalid proposals produce no published change. For accepted proposals, the publisher uploads the committed change under its own key before marking the pending entry processed. LastDB decides when stored entries and retry records are safe to retire.
-- The publisher's authenticated settlement authorizes ExeMem to remove the original encrypted proposal from the pending log. Retain the identity needed for exact append retries and any outcome the publisher supplied. Settling an entry preserves both logs, their positions, and the publisher's accepted record history.
+- Keep approval, local commit, publication, and settlement in that order. Denied or invalid proposals produce no published change. For accepted proposals, the publisher appends the committed change to its own log before marking the inbox entry processed. LastDB decides when stored entries and retry records are safe to retire.
+- The publisher's authenticated settlement authorizes ExeMem to remove the original encrypted proposal from the inbox. Retain the identity needed for exact append retries and any outcome the publisher supplied. Settling an entry preserves both logs, their positions, and the publisher's accepted record history.
 
 Tom's explicit direction is required to change these requirements. [Agent instructions](../../AGENTS.md#preserve-whole-database-sharing-tom-2026-11-14)
 
@@ -30,13 +30,13 @@ An accepted receiver create records the verified sender as the author. On a rece
 
 The standard `social/Comment` schema has a fixed write rule on whole-database shares. A receiver with a current write grant can create comments and edit their own comments. The publisher can edit or delete any comment. LastDB derives the visible `author_id` for receiver writes from the verified sender and records the original creator with the record's revision in internal storage. That provenance follows the comment through publisher edits. A comment without verified creation history remains readable and only the publisher can edit it. Existing record metadata cannot establish a creator. Social and apps can describe the rule, and LastDB enforces it for every grant, including all-schema grants. Other schemas keep their existing write behavior.
 
-| Identity on this database | Read published log | Append to published log | Append to pending log | Read and mark pending entries processed |
+| Identity on this database | Read publisher log | Append to publisher log | Append to inbox | Read and settle inbox |
 | --- | --- | --- | --- | --- |
 | Publisher | Yes | Yes | | Yes |
 | Active receiver | Yes | | Yes | |
 | Outside the active roster | | | | |
 
-The pending log has fixed access rules, including for a receiver's own entries. Receivers see their own grant and the published data. The publisher sees the roster.
+The inbox has fixed access rules, including for a receiver's own entries. Receivers see their own grant and the publisher log. The publisher sees the roster.
 
 ## From invitation to shared data
 
@@ -66,10 +66,10 @@ Whole-database revocation stops new reads and submissions. Narrowing a write gra
 
 ExeMem stores the inbox in a separate partition for the original database ID. It keeps the inbox delivery position, settlement position, and idempotency records independent of the publisher log. It treats the mutation payloads as ciphertext. LastDB owns schema validation, record and attachment semantics, and decisions about safe retirement of data.
 
-A contribution reaches readers only after the publisher commits it and appends that committed change to its own log. The publisher log contains only the publisher's entries. There is no mixed-log intake, no drain of historical receiver entries, and no compatibility with a retired log format or an older server.
+A contribution reaches readers only after the publisher commits it and appends that committed change to its own log. The publisher log contains only the publisher's entries. Receivers cannot write that log.
 
 ## Publisher device authority
 
-A whole-database share uses one active publisher device. Before deciding proposals in the private inbox, the publisher checks its durable download position against the current published log. If an owned device sees a published write from another device with the same publisher key, it reports that it cannot continue shared sync. Pending proposals stay available. The signed publisher key authenticates the publisher, and the writer device ID identifies entries. Two machines that share the publisher key can still open the inbox at the same time before either publishes.
+A whole-database share uses one active publisher device. Before deciding proposals in the inbox, the publisher checks its durable download position against the publisher log. If an owned device sees a published write from another device with the same publisher key, it reports that it cannot continue shared sync. Pending proposals stay available. The signed publisher key authenticates the publisher, and the writer device ID identifies entries. Two machines that share the publisher key can still open the inbox at the same time before either publishes.
 
 Supporting authorized replacement or replicas requires an explicit owner policy. ExeMem would bind one database's publishing authority to an independently authenticated device key and revision. Its transactions would verify that revision for publisher appends and inbox settlement. Replicas would get the publisher log and would replay accepted contribution receipts along with the records. An owner-approved handoff would confirm the old publisher's accepted writes reached the cloud before changing authority.

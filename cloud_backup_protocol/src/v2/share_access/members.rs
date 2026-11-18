@@ -142,7 +142,7 @@ pub struct ShareMember {
     /// True only on the revision that restores a revoked key. Omitted when false.
     #[serde(default, skip_serializing_if = "is_false")]
     pub regrant: bool,
-    /// Missing on legacy grants. An empty selection gives a member read access.
+    /// Absent when the member is not an active submitter. An empty selection gives read access only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub write_schemas: Option<ShareWriteScope>,
 }

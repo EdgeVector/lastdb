@@ -28,7 +28,8 @@ impl ConfigUpdate {
             .filter_map(|member| member.write_schemas.as_ref())
     }
 
-    pub(crate) fn has_legacy_writer(&self) -> bool {
+    /// An active submitter must name a schema scope. A reader omits it.
+    pub(crate) fn writer_missing_scope(&self) -> bool {
         self.members.iter().any(|member| {
             member.role == ShareMemberRole::Submit
                 && member.state == ShareMemberState::Active
