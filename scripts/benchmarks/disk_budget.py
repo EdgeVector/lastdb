@@ -8,7 +8,7 @@ import time
 
 from growth import CASES as GROWTH_CASES, GrowthWorkload
 from node import Node, save, validate_breakdown
-from workload import HASH, SCHEMA, Workload, key, read_request
+from workload import HASH, SCHEMA, Workload, key, read_request, read_rows
 
 LIMIT = 1.5
 PERCENT = 10
@@ -48,7 +48,7 @@ def delete_records(workload, count):
         request = {"mutations": [{"type": "mutation", "schema": SCHEMA, "mutation_type": "delete",
                                   "durability": "durable", "key_value": {"hash": HASH, "range": key(n)},
                                   "fields_and_values": {}} for n in numbers]}
-        result, _, _ = workload.node.call("/api/mutations/batch", request)
+        result, _, _ = workload.node.call("/v1/write", request)
         Workload.validate_write(result, len(numbers))
         for number in numbers:
             del workload.expected[number]
@@ -61,8 +61,8 @@ def verify_deleted(workload):
     until = first + getattr(workload, "deleted_records", 0)
     for start in range(first, until, 64):
         numbers = list(range(start, min(start + 64, until)))
-        result, _, _ = workload.node.call("/api/query", read_request(numbers))
-        if result.get("returned_count") != 0 or result.get("results") != []:
+        result, _, _ = workload.node.call("/v1/read", read_request(numbers))
+        if read_rows(result):
             raise ValueError("A deleted key still returns data")
 
 

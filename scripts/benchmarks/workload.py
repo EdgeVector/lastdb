@@ -59,9 +59,20 @@ def encoded(value):
 
 
 def read_request(numbers):
-    return encoded({"schema_name": SCHEMA,
-                    "filter": {"HashRangeKeys": [[bucket(n), key(n)] for n in numbers]},
-                    "limit": len(numbers)})
+    reads = [{"schema": SCHEMA, "key": {"hash": bucket(number), "range": key(number)}} for number in numbers]
+    return encoded({"reads": reads})
+
+
+def read_rows(result):
+    pages = result.get("results") if isinstance(result, dict) else None
+    if not isinstance(pages, list):
+        raise RuntimeError("A keyed read returned an unexpected reply")
+    rows = []
+    for page in pages:
+        if not isinstance(page, dict) or "error" in page or "records" not in page:
+            raise RuntimeError("A keyed read returned an unexpected reply")
+        rows.extend(page["records"])
+    return rows
 
 
 def write_request(numbers, revision, insert):
@@ -79,13 +90,13 @@ def write_request(numbers, revision, insert):
 
 
 def validate_read(result, numbers):
-    records = result.get("results", [])
-    if result.get("returned_count") != len(numbers) or len(records) != len(numbers):
+    records = read_rows(result)
+    if len(records) != len(numbers):
         raise RuntimeError("A keyed read returned an incomplete result")
     found = {}
     expected = {key(n): n for n in numbers}
     for record in records:
-        coordinate, value = record["key"], record["fields"]
+        coordinate, value = record["key"], record["record"]
         number = expected.get(coordinate["range"])
         if number is None or coordinate["hash"] != bucket(number) or coordinate["range"] in found:
             raise RuntimeError("A keyed read returned an unexpected or duplicate key")
@@ -124,12 +135,12 @@ class Workload:
         self.node.call("/api/schemas/seed-system", {"isolated_copy": True, "schema": benchmark_schema()})
         for start in range(0, self.recipe["records"], 128):
             numbers = list(range(start, min(start + 128, self.recipe["records"])))
-            result, _, _ = self.node.call("/api/mutations/batch", write_request(numbers, "seed", True))
+            result, _, _ = self.node.call("/v1/write", write_request(numbers, "seed", True))
             self.validate_write(result, len(numbers))
         spread = self.recipe.get("spread_records", 0)
         for start in range(0, spread, 128):
             numbers = list(range(SPREAD_BASE + start, SPREAD_BASE + min(start + 128, spread)))
-            result, _, _ = self.node.call("/api/mutations/batch", write_request(numbers, "seed", True))
+            result, _, _ = self.node.call("/v1/write", write_request(numbers, "seed", True))
             self.validate_write(result, len(numbers))
         self.spread_order = list(range(SPREAD_BASE, SPREAD_BASE + spread))
         random.Random(spread).shuffle(self.spread_order)
@@ -147,8 +158,10 @@ class Workload:
 
     @staticmethod
     def validate_write(result, count):
-        if result.get("count") != count or result.get("durability") != "durable":
-            raise RuntimeError("A write lacks a complete durable acknowledgement")
+        revisions = result.get("revisions") if isinstance(result, dict) else None
+        if (result.get("written") != count or not isinstance(revisions, list) or len(revisions) != count
+                or any(not isinstance(value, str) or not value for value in revisions)):
+            raise RuntimeError("A write lacks one revision for each record")
 
     def prepare(self, mode, batch, samples, clients):
         jobs = [[] for _ in range(clients)]
@@ -188,7 +201,7 @@ class Workload:
                       "request_id": request_id,
                       "request_sha256": hashlib.sha256(body).hexdigest()}
             try:
-                path = "/api/query" if kind == "read" else "/api/mutations/batch"
+                path = "/v1/read" if kind == "read" else "/v1/write"
                 observe = (self.case == "update/128"
                            or self.case == "update/1" and self.recipe["native_timing"])
                 before = read_counters(self.node.process.pid) if observe else None
@@ -300,7 +313,7 @@ class Workload:
             hot = list(range(self.recipe["records"] - 256, self.recipe["records"]))
             for start in range(0, len(hot), 64):
                 numbers = hot[start:start + 64]
-                result, _, _ = self.node.call("/api/query", read_request(numbers))
+                result, _, _ = self.node.call("/v1/read", read_request(numbers))
                 validate_read(result, numbers)
             self.measure("hot-read/1", "hot")
             self.measure("hot-read/32", "hot", batch=32)

@@ -14,7 +14,7 @@ from node import Node, file_hash, publish_summary, save
 from phases import capture_phases
 from process_counters import counter_delta, read_counters
 from run import host_details, interrupted
-from workload import FIELDS, HASH, SCHEMA, Workload, benchmark_schema, describe, encoded, fields, key
+from workload import FIELDS, HASH, SCHEMA, Workload, benchmark_schema, describe, encoded, fields, key, read_rows
 
 RECORDS = 100000
 
@@ -39,7 +39,7 @@ class Writers:
         save(self.node.output / "schema-identities.json", {SCHEMA: actual})
         for first in range(0, RECORDS, 128):
             numbers = range(first, min(first + 128, RECORDS))
-            response, _, _ = self.node.call("/api/mutations/batch", {
+            response, _, _ = self.node.call("/v1/write", {
                 "mutations": [self.mutation(n, "seed", True) for n in numbers]})
             Workload.validate_write(response, len(numbers))
         if self.node.call("/api/db/flush", {})[0].get("durable") is not True:
@@ -52,12 +52,12 @@ class Writers:
         numbers = [*range(32), *range(RECORDS - 256, RECORDS)]
         for first in range(0, len(numbers), 64):
             selected = numbers[first:first + 64]
-            coordinates = [[HASH, key(n)] for n in selected]
-            result = self.node.call("/api/query", {"schema_name": SCHEMA,
-                "filter": {"HashRangeKeys": coordinates}, "limit": len(selected)})[0]
+            result = self.node.call("/v1/read", {"reads": [
+                {"schema": SCHEMA, "key": {"hash": HASH, "range": key(n)}} for n in selected]})[0]
+            rows = read_rows(result)
             expected = {(HASH, key(n)): fields(n, self.versions.get(n, "seed")) for n in selected}
-            actual = {(r["key"]["hash"], r["key"]["range"]): r["fields"] for r in result["results"]}
-            if result["returned_count"] != len(selected) or len(result["results"]) != len(selected) or actual != expected:
+            actual = {(r["key"]["hash"], r["key"]["range"]): r["record"] for r in rows}
+            if len(rows) != len(selected) or actual != expected:
                 raise ValueError("A known-key read differs from the last durable write")
 
     def jobs(self, name, clients, batch, requests):
@@ -83,7 +83,7 @@ class Writers:
             rows = []
             barrier.wait(timeout=30)
             for body, request_id, numbers in jobs[client]:
-                result, elapsed, _ = self.node.call("/api/mutations/batch", body, request_id=request_id)
+                result, elapsed, _ = self.node.call("/v1/write", body, request_id=request_id)
                 Workload.validate_write(result, len(numbers))
                 rows.append({"case": name, "kind": "write", "client": client, "records": len(numbers),
                              "request_id": request_id, "request_sha256": hashlib.sha256(body).hexdigest(),

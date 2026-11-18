@@ -7,7 +7,7 @@ import threading
 import time
 
 from node import save
-from workload import Workload, benchmark_schema, read_request, validate_read, write_request
+from workload import Workload, benchmark_schema, read_request, read_rows, validate_read, write_request
 
 PROFILES = {
     "standard": {"records": 512, "rounds": 3, "idle_seconds": 1},
@@ -66,18 +66,18 @@ class GrowthWorkload:
     def read(self, first, count):
         for start in range(first, first + count, 64):
             numbers = list(range(start, min(start + 64, first + count)))
-            result, _, _ = self.node.call("/api/query", read_request(numbers))
+            result, _, _ = self.node.call("/v1/read", read_request(numbers))
             validate_read(result, numbers)
-            for record in result["results"]:
+            for record in read_rows(result):
                 number = int(record["key"]["range"].removeprefix("key-"))
-                if record["fields"]["title"] != f"record-{number}-{self.expected[number]}":
+                if record["record"]["title"] != f"record-{number}-{self.expected[number]}":
                     raise RuntimeError("A growth read returned an older write")
 
     def write(self, first, count, revision, insert):
         for start in range(first, first + count, 128):
             numbers = list(range(start, min(start + 128, first + count)))
             result, _, _ = self.node.call(
-                "/api/mutations/batch", write_request(numbers, revision, insert))
+                "/v1/write", write_request(numbers, revision, insert))
             Workload.validate_write(result, len(numbers))
             self.expected.update({number: revision for number in numbers})
         self.read(first, count)

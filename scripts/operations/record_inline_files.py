@@ -19,9 +19,10 @@ for _entry in (str(_OPS), str(_SCRIPTS)):
         sys.path.insert(0, _entry)
 
 from harness import (  # noqa: E402
-    FORMAT, HOME_FORMAT, NODE_MARKER as PRIVATE_MARKER, conditioned, mutation,
+    FORMAT, HOME_FORMAT, NODE_MARKER as PRIVATE_MARKER, mutation,
     poll_until, send_unix_request, source_constant, stop_process,
 )
+import v1_records as v1  # noqa: E402
 from record_runs import (  # noqa: E402
     FIELDS as DROP_FIELDS, TTL_SECONDS, definition, mutation as run_mutation,
     refused, require, system_seed, write,
@@ -58,8 +59,20 @@ def install(node):
     system_seed(node, definition(SCHEMA, "Hash", FIELDS, description_prefix="Inline file example "))
 
 
+def conditioned_old(node, request):
+    """Fill the revision on an old mutation. The blob routes still take that mutation."""
+    if request["mutation_type"] == "create":
+        return request
+    page = v1.read_items(node, [v1.point(request["schema"], request["key_value"])])[0]
+    rows = page["records"]
+    require(len(rows) == 1, "blob mutation target is absent")
+    if request.get("expected") is None:
+        request["expected"] = {"type": "revision", "revision": rows[0]["revision"]}
+    return request
+
+
 def replacement(node, key, values):
-    return conditioned(node, [mutation(SCHEMA, {"hash": key}, values)])[0]
+    return conditioned_old(node, mutation(SCHEMA, {"hash": key}, values))
 
 
 def row(node, key):
@@ -124,7 +137,7 @@ def exercise(node):
     gone = {"id": "gone", "value": "g1"}
     node.call("/api/mutation", mutation(SCHEMA, {"hash": "gone"}, gone, "create"))
     put(node, "gone", gone, THUMBNAIL, placement="inline", name="gone.bin")
-    node.call("/api/mutation", conditioned(node, [mutation(SCHEMA, {"hash": "gone"}, {}, "delete")])[0])
+    node.call("/api/mutation", conditioned_old(node, mutation(SCHEMA, {"hash": "gone"}, {}, "delete")))
     node.call("/api/mutation", mutation(SCHEMA, {"hash": "gone"}, gone, "create"))
     require(inline_marker(row(node, "gone")) is None, "a new record kept a deleted inline file")
     refused(lambda: fetch(node, "gone", "inline"), "no inline file")
@@ -164,9 +177,8 @@ def check_drop_tracking(node):
                 f"{schema} partition tracking differs: {current}")
         require((current["retention_policy"] is None) == (schema == "RecordAged"),
                 f"{schema} policy changed across the drop: {current}")
-    rows = node.call("/api/query", {"schema_name": "RecordDropKeep",
-                                    "filter": {"HashKey": "aged"}})[0]["results"]
-    require(len(rows) == 1 and rows[0]["fields"]["value"] == "kept", "the drop erased another schema")
+    rows = v1.read_items(node, [v1.range_read("RecordDropKeep", {"hash": "aged"})])[0]["records"]
+    require(len(rows) == 1 and rows[0]["record"]["value"] == "kept", "the drop erased another schema")
 
 
 def exercise_drop_tracking(node):

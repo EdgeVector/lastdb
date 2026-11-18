@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import argparse
 import ast
-from collections import defaultdict
-import copy
 import hashlib
 import http.client
 import json
@@ -52,7 +50,7 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 SOCKET_OPERATIONS = {
     "/health": "health", "/api/status": "status", "/api/system/boot-identity": "boot_identity",
     "/api/db/native-status": "native_status", "/api/queries/batch": "query_batch",
-    "/api/mutations/batch": "mutation_batch",
+    "/api/mutations/batch": "mutation_batch", "/v1/read": "read", "/v1/write": "write",
 }
 SOCKET_REFUSALS = frozenset({
     "cas_conflict", "compaction_behind", "field_value_too_large", "persist_queue_full",
@@ -155,36 +153,6 @@ def poll_until(timeout_seconds, step, *, interval=0.05, timeout_error="timed out
     raise timeout_error if isinstance(timeout_error, BaseException) else RuntimeError(timeout_error)
 
 
-def key(hash_value):
-    return {"hash": hash_value, "range": None}
-
-
-def coordinate(schema, key_value):
-    return schema, key_value.get("hash"), key_value.get("range")
-
-
-def create(schema, key_value, record):
-    return {
-        "type": "mutation", "schema": schema, "key_value": key_value,
-        "record": copy.deepcopy(record), "alternates": {},
-        "mutation_type": "create", "expected": {"type": "absent"}, "durability": "durable",
-    }
-
-
-def replace_row(schema, row, record):
-    request = {
-        "type": "mutation", "schema": schema, "key_value": copy.deepcopy(row["key"]),
-        "record": copy.deepcopy(record), "alternates": copy.deepcopy(row["alternates"]),
-        "mutation_type": "replace", "durability": "durable",
-        "expected": {"type": "revision", "revision": row["revision"]},
-    }
-    metadata = row.get("metadata") or {}
-    for name in ("source_file_name", "metadata", "file"):
-        if metadata.get(name) is not None:
-            request[name] = copy.deepcopy(metadata[name])
-    return request
-
-
 def mutation(schema, key_value, record, operation="replace", *, alternates=None, expected=None):
     return {
         "type": "mutation", "schema": schema, "key_value": key_value, "record": record,
@@ -192,42 +160,6 @@ def mutation(schema, key_value, record, operation="replace", *, alternates=None,
         "expected": expected if expected is not None else {"type": "absent"} if operation == "create" else None,
         "durability": "durable", "convergence": "sync",
     }
-
-
-def read_records(node, requests):
-    grouped = defaultdict(list)
-    for request in requests:
-        grouped[request["schema"]].append(request["key_value"])
-    queries = [{"schema_name": schema, "limit": len(keys),
-                "filter": {"HashRangeKeys": [[item["hash"], item.get("range") or ""] for item in keys]}}
-               for schema, keys in grouped.items()]
-    if not queries:
-        return {}
-    reply = node.call("/api/queries/batch", {"queries": queries})
-    reply = reply[0] if isinstance(reply, tuple) else reply
-    found = {}
-    for schema, item in zip(grouped, reply["results"]):
-        if item["status"] != 200:
-            raise RuntimeError(f"complete record preparation: HTTP {item['status']}")
-        for row in item["response"].get("data", item["response"])["results"]:
-            found[coordinate(schema, row["key"])] = row
-    return found
-
-
-def conditioned(node, requests):
-    current = read_records(node, [req for req in requests if req["mutation_type"] != "create"])
-    for request in requests:
-        if request["mutation_type"] == "create":
-            request["expected"] = request["expected"] or {"type": "absent"}
-            continue
-        row = current.get(coordinate(request["schema"], request["key_value"]))
-        if request["expected"] is None:
-            if row is None:
-                raise RuntimeError("complete record target is absent")
-            request["expected"] = {"type": "revision", "revision": row["revision"]}
-        if request["mutation_type"] in ("delete", "purge") and row is not None:
-            request["alternates"] = row["alternates"]
-    return requests
 
 
 def append_step_summary(text):
@@ -335,9 +267,9 @@ def _main():
 __all__ = [
     "CREDENTIALS_FILE", "FORMAT", "HOME_FORMAT", "NODE_MARKER", "NoRedirect",
     "UnixConnection", "append_step_summary", "classify_socket_refusal",
-    "clean_local_cargo_packages", "conditioned", "create", "file_sha256", "key",
+    "clean_local_cargo_packages", "file_sha256",
     "marker_format", "mutation", "poll_until", "read_shutdown_receipt",
-    "replace_row", "save_json", "send_unix_request", "source_constant",
+    "save_json", "send_unix_request", "source_constant",
     "stop_process", "summary_line", "verify_shutdown_receipt", "write_private",
 ]
 

@@ -24,9 +24,10 @@ if _SCRIPTS not in sys.path:
     sys.path.insert(0, _SCRIPTS)
 
 from harness import (  # noqa: E402
-    NODE_MARKER, mutation as build_mutation, poll_until, read_shutdown_receipt,
+    NODE_MARKER, poll_until, read_shutdown_receipt,
     send_unix_request, stop_process, verify_shutdown_receipt,
 )
+import v1_records as v1  # noqa: E402
 
 SCHEMA, HASH = "NightlyReleaseRecords", "nightly"
 FIELDS = ["bucket", "id", "body"]
@@ -154,10 +155,12 @@ def _record(number, updated):
 
 def _revisions_for(node, numbers):
     keys = [f"record-{number:02d}" for number in numbers]
-    result = node.call("/api/query", {"schema_name": SCHEMA, "limit": len(keys),
-                                      "filter": {"HashRangeKeys": [[HASH, key] for key in keys]}})
-    found = {row["key"]["range"]: row["revision"] for row in result.get("results", [])
-             if row.get("key", {}).get("hash") == HASH and isinstance(row.get("revision"), str) and row["revision"]}
+    pages = v1.read_items(node, [v1.point(SCHEMA, {"hash": HASH, "range": key}) for key in keys])
+    found = {}
+    for page in pages:
+        for row in page["records"]:
+            if row["key"].get("hash") == HASH and isinstance(row.get("revision"), str) and row["revision"]:
+                found[row["key"]["range"]] = row["revision"]
     if any(key not in found for key in keys):
         raise RuntimeError("The packaged daemon did not return the records to replace")
     return found
@@ -169,30 +172,29 @@ def write(node, numbers, create=False):
     mutations = []
     for number in numbers:
         key, fields = _record(number, not create)
-        expected = {"type": "absent"} if create else {"type": "revision", "revision": revisions[key]}
-        mutations.append(build_mutation(SCHEMA, {"hash": HASH, "range": key}, fields,
-                                        "create" if create else "replace", expected=expected))
-    result = node.call("/api/mutations/batch", {"mutations": mutations})
-    identities = result.get("mutation_ids")
-    if (result.get("count") != len(numbers) or result.get("durability") != "durable"
-            or result.get("errors") or not isinstance(identities, list) or len(identities) != len(numbers)
-            or any(not isinstance(value, str) or not value for value in identities)):
-        raise RuntimeError("The packaged daemon did not acknowledge the full durable batch")
+        address = {"hash": HASH, "range": key}
+        if create:
+            mutations.append(v1.create_item(SCHEMA, address, fields))
+        else:
+            mutations.append(v1.replace_item(SCHEMA, address, fields, revisions[key]))
+    v1.write_items(node, mutations)
 
 
 def read(node, updated, ranged=False):
-    condition = ({"HashRangeRange": {"hash": HASH, "start": "record-00", "end": "record-08"}}
-                 if ranged else {"HashRangeKeys": [[HASH, f"record-{n:02d}"] for n in range(8)]})
-    result = node.call("/api/query", {"schema_name": SCHEMA, "limit": 8, "filter": condition})
-    records = result.get("results", [])
-    if result.get("returned_count") != 8 or len(records) != 8:
+    if ranged:
+        records = v1.read_items(node, [v1.range_read(
+            SCHEMA, {"hash": HASH, "start": "record-00", "end": "record-08"}, limit=8)])[0]["records"]
+    else:
+        records = v1.flat_records(v1.read_items(
+            node, [v1.point(SCHEMA, {"hash": HASH, "range": f"record-{n:02d}"}) for n in range(8)]))
+    if len(records) != 8:
         raise RuntimeError("The packaged daemon returned an incomplete query")
     found = []
     for item in records:
         key = item.get("key", {})
         number = int(key.get("range", "").removeprefix("record-"))
         _, expected = _record(number, number in updated)
-        if key != {"hash": HASH, "range": expected["id"]} or item.get("fields") != expected:
+        if key != {"hash": HASH, "range": expected["id"]} or item.get("record") != expected:
             raise RuntimeError("The packaged daemon returned different keys or values")
         found.append(number)
     if sorted(found) != list(range(8)) or (ranged and found != list(range(8))):

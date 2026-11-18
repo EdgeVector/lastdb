@@ -14,7 +14,8 @@ import uuid
 
 _OPS = Path(__file__).resolve().parent
 sys.path[:0] = [str(_OPS), str(_OPS.parent)]
-from harness import conditioned, mutation  # noqa: E402
+from harness import mutation  # noqa: E402
+import v1_records as v1  # noqa: E402
 from record_runs import (  # noqa: E402
     FIELDS, MISSING_DATABASE, RANGED, definition, refused, require, system_seed,
 )
@@ -58,7 +59,7 @@ def prepare(node, cli, output):
     require(read_value(node, alpha["id"]) == "alpha", "alpha did not keep its value")
     require(read_value(node, work["id"]) == "work", "work did not keep its value")
     require(read_value(node, graph["id"]) == "graph", "graph did not keep its value")
-    refused(lambda: read_value(node, MISSING_DATABASE), "database is not registered")
+    refused(lambda: read_value(node, MISSING_DATABASE), "not on this node")
     saved = {
         "personal_id": personal_id,
         "notes_id": notes["id"],
@@ -120,18 +121,17 @@ def install(node, database_id):
 
 
 def write_value(node, database_id, value):
-    request = mutation(
-        "RecordById", {"hash": "one"}, {"id": "one", "bucket": "b1", "value": value}, "create",
-        alternates={"by_bucket": {"hash": "b1", "range": "one"}}, expected={"type": "absent"},
-    )
-    node.call(f"/api/databases/{database_id}/mutation", conditioned(node, [request])[0])
+    v1.write_items(node, [v1.create_item(
+        "RecordById", {"hash": "one"}, {"id": "one", "bucket": "b1", "value": value},
+        alternates={"by_bucket": {"hash": "b1", "range": "one"}}, database=database_id,
+    )])
 
 
 def read_value(node, database):
-    path = "/api/query" if database is None else f"/api/databases/{database}/query"
-    rows = node.call(path, {"schema_name": "RecordById", "filter": {"HashKey": "one"}})[0]["results"]
+    options = {} if database is None else {"database": database}
+    rows = v1.read_items(node, [v1.point("RecordById", {"hash": "one"}, **options)])[0]["records"]
     require(len(rows) == 1, f"{database or 'personal'} returned {len(rows)} rows for key one")
-    return rows[0]["fields"]["value"]
+    return rows[0]["record"]["value"]
 
 
 def owner_id(node):

@@ -1,5 +1,6 @@
 //! Record and file-blob mutation submission (`lastdb mutate`).
 
+use super::v1_records;
 use super::*;
 use lastdb_node::exec::parse_mutation_body;
 use lastdb_node::lastdb_uds::{admin_handler_timeout, handler_timeout};
@@ -85,6 +86,25 @@ pub(super) fn mutate_command(
     if mutation_id.is_some() && target.selector.is_none() {
         return Err("--mutation-id requires --db".into());
     }
+    let mut body = read_mutation_json(request_file)?;
+    let file = take_record_input(&mut body)?;
+    if file.is_some() && mutation_id.is_some() {
+        return Err("--mutation-id applies to record submissions without file changes".into());
+    }
+    if let Some(obj) = body.as_object_mut().filter(|_| durable) {
+        obj.insert("durability".into(), json!("durable"));
+    }
+    parse_mutation_body(&serde_json::to_vec(&body).map_err(|e| e.to_string())?)
+        .map_err(|r| format!("invalid complete mutation: {r:?}"))?;
+    let timeout = if durable {
+        handler_timeout().saturating_add(Duration::from_secs(20))
+    } else {
+        Duration::from_secs(10)
+    };
+    dispatch_mutation(target, request_file, &body, file, mutation_id, timeout)
+}
+
+fn read_mutation_json(request_file: &Path) -> Result<Value, String> {
     let text = if request_file == Path::new("-") {
         let mut s = String::new();
         std::io::stdin()
@@ -95,82 +115,179 @@ pub(super) fn mutate_command(
     } else {
         std::fs::read_to_string(request_file).map_err(|e| format!("read mutation: {e}"))?
     };
-    let mut body: Value =
-        serde_json::from_str(&text).map_err(|e| format!("invalid mutation JSON: {e}"))?;
-    let file = if body.get("mutation").is_some() {
-        if body.get("file").is_none() {
-            return Err("record input requires an explicit file object or null".into());
+    serde_json::from_str(&text).map_err(|e| format!("invalid mutation JSON: {e}"))
+}
+
+fn take_record_input(
+    body: &mut Value,
+) -> Result<Option<(Option<InputFile>, &'static str)>, String> {
+    if body.get("mutation").is_none() {
+        return Ok(None);
+    }
+    if body.get("file").is_none() {
+        return Err("record input requires an explicit file object or null".into());
+    }
+    let input: RecordInput =
+        serde_json::from_value(body.take()).map_err(|e| format!("invalid record input: {e}"))?;
+    let place = match input.placement.as_deref() {
+        None | Some("blob") => "blob",
+        Some("inline") => "inline",
+        Some(other) => {
+            return Err(format!(
+                "record input placement must be blob or inline, not {other}"
+            ));
         }
-        let input: RecordInput =
-            serde_json::from_value(body).map_err(|e| format!("invalid record input: {e}"))?;
-        let place = match input.placement.as_deref() {
-            None | Some("blob") => "blob",
-            Some("inline") => "inline",
-            Some(o) => {
-                return Err(format!(
-                    "record input placement must be blob or inline, not {o}"
-                ));
-            }
-        };
-        body = input.mutation;
-        Some((input.file, place))
+    };
+    *body = input.mutation;
+    Ok(Some((input.file, place)))
+}
+
+fn dispatch_mutation(
+    target: &DatabaseTarget,
+    request_file: &Path,
+    body: &Value,
+    file: Option<(Option<InputFile>, &'static str)>,
+    mutation_id: Option<Uuid>,
+    timeout: Duration,
+) -> Result<(), String> {
+    match file {
+        Some((Some(file), place)) => submit_file(target, request_file, body, &file, place, timeout),
+        // `/v1` cannot remove a file and keep the record.
+        Some((None, place)) => submit_legacy(
+            target,
+            "/api/db/delete-blob",
+            &json!({ "mutation": body, "placement": place }),
+            None,
+            timeout,
+        ),
+        None => submit_record(target, body, mutation_id, timeout),
+    }
+}
+
+fn submit_record(
+    target: &DatabaseTarget,
+    body: &Value,
+    mutation_id: Option<Uuid>,
+    timeout: Duration,
+) -> Result<(), String> {
+    // A received database, and an id missing from the catalog, stay on `/api/mutation`.
+    // A purge, a file marker, metadata, or a condition `/v1` does not accept stays there too.
+    let item = if target.old_routes {
+        None
+    } else {
+        v1_records::record_write(body, v1_records::database(target), None)
+    };
+    if let Some(item) = item {
+        return submit_v1_record(target, &item, mutation_id, timeout);
+    }
+    submit_legacy(target, "/api/mutation", body, mutation_id, timeout)
+}
+
+fn submit_file(
+    target: &DatabaseTarget,
+    request_file: &Path,
+    body: &Value,
+    file: &InputFile,
+    place: &str,
+    timeout: Duration,
+) -> Result<(), String> {
+    let base = request_file.parent().unwrap_or(Path::new(""));
+    // Bytes, an inline file, a thumbnail, and a database on the old routes stay on put-blob.
+    let linked = !target.old_routes && place == "blob" && file.local && file.thumbnail.is_none();
+    let receipt = if linked {
+        write_local_reference(target, base, body, file, timeout)?
     } else {
         None
     };
-    if file.is_some() && mutation_id.is_some() {
-        return Err("--mutation-id applies to record submissions without file changes".into());
+    if let Some(receipt) = receipt {
+        println!("{receipt}");
+        return Ok(());
     }
-    if let Some(obj) = body.as_object_mut().filter(|_| durable) {
-        obj.insert("durability".into(), json!("durable"));
-    }
-    parse_mutation_body(&serde_json::to_vec(&body).map_err(|e| e.to_string())?)
-        .map_err(|r| format!("invalid complete mutation: {r:?}"))?;
-    let (route, body) = match file {
-        Some((Some(f), p)) => {
-            return submit_input_file(
-                target,
-                request_file.parent().unwrap_or(Path::new("")),
-                &body,
-                &f,
-                p,
-            );
-        }
-        Some((None, p)) => (
-            "/api/db/delete-blob",
-            json!({ "mutation": body, "placement": p }),
-        ),
-        None => ("/api/mutation", body),
+    submit_input_file(target, base, body, file, place)
+}
+
+fn write_local_reference(
+    target: &DatabaseTarget,
+    base: &Path,
+    body: &Value,
+    file: &InputFile,
+    timeout: Duration,
+) -> Result<Option<Value>, String> {
+    let source = base.join(&file.source);
+    let canonical =
+        std::fs::canonicalize(&source).map_err(|e| format!("open {}: {e}", source.display()))?;
+    let Some(path) = canonical.to_str() else {
+        return Err(format!("open {}: path is not utf-8", source.display()));
     };
-    let id = (target.selector.is_some() && route == "/api/mutation")
-        .then(|| mutation_id.unwrap_or_else(Uuid::new_v4));
-    let with_id = |e: String| {
-        if let Some(id) = id {
-            format!("{e} (mutation ID {id})")
-        } else {
-            e
-        }
+    let link = v1_records::LinkedFile {
+        path,
+        name: file.name.as_deref(),
+        media_type: file.media_type.as_deref(),
     };
-    let timeout = if durable {
-        handler_timeout().saturating_add(Duration::from_secs(20))
-    } else {
-        Duration::from_secs(10)
+    let Some(item) = v1_records::record_write(body, v1_records::database(target), Some(link))
+    else {
+        return Ok(None);
     };
-    let raw = post_json_with_id(&target.socket, &target.path(route), &body, timeout, id)
-        .map_err(with_id)?;
+    let reply = v1_records::write_mutations(target, &item, timeout)?;
+    Ok(Some(v1_records::receipt(&reply, true)))
+}
+
+fn submit_v1_record(
+    target: &DatabaseTarget,
+    item: &Value,
+    mutation_id: Option<Uuid>,
+    timeout: Duration,
+) -> Result<(), String> {
+    let id = named_mutation_id(target, true, mutation_id);
+    let reply = v1_records::write_mutations(target, item, timeout)
+        .map_err(|error| with_mutation_id(id, error))?;
+    println!("{}", v1_records::receipt(&reply, false));
+    Ok(())
+}
+
+fn submit_legacy(
+    target: &DatabaseTarget,
+    route: &str,
+    body: &Value,
+    mutation_id: Option<Uuid>,
+    timeout: Duration,
+) -> Result<(), String> {
+    let id = named_mutation_id(target, route == "/api/mutation", mutation_id);
+    let raw = post_json_with_id(&target.socket, &target.path(route), body, timeout, id)
+        .map_err(|error| with_mutation_id(id, error))?;
     let (_, resp_body) = raw
         .split_once("\r\n\r\n")
-        .ok_or_else(|| with_id("mutation response had no body".into()))?;
+        .ok_or_else(|| with_mutation_id(id, "mutation response had no body".into()))?;
     if raw.starts_with("HTTP/1.1 202 ") {
-        let r: Value = serde_json::from_str(resp_body)
-            .map_err(|_| with_id("invalid mutation submission receipt".into()))?;
-        if r["status"] != "submitted" || r["mutation_id"].as_str().is_none() {
-            return Err(with_id("invalid mutation submission receipt".into()));
+        let receipt: Value = serde_json::from_str(resp_body)
+            .map_err(|_| with_mutation_id(id, "invalid mutation submission receipt".into()))?;
+        if receipt["status"] != "submitted" || receipt["mutation_id"].as_str().is_none() {
+            return Err(with_mutation_id(
+                id,
+                "invalid mutation submission receipt".into(),
+            ));
         }
     } else {
-        parse_json_response(&raw, "mutation").map_err(with_id)?;
+        parse_json_response(&raw, "mutation").map_err(|error| with_mutation_id(id, error))?;
     }
     println!("{}", resp_body.trim_end_matches('\n'));
     Ok(())
+}
+
+fn named_mutation_id(
+    target: &DatabaseTarget,
+    record_route: bool,
+    mutation_id: Option<Uuid>,
+) -> Option<Uuid> {
+    (target.selector.is_some() && record_route).then(|| mutation_id.unwrap_or_else(Uuid::new_v4))
+}
+
+fn with_mutation_id(id: Option<Uuid>, error: String) -> String {
+    if let Some(id) = id {
+        format!("{error} (mutation ID {id})")
+    } else {
+        error
+    }
 }
 
 fn put_record_file(

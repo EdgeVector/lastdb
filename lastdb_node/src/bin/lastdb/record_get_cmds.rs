@@ -1,5 +1,6 @@
 //! Record lookup commands (`lastdb get` and `lastdb get-keys`).
 
+use super::v1_records;
 use super::*;
 use lastdb_node::lastdb_uds::{admin_handler_timeout, DEFAULT_CLI_UDS_TIMEOUT_SECS};
 use serde_json::{json, Value};
@@ -23,6 +24,26 @@ pub(super) fn list_record_keys(
     target: &DatabaseTarget,
     args: &RecordListArgs,
 ) -> Result<(), String> {
+    // `--key-name` lists alternate addresses. `/v1` keys_only returns primary keys only.
+    // A received database, and an id missing from the catalog, stay on the old route.
+    if target.old_routes || args.key_name.is_some() {
+        return list_record_keys_legacy(target, args);
+    }
+    require_reachable(&target.socket)?;
+    let timeout = Duration::from_secs(DEFAULT_CLI_UDS_TIMEOUT_SECS);
+    let schema = fetch_schema(target, &args.schema)?;
+    let item = v1_records::key_list_item(args, v1_records::database(target));
+    let page = v1_records::read_page(target, &item, timeout)?;
+    let report = v1_records::key_report(args, &schema, &page)?;
+    if args.json {
+        print_pretty_json(&report);
+    } else {
+        print_list_record_keys_human(&report);
+    }
+    Ok(())
+}
+
+fn list_record_keys_legacy(target: &DatabaseTarget, args: &RecordListArgs) -> Result<(), String> {
     require_reachable(&target.socket)?;
     let mut path = format!(
         "/api/list?schema={}&limit={}",
@@ -101,6 +122,33 @@ fn print_list_record_keys_human(r: &Value) {
     }
 }
 
+fn fetch_schema(target: &DatabaseTarget, schema_name: &str) -> Result<Value, String> {
+    let route = format!("/api/schema/{}", percent_encode_query(schema_name));
+    let raw = get_path(
+        &target.socket,
+        &target.path(&route),
+        Duration::from_secs(10),
+    )?;
+    parse_json_response(&raw, "schema")?
+        .get("schema")
+        .cloned()
+        .ok_or_else(|| "response missing schema field".into())
+}
+
+fn query_record(
+    target: &DatabaseTarget,
+    schema_name: &str,
+    hash: &str,
+    key_range: Option<&str>,
+    timeout: Duration,
+) -> Result<Value, String> {
+    let body = get_query_body(schema_name, hash, key_range);
+    parse_json_response(
+        &post_json_with_timeout(&target.socket, &target.path("/api/query"), &body, timeout)?,
+        "query",
+    )
+}
+
 pub(crate) fn get_query_body(schema: &str, key_hash: &str, key_range: Option<&str>) -> Value {
     let filter = if let Some(range) = key_range.filter(|s| !s.is_empty()) {
         json!({ "HashRangeKey": { "hash": key_hash, "range": range } })
@@ -121,27 +169,23 @@ pub(super) fn get_record(
         return Err("get needs --key-hash (and --key-range when the schema is HashRange)".into());
     };
     require_reachable(&target.socket)?;
-    let route = format!("/api/schema/{}", percent_encode_query(schema_name));
-    let s_raw = get_path(
-        &target.socket,
-        &target.path(&route),
-        Duration::from_secs(10),
-    )?;
-    let schema = parse_json_response(&s_raw, "schema")?
-        .get("schema")
-        .cloned()
-        .ok_or("response missing schema field")?;
+    let schema = fetch_schema(target, schema_name)?;
     if schema["schema_type"].as_str() == Some("HashRange")
         && key_range.is_none_or(|s| s.trim().is_empty())
     {
         return Err("this schema is HashRange; pass --key-range or use get-keys --key-hash".into());
     }
-    let body = get_query_body(schema_name, hash, key_range);
     let timeout = Duration::from_secs(DEFAULT_CLI_UDS_TIMEOUT_SECS);
-    let mut val = parse_json_response(
-        &post_json_with_timeout(&target.socket, &target.path("/api/query"), &body, timeout)?,
-        "query",
-    )?;
+    // Hydration checks the file digest. `/v1` returns no digest and no bytes.
+    // A received database, and an id missing from the catalog, stay on the old route.
+    let mut val = if target.old_routes || hydrate.is_some() || hydrate_inline.is_some() {
+        query_record(target, schema_name, hash, key_range, timeout)?
+    } else {
+        let item =
+            v1_records::record_item(schema_name, hash, key_range, v1_records::database(target));
+        let page = v1_records::read_page(target, &item, timeout)?;
+        v1_records::query_view(&page)?
+    };
     if let Some(out) = hydrate {
         hydrate_record_file(
             target,

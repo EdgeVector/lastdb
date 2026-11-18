@@ -8,6 +8,7 @@ import shutil
 import time
 
 from node import OwnedNode, execute
+import v1_records as v1
 from snapshot_gate_aws import current_attempt, gate_id, note, register_and_track, summary
 from support import CREDENTIALS_FILE, OperationError, private_file, read_json, require, stable, write_private
 
@@ -75,15 +76,6 @@ def install_registry(home, database_id):
     write_private(folder / "registry.json", json.dumps({"format": 1, "owner": owner, "owned": []}).encode("ascii"))
 
 
-def record_create(key, body):
-    return {
-        "type": "mutation", "schema": SCHEMA, "record": {"body": body},
-        "key_value": {"hash": key, "range": None}, "alternates": {}, "mutation_type": "create",
-        "source_file_name": None, "metadata": None, "file": None,
-        "expected": {"type": "absent"}, "durability": "durable", "convergence": "sync",
-    }
-
-
 def install_schema(node, database_id):
     schema = {
         "source": "system_seed", "name": SCHEMA, "descriptive_name": SCHEMA, "schema_type": "Hash",
@@ -95,7 +87,6 @@ def install_schema(node, database_id):
 
 
 def write_records(node, database_id):
-    route = f"/api/databases/{database_id}/mutations/batch"
     started = time.monotonic()
     request_seconds = 0.0
     written = hashlib.sha256()
@@ -104,14 +95,14 @@ def write_records(node, database_id):
         bodies = [record_body(index) for index in indexes]
         for body in bodies:
             written.update(body.encode("ascii"))
-        mutations = [record_create(f"{index:06d}", body) for index, body in zip(indexes, bodies, strict=True)]
+        mutations = [
+            v1.create_item(SCHEMA, f"{index:06d}", {"body": body}, database=database_id)
+            for index, body in zip(indexes, bodies, strict=True)
+        ]
         request_start = time.monotonic()
-        reply = node.call(route, {"mutations": mutations})
+        reply = v1.write_items(node, mutations)
         request_seconds += time.monotonic() - request_start
-        require(
-            isinstance(reply, dict) and reply.get("count") == len(bodies) and reply.get("durability") == "durable",
-            "record_write",
-        )
+        require(isinstance(reply, dict) and reply.get("written") == len(bodies), "record_write")
         written_count = start + len(bodies)
         if written_count % 50_000 == 0:
             print(
@@ -145,31 +136,26 @@ def parse_restore(output):
     return int(match.group(1)), replayed
 
 
-def rows_from_batch(reply):
-    require(isinstance(reply, dict) and isinstance(reply.get("results"), list), "record_reply")
+def rows_from_read(pages):
+    require(isinstance(pages, list), "record_reply")
     found = {}
-    for item in reply["results"]:
-        require(isinstance(item, dict) and item.get("status") == 200, "record_status")
-        response = item.get("response")
-        require(isinstance(response, dict), "record_reply")
-        page = response.get("data", response)
-        require(isinstance(page, dict) and isinstance(page.get("results"), list), "record_reply")
-        for row in page["results"]:
+    for item in pages:
+        require(isinstance(item, dict) and isinstance(item.get("records"), list) and "error" not in item, "record_reply")
+        for row in item["records"]:
             key = row.get("key", {}).get("hash")
-            body = row.get("fields", {}).get("body")
+            body = (row.get("record") or {}).get("body")
             require(isinstance(key, str) and isinstance(body, str), "record_reply")
             found[key] = body
     return found
 
 
 def verify_records(node, database_id, digest):
-    route = f"/api/databases/{database_id}/queries/batch"
     checked = hashlib.sha256()
     count = 0
     for start in range(0, RECORDS, QUERY_BATCH):
         indexes = range(start, min(start + QUERY_BATCH, RECORDS))
-        queries = [{"schema_name": SCHEMA, "limit": 1, "filter": {"HashKey": f"{index:06d}"}} for index in indexes]
-        found = rows_from_batch(node.call(route, {"queries": queries}))
+        reads = [v1.point(SCHEMA, f"{index:06d}", database=database_id) for index in indexes]
+        found = rows_from_read(v1.read_items(node, reads))
         for index in indexes:
             body = found.get(f"{index:06d}")
             require(body == record_body(index), "record_mismatch")
@@ -180,13 +166,12 @@ def verify_records(node, database_id, digest):
 
 
 def write_record(node, database_id, key, body):
-    reply = node.call(f"/api/databases/{database_id}/mutations/batch", {"mutations": [record_create(key, body)]})
-    require(reply.get("count") == 1 and reply.get("durability") == "durable", "record_write")
+    reply = v1.write_items(node, [v1.create_item(SCHEMA, key, {"body": body}, database=database_id)])
+    require(reply.get("written") == 1, "record_write")
 
 
 def require_record(node, database_id, key, body):
-    queries = [{"schema_name": SCHEMA, "limit": 1, "filter": {"HashKey": key}}]
-    found = rows_from_batch(node.call(f"/api/databases/{database_id}/queries/batch", {"queries": queries}))
+    found = rows_from_read(v1.read_items(node, [v1.point(SCHEMA, key, database=database_id)]))
     require(found == {key: body}, "record_readback")
 
 
