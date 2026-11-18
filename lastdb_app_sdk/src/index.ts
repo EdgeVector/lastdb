@@ -136,8 +136,6 @@ export type {
   CasExpectation,
   ConnectOptions,
   CreateMutationOp,
-  DatabaseSession,
-  DatabaseSessionIntent,
   DeleteMutationOp,
   FileMarker,
   JsonValue,
@@ -149,7 +147,6 @@ export type {
   NodeVersion,
   ReplaceMutationOp,
   RowFields,
-  SelectDatabaseOptions,
   ShareSubmissionResult,
   ShareSubmissionStatus,
 } from './types.js';

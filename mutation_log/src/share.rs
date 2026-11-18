@@ -7,9 +7,9 @@
 //! log as it behaves today. A caller that has a statement passes
 //! [`crate::BoundPolicy::with_share`].
 //!
-//! `read` and `write` are independent. Every pair is valid. Share, Deliver,
-//! and Org are names for three of the pairs. This crate does not treat a pair
-//! as a mode, and it does not look at what the log already holds.
+//! `read` and `write` are independent. Every pair is valid. This crate does
+//! not treat a pair as a mode, and it does not look at what the log already
+//! holds.
 //!
 //! [`ShareRead`] and [`ShareWrite`] use the same variant names as
 //! `cloud_backup_protocol`. This crate does not depend on that crate. Map one
@@ -28,11 +28,10 @@ pub enum ShareRead {
 /// Where a Submit member's append goes from now on.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ShareWrite {
-    /// The proposal log. Readers of the mutation log see publisher-written
-    /// entries and entries already marked as direct writes. This is the absent value.
+    /// The proposal log. This is the absent value.
     #[default]
     Proposals,
-    /// The mutation log. The append path records that choice on the stored entry.
+    /// The mutation log.
     Direct,
 }
 

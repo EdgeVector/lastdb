@@ -27,9 +27,6 @@ pub(in crate::exec) async fn execute_database_request(
     if !ctx.is_owner {
         return content_free(404, "Not Found");
     }
-    if super::database_session::is_issue(req) {
-        return super::database_session::issue(req, ctx, host);
-    }
     match (req.method.as_str(), req.target.as_str()) {
         ("GET", DATABASES_PATH) => return database_owned::list(ctx, host),
         ("POST", DATABASES_PATH) => return database_owned::create(req, ctx, host).await,
@@ -90,7 +87,7 @@ async fn dispatch(
             .await
         }
         Selection::Signed(share) => {
-            super::database_session::read_signed(route, req, ctx, host, share.as_ref()).await
+            super::database_received::read_signed(route, req, ctx, host, share.as_ref()).await
         }
     }
 }
@@ -158,7 +155,7 @@ async fn run_submission_status(
 ) -> UdsResponse {
     match resolve_database(selector, ctx, host) {
         Ok(Selection::Signed(share)) => {
-            super::database_session::submission_status(req, ctx, host, &share).await
+            super::database_received::submission_status(req, ctx, host, &share).await
         }
         Ok(_) => error_response(404, "this database has no received submissions", ctx),
         Err(response) => response,
@@ -173,7 +170,7 @@ async fn run_submission(
 ) -> UdsResponse {
     match resolve_database(selector, ctx, host) {
         Ok(Selection::Signed(share)) => {
-            super::database_session::submit_signed(req, ctx, host, &share).await
+            super::database_received::submit_signed(req, ctx, host, &share).await
         }
         // An owned database is not a receiver. The route does not write a record.
         Ok(_) => error_response(404, "this database has no received submissions", ctx),

@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "LastDB app API",
-    "version": "40",
+    "version": "41",
     "description": "The app API lastdbd serves today: POST /v1/read, POST /v1/write, and POST /v1/x/<name>. info.version is the node api_version. Extensions carry no version: adding one does not change api_version, and removing one is refused. The app socket accepts a request body of at most 8388608 bytes. The owner socket does not use that cap. On the app socket a whole-request refusal uses the error object. A read that fails one item returns HTTP 200 and puts the same error object in that item."
   },
   "x-lastdb-extensions-carry-version": false,
@@ -190,7 +190,7 @@
     "schemas": {
       "DatabaseName": {
         "type": "string",
-        "description": "1 to 64 bytes: ASCII letters, digits, hyphen, and underscore. With no database session, omit the field to use the personal database. On a request that carries X-LastDB-Database-Session, omit the field to address that session's database. An item that names a different database is permission_denied and its message is \"a database session addresses only its own database\". An unknown identifier is not_found and its message is \"database is not registered on this node\". A received database can be read. A write to one is permission_denied because a received database is read only. /v1/x/changes does not serve a received database, and a database session cannot call it."
+        "description": "1 to 64 bytes: ASCII letters, digits, hyphen, and underscore. Omit the field to use the personal database. An unknown identifier is not_found and its message is \"database is not registered on this node\". A received database can be read. A write to one is permission_denied because a received database is read only. /v1/x/changes does not serve a received database."
       },
       "SchemaName": {
         "type": "string",
