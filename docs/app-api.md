@@ -342,6 +342,55 @@ A node serves two sockets in its data directory.
   key list, file-byte upload, or `GET /api/changes`. Those calls are unknown
   paths. Record reads and writes use `/v1/read` and `/v1/write`. A receiver's
   proposal is `POST /api/databases/{id}/submissions`. That call is not a record write.
+- The installer places one schema on the personal database with
+  `POST /api/apps/declare-schema`. The same body placed in one database this
+  node owns is `POST /api/databases/{id}/apps/declare-schema`. The app socket
+  does not serve that path.
+
+## Place a schema in an owned database
+
+`POST /api/apps/declare-schema` writes the schema into the personal database.
+To place that same schema in a named database this node owns, send the same
+body to the database path. The reply is the same object.
+
+```
+POST /api/databases/{id}/apps/declare-schema
+
+{ "app_id": "social", "schema": { "name": "social/Comment", "schema_type": "Hash",
+  "record_keys": { "primary": { "kind": "hash" }, "alternates": {} },
+  "fields": ["id", "text"], "field_types": { "id": "String", "text": "String" },
+  "field_descriptions": { "id": "comment id", "text": "comment text" },
+  "field_versions": { "id": 1, "text": 1 } } }
+```
+
+`intent` defaults to `catalog_sync`. `retention`, when present, sits beside
+`schema`, not inside it. A name that already contains a namespace is declared
+under that namespace, and the namespace has to match `app_id`. A bare name is
+declared under `app_id`.
+
+```
+200
+{ "ok": true, "user_hash": "<owner>", "app_id": "social", "namespace": "social",
+  "schema": "social/Comment", "schema_name": "social/Comment",
+  "descriptive_name": "Comment", "canonical": "social/Comment",
+  "identity_hash": "<hash>", "definition_id": "<portable id>",
+  "resolution": "register", "bind_eligible": true }
+```
+
+`descriptive_name` is the local name when the request omits it. `resolution`
+is `reuse` when that definition is already installed. `retention` is present
+only when the request declared one and the retention step finished.
+
+- `{id}` is the id or the name of a database this node owns. The personal
+  database is one of those. The schema is stored in that database, and that
+  database's accepted log records the schema with kind `schema`. A share
+  publishes that entry when the schema namespace is one the database spec admits.
+- A received database answers 404 and the body is `Not Found`. An id this node
+  does not know answers 404 and the body is `database is not registered on this node`.
+- A registered app that sends this path to the app socket gets `not_found`
+  and the message `the app socket serves only the app API`.
+- `POST /api/schemas/declare` and `POST /api/databases/{id}/schemas/declare`
+  are not routes.
 
 ## Sharing
 
