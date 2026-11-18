@@ -40,7 +40,7 @@ impl RecordWriteLog for IdentityLog {
     }
 }
 
-pub(in crate::log_sync) fn receipt_recorded(
+pub(crate) fn receipt_recorded(
     home: &Path,
     database_id: &str,
     id: &[u8; 32],
@@ -51,11 +51,7 @@ pub(in crate::log_sync) fn receipt_recorded(
         .map_err(|_| "member write receipt is unavailable".to_owned())
 }
 
-pub(in crate::log_sync) fn store_receipt(
-    home: &Path,
-    database_id: &str,
-    id: &[u8; 32],
-) -> Result<(), String> {
+pub(crate) fn store_receipt(home: &Path, database_id: &str, id: &[u8; 32]) -> Result<(), String> {
     let path = receipt_path(home, database_id, id)?;
     if receipt_recorded(home, database_id, id)? {
         return Ok(());
@@ -63,13 +59,13 @@ pub(in crate::log_sync) fn store_receipt(
     disk::write_private(&path, b"1").map_err(|_| "member write receipt was not stored".to_owned())
 }
 
-pub(in crate::log_sync) struct LocalIdentity {
-    pub(in crate::log_sync) local_revision: String,
-    pub(in crate::log_sync) mutation_id: String,
-    pub(in crate::log_sync) comment_creator: Option<String>,
+pub(crate) struct LocalIdentity {
+    pub(crate) local_revision: String,
+    pub(crate) mutation_id: String,
+    pub(crate) comment_creator: Option<String>,
 }
 
-pub(in crate::log_sync) fn local_identity(
+pub(crate) fn local_identity(
     home: &Path,
     database_id: &str,
     address: &str,

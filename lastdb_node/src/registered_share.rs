@@ -310,7 +310,7 @@ async fn open_receiver(host: &Host, id: &Id, whole_database: bool) -> Result<Arc
             capture_accepted: false,
             capture_initial_snapshot: false,
             record_log: whole_database
-                .then(|| crate::log_sync::record_log(&host.home, id.as_str())),
+                .then(|| crate::host::share_identity::record_log(&host.home, id.as_str())),
         },
     )
     .await

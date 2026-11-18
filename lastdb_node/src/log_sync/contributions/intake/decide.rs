@@ -5,7 +5,7 @@ use cloud_backup_protocol::Digest;
 use fold_db::schema::types::{cas::CasExpectation, Mutation, MutationType};
 use fold_db::STANDARD_COMMENT_SCHEMA;
 
-use super::super::super::identity::LocalIdentity;
+use crate::host::share_identity::LocalIdentity;
 
 pub(super) struct GrantView<'a> {
     pub(super) active_submitter: bool,

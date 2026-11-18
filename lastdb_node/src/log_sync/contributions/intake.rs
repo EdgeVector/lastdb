@@ -14,11 +14,11 @@ use std::sync::Arc;
 mod commit;
 mod decide;
 
-use super::super::identity::{self, LocalIdentity};
 use super::{
     inbox, schema_id, terminal_record_error, CloudLog, ContributionError, ProposalResult,
     Submission, BODY_LIMIT, DEVICE_PREFIX, INBOX_NAMESPACE,
 };
+use crate::host::share_identity::{self as identity, LocalIdentity};
 use crate::host::Host;
 use crate::log_envelope::DatabaseContentKey;
 use crate::named_grant::lock_member;

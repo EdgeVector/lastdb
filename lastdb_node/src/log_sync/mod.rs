@@ -10,9 +10,6 @@ mod blob_retention;
 mod cloud;
 mod contributions;
 mod http;
-mod identity;
-
-pub(crate) use identity::record_log;
 mod native;
 mod native_reset;
 mod owner_recovery;

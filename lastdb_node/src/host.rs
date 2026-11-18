@@ -25,6 +25,7 @@ mod logging;
 pub(crate) mod ops;
 pub(crate) mod owned;
 mod recovery;
+pub(crate) mod share_identity;
 pub(crate) use cloud_sync::{BlockedDelivery, ReplayBlockReason};
 pub use logging::init_daemon_logging;
 

@@ -6,9 +6,9 @@ use fold_db::fold_db_core::FoldDB;
 use fold_db::schema::types::{cas::CasExpectation, mutation::ContributionAdmission, MutationType};
 use sha2::{Digest as _, Sha256};
 
-use super::super::super::identity;
 use super::super::{terminal_record_error, ProposalResult};
 use super::{decide::IntakeDecision, OpenedSubmission};
+use crate::host::share_identity as identity;
 use crate::host::Host;
 
 pub(super) struct CommitInput<'a> {

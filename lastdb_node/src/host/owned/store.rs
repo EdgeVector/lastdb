@@ -182,7 +182,7 @@ pub(super) async fn open(
             capture_initial_snapshot: false,
             record_log: entry
                 .whole_database()
-                .then(|| crate::log_sync::record_log(home, id)),
+                .then(|| crate::host::share_identity::record_log(home, id)),
         },
     )
     .await
