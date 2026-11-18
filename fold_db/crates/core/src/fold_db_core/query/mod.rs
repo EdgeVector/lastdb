@@ -10,6 +10,7 @@ use crate::schema::types::field::{HashRangeFilter, KeyWindow};
 use crate::schema::types::key_comparison::KeyComparisonContext;
 use crate::schema::types::{KeyValue, Query, Schema, SchemaError};
 use crate::schema::SchemaCore;
+use lastdb_model::record_replacement::RecordMetadata as StoredMeta;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
@@ -50,18 +51,28 @@ pub struct Record {
 
 pub type QueryRecords = HashMap<KeyValue, Record>;
 
+fn exposed_metadata(meta: &StoredMeta) -> Option<HashMap<String, String>> {
+    let entries: HashMap<_, _> = meta
+        .metadata
+        .iter()
+        .filter(|(key, _)| !StoredMeta::is_reserved_author_key(key))
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect();
+    (!entries.is_empty()).then_some(entries)
+}
+
 impl Record {
     pub(crate) fn from_stored(r: &lastdb_model::record_value::StoredRecord) -> Self {
-        let meta = r
-            .meta
-            .as_ref()
-            .filter(|m| m.source_file_name.is_some() || !m.metadata.is_empty());
+        let meta = r.meta.as_ref().filter(|m| {
+            m.source_file_name.is_some()
+                || m.metadata
+                    .keys()
+                    .any(|key| !StoredMeta::is_reserved_author_key(key))
+        });
         let metadata = (meta.is_some() || r.file.is_some() || r.inline_file.is_some()).then(|| {
             RecordMetadata {
                 source_file_name: meta.and_then(|m| m.source_file_name.clone()),
-                metadata: meta
-                    .filter(|m| !m.metadata.is_empty())
-                    .map(|m| m.metadata.clone().into_iter().collect()),
+                metadata: meta.and_then(exposed_metadata),
                 file: r.file.clone(),
                 inline_file: r.inline_file.clone(),
             }

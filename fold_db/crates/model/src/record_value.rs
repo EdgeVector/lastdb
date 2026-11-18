@@ -1,7 +1,9 @@
 //! One complete stored record, its external addresses, file markers, and record stamp.
 
 use crate::keys::KeyValue;
-use crate::portable_mutation::record_replacement::RecordReplacement;
+use crate::portable_mutation::record_replacement::{
+    RecordReplacement, CREATED_BY_META_KEY, UPDATED_BY_META_KEY,
+};
 use crate::portable_mutation::{Position, Stamp};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use serde::{Deserialize, Serialize};
@@ -167,11 +169,12 @@ pub struct StoredRecord {
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub fields: BTreeMap<String, Value>,
     pub stamp: RecordStamp,
-    /// Lowercase hex node key. Absent on a record written before this field existed.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Lowercase hex node key. On disk this is `meta.metadata["created_by"]`.
+    /// It is not a field of the stored struct: an older build rejects one it does not know.
+    #[serde(skip)]
     pub created_by: Option<String>,
-    /// Lowercase hex node key of the writer of this revision.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Lowercase hex node key of the writer of this revision. On disk, `updated_by` in the same map.
+    #[serde(skip)]
     pub updated_by: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub meta: Option<RecordMeta>,
@@ -244,14 +247,58 @@ impl StoredRecord {
 
     pub fn encode_uncapped(&self) -> Result<Vec<u8>, RecordValueError> {
         self.validate_structure()?;
-        serde_json::to_vec(self).map_err(|e| RecordValueError::Format(e.to_string()))
+        let wire = self.authors_in_meta();
+        serde_json::to_vec(&wire).map_err(|e| RecordValueError::Format(e.to_string()))
     }
 
     pub fn decode(bytes: &[u8]) -> Result<Self, RecordValueError> {
-        let record: Self =
+        let mut record: Self =
             serde_json::from_slice(bytes).map_err(|e| RecordValueError::Format(e.to_string()))?;
+        record.authors_from_meta();
         record.validate_structure()?;
         Ok(record)
+    }
+
+    /// Put the node-owned author fields into the meta map for the bytes on disk.
+    /// The in-memory record keeps the fields and does not keep the keys in the map.
+    fn authors_in_meta(&self) -> Self {
+        let mut wire = self.clone();
+        if let Some(meta) = wire.meta.as_mut() {
+            meta.metadata.remove(CREATED_BY_META_KEY);
+            meta.metadata.remove(UPDATED_BY_META_KEY);
+        }
+        if self.created_by.is_some() || self.updated_by.is_some() {
+            let meta = wire.meta.get_or_insert_with(|| RecordMeta {
+                source_file_name: None,
+                metadata: BTreeMap::new(),
+            });
+            if let Some(created_by) = &self.created_by {
+                meta.metadata
+                    .insert(CREATED_BY_META_KEY.to_owned(), created_by.clone());
+            }
+            if let Some(updated_by) = &self.updated_by {
+                meta.metadata
+                    .insert(UPDATED_BY_META_KEY.to_owned(), updated_by.clone());
+            }
+        } else if wire
+            .meta
+            .as_ref()
+            .is_some_and(|meta| meta.source_file_name.is_none() && meta.metadata.is_empty())
+        {
+            wire.meta = None;
+        }
+        wire
+    }
+
+    fn authors_from_meta(&mut self) {
+        let Some(mut meta) = self.meta.take() else {
+            return;
+        };
+        self.created_by = meta.metadata.remove(CREATED_BY_META_KEY);
+        self.updated_by = meta.metadata.remove(UPDATED_BY_META_KEY);
+        if meta.source_file_name.is_some() || !meta.metadata.is_empty() {
+            self.meta = Some(meta);
+        }
     }
 
     fn validate_structure(&self) -> Result<(), RecordValueError> {
