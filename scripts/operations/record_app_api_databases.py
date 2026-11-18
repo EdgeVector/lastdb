@@ -195,7 +195,8 @@ def prove_share(node, sock, database):
        /api/cloud/backups/v2/share/members/settings/get with the member
        LastDBNode token and X-LastDB-Self-Access: 1, in the same refresh as
        POST /api/cloud/backups/v2/share/members/read. No stored statement is
-       members and proposals.
+       members and proposals. A successor copies the stored member_writes
+       map and does not change it.
     """
     config = {"expectedRevision": "0", "requestId": REQUEST_ID, "members": []}
     path = f"/api/databases/{database}/share/config"

@@ -20,8 +20,10 @@ pub(super) fn mode(current: Option<&ShareSettings>) -> (ShareRead, ShareWrite) {
 /// The next statement, or nothing when the caller left the stored pair as it is.
 ///
 /// An omitted `read` or `write` keeps the stored value. No stored statement
-/// is members and proposals. The same pair is not signed: the service refuses
-/// it, and a repeat of a call whose answer was lost must not send it again.
+/// is members and proposals. The stored `member_writes` map is copied onto
+/// the next statement and is not a field of this request. The same pair is
+/// not signed: the service refuses it, and a repeat of a call whose answer
+/// was lost must not send it again.
 pub(super) fn prepare(
     session: &PublisherSession,
     database_id: &str,
@@ -83,6 +85,9 @@ fn sign(
         stream: entries::stream(session, database_id)?,
         read,
         write,
+        member_writes: current
+            .map(|stored| stored.member_writes.clone())
+            .unwrap_or_default(),
         sequence: DecimalU64::new(sequence),
         publisher_public_key: session.publisher.clone(),
         signed_at_ms: DecimalU64::new(now),
