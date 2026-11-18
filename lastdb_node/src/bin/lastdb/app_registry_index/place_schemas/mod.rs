@@ -3,14 +3,15 @@
 //! For one name: the node already holds that definition, or Schema Service
 //! returns it, or the manifest entry hashes to the signed id. The node
 //! decides whether a later declare is a compatible change. `"*"` names no
-//! schema, so it places nothing by itself. A schema the access block does
-//! not name is not placed.
+//! schema, so it places nothing by itself. When either side is `"*"`, each
+//! manifest schema that no side names is placed from that manifest. When
+//! neither side is `"*"`, a manifest schema that no side names is not placed.
 
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::time::Duration;
 
-use app_identity_crypto::Access;
+use app_identity_crypto::{Access, SchemaSet, ALL_SCHEMAS};
 use fold_db::schema::types::DeclarativeSchemaDefinition;
 use serde_json::Value;
 
@@ -32,7 +33,8 @@ pub(super) fn place(
     access: &Access,
 ) -> Result<(), String> {
     let wanted = signed_pairs(access)?;
-    if wanted.is_empty() {
+    let wide = side_is_all(&access.read) || side_is_all(&access.write);
+    if wanted.is_empty() && !wide {
         return Ok(());
     }
     let socket = lastdb_node::lastdb_uds::socket_path(&home.join("data"));
@@ -51,8 +53,51 @@ pub(super) fn place(
         let node = node_state(&held, name);
         pending.push(resolve(&mut ctx, name, signed_id, &node)?);
     }
+    if wide {
+        own_schemas(&mut ctx, &held, &wanted, &mut pending)?;
+    }
     for item in pending {
         post_one(&socket, item)?;
+    }
+    Ok(())
+}
+
+fn side_is_all(side: &SchemaSet) -> bool {
+    matches!(side, SchemaSet::All(marker) if marker == ALL_SCHEMAS)
+}
+
+/// Manifest schemas that no access side names.
+///
+/// The listing signs the commit, so the manifest at that commit is the
+/// publisher's statement of these schemas. A `"*"` side cannot name them.
+/// They are posted the same way a manifest entry is posted when Schema
+/// Service misses: `placed schema <name> from the app's manifest`, with
+/// that entry's retention.
+///
+/// A name the node already holds at this definition stays, and its
+/// retention stays. A different definition is posted. The node accepts a
+/// compatible change and refuses a breaking one. A refusal fails the
+/// install, and the previous version stays active.
+fn own_schemas(
+    ctx: &mut Resolve<'_>,
+    held: &BTreeMap<String, Option<String>>,
+    named: &BTreeMap<String, String>,
+    pending: &mut Vec<Pending>,
+) -> Result<(), String> {
+    let catalog = cached_manifest(&mut ctx.loaded, ctx.source, ctx.app_id)?;
+    for item in catalog.unnamed(named)? {
+        let name = item.schema.name.clone();
+        let id = definition_id::portable_id(&item.schema).map_err(|error| {
+            format!("schema '{name}': definition id could not be computed: {error}")
+        })?;
+        if held.get(&name).and_then(Option::as_deref) == Some(id.as_str()) {
+            continue;
+        }
+        pending.push(Pending {
+            schema: item.schema,
+            retention: item.retention,
+            from: "the app's manifest",
+        });
     }
     Ok(())
 }
