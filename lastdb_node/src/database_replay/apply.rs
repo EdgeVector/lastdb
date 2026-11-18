@@ -1,6 +1,6 @@
 //! Store mutations and attached file bytes for verified signed entries.
 
-use fold_db::fold_db_core::mutation_manager::{MutationManager, ReplayStamp};
+use fold_db::fold_db_core::mutation_manager::{MutationManager, ReplayStamp, ServedLocal};
 use fold_db::fold_db_core::FoldDB;
 use fold_db::record_value::FileMarker;
 use fold_db::schema::types::field::HashRangeFilter;
@@ -100,29 +100,83 @@ pub(super) async fn apply_schema(store: &FoldDB, change: SchemaChange) -> Result
     }
 }
 
-pub(super) async fn bind_expected(
+/// The log body has no base revision. The action is the precondition.
+///
+/// A create holds when the key is absent. A replace, delete, or purge holds when
+/// a record (or, for purge, its tombstone) is live. The caller then writes that
+/// exact expectation, so the storage check is the check just made.
+pub(super) async fn served_precondition(
     store: &FoldDB,
     mutation: &mut Mutation,
-    resumed: bool,
 ) -> Result<bool, RestoreError> {
-    if mutation.mutation_type == MutationType::Create {
-        mutation.expected = CasExpectation::Absent;
-        return Ok(true);
+    let live = live_revision(store, mutation).await?;
+    let holds = match mutation.mutation_type {
+        MutationType::Create => live.is_none(),
+        MutationType::Replace | MutationType::Delete | MutationType::Purge => live.is_some(),
+    };
+    if holds {
+        mutation.expected = match live {
+            Some(revision) => CasExpectation::Revision { revision },
+            None => CasExpectation::Absent,
+        };
     }
-    match live_revision(store, mutation).await? {
-        Some(revision) => {
-            mutation.expected = CasExpectation::Revision { revision };
-            Ok(true)
+    Ok(holds)
+}
+
+pub(super) async fn apply_served_record(
+    store: &FoldDB,
+    key: &crate::log_envelope::DatabaseContentKey,
+    database_id: &str,
+    entry: &SnapshotEntry,
+    files: &mut crate::log_sync::SnapshotFiles,
+    mut change: payload::RecordChange,
+) -> Result<(), RestoreError> {
+    // The contribution names its writer when the body has one. Otherwise the entry names its writer.
+    let writer = match change.mutation.contribution.as_ref() {
+        Some(admission) => admission.writer.clone(),
+        None => entry.writer_key.clone(),
+    };
+    change.mutation.writer = Some(writer);
+    let schema = change.mutation.schema_name.clone();
+    let record_key = change.mutation.key_value.clone();
+    let mutation_id = change.mutation.uuid.clone();
+    let local = store
+        .mutation_manager()
+        .release_local_for_served(&schema, &record_key, &mutation_id)
+        .await
+        .map_err(|_| RestoreError::Apply("snapshot record"))?;
+    if local == ServedLocal::Echo || !served_precondition(store, &mut change.mutation).await? {
+        tracing::warn!(
+            target: "lastdbd::log_sync",
+            %mutation_id,
+            "served entry precondition did not hold"
+        );
+        return Ok(());
+    }
+    stage_file(store, key, database_id, entry, &mut change, files).await?;
+    match store
+        .mutation_manager()
+        .write_mutations_receipt(vec![change.mutation])
+        .await
+    {
+        Ok(_) => Ok(()),
+        Err(SchemaError::CasConflict { .. }) => {
+            tracing::warn!(
+                target: "lastdbd::log_sync",
+                %mutation_id,
+                "served entry precondition did not hold"
+            );
+            Ok(())
         }
-        None if resumed
-            && matches!(
-                mutation.mutation_type,
-                MutationType::Delete | MutationType::Purge
-            ) =>
-        {
-            Ok(false)
+        Err(SchemaError::InvalidData(message)) if message.contains("alternate") => {
+            tracing::warn!(
+                target: "lastdbd::log_sync",
+                %mutation_id,
+                "served entry precondition did not hold"
+            );
+            Ok(())
         }
-        None => Err(RestoreError::Conflict("snapshot record")),
+        Err(_) => Err(RestoreError::Apply("snapshot record")),
     }
 }
 
@@ -166,25 +220,6 @@ fn key_filter(key: &KeyValue) -> Result<HashRangeFilter, RestoreError> {
             range: range.clone(),
         }),
         _ => Ok(HashRangeFilter::HashKey(hash)),
-    }
-}
-
-pub(super) async fn write_record(
-    store: &FoldDB,
-    mutation: Mutation,
-    resumed: bool,
-) -> Result<(), RestoreError> {
-    match store
-        .mutation_manager()
-        .write_mutations_receipt(vec![mutation])
-        .await
-    {
-        Ok(_) => Ok(()),
-        // A resumed create can conflict because the first attempt landed and
-        // the author clock changed. The caller clears only a first attempt.
-        Err(SchemaError::CasConflict { .. }) if resumed => Ok(()),
-        Err(SchemaError::CasConflict { .. }) => Err(RestoreError::Conflict("snapshot record")),
-        Err(_) => Err(RestoreError::Apply("snapshot record")),
     }
 }
 

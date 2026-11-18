@@ -302,20 +302,31 @@ pub(crate) async fn receiver_store(host: &Host, id: &Id) -> Result<Arc<FoldDB>> 
 async fn open_receiver(host: &Host, id: &Id, whole_database: bool) -> Result<Arc<FoldDB>> {
     let keys = content_keys(&host.home, id)?;
     let data = store_dirs(&host.home, id)?;
-    fold_db::fold_db_core::factory::create_fold_db_with_options(
+    let store = fold_db::fold_db_core::factory::create_fold_db_with_options(
         &DatabaseConfig::local(data),
         &keys,
         Arc::clone(&host.keypair),
         fold_db::fold_db_core::factory::FoldDbOptions {
             offline_maintenance: false,
-            capture_accepted: false,
+            // A direct Submit member appends from this store. Replay runs inside
+            // `replay_accepted`, so a served entry is not captured again.
+            capture_accepted: true,
             capture_initial_snapshot: false,
             record_log: whole_database
                 .then(|| crate::host::share_identity::record_log(&host.home, id.as_str())),
         },
     )
     .await
-    .map_err(|_| ShareCacheError::Unavailable)
+    .map_err(|_| ShareCacheError::Unavailable)?;
+    let runtime = store.db_ops().native_runtime();
+    if runtime.accepted_status().snapshot_required {
+        // Only the publisher publishes a snapshot. Cover the frontier so a
+        // member who already has records is not blocked on that upload.
+        runtime
+            .note_accepted_snapshot(u64::MAX)
+            .map_err(|_| ShareCacheError::Unavailable)?;
+    }
+    Ok(store)
 }
 
 fn content_keys(home: &Path, id: &Id) -> Result<E2eKeys> {

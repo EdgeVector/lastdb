@@ -3,7 +3,10 @@
 mod attachments;
 mod candidate;
 mod records;
+mod served;
 mod state;
+
+pub use served::ServedLocal;
 
 use super::{AuthoredMutation, MutationManager};
 use crate::schema::types::{KeyValue, Mutation, MutationType};

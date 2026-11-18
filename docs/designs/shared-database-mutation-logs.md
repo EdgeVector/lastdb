@@ -140,14 +140,17 @@ The settings statement and the log model treat `read` and `write` as independent
 
 The list wire is unchanged. `lastdb_node/src/log_sync/wire.rs` `EntryBody` still has `deny_unknown_fields` and no direct-write field. The node parser sets `direct_write` false on the `StoredEntry` it builds, because the mark is not on that wire.
 
+On the node, a member applies every mutation-log entry it is served. The node does not check who wrote an entry. `created_by` and `updated_by` come from the contribution writer when the body has one, otherwise from the entry's writer key. Entries are applied in the order served. An entry whose action does not hold against the record as it stands is skipped, and replay continues. An entry that cannot be decrypted or parsed is skipped and logged. The publisher's own node replays member-written entries in its mutation log by that same rule. A second device of the publisher is still refused for the whole page.
+
+While `write` is `direct` and this node is an active Submit member, `/v1/write` commits to the local copy and the same owned publish path appends the change. The writer is this node's key and device. The service may refuse the append. The node then restores the preimage of that local write and drops the spool item without advancing the writer sequence, so the refused write does not stay visible. While `write` is `proposals`, `/v1/write` to a received database stays refused and proposals stay on the submissions route. A reader with no member entry never writes. The node reads `read` and `write` in `lastdb_node/src/log_sync/share_mode.rs` until those fields are on the access view. Only the publisher publishes a snapshot.
+
 These are not built:
 
-- ExeMem enforcement. The service does not yet choose the mutation log or the proposal log from `write`, and it does not yet persist or restore `direct_write`. It must not refuse a change to `direct` or `anyone` because unsettled proposals exist, because the mutation log holds entries the publisher did not write, or because `read` is `anyone`. Members append to the proposal log only while `write` is `proposals`. An `anyone` database is not a database without a proposal log.
+- ExeMem enforcement. The service does not yet choose the mutation log or the proposal log from `write`, and it does not yet persist or restore `direct_write`. It must not refuse a change to `direct` or `anyone` because unsettled proposals exist, because the mutation log holds entries the publisher did not write, or because `read` is `anyone`. Members append to the proposal log only while `write` is `proposals`. An `anyone` database is not a database without a proposal log. ExeMem does not yet assign a direct append's order or store the mark. The log model accepts a Submit append on a shareable log and records the mark when `write` is `direct`.
 - The open-link read (the Deliver example). A reader with no member entry cannot yet read by holding the read key from a link.
-- Direct member writes (the Org example). The node does not send a Submit member's write to the mutation log, and ExeMem does not assign that append order or store the mark. The log model accepts a Submit append on a shareable log and records the mark when `write` is `direct`.
 - Receiver snapshot fetch. A member or an open-link reader does not yet fetch the publisher's snapshot and replay the mutation log on top.
 
-The node does not yet pass a stored statement into the log model. A page the node applies still has to be written by the publisher; that check is unchanged.
+The node does not yet pass a stored statement into the log model. It reads the settings with the settings get call when it decides whether this node may append.
 
 ## Old names
 

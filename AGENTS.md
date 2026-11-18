@@ -81,7 +81,8 @@ A direct write is `StoredEntry.direct_write`, set at append from the settings
 in force, never by the caller. A reader other than the publisher sees entries
 the publisher wrote and entries with that mark. The current settings and the
 writer's current role do not change an entry already stored. An unmarked entry
-the publisher did not write stays hidden.
+the publisher did not write stays hidden. A member's node applies every
+mutation-log entry ExeMem serves and does not check who wrote it.
 
 The three names, as examples only:
 

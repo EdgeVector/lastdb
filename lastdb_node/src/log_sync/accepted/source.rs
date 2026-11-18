@@ -13,13 +13,13 @@ use super::CloudLog;
 
 const PAGE_LIMIT: u32 = 64;
 
-pub(super) struct LocalUpload {
+pub(crate) struct LocalUpload {
     identity: Arc<UploadIdentity>,
-    pub(super) position: UploadPosition,
+    pub(crate) position: UploadPosition,
 }
 
 impl LocalUpload {
-    pub(super) async fn open(
+    pub(crate) async fn open(
         runtime: &Arc<PackRuntime>,
         log: &CloudLog,
         after: u64,
@@ -61,7 +61,7 @@ impl LocalUpload {
         Ok(Some(Self { identity, position }))
     }
 
-    pub(super) async fn confirm(
+    pub(crate) async fn confirm(
         &self,
         runtime: &Arc<PackRuntime>,
         saved: UploadPosition,
@@ -88,12 +88,12 @@ pub(super) fn capture_block(status: &StreamStatus) -> Option<&'static str> {
     }
 }
 
-pub(super) enum PublishPolicy {
+pub(crate) enum PublishPolicy {
     Private,
     Share(SpecBinding),
 }
 
-pub(super) fn read_page(
+pub(crate) fn read_page(
     runtime: &PackRuntime,
     key: &[u8; 32],
     policy: &PublishPolicy,

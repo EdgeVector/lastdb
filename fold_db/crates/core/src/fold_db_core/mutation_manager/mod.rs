@@ -24,6 +24,7 @@ use crate::schema::{SchemaCore, SchemaError};
 use crate::storage::disk_pack::transaction;
 
 pub use crate::storage::format::metadata::ReplayStamp;
+pub use replay::ServedLocal;
 
 /// The author clock keeps `writer_id` in base64. Record authorship uses lowercase hex.
 fn fill_local_writer(writer_id: &str, mutations: &mut [Mutation]) -> Result<(), SchemaError> {

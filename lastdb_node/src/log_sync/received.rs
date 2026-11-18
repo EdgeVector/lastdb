@@ -1,7 +1,8 @@
 //! Pull a registered signed log into the receiver store and track member-list access.
 //!
-//! This does not publish and does not call `accept_signed_log`. The member
-//! revision comes from the standard member-list read, with no API key.
+//! This does not call `accept_signed_log`. A direct Submit member publishes
+//! through the same path as an owned database. The member revision comes from
+//! the standard member-list read, with no API key.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

@@ -13,7 +13,7 @@ use std::{collections::BTreeSet, sync::Arc};
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct Baseline {
+pub(crate) struct Baseline {
     pub stamp: Option<ReplayStamp>,
     pub record: Option<StoredRecord>,
 }
@@ -22,7 +22,7 @@ pub(super) fn invalid(error: impl std::fmt::Display) -> SchemaError {
     SchemaError::InvalidData(format!("invalid replay baseline: {error}"))
 }
 
-pub(super) fn decode(bytes: &[u8]) -> Result<Baseline, SchemaError> {
+pub(crate) fn decode(bytes: &[u8]) -> Result<Baseline, SchemaError> {
     let saved: Baseline = serde_json::from_slice(bytes).map_err(invalid)?;
     if let Some(record) = &saved.record {
         validate_record(record)?;
@@ -48,7 +48,7 @@ pub(super) fn file_path(
 }
 
 impl MutationManager {
-    pub(super) async fn replay_capture(&self, address: &str) -> Result<ReplayCapture, SchemaError> {
+    pub(crate) async fn replay_capture(&self, address: &str) -> Result<ReplayCapture, SchemaError> {
         self.db_ops
             .metadata()
             .read_replay_captures(&[address])

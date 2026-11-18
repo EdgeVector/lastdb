@@ -10,6 +10,7 @@ mod automatic_retention;
 mod blob_retention;
 mod cloud;
 mod contributions;
+mod direct;
 mod http;
 mod native;
 mod native_reset;
@@ -18,7 +19,9 @@ pub(crate) mod received;
 mod restore;
 mod retention;
 mod run;
+mod served;
 mod session;
+mod share_mode;
 mod snapshot;
 mod turn;
 mod upload;
@@ -92,6 +95,7 @@ pub(crate) use restore::SnapshotFiles;
 pub use retention::{reclaim as reclaim_snapshot_log, ReclaimReport};
 pub(crate) use session::ensure_wake;
 pub use session::{publish_first_backup_intent, request_wake};
+pub(crate) use share_mode::direct_write_allowed;
 pub(crate) use snapshot::{
     completed as snapshot_completed, error as snapshot_error, request as request_snapshot,
 };
@@ -154,6 +158,11 @@ pub(super) async fn apply_page(
         host.cloud_sync.record_error(reason.clone());
         return Err(reason.into());
     }
+    if whole {
+        return served::apply_served(host, log, log.principal().as_str(), entries, cursor)
+            .await
+            .map_err(Into::into);
+    }
     for stored in entries {
         let entry = &stored.entry;
         // An owned store may have independent local writes beyond its delivery
@@ -192,24 +201,7 @@ async fn received_page(
     entries: &[StoredEntry],
     cursor: u64,
 ) -> Result<PagePlan, String> {
-    if entries
-        .iter()
-        .any(|stored| stored.entry.writer.key.as_str() != publisher)
-    {
-        return Err("published log contained an entry from another writer".into());
-    }
-    let delivered: Vec<DeliveredEntry> = entries.iter().map(delivered_entry).collect();
-    let mut files = restore::file_source(log.clone());
-    crate::database_replay::replay_delivered(
-        host,
-        log.database_id(),
-        publisher,
-        &delivered,
-        &mut files,
-    )
-    .await
-    .map_err(|error| error.to_string())?;
-    Ok(PagePlan::Ack(cursor))
+    served::apply_served(host, log, publisher, entries, cursor).await
 }
 
 pub(super) fn delivered_entry(stored: &StoredEntry) -> DeliveredEntry {
