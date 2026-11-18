@@ -5,16 +5,16 @@ import os
 from pathlib import Path
 import sys
 import time
-import uuid
 
 _OPS = Path(__file__).resolve().parent
 _SCRIPTS = _OPS.parent
 sys.path[:0] = [str(_OPS), str(_SCRIPTS)]
 from benchmarks.node import Node  # noqa: E402
 from harness import (  # noqa: E402
-    HOME_FORMAT, conditioned, marker_format, mutation as native_mutation,
+    HOME_FORMAT, marker_format, mutation as native_mutation,
     poll_until, send_unix_request,
 )
+import v1_records as v1  # noqa: E402
 import record_app_api, record_inline_files, record_named_databases, record_runs  # noqa: E401,E402
 from record_runs import (  # noqa: E402
     FIELDS, RANGED, definition, held, ids, ledger, listed_hashes, refused, require, system_seed,
@@ -31,31 +31,66 @@ def install(node):
         system_seed(node, definition(name, "HashRange" if ranged else "Hash", FIELDS, alternates))
 
 
-def mutation(schema, key, values, operation="replace", expected=None, alternates=None):
-    if alternates is None:
-        alternates = {"by_bucket": {"hash": values["bucket"], "range": values["id"]}} if schema == "RecordById" and values else {}
-    return native_mutation(schema, key, values, operation, alternates=alternates,
-                           expected=expected or ({"type": "absent"} if operation == "create" else None))
+# RecordByBucket stores a range under one hash. A hash-only selector is that range, not one key.
+HASH_RANGE_SCHEMAS = {"RecordByBucket"}
 
 
-def mutate(node, schema, key, values, operation="replace", **options):
-    return node.call("/api/mutation", conditioned(node, [mutation(schema, key, values, operation, **options)])[0])[0]
+def mutate(node, schema, key, values, operation="replace", expected=None, alternates=None):
+    """Return the revision /v1/write reported. Create does not read first."""
+    item_key = v1.key_input(key)
+    if alternates is None and schema == "RecordById" and values:
+        alternates = {"by_bucket": {"hash": values["bucket"], "range": values["id"]}}
+    revision = expected.get("revision") if isinstance(expected, dict) and expected.get("type") == "revision" else None
+    if operation == "create":
+        item = v1.create_item(schema, item_key, values, alternates=alternates)
+        return v1.write_items(node, [item])["revisions"][0]
+    if operation == "delete":
+        item = {"schema": schema, "op": "delete", "key": item_key}
+        if revision:
+            item["revision"] = revision
+        return v1.commit(node, [item])[0]
+    item = {"schema": schema, "op": "replace", "key": item_key, "record": values}
+    if alternates:
+        item["alternates"] = alternates
+    if revision:
+        item["revision"] = revision
+    return v1.commit(node, [item])[0]
+
+
+def read_selector(schema, selector, key_name=None):
+    options = {"via": key_name} if key_name else {}
+    if "HashRangeKeys" in selector:
+        items = []
+        for pair in selector["HashRangeKeys"]:
+            key = {"hash": pair[0]}
+            if len(pair) > 1 and pair[1]:
+                key["range"] = pair[1]
+            items.append(v1.point(schema, key, **options))
+        return items
+    if "HashRangeKey" in selector:
+        return v1.point(schema, selector["HashRangeKey"], **options)
+    if "HashRangeRange" in selector:
+        return v1.range_read(schema, selector["HashRangeRange"], **options)
+    if "HashRangePrefix" in selector:
+        return v1.range_read(schema, selector["HashRangePrefix"], **options)
+    if key_name or schema in HASH_RANGE_SCHEMAS:
+        return v1.range_read(schema, {"hash": selector["HashKey"]}, **options)
+    return v1.point(schema, {"hash": selector["HashKey"]}, **options)
 
 
 def query(node, schema, selector, key_name=None):
-    body = {"schema_name": schema, "filter": selector}
-    if key_name is not None:
-        body["key_name"] = key_name
-    page = node.call("/api/query", body)[0]
-    require(not page.get("has_more"), f"{schema} {selector} was truncated")
-    return page["results"]
+    selected = read_selector(schema, selector, key_name)
+    pages = v1.read_all(node, selected) if isinstance(selected, list) else v1.read_items(node, [selected])
+    for page in pages:
+        require(page.get("next_cursor") is None, f"{schema} {selector} was truncated")
+    return v1.flat_records(pages)
 
 
 def one(node, key):
     rows = query(node, "RecordById", {"HashKey": key})
     require(len(rows) == 1, f"RecordById {key} returned {len(rows)} rows")
     # A field that the record does not hold reads as absent or null.
-    return held(rows[0]["fields"])
+    return held(rows[0]["record"])
 
 
 def hash_records(node):
@@ -73,10 +108,10 @@ def hash_records(node):
     external = {"by_bucket": {"hash": "external-alias", "range": "unrelated"}}
     mutate(node, "RecordById", {"hash": "external-key"}, {}, "create", alternates=external)
     row = query(node, "RecordById", {"HashKey": "external-key"})[0]
-    require(row["fields"] == {} and row["alternates"] == external, "empty record lost its explicit addresses")
+    require(held(row["record"]) == {}, "an empty record did not stay empty")
     mutate(node, "RecordById", {"hash": "external-key"}, {"value": "standalone"}, alternates=external)
     row = query(node, "RecordById", {"HashKey": "external-alias"}, key_name="by_bucket")[0]
-    require(row["key"]["hash"] == "external-key" and row["fields"] == {"value": "standalone"},
+    require(row["key"]["hash"] == "external-key" and held(row["record"]) == {"value": "standalone"},
             "independent primary/alternate addresses required payload key fields")
     external_boundaries(node, external)
     print("Hash records: create, full replacement, omitted-field removal, batch read by key passed", flush=True)
@@ -86,22 +121,21 @@ def external_boundaries(node, external):
     mutate(node, "RecordById", {"hash": "external-key-2"}, {}, "create", alternates=external)
     other = {"by_bucket": {"hash": "external-alias", "range": "unrelated\0tail"}}
     mutate(node, "RecordById", {"hash": "external-key-nul"}, {"value": "nul"}, "create", alternates=other)
-    base = {"schema_name": "RecordById", "key_name": "by_bucket",
-            "filter": {"HashRangeKey": {"hash": "external-alias", "range": "unrelated"}}, "limit": 1}
     found, cursor = [], None
     for _ in range(4):
-        page = node.call("/api/query", {**base, **({"cursor": cursor} if cursor else {})})[0]
-        found.extend(row["key"]["hash"] for row in page["results"])
-        cursor = page["next_cursor"]
-        if not page["has_more"]:
+        read = v1.point("RecordById", {"hash": "external-alias", "range": "unrelated"},
+                        via="by_bucket", limit=1, cursor=cursor)
+        page = v1.read_items(node, [read])[0]
+        found.extend(row["key"]["hash"] for row in page["records"])
+        cursor = page.get("next_cursor")
+        if cursor is None:
             break
     require(sorted(found) == ["external-key", "external-key-2"] and cursor is None,
             "duplicate alternate continuation included a different range or lost a primary")
     rows = query(node, "RecordById", {"HashRangeKey": other["by_bucket"]}, key_name="by_bucket")
     require(len(rows) == 1 and rows[0]["key"]["hash"] == "external-key-nul", "NUL range exact read differs")
-    requests = [mutation("RecordById", {"hash": name}, {}, "delete")
-                for name in ("external-key", "external-key-2", "external-key-nul")]
-    node.call("/api/mutations/batch", {"mutations": conditioned(node, requests)})
+    v1.commit(node, [{"schema": "RecordById", "op": "delete", "key": {"hash": name}}
+                     for name in ("external-key", "external-key-2", "external-key-nul")])
 
 
 def wide_empty_record_erasure(node):
@@ -109,13 +143,13 @@ def wide_empty_record_erasure(node):
     system_seed(node, definition(schema, "Hash", [], {"by_alias": {"kind": "hash"}}))
     key, aliases = {"hash": "k" * 65_000}, {"by_alias": {"hash": "wide-empty"}}
     created = mutate(node, schema, key, {}, "create", alternates=aliases)
-    request = mutation(schema, key, {}, "delete", alternates=aliases,
-                       expected={"type": "revision", "revision": created["record_revision"]})
-    deleted = node.call("/api/mutation", request)[0]
-    request.update(mutation_type="purge", expected={"type": "revision", "revision": deleted["record_revision"]})
+    deleted = v1.write_items(node, [v1.delete_item(schema, key, created)])["revisions"][0]
+    # /v1/write has no purge. The old mutation keeps the revision the delete reported.
+    request = native_mutation(schema, key, {}, "purge", alternates=aliases,
+                              expected={"type": "revision", "revision": deleted})
     node.call("/api/mutation", request)
-    reply = node.call("/api/query", {"schema_name": schema, "filter": {"HashKey": "wide-empty"}, "key_name": "by_alias"})[0]
-    require(reply["results"] == [], "wide empty record retained its alternate after erasure")
+    page = v1.read_items(node, [v1.point(schema, {"hash": "wide-empty"}, via="by_alias")])[0]
+    require(page["records"] == [], "wide empty record retained its alternate after erasure")
     print("Wide empty record: complete-address delete and revision-guarded tombstone purge passed", flush=True)
 
 
@@ -125,7 +159,7 @@ def alternate_keys(node):
     mutate(node, "RecordById", {"hash": "one"}, {"id": "one", "bucket": "b2", "value": "v2"})
     require(lookup({"HashRangeKey": {"hash": "b1", "range": "one"}}) == [], "the old alternate entry still resolves")
     rows = lookup({"HashRangeRange": {"hash": "b2", "start": "a", "end": "z"}})
-    require(ids(rows) == ["one"] and rows[0]["fields"]["value"] == "v2", "the new alternate entry lost its record")
+    require(ids(rows) == ["one"] and rows[0]["record"]["value"] == "v2", "the new alternate entry lost its record")
     require(sorted(ids(lookup({"HashKey": "b9"}))) == ["three", "two"], "the alternate hash read returned other records")
     print("Alternate keys: read, move on update, range read passed", flush=True)
 
@@ -141,7 +175,7 @@ def range_records(node):
     require(ids(query(node, "RecordByBucket", {"HashRangePrefix": {"hash": "bk", "prefix": "c"}})) == ["c"],
             "the prefix under one hash returned other records")
     row = query(node, "RecordByBucket", {"HashRangeKey": {"hash": "other", "range": "a"}})
-    require(len(row) == 1 and row[0]["fields"]["value"] == "OTHER", "a read by full key differs")
+    require(len(row) == 1 and row[0]["record"]["value"] == "OTHER", "a read by full key differs")
     print("HashRange records: hash, range, prefix and key reads passed", flush=True)
 
 
@@ -167,30 +201,35 @@ def absent(node, key):
 
 
 def deletes(node):
-    request = conditioned(node, [mutation("RecordById", {"hash": "four"}, {}, "delete")])[0]
-    first = node.call("/api/mutation", request)[0]
+    # Replay this exact body. A later read would see the recreated revision and hide the conflict.
+    revision = query(node, "RecordById", {"HashKey": "four"})[0]["revision"]
+    request = v1.delete_item("RecordById", {"hash": "four"}, revision)
+    first = v1.write_items(node, [request])["revisions"][0]
     require(absent(node, "four"), "a deleted record still reads")
     require(sorted(ids(query(node, "RecordById", {"HashKey": "b9"}, key_name="by_bucket")))
             == ["three", "two"], "a deleted alternate entry still resolves")
-    uuid.UUID(first["mutation_id"])
-    refused(lambda: node.call("/api/mutation", request), "HTTP 409")
+    require(isinstance(first, str) and first, "a delete did not report a revision")
+    refused(lambda: v1.write_items(node, [request]), "HTTP 409")
     mutate(node, "RecordById", {"hash": "four"}, {"id": "four", "bucket": "b5"}, "create")
     require(one(node, "four") == {"id": "four", "bucket": "b5"}, "recreate brought back deleted content")
-    refused(lambda: node.call("/api/mutation", request), "HTTP 409")
-    fresh = mutation("RecordById", {"hash": "five"}, {"id": "five", "bucket": "b9", "value": "five"}, "create")
-    refused(lambda: node.call("/api/mutations/batch", {"mutations": [request, fresh]}), "HTTP 409")
+    refused(lambda: v1.write_items(node, [request]), "HTTP 409")
+    fresh = v1.create_item(
+        "RecordById", {"hash": "five"}, {"id": "five", "bucket": "b9", "value": "five"},
+        alternates={"by_bucket": {"hash": "b9", "range": "five"}})
+    refused(lambda: v1.write_items(node, [request, fresh]), "HTTP 409")
     require(absent(node, "five"), "a refused batch published its other record")
-    accepted = node.call("/api/mutation", fresh)[0]
-    require(accepted["mutation_id"] != first["mutation_id"] and accepted["operations"] ==
-            {"created": 1, "updated": 0, "deleted": 0, "total": 1}, "server identity or write counts differ")
-    requests = [mutation("RecordById", {"hash": "two"}, {}, "delete"),
-                mutation("RecordByBucket", {"hash": "bk", "range": "c"}, {}, "delete"),
-                mutation("RecordById", {"hash": "five"}, {}, "delete")]
-    node.call("/api/mutations/batch", {"mutations": conditioned(node, requests)})
+    accepted = v1.write_items(node, [fresh])
+    require(accepted["written"] == 1 and accepted["revisions"][0] != first,
+            "a create did not report its own revision")
+    v1.commit(node, [
+        {"schema": "RecordById", "op": "delete", "key": {"hash": "two"}},
+        {"schema": "RecordByBucket", "op": "delete", "key": {"hash": "bk", "range": "c"}},
+        {"schema": "RecordById", "op": "delete", "key": {"hash": "five"}},
+    ])
     require(absent(node, "two") and absent(node, "five"), "a batch delete did not apply")
     require(ids(query(node, "RecordByBucket", {"HashKey": "bk"})) == ["a", "b", "d", "e"],
             "a HashRange delete left its record")
-    print("Conditional deletion, server identities, stale replay, recreate and atomic batch passed", flush=True)
+    print("Conditional deletion, distinct revisions, stale replay, recreate and atomic batch passed", flush=True)
 
 
 def native_status(node):
@@ -302,14 +341,17 @@ def main():
         record_inline_files.exercise_drop_tracking(node)
         record_inline_files.exercise(node)
         record_app_api.exercise(node)
-        retry = conditioned(node, [mutation("RecordById", {"hash": "four"}, {"id": "four", "bucket": "b5"})])[0]
-        acknowledged = node.call("/api/mutation", retry)[0]["record_revision"]
+        current = query(node, "RecordById", {"HashKey": "four"})[0]["revision"]
+        retry = v1.replace_item(
+            "RecordById", {"hash": "four"}, {"id": "four", "bucket": "b5"}, current,
+            alternates={"by_bucket": {"hash": "b5", "range": "four"}})
+        acknowledged = v1.write_items(node, [retry])["revisions"][0]
         record_named_databases.prepare(node, args.cli.resolve(strict=True), output)
         record_app_api.named_database(node, "work")
         node.stop()
         record_inline_files.exercise_format_refusal(node)
         node.start()
-        refused(lambda: node.call("/api/mutation", retry), "HTTP 409")
+        refused(lambda: v1.write_items(node, [retry]), "HTTP 409")
         require(query(node, "RecordById", {"HashKey": "four"})[0]["revision"] == acknowledged,
                 "a stale replay changed the record after restart")
         record_inline_files.check_drop_tracking(node)

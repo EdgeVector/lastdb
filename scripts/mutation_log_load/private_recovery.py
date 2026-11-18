@@ -10,7 +10,7 @@ sys.path[:0] = [str(_HERE), str(_SCRIPTS), str(_SCRIPTS / "cloud_backup")]
 
 from drive import LoadError  # noqa: E402
 from finish import ROOT, decimal  # noqa: E402
-from harness import create, key as record_key, replace_row as replace  # noqa: E402
+import v1_records as v1  # noqa: E402
 from node import OwnedNode, Programs  # noqa: E402
 from run import NodeKey, account_id  # noqa: E402
 from support import (CREDENTIALS_FILE, OperationError, canonical_uuid, failure, read_json,  # noqa: E402
@@ -64,34 +64,33 @@ def seed(source, database):
 
 
 def write(node, database, fields):
-    node.call(f"/api/databases/{database}/mutation", create(SCHEMA, record_key(fields["id"]), fields))
+    v1.write_items(node, [v1.create_item(SCHEMA, {"hash": fields["id"]}, fields, database=database)])
 
 
 def read_rows(node, database, records):
-    queries = [{"schema_name": SCHEMA, "filter": {"HashKey": fields["id"]}, "limit": 2} for fields in records]
-    batch = node.call(f"/api/databases/{database}/queries/batch", {"queries": queries})["results"]
-    require(len(batch) == len(records), "private_keyed_read_count")
+    pages = v1.read_items(node, [v1.point(SCHEMA, {"hash": fields["id"]}, database=database) for fields in records])
+    require(len(pages) == len(records), "private_keyed_read_count")
     result = []
-    for fields, reply in zip(records, batch):
-        response = reply.get("response")
-        require(reply.get("status") == 200 and isinstance(response, dict)
-                and response.get("ok") is True and response.get("has_more") is False, "private_keyed_read")
-        rows = response["results"]
-        require(all(row["key"] == record_key(fields["id"]) for row in rows), "private_keyed_read_identity")
+    for fields, page in zip(records, pages):
+        rows = page["records"]
+        require(page.get("next_cursor") is None and "error" not in page, "private_keyed_read")
+        require(all(row["key"].get("hash") == fields["id"] and row["key"].get("range") is None for row in rows),
+                "private_keyed_read_identity")
         result.append(rows)
     return result
 
 
 def read_fields(node, database, records):
-    return [[row["fields"] for row in matched]
+    return [[row["record"] for row in matched]
             for start in range(0, len(records), QUERY_BATCH_SIZE)
             for matched in read_rows(node, database, records[start:start + QUERY_BATCH_SIZE])]
 
 
 def replace_record(node, database, before, after):
     rows = read_rows(node, database, [before])[0]
-    require(len(rows) == 1 and rows[0]["fields"] == before, "private_conflict_preimage")
-    node.call(f"/api/databases/{database}/mutation", replace(SCHEMA, rows[0], after))
+    require(len(rows) == 1 and rows[0]["record"] == before, "private_conflict_preimage")
+    v1.write_items(node, [v1.replace_item(
+        SCHEMA, {"hash": before["id"]}, after, rows[0]["revision"], database=database)])
 
 
 def expect_records(node, database, records, stage):
@@ -233,15 +232,15 @@ def advance_while_peer_offline(call, database, source):
 def write_lagging_tail(call, database, peer, creates):
     with running(peer):
         rows = read_rows(peer, database, [PEER_LATER])[0]
-        require(len(rows) == 1 and rows[0]["fields"] == PEER_LATER, "private_lagging_old_value")
-        mutations = [create(SCHEMA, record_key(fields["id"]), fields) for fields in creates]
-        mutations.append(replace(SCHEMA, rows[0], LAGGING_LOCAL))
-        reply = peer.call(f"/api/databases/{database}/mutations/batch", {"mutations": mutations})
-        require(reply["ok"] is True and reply["durability"] == "durable"
-                and reply["operations"] == {"created": PUBLISH_PAGE_SIZE, "updated": 1, "deleted": 0,
-                                           "total": PUBLISH_PAGE_SIZE + 1}, "private_lagging_tail_count")
+        require(len(rows) == 1 and rows[0]["record"] == PEER_LATER, "private_lagging_old_value")
+        mutations = [v1.create_item(SCHEMA, {"hash": fields["id"]}, fields, database=database) for fields in creates]
+        mutations.append(v1.replace_item(
+            SCHEMA, {"hash": PEER_LATER["id"]}, LAGGING_LOCAL, rows[0]["revision"], database=database))
+        reply = v1.write_items(peer, mutations)
+        require(reply["written"] == PUBLISH_PAGE_SIZE + 1 and len(reply["revisions"]) == PUBLISH_PAGE_SIZE + 1,
+                "private_lagging_tail_count")
         written = read_rows(peer, database, [LAGGING_LOCAL])[0]
-        require(len(written) == 1 and written[0]["fields"] == LAGGING_LOCAL, "private_lagging_tail_visible_offline")
+        require(len(written) == 1 and written[0]["record"] == LAGGING_LOCAL, "private_lagging_tail_visible_offline")
         revision = written[0]["revision"]
     require(cloud_head(call) == 11, "private_lagging_tail_unpublished")
     return revision
