@@ -75,8 +75,6 @@ pub(crate) struct RecordListArgs {
     pub schema: String,
     #[arg(long)]
     pub key_hash: Option<String>,
-    #[arg(long, requires = "key_hash")]
-    pub key_name: Option<String>,
     #[arg(long, default_value_t = 100)]
     pub limit: usize,
     #[arg(long)]
@@ -131,10 +129,9 @@ pub(super) enum Command {
         key_range: Option<String>,
         #[arg(long)]
         json: bool,
-        #[arg(long, value_name = "FILE")]
+        /// Folder the node writes the record's file into. The folder must already exist.
+        #[arg(long, value_name = "DIR")]
         hydrate: Option<PathBuf>,
-        #[arg(long, value_name = "FILE")]
-        hydrate_inline: Option<PathBuf>,
     },
     #[command(subcommand)]
     App(AppCommand),

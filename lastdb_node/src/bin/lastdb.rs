@@ -153,13 +153,12 @@ fn run(cli: Cli) -> Result<(), String> {
                     key_range,
                     json,
                     hydrate,
-                    hydrate_inline,
                 } => get_record(
                     &t,
                     &schema,
                     (key_hash.as_deref(), key_range.as_deref()),
                     json,
-                    (hydrate.as_deref(), hydrate_inline.as_deref()),
+                    hydrate.as_deref(),
                 ),
                 _ => unreachable!(),
             }
