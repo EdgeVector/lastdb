@@ -23,8 +23,10 @@ change:
     `EXTENSIONS_JSON` must name exactly those extensions; edit that constant
     when this check says it does not;
   * a removed capability, or a removed route that the base SDK used, also
-    requires MIN_SUPPORTED_API_VERSION == API_VERSION, because a client built
-    for an older version can no longer work.
+    requires MIN_SUPPORTED_API_VERSION to rise above the previous minimum.
+    The floor is the first version whose installed apps do not call the
+    removed routes. Equality with API_VERSION is not required: a later
+    version can still install an app that never called those routes.
 
 Limit: this is a source check of route strings and capability names. It does
 not see a change in request keys or in the meaning of a reply. It does check
@@ -196,10 +198,12 @@ def compare(base, now):
     gone = {r for r in base["app_routes"] if r in lost or scoped(r) in lost}
     broken = sorted(gone
                     | (set(base["capabilities"]) - set(now["capabilities"])))
-    if broken and low != api:
+    if broken and low <= base_low:
         errors.append(
-            "an app-facing route or capability was removed, so older clients cannot work; "
-            f"set MIN_SUPPORTED_API_VERSION to the new API_VERSION in {VERSION}:\n    "
+            "an app-facing route or capability was removed, so a client from the previous "
+            "minimum can no longer work; raise MIN_SUPPORTED_API_VERSION above "
+            f"{base_low} in {VERSION}. The floor is the first version whose installed "
+            "apps do not call the removed routes:\n    "
             + "\n    ".join(broken)
         )
     return errors, changes

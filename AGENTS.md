@@ -35,8 +35,9 @@ Before designing or planning anything against LastDB, read the brain records:
   it, it wins; fix the comment.
 - `concepts-lastdb-agent-access-model` — day-to-day do / don't rules.
 
-The docs folders were removed on 2026-11-02. `docs/` keeps only designs for
-work in progress. Read a removed page with `git show 13a2cf188:<path>`.
+The docs folders were removed on 2026-11-02. `docs/app-api.md` is the app
+API contract. `docs/designs/` keeps designs for work in progress. Read a
+removed page with `git show 13a2cf188:<path>`.
 
 ## Preserve whole-database sharing (Tom, 2026-11-14)
 
@@ -180,7 +181,7 @@ tree-sitter packages (`tree-sitter==0.23.2`, `tree-sitter-rust==0.23.2`), then b
 - Health: `target/debug/lastdb --data-dir ~/.lastdb-dev status` (exit 0 when
   `<home>/data/folddb.sock` answers).
 - Prove a write with a keyed read: `lastdb get <schema> --key-hash <id>`, or
-  `POST /api/query` with `filter.HashKey`. An unfiltered query is rejected.
+  `POST /v1/read` with one `key`. A read names a key or a range.
 - Do not pass `--all-features`.
 - Checks for this repo: `cargo fmt --all -- --check`,
   `cargo build --locked -p lastdb_node --bin lastdb --bin lastdbd`, and

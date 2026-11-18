@@ -191,5 +191,6 @@ caveats, current gates/approvals, and gotchas, ask the brain
 - `concepts-claude-shell-gotchas-edgevector` — zsh glob / sandboxed PATH.
 - Size limits (`fold_db/crates/model/src/record_value.rs`, `fold_db/crates/model/src/keys.rs`, `fold_db/crates/core/src/limits.rs`). A local write has the 64 KiB record cap (`MAX_RECORD_BYTES`). `LASTDB_MAX_FIELD_VALUE_BYTES` (256 KiB default, absolute max 1 MiB) configures the status-only `max_peer_field_value` field; no write path reads it. A growing list is one record per entry in a HashRange schema; large bytes go in a file blob.
 
-The docs folders were removed on 2026-11-02 (Tom). `docs/` keeps only designs
-for work in progress. Read a removed page with `git show 13a2cf188:<path>`.
+The docs folders were removed on 2026-11-02 (Tom). `docs/app-api.md` is the
+app API contract. `docs/designs/` keeps designs for work in progress. Read a
+removed page with `git show 13a2cf188:<path>`.

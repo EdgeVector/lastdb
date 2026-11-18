@@ -3,12 +3,13 @@
 The explicit definitions are in `lastdb_node/app-api.json`.
 When this document and that file differ, the file wins.
 
-Status: the interface is decided (Tom, 2026-11-16). This document describes
+Status: this is the contract (Tom, 2026-11-16). This document describes
 what `lastdbd` serves today and names what is not built yet.
 
 The app API is the interface for apps installed through the app registry. It
-has two routes. Each takes a list; one item is a list of one. Everything else
-on the socket is the user API, for the owner and the owner's tools.
+has two routes plus the `changes` extension. Each takes a list; one item is a
+list of one. The owner socket also serves databases, sharing, status, the
+schema catalog, and admin. Record reads and writes go through these routes.
 
 ## Read
 
@@ -46,7 +47,7 @@ POST /v1/read
   them. It takes no `via`, no `file`, and no `file_dir`. An app that keeps
   something derived from a schema uses it to build and to rebuild.
 - `database` selects a database. Without it the read uses the personal database.
-- A received database uses the same request and the same reply as an owned database: a keyed read, a range, `keys_only`, paging, and `via`. The node reads it through the same receiver store the older per-database read uses. `via` uses that store's alternate keys. An alternate the schema does not declare is the same error as on an owned database.
+- A received database uses the same request and the same reply as an owned database: a keyed read, a range, `keys_only`, paging, and `via`. The node reads the receiver store. `via` uses that store's alternate keys. An alternate the schema does not declare is the same error as on an owned database.
 - The received snapshot must already be durable. Until sync has stored that marker, the read item is `busy` and its message is `database snapshot is not durable`. If the receiver store cannot be opened, the message is `database store is unavailable`.
 - An unknown identifier is `not_found`. Its message is `database is not registered on this node`. A registration that is not a signed log gets that same message. A bad identifier is `invalid_request` and its message is `invalid database identifier`.
 - On the app socket the usual grant check still applies. The schema must be in the app's `access.read`, or the app must have `"*"`.
@@ -96,9 +97,9 @@ A file is a path in and a path out. No file bytes pass through the app API.
 - A path inside the LastDB home is refused, through any symlink. That covers the
   key file and every database in the home. Every file that cannot be linked gets
   the same answer.
-- A `replace` without a `file` keeps the record's file.
+- A `replace` that omits `file` keeps the record's file. A `replace` whose `file` is JSON null clears it. The node frees the bytes when no record names them. A `create` names a file by path or omits `file`. A `delete` carries no `file`.
 - Every record in a read reply has `file`: null, or `name`, `media_type`, `size` and `local`.
-- `file: null` means the record has no file.
+- In a read reply, `file: null` means the record has no file. That is the reply. On a `replace`, sending `file: null` is the request that clears the file.
 - `local` is the path on this device when this device holds the file as a reference and a regular file of the recorded size is still there. It is null when that original is gone or has another size, and when the file is not on this device.
 - A read item with `"file": true` also gets `path`. For a reference, `path` is that same local path. When the original is gone or has another size, that read item answers `not_found`.
 - For a file LastDB holds as its own bytes, `local` is null until a copy sits in a folder this read may use. On the app socket that folder is `<data>/files` when the grant names `data`. The node creates `files` as mode 0700 if it is missing, and the file name is the content hash. `path` is null when the grant has no `data`. On the owner socket `path` is null unless the read names `file_dir`.
@@ -146,7 +147,7 @@ POST /v1/x/changes
 - An entry holds no record values. The app reads the changed records through `/v1/read`.
 - The app saves `through` as its new position. When `id` differs from the one it
   saved, or `gap` is true, it rebuilds from key pages.
-- `GET /api/changes` is the same list for the owner, with query parameters.
+- The owner uses the same `POST /v1/x/changes` call.
 - `POST /v1/x/changes` does not serve a received database. That request is `not_found` and its message is `a received database is not served by /v1/x/changes`. The node does not open the receiver store. An unknown identifier is `not_found` with the message `database is not registered on this node`.
 
 ## Errors
@@ -265,7 +266,7 @@ A node serves two sockets in its data directory.
 
 | Socket | File | Serves |
 |---|---|---|
-| Owner socket | `folddb.sock` | Everything, to the owner and the owner's tools |
+| Owner socket | `folddb.sock` | The app API, plus databases, sharing, status, the schema catalog, backup, and admin |
 | App socket | `apps.sock` | Only `/v1/read`, `/v1/write` and `/v1/x/<name>`, to a registered app |
 
 - The owner registers one app: `POST /api/apps/register` on the owner socket
@@ -311,7 +312,11 @@ A node serves two sockets in its data directory.
   `schemas` filter, a named grant returns all of those names, and `"*"` returns
   entries for every schema. A `schemas` filter still limits the entries. An
   app whose read grant names nothing gets `permission_denied`.
-- The owner socket is not limited by any of this.
+- The owner socket also serves databases, sharing, status, the schema list and
+  schema get, `POST /api/apps/declare-schema` (the installer), schema seed and
+  drop, backup, and admin. It does not serve a separate record query, mutation,
+  key list, file-byte upload, or `GET /api/changes`. Those calls are unknown
+  paths. Record reads and writes use `/v1/read` and `/v1/write`.
 
 ## The launcher
 
@@ -353,7 +358,5 @@ directly.
 ## Not built yet
 
 - A path for a file that is only in the cloud. Nothing fetches one file from the cloud on a read yet. A file LastDB holds as bytes on this device gets a path on the app socket when the grant names the app's data folder, and on the owner socket when the read names `file_dir`.
-- Removing a record's file while keeping the record.
 - A limit on which databases an app may name.
 - `keys_only` still loads the records on the node; it only leaves them out of the reply.
-- The older routes under `/api` stay until the apps move to these two.
