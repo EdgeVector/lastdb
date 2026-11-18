@@ -17,9 +17,9 @@
     "manifest_access_entries": 256
   },
   "x-lastdb-launcher-environment": {
-    "LASTDB_SOCKET_PATH": "Absolute path of the app socket, apps.sock, under the node home.",
-    "LASTDB_APP": "The app id. The app sends it as the X-LastDB-App header.",
-    "LASTDB_APP_DATA": "The app data directory. It stays in place across an upgrade.",
+    "LASTDB_SOCKET_PATH": "Absolute path of the app socket, apps.sock, under the node home. The launcher sets this without calling the node.",
+    "LASTDB_APP": "The app id from the installed receipt. The app sends it as the X-LastDB-App header. POST /api/apps/register echoes the app id it was sent, and install sends this id.",
+    "LASTDB_APP_DATA": "The app data directory, <apps root>/<app>/data. It stays in place across an upgrade and a launch. The grant records this path at install.",
     "TMPDIR": "Temporary directory the launcher creates at LASTDB_APP_DATA/tmp."
   },
   "security": [

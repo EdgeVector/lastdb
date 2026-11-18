@@ -256,10 +256,10 @@ the key, or the alternate keys. That refusal fails the install, and the
 previous version stays active.
 
 The declaration is recorded with the install. The installer registers it when
-that version is activated, and again when a failed activation or a rollback
-restores the previous version. The launcher registers it at each start.
-Registering the same app again replaces its grant. The app socket serves the
-app under the grant the node holds.
+that version is activated, when a reinstall finds that version already active,
+and again when a failed activation or a rollback restores the previous version.
+Registering the same app again replaces its grant. The launcher does not
+register. The app socket serves the app under the grant the node holds.
 
 ## Schemas at publish
 
@@ -291,7 +291,8 @@ A node serves two sockets in its data directory.
   `read` and `write` are each a list of schema names or `"*"`. `data` is
   optional. When present it is the absolute path of that app's data
   directory, a real directory and not a symlink, and outside the LastDB home.
-  The reply holds `app`, set to the app id. It does not hold
+  The reply holds `app`, set to the same app id the request sent. The node
+  does not substitute a different id. The reply does not hold
   `expires_in_seconds`. The node keeps one grant per app id: the `read` and
   `write` grants, the `extensions` list, and the data folder when `data` was
   sent. The same app registered again replaces that grant. A grant has no lifetime.
@@ -310,8 +311,10 @@ A node serves two sockets in its data directory.
   128 bytes and an extension name at most 40. The file is at most 1 MiB.
 - A request on the app socket carries the app id in the header
   `X-LastDB-App`. An app id the node has no grant for is refused with
-  `permission_denied`. An app id is a plain app name, checked with the same
-  rule the launcher and the installer use.
+  `permission_denied` and the message `the app socket needs a registered app`.
+  Reinstall the app, or roll back to a retained version, to register the grant
+  again. An app id is a plain app name, checked with the same rule the
+  launcher and the installer use.
 - Any route other than the app API answers `not_found` on the app socket.
 - A read names only a schema the app's `read` grant allows, a write only one
   its `write` grant allows, and an extension only one in its `extensions` list.
@@ -339,15 +342,24 @@ directly.
 - The installer points each of the app's command links at the `lastdb` command.
   Called under the app's command name, `lastdb` finds the app that owns the
   name and starts it. `lastdb app run <app> <command> [args]` does the same by name.
-- The launcher registers the app with the lists from the app's signed listing,
-  and starts the app's program with `LASTDB_SOCKET_PATH` set to the app socket
-  and `LASTDB_APP` set to the app id. Install steps do not receive
-  `LASTDB_APP`. The launcher still needs the node: if it cannot reach the owner
-  socket, it does not start the app.
+- The launcher does not call the node. It starts the app's program with
+  `LASTDB_SOCKET_PATH` set to the app socket and `LASTDB_APP` set to the app
+  id in the installed receipt. `POST /api/apps/register` answers with that
+  same id: the node returns the `app` it was sent, and install sends the
+  receipt's app id. Install steps do not receive `LASTDB_APP`. The launcher
+  starts the program whether the node is up, down, or slow.
 - On activation, and on rollback, the installer registers that version's
   access, so a process that is already running is served under the new lists
   at once. If activation fails and the previous version is restored, the
-  previous access is registered again.
+  previous access is registered again. Installing the version that is already
+  active registers that access again.
+- A node that holds no grant for the app refuses its calls with `the app
+  socket needs a registered app`. Reinstall the app, or roll back to a
+  retained version. That registers the grant again. There is no repair command
+  and no registration from the launcher.
+- There is no command that removes an installed app. Pruning a version
+  directory that is neither current nor previous does not drop the grant. The
+  grant stays until a later registration of that app id replaces it.
 - The declaration exists to record which app uses which schema (Tom,
   2026-11-17). The node serves an app only the schemas it declared, so the
   record stays true. Confining an installed app on the owner's machine is not a
@@ -355,9 +367,11 @@ directly.
   sandbox profile was removed. It could not nest inside a caller's own
   profile, and it kept apps that act on the machine from declaring at all.
 - The launcher creates the app's own data folder, `<apps root>/<app>/data`,
-  before it registers the app, and passes that folder as `data`. It also
-  names the folder in `LASTDB_APP_DATA`. `TMPDIR` points inside it. An app keeps
-  its config and state there by convention.
+  and its `tmp` directory. It names that folder in `LASTDB_APP_DATA`. `TMPDIR`
+  points at `tmp`. The grant's `data` is this same folder, stored when the
+  installer registers the app. The node stores its canonical path. The folder
+  sits beside the version directories, so an upgrade or a later launch does
+  not move it. An app keeps its config and state there by convention.
 - An app that ran restricted stays restricted. Install refuses a later version
   whose listing declares no LastDB access.
 - An app that declares no LastDB access is linked and started as before.

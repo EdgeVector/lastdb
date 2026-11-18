@@ -83,6 +83,8 @@ pub fn install(
     if let Some(c) = prior.as_ref().filter(|r| {
         r.sha == entry.sha && r.inactive == inactive && r.publisher == entry.publisher_key
     }) {
+        // Reinstall registers again, so a lost grant can be restored.
+        super::register_grant::register(home, c)?;
         verify_or_restore(&root, home, c)?;
         return Ok(c.clone());
     }
