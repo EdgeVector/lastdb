@@ -850,14 +850,14 @@
         "type": "object",
         "additionalProperties": false,
         "required": ["action", "schema"],
-        "description": "On the app socket app_id is the calling app and the body must not carry app_id. On the owner socket app_id is required. The schema name must be one the app write grant allows. * allows every schema.",
+        "description": "On the app socket app_id is optional. A present string is passed to the owner handler as the schema namespace. Omit it and app_id is the calling app. On the owner socket app_id is required. The schema name must be one the app write grant allows. * allows every schema.",
         "properties": {
           "action": {"const": "declare_schema"},
           "database": {"$ref": "#/components/schemas/DatabaseSelector"},
           "schema": {"$ref": "#/components/schemas/DatabasesSchema"},
           "intent": {"const": "catalog_sync"},
           "retention": {"$ref": "#/components/schemas/DatabasesRetention"},
-          "app_id": {"type": "string", "description": "Owner socket only."}
+          "app_id": {"type": "string", "description": "Schema namespace. On the app socket, omit it to use the calling app id. On the owner socket it is required."}
         }
       },
       "DatabasesShareConfigRequest": {

@@ -191,6 +191,7 @@ export class LastDbClient<DatabaseId extends string | undefined = undefined> {
    * `POST /v1/x/databases` — one databases action.
    * The reply is the owner route's JSON. `submit` answers 202.
    * On the app socket the launcher sets LASTDB_APP, and this call sends that header.
+   * `declare_schema` may set `app_id` to the schema namespace. Omit it to use the calling app.
    */
   databases<T extends DatabasesRequest>(
     body: T,

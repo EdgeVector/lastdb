@@ -151,15 +151,10 @@ fn schemas_request(body: &Map<String, Value>, host: &Host) -> Result<OwnerCall, 
 }
 
 fn declare_request(body: &Map<String, Value>, host: &Host) -> Result<OwnerCall, HostError> {
-    if active_app().is_some() && body.contains_key("app_id") {
-        return Err(bad("declare_schema does not take app_id on the app socket"));
-    }
-    let allowed: &[&str] = if active_app().is_some() {
-        &["database", "schema", "intent", "retention"]
-    } else {
-        &["database", "schema", "intent", "retention", "app_id"]
-    };
-    allow(body, allowed)?;
+    allow(
+        body,
+        &["database", "schema", "intent", "retention", "app_id"],
+    )?;
     let schema = required_object(body, "schema")?;
     // A missing or empty name is the owner handler's refusal. The grant check
     // applies only to a name the app could have declared.
@@ -170,10 +165,7 @@ fn declare_request(body: &Map<String, Value>, host: &Host) -> Result<OwnerCall, 
     {
         require_write(name)?;
     }
-    let app_id = match active_app() {
-        Some(app) => app.app.clone(),
-        None => required_string(body, "app_id")?.to_owned(),
-    };
+    let app_id = declared_app_id(body)?;
     let id = database_id(body, host)?;
     let mut owner = Map::new();
     owner.insert("app_id".into(), Value::String(app_id));
@@ -184,6 +176,19 @@ fn declare_request(body: &Map<String, Value>, host: &Host) -> Result<OwnerCall, 
         scoped(&id, "apps/declare-schema"),
         &Value::Object(owner),
     )
+}
+
+/// On the app socket a present `app_id` is the schema namespace. Omit it, or
+/// send JSON null, and the calling app's id is used. The owner socket still
+/// requires the field. The owner handler requires the schema namespace to match.
+fn declared_app_id(body: &Map<String, Value>) -> Result<String, HostError> {
+    if let Some(app) = active_app() {
+        return Ok(match optional_string(body, "app_id")? {
+            Some(id) => id.to_owned(),
+            None => app.app.clone(),
+        });
+    }
+    Ok(required_string(body, "app_id")?.to_owned())
 }
 
 fn share_config_request(body: &Map<String, Value>, host: &Host) -> Result<OwnerCall, HostError> {

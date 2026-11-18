@@ -5,6 +5,11 @@ creates a database, places one schema, reads the schema list, and reads and
 writes the share configuration through the same handlers as the owner routes.
 A following /v1/write and /v1/read round-trips one record in that database.
 
+The write grant also names social/Note. declare_schema with app_id social
+places that schema and a record round-trips. The same call for a schema
+outside the grant is refused. Without app_id the owner handler refuses
+social/Note because the namespace is not the calling app.
+
 invite, accept, submit, and submission_status need two nodes that share one
 database. No operation in this tree does that, so this proof does not call them.
 """
@@ -21,8 +26,13 @@ APP = "databasesproof"
 # The owner handler requires schema.name to be "{app_id}/{local}".
 SCHEMA = "databasesproof/Note"
 OTHER = "databasesproof/Other"
+# A schema in another namespace. The write grant names it. app_id is that namespace.
+FOREIGN = "social/Note"
+FOREIGN_NAMESPACE = "social"
+OUTSIDE = "social/Outside"
 NAME = "dbext"
 NOTE = "kept"
+FOREIGN_NOTE = "kept-social"
 ACTIONS = (
     "list", "create", "accept", "schemas", "declare_schema", "share_config",
     "set_share_config", "invite", "submit", "submission_status",
@@ -46,22 +56,24 @@ def exercise(node):
     without_extension(sock)
     register(node, ["databases"])
     database = create_database(node, sock)
-    schema = declare_note(sock, database)
+    declare_note(sock, database)
     refused(sock, {"action": "declare_schema", "database": database, "schema": {"name": OTHER}},
             403, "permission_denied", f"the app {APP} did not declare that it writes {OTHER}")
-    refused(sock, {"action": "declare_schema", "database": database, "schema": schema, "app_id": "other"},
-            400, "invalid_request", "declare_schema does not take app_id on the app socket")
+    place_other_namespace(sock, database)
     refused(sock, {"action": "nope"}, 400, "invalid_request", "unknown action nope")
     same_schemas(node, sock, database)
     prove_share(node, sock, database)
     round_trip(sock, database)
-    print("Databases extension: list, create, declare_schema, schemas, share_config, "
-          "set_share_config, and a named read and write passed", flush=True)
+    round_trip(sock, database, FOREIGN, FOREIGN_NOTE)
+    print("Databases extension: list, create, declare_schema, a schema in another "
+          "namespace, schemas, share_config, set_share_config, and a named read and "
+          "write passed", flush=True)
 
 
 def register(node, extensions):
+    names = [SCHEMA, FOREIGN]
     reply = node.call("/api/apps/register", {"app": APP, "access": {
-        "read": [SCHEMA], "write": [SCHEMA], "extensions": extensions,
+        "read": names, "write": names, "extensions": extensions,
     }})[0]
     require(reply.get("app") == APP, "databases proof app was not registered: " + repr(reply.get("app")))
 
@@ -104,6 +116,24 @@ def declare_note(sock, database):
     return schema
 
 
+def place_other_namespace(sock, database):
+    schema = definition(FOREIGN, "Hash", ["id", "note"], description_prefix="Databases extension ")
+    schema.pop("source", None)
+    status, reply = app_post(sock, {
+        "action": "declare_schema", "database": database, "schema": schema,
+        "app_id": FOREIGN_NAMESPACE,
+    })
+    require(status == 200 and reply.get("schema_name") == FOREIGN
+            and reply.get("app_id") == FOREIGN_NAMESPACE and reply.get("resolution") == "register",
+            f"declare_schema with app_id failed: {status} {reply.get('error')!r}")
+    refused(sock, {
+        "action": "declare_schema", "database": database,
+        "schema": {"name": OUTSIDE}, "app_id": FOREIGN_NAMESPACE,
+    }, 403, "permission_denied", f"the app {APP} did not declare that it writes {OUTSIDE}")
+    refused(sock, {"action": "declare_schema", "database": database, "schema": schema},
+            400, "invalid_request", "schema.name namespace must match request.app_id")
+
+
 def same_schemas(node, sock, database):
     status, reply = app_post(sock, {
         "action": "schemas", "database": database,
@@ -113,7 +143,8 @@ def same_schemas(node, sock, database):
     owner_status, raw = owner_exchange(node, "GET", path, None)
     require(status == 200 and owner_status == 200 and reply == json.loads(raw),
             f"schemas differ: extension {status} owner {owner_status}")
-    require(SCHEMA in {row["name"] for row in reply["schemas"]}, "schemas omitted the placed schema")
+    names = {row["name"] for row in reply["schemas"]}
+    require(SCHEMA in names and FOREIGN in names, "schemas omitted a placed schema")
 
 
 def prove_share(node, sock, database):
@@ -128,19 +159,19 @@ def prove_share(node, sock, database):
           f"PUT owner {put_owner} extension {put_ext}", flush=True)
 
 
-def round_trip(sock, database):
-    item = create(SCHEMA, {"hash": "one"}, {"id": "one", "note": NOTE}, database=database)
+def round_trip(sock, database, schema=SCHEMA, note=NOTE):
+    item = create(schema, {"hash": "one"}, {"id": "one", "note": note}, database=database)
     status, reply = v1_post(sock, "/v1/write", {"mutations": [item]})
     require(status == 200 and reply.get("written") == 1, f"named write failed: {status} {reply.get('error')!r}")
     status, reply = v1_post(sock, "/v1/read", {"reads": [
-        v1.point(SCHEMA, {"hash": "one"}, database=database),
+        v1.point(schema, {"hash": "one"}, database=database),
     ]})
     rows = (reply.get("results") or [{}])[0].get("records") or []
-    require(status == 200 and len(rows) == 1 and rows[0]["record"]["note"] == NOTE, "named read missed the record")
-    status, reply = v1_post(sock, "/v1/read", {"reads": [v1.point(SCHEMA, {"hash": "one"})]})
+    require(status == 200 and len(rows) == 1 and rows[0]["record"]["note"] == note, "named read missed the record")
+    status, reply = v1_post(sock, "/v1/read", {"reads": [v1.point(schema, {"hash": "one"})]})
     personal = (reply.get("results") or [{}])[0]
     records = personal.get("records") or []
-    require(status == 200 and all(row.get("record", {}).get("note") != NOTE for row in records),
+    require(status == 200 and all(row.get("record", {}).get("note") != note for row in records),
             "personal read returned the named database record")
 
 
