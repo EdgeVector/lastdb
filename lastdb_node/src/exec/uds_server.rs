@@ -18,11 +18,13 @@ use crate::lastdb_uds::uds_router::{self, ControlRoute, DataRoute};
 use crate::lastdb_uds::{ConnectionWork, SubmitError, UdsSocket, UdsWorkerPool};
 
 /// The app socket does not share the owner's workers. An app that opens
-/// connections and sends nothing can fill only this many workers.
+/// connections and sends nothing can fill only this many workers, so it
+/// cannot starve the owner socket.
 const APP_SOCKET_WORKERS: usize = 4;
-/// Queued connections in front of [`APP_SOCKET_WORKERS`]. Fixed and small for
-/// the same reason: app load stays on the app socket.
-const APP_SOCKET_QUEUE: usize = 4;
+/// Queued connections in front of [`APP_SOCKET_WORKERS`]. As deep as the owner
+/// socket's default (`LASTDB_UDS_QUEUE`, 256). A queued connection costs one
+/// file descriptor. Refusing at eight broke ordinary parallel reads.
+const APP_SOCKET_QUEUE: usize = 256;
 /// No file bytes cross the app API, so a larger body is refused.
 const APP_MAX_BODY_LEN: usize = 8 * 1024 * 1024;
 const APP_BODY_TOO_LARGE: &str = "request body is larger than 8 MiB";

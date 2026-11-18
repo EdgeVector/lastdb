@@ -106,6 +106,8 @@ pub struct Host {
     pub keypair: Arc<Ed25519KeyPair>,
     pub user_hash: String,
     pub uds_workers: OnceLock<crate::lastdb_uds::UdsWorkerPool>,
+    /// The app socket's pool. `/api/status` reports it beside [`Self::uds_workers`].
+    pub app_uds_workers: OnceLock<crate::lastdb_uds::UdsWorkerPool>,
     pub(crate) booted_with_credentials: bool,
     pub(crate) cloud_sync: cloud_sync::CloudSyncTracker,
     pub(crate) owned: owned::Tables,
@@ -200,6 +202,7 @@ impl Host {
             keypair,
             user_hash,
             uds_workers: OnceLock::new(),
+            app_uds_workers: OnceLock::new(),
             booted_with_credentials: creds_at_boot,
             cloud_sync,
             owned,
