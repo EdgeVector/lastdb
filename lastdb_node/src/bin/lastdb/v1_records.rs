@@ -166,7 +166,7 @@ pub(super) fn record_write(
         item.insert("revision".into(), json!(revision));
     }
     if let Some(link) = file {
-        item.insert("file".into(), file_link(&link));
+        item.insert("file".into(), file_link(link));
     }
     Ok(Value::Object(item))
 }

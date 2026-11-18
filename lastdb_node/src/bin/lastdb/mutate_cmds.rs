@@ -101,7 +101,7 @@ fn take_input(
     if body.get("mutation").is_none() {
         let doc: MutationDoc =
             serde_json::from_value(body).map_err(|e| format!("invalid complete mutation: {e}"))?;
-        return Ok((doc_value(doc)?, None));
+        return Ok((doc_value(&doc)?, None));
     }
     let input: RecordInput =
         serde_json::from_value(body).map_err(|e| format!("invalid record input: {e}"))?;
@@ -123,10 +123,10 @@ fn take_input(
         name: input.file.name,
         media_type: input.file.media_type,
     };
-    Ok((doc_value(doc)?, Some(link)))
+    Ok((doc_value(&doc)?, Some(link)))
 }
 
-fn doc_value(doc: MutationDoc) -> Result<Value, String> {
+fn doc_value(doc: &MutationDoc) -> Result<Value, String> {
     if doc.kind != "mutation" {
         return Err("invalid complete mutation".into());
     }
