@@ -224,19 +224,37 @@ goes into the listing, under the publisher signature:
 
 Install places each schema named in `read` or `write` at the signed definition.
 `"*"` places nothing by itself. Names on the other side are placed as usual.
-A schema the manifest lists that neither side names is not placed. Publish's
-Schema Service push is the schemas the manifest lists, plus the names on a side
-that is a map. A `"*"` side adds none.
+When either side is `"*"`, install also places every schema in the manifest
+`schemas` array that no side names. The definition is the manifest entry at
+the installed commit. The listing signs that commit, so the entry is the
+publisher's statement. The installer prints
+`placed schema <name> from the app's manifest`, the same line it prints when
+Schema Service does not supply a named schema and the manifest entry matches
+the signed id. When neither side is `"*"`, a manifest schema that no side names
+is not placed. Publish's Schema Service push is the schemas the manifest
+lists, plus the names on a side that is a map. A `"*"` side adds none. An
+app with `"*"` on both sides still pushes every schema the manifest lists.
 
-The installer reads the node's schemas once. A name already at that definition
-stays, and its retention stays. Otherwise the definition is taken from Schema
-Service (`GET /v1/schemas/<definition id>`, no credentials) when the returned
-definition hashes to the signed id. A miss, a timeout, or a hash that does not
-match falls through to the manifest entry of that name, with no warning. The
-manifest entry is used only when it hashes to the signed id, and it keeps its
-retention. A schema the access block does not name is not placed. A listing
-with no access block installs as before. If none of the three supplies the
-signed definition, install fails and the previous version stays active.
+The installer reads the node's schemas once. A name already at the definition
+being placed stays, and its retention stays. For a name in the access block,
+the definition is taken from Schema Service
+(`GET /v1/schemas/<definition id>`, no credentials) when the returned
+definition hashes to the signed id. A miss, a timeout, or a hash that does
+not match falls through to the manifest entry of that name, with no warning.
+The manifest entry is used only when it hashes to the signed id, and it keeps
+its retention. A schema the access block does not name is not placed, unless
+a side is `"*"` and the manifest lists it. A listing with no access block
+installs as before. If none of the three supplies the signed definition,
+install fails and the previous version stays active.
+
+A manifest schema placed because a side is `"*"` has no signed definition id
+in the access block. The node already holding that name at the manifest's
+definition id is left as it is. The node holding a different definition is
+posted that manifest declaration, which is what install already does for a
+named schema once the manifest entry is the definition. The node accepts a
+compatible change. It refuses a declaration that changes an existing field,
+the key, or the alternate keys. That refusal fails the install, and the
+previous version stays active.
 
 The declaration is recorded with the install. The installer registers it when
 that version is activated, and again when a failed activation or a rollback

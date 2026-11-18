@@ -46,6 +46,31 @@ impl Catalog {
             }
         }
     }
+
+    /// Manifest schemas no access side names.
+    ///
+    /// A bad entry fails only when this installer is about to place it. A
+    /// schema a side names keeps the signed-id path and is skipped here.
+    pub(super) fn unnamed(
+        &self,
+        named: &BTreeMap<String, String>,
+    ) -> Result<Vec<Prepared>, String> {
+        let mut out = Vec::new();
+        for (name, slot) in &self.entries {
+            if named.contains_key(name) {
+                continue;
+            }
+            match slot {
+                Slot::Ready(item) => out.push(item.as_ref().clone()),
+                Slot::Bad(error) => {
+                    return Err(format!(
+                        "schema '{name}' was not placed from the manifest: {error}"
+                    ));
+                }
+            }
+        }
+        Ok(out)
+    }
 }
 
 pub(super) fn load(source: &Path, app_id: &str) -> Result<Catalog, String> {
