@@ -8,10 +8,10 @@
 //! A database is [`DatabaseKind::Personal`] or [`DatabaseKind::Shareable`].
 //! A personal database accepts app-private namespaces and rejects a receiver
 //! grant. A shareable database rejects an app-private namespace on append.
-//! ExeMem gives receivers only entries written by the publisher, including
-//! when filtering legacy mixed history. Whole-database shares also have a
-//! separate pending inbox log that only the publisher reads. The publisher's
-//! LastDB validates those mutations and publishes accepted changes under its own key.
+//! A personal database has one log. A shared database has two: the publisher
+//! log, which only the publisher writes and which recipients read, and the
+//! inbox, which only the publisher reads. The publisher's LastDB validates
+//! inbox mutations and publishes accepted changes on its own log.
 
 #![deny(clippy::disallowed_methods, clippy::disallowed_types)]
 

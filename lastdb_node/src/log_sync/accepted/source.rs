@@ -3,13 +3,11 @@
 use std::sync::Arc;
 
 use database_policy::SpecBinding;
-use fold_db::schema::types::KeyValue;
 use fold_db::storage::disk_backup::accepted::{UploadIdentity, UploadPosition};
 use fold_db::storage::disk_pack::PackRuntime;
 use mutation_log::LogError;
-use serde::Deserialize;
 
-use crate::accepted_writes::{self, Blocked, Item, Page, Publication, StreamStatus};
+use crate::accepted_writes::{self, Blocked, Page, Publication, StreamStatus};
 
 use super::CloudLog;
 
@@ -85,50 +83,9 @@ pub(super) fn capture_block(status: &StreamStatus) -> Option<&'static str> {
         Some("local capture has a gap")
     } else if status.snapshot_required {
         Some("recovery required for writes from before local capture")
-    } else if status.acked < status.legacy_through {
-        Some("old local writes still await cloud acceptance")
     } else {
         None
     }
-}
-
-#[derive(Deserialize)]
-struct AcceptedTarget {
-    schema: String,
-    key: Option<KeyValue>,
-    action: String,
-    file: Option<serde::de::IgnoredAny>,
-    inline_file: Option<serde::de::IgnoredAny>,
-}
-
-pub(super) type LegacyPending<'a> = (String, Option<KeyValue>, &'a str, bool);
-
-pub(super) fn legacy_pending(page: &Page) -> Option<Vec<LegacyPending<'_>>> {
-    page.items
-        .iter()
-        .filter_map(|item| match item {
-            Item::Publish {
-                mutation_id,
-                kind,
-                canonical,
-                authored_at_ms: None,
-                ..
-            } => Some((mutation_id, kind, canonical)),
-            _ => None,
-        })
-        .map(|(id, kind, canonical)| {
-            let target: AcceptedTarget = serde_json::from_slice(canonical).ok()?;
-            let attachment_affected = target.file.is_some()
-                || target.inline_file.is_some()
-                || matches!(target.action.as_str(), "delete" | "purge");
-            ((kind == "schema") == target.key.is_none()).then_some((
-                target.schema,
-                target.key,
-                id.as_str(),
-                attachment_affected,
-            ))
-        })
-        .collect()
 }
 
 pub(super) enum PublishPolicy {

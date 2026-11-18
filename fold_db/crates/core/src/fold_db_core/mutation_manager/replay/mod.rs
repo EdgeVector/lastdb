@@ -9,7 +9,7 @@ use super::{AuthoredMutation, MutationManager};
 use crate::schema::types::{KeyValue, Mutation, MutationType};
 use crate::schema::{Schema, SchemaError, SchemaState};
 use crate::storage::disk_backup::accepted;
-use crate::storage::disk_pack::{transaction, PackRuntime};
+use crate::storage::disk_pack::PackRuntime;
 use crate::storage::format::metadata::ReplayTarget;
 use crate::storage::format::records::RecordAddress;
 use lastdb_model::record_value::StoredRecord;
@@ -83,45 +83,13 @@ impl MutationManager {
         Ok(keep)
     }
 
-    /// Protect old, already committed spool items before submitting their unchanged bodies.
-    #[doc(hidden)]
-    pub async fn stage_legacy_replay_pending(
+    /// Stable address of one record in this store.
+    pub fn record_storage_address(
         &self,
-        items: &[(String, Option<KeyValue>, &str, bool)],
-    ) -> Result<(), SchemaError> {
-        if items.is_empty() {
-            return Ok(());
-        }
-        let runtime = self.db_ops.native_runtime();
-        transaction::scope(Arc::clone(&runtime), async {
-            let mut addresses = Vec::with_capacity(items.len());
-            for (schema, key, _, _) in items {
-                let address = match key {
-                    Some(key) if self.schema_manager.get_schema_metadata(schema)?.is_some() => {
-                        Some(self.replay_record_address(schema, key)?)
-                    }
-                    _ => None,
-                };
-                addresses.push(address);
-            }
-            let mut targets = Vec::with_capacity(items.len() * 2);
-            let mut attachments = Vec::new();
-            for ((schema, key, id, attachment), address) in items.iter().zip(&addresses) {
-                if let Some(address) = address {
-                    targets.push((ReplayTarget::Record(address), *id));
-                    targets.push((ReplayTarget::SchemaRecords(schema), *id));
-                    if *attachment {
-                        attachments.push(address.as_str());
-                    }
-                } else if key.is_none() {
-                    targets.push((ReplayTarget::Schema(schema), *id));
-                }
-            }
-            let metadata = self.db_ops.metadata();
-            metadata.stage_legacy_replay_targets(targets).await?;
-            metadata.stage_pending_replay_attachments(attachments).await
-        })
-        .await
+        schema: &str,
+        key: &KeyValue,
+    ) -> Result<String, SchemaError> {
+        self.replay_record_address(schema, key)
     }
 
     /// Latest local schema definition change awaiting cloud delivery.

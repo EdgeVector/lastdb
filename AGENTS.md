@@ -44,10 +44,10 @@ removed page with `git show 13a2cf188:<path>`.
 Keep these requirements in every LastDB, Social, SDK, and ExeMem change that
 touches whole-database sharing. Change them only at Tom's explicit direction.
 
-- Keep the published log and the pending mutation log as separate stored logs
-  with independent positions under one database ID. Do not delete either log
-  or combine them behind a read filter. Keep older mixed history private and
-  recoverable through migrations.
+- A personal database has one log. A shared database has exactly two logs
+  under one database ID: the publisher log and the inbox. Their positions are
+  independent. Do not delete either log, combine them, or keep a mixed-log
+  path. There is no compatibility with a retired log format.
 - Every active receiver can read the whole published database and append an
   encrypted proposal, even with an empty write grant. Only the publisher can
   read or settle pending entries. Receivers cannot read even their own
