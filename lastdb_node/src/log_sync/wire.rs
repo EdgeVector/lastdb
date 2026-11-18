@@ -326,6 +326,9 @@ fn stored_entry(database_id: &str, wire: StoredWire) -> Result<StoredEntry, LogE
     Ok(StoredEntry {
         delivery_seq: wire.delivery_seq.get(),
         accepted_at_ms: wire.accepted_at_ms.get(),
+        // EntryBody has no direct-write field. Visibility is already applied
+        // by the service. An entry parsed here reads as not a direct write.
+        direct_write: false,
         entry: Entry {
             database_id: mutation_log::DatabaseId::new(database_id)?,
             writer: writer_of(&wire.entry.node_public_key, &wire.entry.device_id)?,

@@ -98,6 +98,14 @@ pub struct StoredEntry {
     pub accepted_at_ms: u64,
     /// The accepted entry. Its author time stays as sealed.
     pub entry: Entry,
+    /// Set by append when this log is shareable, `write` was `direct`, and the
+    /// writer is not the publisher.
+    ///
+    /// The caller cannot set it. There is no field on [`Entry`] and no field on
+    /// the list wire. A shell that loads an entry stored before this mark, or
+    /// an entry whose stored mark is absent, sets false. False stays false if
+    /// the settings change later.
+    pub direct_write: bool,
 }
 
 impl StoredEntry {
@@ -115,10 +123,11 @@ pub enum DatabaseKind {
     Personal,
     /// A database receivers may be granted.
     ///
-    /// Only official namespaces can be appended. With the default settings a
-    /// receiver reads entries whose writer key is `publisher`, including
-    /// re-appends. `read: anyone` gives that view to a caller with no grant.
-    /// `write: direct` also shows entries written by keys that hold Submit.
+    /// Only official namespaces can be appended. A reader other than the
+    /// publisher sees entries whose writer key is the publisher, including
+    /// re-appends, and entries stored with [`StoredEntry::direct_write`].
+    /// `read: anyone` gives that same view to a caller with no grant.
+    /// The writer's later role does not hide or reveal an entry.
     Shareable {
         /// Node key that authors the readable entries and incorporates submissions.
         publisher: PrincipalId,
@@ -130,8 +139,8 @@ pub enum DatabaseKind {
 pub enum Capability {
     /// Read and append a personal database from any device of this node key.
     Owner,
-    /// Read entries whose writer key is the publisher key.
-    /// `write: direct` also shows entries written by a key that holds Submit.
+    /// Read entries whose writer key is the publisher key, and entries stored
+    /// as direct writes.
     Receive,
     /// Append pending submissions from any device of this node key, and read those entries.
     Submit,
