@@ -20,27 +20,6 @@ use crate::host::Host;
 use crate::log_envelope::DatabaseContentKey;
 use crate::named_grant::lock_member;
 
-pub(super) async fn receiver_base(
-    store: &FoldDB,
-    mutation: &Mutation,
-) -> Result<Option<String>, ContributionError> {
-    let CasExpectation::Revision { revision } = &mutation.expected else {
-        return Ok(None);
-    };
-    let found = match store
-        .mutation_manager()
-        .shared_record_revision(&mutation.schema_name, &mutation.key_value)
-        .await
-    {
-        Ok(row) => row,
-        Err(error) if terminal_record_error(&error) => return Ok(None),
-        Err(_) => return Err(ContributionError::Unavailable),
-    };
-    Ok(found
-        .filter(|row| row.local_revision == *revision)
-        .map(|row| row.mutation_id))
-}
-
 pub(super) fn parse(body: &[u8]) -> Result<Mutation, ContributionError> {
     if body.len() > BODY_LIMIT {
         return Err(ContributionError::Invalid);

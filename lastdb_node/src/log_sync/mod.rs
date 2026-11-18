@@ -82,8 +82,7 @@ impl From<RestoreError> for PageFailure {
 }
 
 pub(crate) use contributions::{
-    status as share_write_status, submit as submit_share_write, validate_write_scopes,
-    ContributionError,
+    status as share_write_status, validate_write_scopes, ContributionError,
 };
 pub use native_reset::install_prepared_native_recovery;
 pub use owner_recovery::{recover_owned, RecoveredPrefix};

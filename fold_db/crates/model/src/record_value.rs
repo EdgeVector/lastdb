@@ -18,8 +18,8 @@ pub const MAX_INLINE_FILE_BYTES: usize = 64 * 1024;
 pub const MAX_INLINE_LABEL_BYTES: usize = 255;
 pub const MAX_INLINE_STORED_BYTES: usize = MAX_INLINE_FILE_BYTES.div_ceil(3) * 4 + 1024;
 pub const RECORD_TOO_LARGE_HINT: &str = "A record holds every field of one key, and its \
-    encoded value must fit the 64 KiB record cap. Store large bytes as the record's one file \
-    (`put-blob`), or write a list that grows as one record per entry in a HashRange schema \
+    encoded value must fit the 64 KiB record cap. Store large bytes as the record's one file, \
+    or write a list that grows as one record per entry in a HashRange schema \
     (hash = partition, range = entry key).";
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

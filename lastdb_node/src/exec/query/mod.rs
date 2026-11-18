@@ -1,52 +1,35 @@
-//! Query routes, batch query execution, and keyed/alternate read flows.
+//! Keyed and alternate reads used by the app API.
 
 use std::sync::Arc;
 
-use fold_db::access::AccessContext;
 use fold_db::db_operations::PageEnd;
 use fold_db::schema::types::field::{HashRangeFilter, KeyWindow};
 use fold_db::schema::types::key_comparison::KeyComparisonContext;
 use fold_db::schema::types::operations::SortOrder;
 use fold_db::schema::types::{KeyValue, Query, QueryCursor};
-use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::Value;
 
-use super::reply::{render, HostError};
+use super::reply::HostError;
 use super::schema_routes::resolve_schema_name;
-use super::wire::{body_object, parse_query_body, QueryRequest};
+use super::wire::QueryRequest;
 use crate::host::Host;
-use crate::lastdb_uds::uds_http::{UdsRequest, UdsResponse};
 
 mod format;
 
-pub(in crate::exec) use format::query_batch_route;
 use format::{
     cursor_payload, format_alternate_page, format_rows, full_schema_scan_rejection, page_payload,
     sort_rows,
 };
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub(in crate::exec) enum QueryResponseFormat {
     #[default]
     Full,
     Values,
-    Count,
 }
 
 fn clamp_request_limit(limit: Option<usize>) -> usize {
     limit.unwrap_or(100).min(1000)
-}
-
-pub(in crate::exec) async fn query_route(
-    req: &UdsRequest,
-    ctx: &AccessContext,
-    host: &Host,
-) -> UdsResponse {
-    match body_object(req).and_then(parse_query_body) {
-        Ok(q) => render(execute_query(host, q).await, ctx),
-        Err(resp) => resp,
-    }
 }
 
 pub(in crate::exec) async fn execute_query(
@@ -130,14 +113,6 @@ async fn alternate_execute(host: &Host, req: QueryRequest) -> Result<Value, Host
     }
     let records = host.records();
     let exec = records.query_executor();
-    if req.response_format == QueryResponseFormat::Count {
-        if req.cursor.is_some() {
-            return Err(HostError::new(400, "alternate counts do not use a cursor"));
-        }
-        return Ok(
-            json!({"total_count": exec.count_alternate_rows(&req.query).await?, "exact": true}),
-        );
-    }
     let limit = clamp_request_limit(req.limit);
     format_alternate_page(
         exec.query_alternate_page(req.query, limit, req.cursor)
@@ -157,25 +132,6 @@ async fn execute_primary_query(
 ) -> Result<Value, HostError> {
     let records = host.records();
     let exec = records.query_executor();
-    if fmt == QueryResponseFormat::Count {
-        if cursor.is_some() || offset != 0 {
-            return Err(HostError::new(
-                400,
-                "count replies require keyed live reads without continuation",
-            ));
-        }
-        let count = exec
-            .count_query_rows(&query)
-            .await?
-            .ok_or_else(|| HostError::new(400, "exact keyed count is unavailable"))?;
-        if query.expected_total_count.is_some_and(|exp| exp != count) {
-            return Err(HostError::new(
-                409,
-                "expected_total_count differs from the exact keyed count",
-            ));
-        }
-        return Ok(json!({"total_count": count, "exact": true}));
-    }
     let desc = matches!(query.sort_order, Some(SortOrder::Desc));
     let total = if query.expected_total_count.is_some() || (cursor.is_none() && desc) {
         exec.count_query_rows(&query).await?

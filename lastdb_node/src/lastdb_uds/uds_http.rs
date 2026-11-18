@@ -14,32 +14,27 @@ pub const MAX_BODY_LEN: usize = 128 * 1024 * 1024;
 #[derive(Clone, Copy)]
 pub struct ReadPolicy {
     max_body: usize,
-    allow_raw_blob: bool,
     drain_oversize: bool,
     defer_oversize: bool,
 }
 
 impl ReadPolicy {
-    /// Owner socket. `max_body` is the non-file limit. A raw file upload keeps
-    /// its own allowance. An oversize body is refused here, without reading it.
+    /// Owner socket. An oversize body is refused here, without reading it.
     #[must_use]
     pub const fn owner(max_body: usize) -> Self {
         Self {
             max_body,
-            allow_raw_blob: true,
             drain_oversize: false,
             defer_oversize: false,
         }
     }
 
-    /// App socket. Every body, including a raw upload, stops at `max_body`.
-    /// The extra bytes are discarded and the caller writes the refusal, so the
-    /// app API can use its own error shape and the client can read it.
+    /// App socket. An oversize body is discarded and the caller writes the
+    /// refusal, so the app API can use its own error shape.
     #[must_use]
     pub const fn app(max_body: usize) -> Self {
         Self {
             max_body,
-            allow_raw_blob: false,
             drain_oversize: true,
             defer_oversize: true,
         }
@@ -167,7 +162,7 @@ fn read_request<R: BufRead>(mut reader: R, policy: &ReadPolicy) -> Result<UdsReq
     {
         return Err(HttpErr::Bad);
     }
-    let body = read_body(&mut reader, &headers, &method, &target, policy)?;
+    let body = read_body(&mut reader, &headers, policy)?;
     Ok(UdsRequest {
         method,
         target,
@@ -192,24 +187,9 @@ fn discard_exact(r: &mut impl Read, mut left: usize) -> Result<(), HttpErr> {
 fn read_body(
     r: &mut impl Read,
     headers: &[(String, String)],
-    method: &str,
-    target: &str,
     policy: &ReadPolicy,
 ) -> Result<Vec<u8>, HttpErr> {
-    let put_path = target == "/api/db/put-blob"
-        || super::split_database_path(target).is_some_and(|(_, p)| p == "db/put-blob");
-    let octet = headers
-        .iter()
-        .find(|(n, _)| n.eq_ignore_ascii_case("content-type"))
-        .and_then(|(_, v)| v.split(';').next());
-    let raw_blob = method == "POST"
-        && put_path
-        && octet.is_some_and(|v| v.trim().eq_ignore_ascii_case("application/octet-stream"));
-    let max = if raw_blob && policy.allow_raw_blob {
-        fold_db::storage_policy::native_write::LOCAL_FILE_INPUT_MEMORY_BYTES
-    } else {
-        policy.max_body as u64
-    };
+    let max = policy.max_body as u64;
     let (mut len, mut seen) = (0usize, false);
     for (n, v) in headers {
         if n.eq_ignore_ascii_case("content-length") {
