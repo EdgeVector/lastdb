@@ -1,8 +1,11 @@
 //! Mutation Manager — public write entry points, commit receipts, and native transaction commits.
 
+mod record_log;
 mod replace;
 mod replay;
 mod write_records;
+
+pub use record_log::{RecordWriteLog, RecordWriteNote};
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::future::Future;
@@ -21,7 +24,6 @@ use crate::schema::{SchemaCore, SchemaError};
 use crate::storage::disk_pack::transaction;
 
 pub use crate::storage::format::metadata::ReplayStamp;
-pub use write_records::SharedRecordRevision;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ResidentCommitOperations {
@@ -69,7 +71,7 @@ pub struct MutationManager {
     pub(super) db_ops: Arc<DbOperations>,
     pub(super) schema_manager: Arc<SchemaCore>,
     pub(super) writer_id: String,
-    track_shared_record_revisions: bool,
+    record_log: Option<std::sync::Arc<dyn RecordWriteLog>>,
 }
 
 impl MutationManager {
@@ -77,13 +79,13 @@ impl MutationManager {
         db_ops: Arc<DbOperations>,
         schema_manager: Arc<SchemaCore>,
         writer_id: String,
-        track_shared_record_revisions: bool,
+        record_log: Option<std::sync::Arc<dyn RecordWriteLog>>,
     ) -> Self {
         Self {
             db_ops,
             schema_manager,
             writer_id,
-            track_shared_record_revisions,
+            record_log,
         }
     }
 
@@ -167,25 +169,14 @@ impl MutationManager {
         let mut stages = ResidentCommitStages::default();
         let (mutation_ids, record_revisions, operations, revision) =
             transaction::scope(Arc::clone(&runtime), async {
-                if let Some(adm) = mutations.iter().find_map(|m| m.contribution.as_ref()) {
-                    if mutations.len() != 1 {
-                        return Err(SchemaError::InvalidData(
-                            "a contribution requires one native mutation".into(),
-                        ));
-                    }
-                    if self
-                        .db_ops
-                        .metadata()
-                        .stage_contribution_receipt(&adm.receipt_id, &adm.intent_digest)
-                        .await?
-                    {
-                        return Ok((
-                            vec![mutations[0].uuid.clone()],
-                            BTreeMap::new(),
-                            ResidentCommitOperations::default(),
-                            None,
-                        ));
-                    }
+                if mutations
+                    .iter()
+                    .any(|mutation| mutation.contribution.is_some())
+                    && mutations.len() != 1
+                {
+                    return Err(SchemaError::InvalidData(
+                        "a contribution requires one native mutation".into(),
+                    ));
                 }
                 let revision = self.prepare_mutation_author_clocks(&mut mutations).await?;
                 let ops = count_commit_ops(&mutations);

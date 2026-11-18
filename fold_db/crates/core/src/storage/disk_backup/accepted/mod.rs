@@ -57,8 +57,6 @@ pub struct Status {
     pub snapshot_required: bool,
     /// A hole is open. Reads and new commits refuse.
     pub gap: bool,
-    /// Last outstanding sequence found at open without a captured author clock.
-    pub legacy_through: u64,
 }
 
 /// One sealed logical entry.
@@ -142,6 +140,14 @@ impl PackRuntime {
             .await
     }
 
+    /// Whether this capture has already stored `mutation_id`.
+    pub fn accepted_mutation_seen(&self, mutation_id: &str) -> Result<bool, Error> {
+        match &self.accepted {
+            Some(log) => log.mutation_recorded(mutation_id),
+            None => Ok(false),
+        }
+    }
+
     /// Cursor of this home. A home without capture has an empty cursor and does not block writes.
     pub fn accepted_status(&self) -> Status {
         self.accepted.as_ref().map_or(
@@ -151,7 +157,6 @@ impl PackRuntime {
                 opened_frontier: 0,
                 snapshot_required: false,
                 gap: false,
-                legacy_through: 0,
             },
             Log::status,
         )

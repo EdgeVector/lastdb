@@ -25,6 +25,7 @@ mod logging;
 pub(crate) mod ops;
 pub(crate) mod owned;
 mod recovery;
+pub(crate) mod share_identity;
 pub(crate) use cloud_sync::{BlockedDelivery, ReplayBlockReason};
 pub use logging::init_daemon_logging;
 
@@ -177,7 +178,7 @@ impl Host {
             offline_maintenance: false,
             capture_accepted: signed_restore || has_spool || connected,
             capture_initial_snapshot: wants_initial && connected,
-            track_shared_record_revisions: false,
+            record_log: None,
         };
         let db = fold_db::fold_db_core::factory::create_fold_db_with_options(
             &DatabaseConfig::local(data_dir),

@@ -1,4 +1,4 @@
-//! Metadata namespace capability, local author clocks, receipts, shared revisions, and stream state.
+//! Metadata namespace capability, local author clocks, receipts, and stream state.
 
 mod changes;
 mod files;
@@ -17,7 +17,6 @@ use super::METADATA_NAMESPACE;
 use crate::schema::types::{MutationAuthorClockState, SchemaError};
 use crate::storage::disk_pack::{transaction, PackKvStore, PackRuntime};
 use crate::storage::{error::StorageResult, KvMutation, StorageError};
-use lastdb_model::hex::{hex_lower, sha256_hex};
 use lastdb_model::portable_mutation::{Position, Stamp, StreamId, StreamProgress};
 use lastdb_model::record_value::RecordValueError;
 use serde::{Deserialize, Serialize};
@@ -26,27 +25,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 pub(in crate::storage) const LOCAL_AUTHOR_KEY: &str = "portable-local-author";
 const MAX_LOCAL_AUTHOR_BYTES: usize = 8192;
-
-type SharedRecordWrite<'a> = (&'a str, Option<(&'a Stamp, &'a str)>);
-
-pub(crate) struct SharedCommentWrite<'a> {
-    pub address: &'a str,
-    pub before: Option<&'a Stamp>,
-    pub after: Option<&'a Stamp>,
-    pub creator: Option<&'a str>,
-}
-
-fn shared_key(prefix: &str, address: &str) -> String {
-    format!("{prefix}:{}", sha256_hex(address))
-}
-
-fn at_revision(bytes: &[u8], revision: &str) -> Result<Option<String>, SchemaError> {
-    let marker = std::str::from_utf8(bytes).map_err(read_err)?;
-    let (saved_revision, value) = marker
-        .split_once(':')
-        .ok_or_else(|| read_err("invalid shared record marker"))?;
-    Ok((saved_revision == revision).then(|| value.to_owned()))
-}
 
 fn schema_inv(msg: impl Into<String>) -> SchemaError {
     SchemaError::InvalidData(msg.into())
@@ -154,26 +132,6 @@ impl Metadata {
             })
     }
 
-    pub(crate) async fn stage_contribution_receipt(
-        &self,
-        id: &[u8; 32],
-        digest: &[u8; 32],
-    ) -> Result<bool, SchemaError> {
-        let key = format!("share-contribution-receipt:{}", hex_lower(id));
-        self.stage_receipt(key, digest, "share mutation ID reused")
-            .await
-    }
-
-    pub(crate) async fn contribution_committed(&self, id: &[u8; 32]) -> Result<bool, SchemaError> {
-        let key = format!("share-contribution-receipt:{}", hex_lower(id));
-        Ok(self
-            .store
-            .get(key.as_bytes())
-            .await
-            .map_err(read_err)?
-            .is_some())
-    }
-
     async fn stage_receipt(
         &self,
         key: String,
@@ -258,91 +216,6 @@ impl Metadata {
         rows.push((LOCAL_AUTHOR_KEY.to_owned(), Some(bytes)));
         changes::append_rows(&stamps, records, &mut rows)?;
         self.stage(rows).await.map(|()| stamps)
-    }
-
-    pub(crate) async fn shared_record_mutation(
-        &self,
-        address: &str,
-        local_revision: &str,
-    ) -> Result<Option<String>, SchemaError> {
-        let Some(bytes) = self
-            .store
-            .get(shared_key("shared-record-mutation", address).as_bytes())
-            .await
-            .map_err(read_err)?
-        else {
-            return Ok(None);
-        };
-        at_revision(&bytes, local_revision)
-    }
-
-    pub(crate) async fn stage_shared_record_mutations<'a>(
-        &self,
-        records: impl Iterator<Item = SharedRecordWrite<'a>>,
-    ) -> Result<(), SchemaError> {
-        self.stage(
-            records
-                .map(|(address, mutation)| {
-                    (
-                        shared_key("shared-record-mutation", address),
-                        mutation
-                            .map(|(stamp, id)| format!("{}:{id}", stamp.revision()).into_bytes()),
-                    )
-                })
-                .collect(),
-        )
-        .await
-        .map_err(read_err)
-    }
-
-    pub(crate) async fn shared_comment_creator(
-        &self,
-        address: &str,
-        revision: &str,
-    ) -> Result<Option<String>, SchemaError> {
-        let Some(bytes) = self
-            .store
-            .get(shared_key("shared-comment-creator", address).as_bytes())
-            .await
-            .map_err(read_err)?
-        else {
-            return Ok(None);
-        };
-        at_revision(&bytes, revision)
-    }
-
-    /// Carry forward verified origin with the new revision in the record's transaction.
-    /// A missing marker can never be supplied by ordinary record fields or metadata.
-    pub(crate) async fn stage_shared_comment_creators<'a>(
-        &self,
-        writes: impl Iterator<Item = SharedCommentWrite<'a>>,
-    ) -> Result<(), SchemaError> {
-        let entries: Vec<_> = writes
-            .map(|write| (shared_key("shared-comment-creator", write.address), write))
-            .collect();
-        let previous = self
-            .store
-            .get_many(entries.iter().map(|(k, _)| k.as_bytes().to_vec()).collect())
-            .await
-            .map_err(read_err)?;
-        if previous.len() != entries.len() {
-            return Err(read_err("incomplete shared comment creator lookup"));
-        }
-        let mut changes = Vec::with_capacity(entries.len());
-        for ((k, write), prev) in entries.into_iter().zip(previous) {
-            let creator = match (write.before, prev.as_deref()) {
-                (Some(before), Some(bytes)) => at_revision(bytes, &before.revision())?,
-                _ => write.creator.map(str::to_owned),
-            };
-            let next = write
-                .after
-                .zip(creator)
-                .map(|(stamp, creator)| format!("{}:{creator}", stamp.revision()).into_bytes());
-            if next.is_some() || prev.is_some() {
-                changes.push((k, next));
-            }
-        }
-        self.stage(changes).await.map_err(read_err)
     }
 
     fn require_scope(&self) -> StorageResult<()> {

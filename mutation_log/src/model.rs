@@ -159,9 +159,9 @@ pub struct AppendBatch {
 
 /// The whole log as a value. The shell stores it. This crate does not.
 ///
-/// This models the personal log or the share's published log, including any
-/// legacy mixed history. ExeMem stores new pending whole-database mutations
-/// separately. Writer tips and read positions are keyed by node key and device.
+/// This models one log: a personal database log, a share's publisher log, or
+/// the separate inbox. Writer tips and read positions are keyed by node key
+/// and device.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LogState {
     /// Database this log belongs to.

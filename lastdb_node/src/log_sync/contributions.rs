@@ -83,21 +83,6 @@ pub(super) async fn publish_before_settlement(host: &Host, log: &CloudLog) -> Re
     Ok(())
 }
 
-pub(super) async fn settle_legacy(host: &Host, log: &CloudLog, through: u64) -> Result<(), String> {
-    // A retry can repeat intake safely using the durable contribution receipts.
-    publish_before_settlement(host, log).await?;
-    let request = serde_json::json!({
-        "database_id": log.database_id(),
-        "through": cloud_backup_protocol::DecimalU64::new(through),
-    });
-    let bytes = cloud_backup_protocol::canonical_bytes(&request)
-        .map_err(|_| "member settlement request was not encoded")?;
-    log.post(paths::SETTLE_SUBMISSIONS, bytes)
-        .await
-        .map(|_| ())
-        .map_err(|error| format!("member submissions were not settled: {error}"))
-}
-
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Submission {
@@ -121,7 +106,7 @@ pub(crate) fn validate_write_scopes(
     if !entry.whole_database() {
         return Ok(());
     }
-    if update.has_legacy_writer() {
+    if update.writer_missing_scope() {
         return Err(invalid("every writer needs an explicit schema write scope"));
     }
     let ResolvedStore::Owned(store) = host
@@ -185,7 +170,7 @@ pub(crate) async fn submit(
     let submission = Submission {
         grant_revision: revision,
         operation,
-        base_mutation: intake::receiver_base(&store, &mutation).await?,
+        base_mutation: intake::receiver_base(host, share.id.as_str(), &store, &mutation).await?,
     };
     let invitation =
         registered_share::verified_invitation(&host.home, &share.id).map_err(|_| Unavailable)?;
@@ -232,10 +217,6 @@ pub(crate) async fn status(
     }
     let reply: serde_json::Value =
         serde_json::from_slice(&body).map_err(|_| ContributionError::Unavailable)?;
-    // An older service returns its ordinary access response.
-    if reply.get("mutation_id").is_none() {
-        return Ok(ShareWriteStatus::Unknown);
-    }
     if reply["mutation_id"].as_str() != Some(id.as_str()) {
         return Err(ContributionError::Unavailable);
     }
