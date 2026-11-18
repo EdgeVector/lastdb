@@ -316,6 +316,7 @@ jobs:
           
           # Store and retrieve a test secret
           TEST_SLUG="test-secret-ci-$$"
+          echo "$TEST_SLUG" > "$PROOF_DIR/lastsecrets-slug.txt"
           echo "Testing lastsecrets write and read operations with slug: $TEST_SLUG"
           
           printf '%s' "test-value-${{ github.run_number }}" | \
@@ -373,6 +374,113 @@ jobs:
             exit 1
           fi
           echo "Registry poll left /api/apps/register at ${after}." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove LastSecrets and install it again
+        if: matrix.app == 'lastsecrets' && env.INSTALLED == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          slug="$(cat "$PROOF_DIR/lastsecrets-slug.txt")"
+          needle="test-value-${{ github.run_number }}"
+          lastdb --data-dir "$LASTDB_HOME" app remove lastsecrets --json \
+            > "$PROOF_DIR/lastsecrets-remove.json" \
+            2> "$PROOF_DIR/lastsecrets-remove.err"
+          jq -e '.app == "lastsecrets" and .state == "removed" and .grant == "removed" and .data == "kept" and (.commands_removed | index("lastsecrets"))' \
+            "$PROOF_DIR/lastsecrets-remove.json" >/dev/null
+          lastdb --data-dir "$LASTDB_HOME" app status --json \
+            > "$PROOF_DIR/status-after-remove.json" \
+            2> "$PROOF_DIR/status-after-remove.err"
+          jq -e 'map(select(.app == "lastsecrets")) | length == 0' \
+            "$PROOF_DIR/status-after-remove.json" >/dev/null
+          if [ -e "$HOME/.local/bin/lastsecrets" ] || [ -L "$HOME/.local/bin/lastsecrets" ]; then
+            echo "lastsecrets command link is still present"
+            exit 1
+          fi
+          test -d "$LASTDB_APPS_ROOT/lastsecrets/data"
+          if [ -e "$LASTDB_APPS_ROOT/lastsecrets/current" ] || [ -L "$LASTDB_APPS_ROOT/lastsecrets/current" ]; then
+            echo "current link is still present"
+            exit 1
+          fi
+          if [ -e "$LASTDB_APPS_ROOT/lastsecrets/versions" ] || [ -L "$LASTDB_APPS_ROOT/lastsecrets/versions" ]; then
+            echo "versions directory is still present"
+            exit 1
+          fi
+          python3 - << 'PY'
+          import os, socket
+          sock_path = os.environ["LASTDB_HOME"] + "/data/apps.sock"
+          body = b"{}"
+          req = (
+              b"POST /v1/read HTTP/1.1\r\n"
+              b"Host: localhost\r\n"
+              b"X-LastDB-App: lastsecrets\r\n"
+              b"Content-Type: application/json\r\n"
+              b"Content-Length: " + str(len(body)).encode() + b"\r\n"
+              b"Connection: close\r\n\r\n" + body
+          )
+          sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+          sock.connect(sock_path)
+          sock.sendall(req)
+          data = b""
+          while True:
+              chunk = sock.recv(4096)
+              if not chunk:
+                  break
+              data += chunk
+          text = data.decode()
+          proof = os.environ["PROOF_DIR"] + "/lastsecrets-unregistered.txt"
+          open(proof, "w").write(text)
+          head, _, rest = text.partition("\r\n\r\n")
+          status = head.split("\r\n", 1)[0]
+          if "403" not in status or "permission_denied" not in rest or "the app socket needs a registered app" not in rest:
+              raise SystemExit("app socket did not refuse the unregistered app:\n" + text)
+          PY
+          jq -r '
+            (.listing.access.read // empty)
+            | if type == "object" then keys[]
+              elif type == "array" then .[]
+              elif . == "*" then "lastsecrets/LastSecret"
+              else empty end
+          ' "$PROOF_DIR/lastsecrets-install-receipt.json" > "$PROOF_DIR/lastsecrets-schemas.txt"
+          if [ ! -s "$PROOF_DIR/lastsecrets-schemas.txt" ]; then
+            echo "lastsecrets/LastSecret" > "$PROOF_DIR/lastsecrets-schemas.txt"
+          fi
+          found=0
+          while IFS= read -r schema; do
+            [ -n "$schema" ] || continue
+            if lastdb --data-dir "$LASTDB_HOME" get "$schema" --key-hash "$slug" --json \
+                > "$PROOF_DIR/lastsecrets-owner-get.json" \
+                2> "$PROOF_DIR/lastsecrets-owner-get.err" \
+                && grep -q "$needle" "$PROOF_DIR/lastsecrets-owner-get.json"; then
+              found=1
+              break
+            fi
+          done < "$PROOF_DIR/lastsecrets-schemas.txt"
+          if [ "$found" -ne 1 ]; then
+            echo "owner socket could not read the LastSecrets record after remove"
+            cat "$PROOF_DIR/lastsecrets-owner-get.err" || true
+            exit 1
+          fi
+          LASTDB_APP_REGISTRY_POLL=1 lastdb --data-dir "$LASTDB_HOME" app upgrade --all --json \
+            > "$PROOF_DIR/poll-after-remove.json" \
+            2> "$PROOF_DIR/poll-after-remove.err"
+          if [ -s "$PROOF_DIR/poll-after-remove.json" ]; then
+            jq -e 'map(select(.app == "lastsecrets")) | length == 0' \
+              "$PROOF_DIR/poll-after-remove.json" >/dev/null
+          fi
+          if [ -e "$LASTDB_APPS_ROOT/lastsecrets/current" ] || [ -L "$LASTDB_APPS_ROOT/lastsecrets/current" ]; then
+            echo "registry poll reinstalled lastsecrets"
+            exit 1
+          fi
+          lastdb --data-dir "$LASTDB_HOME" app install lastsecrets \
+            --channel "$REGISTRY_CHANNEL" --accept-install \
+            > "$PROOF_DIR/lastsecrets-reinstall.json" \
+            2> "$PROOF_DIR/lastsecrets-reinstall.err"
+          test -f "$LASTDB_APPS_ROOT/lastsecrets/current/lastdb-app-install.json"
+          if [ ! -L "$HOME/.local/bin/lastsecrets" ]; then
+            echo "reinstall did not restore the lastsecrets command link"
+            exit 1
+          fi
+          echo "Removed LastSecrets, left its record readable, and installed it again." >> "$GITHUB_STEP_SUMMARY"
 
       # === lastseek ===
       - name: Set up lastseek dependencies

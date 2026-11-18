@@ -163,15 +163,66 @@ def same_schemas(node, sock, database):
 
 
 def prove_share(node, sock, database):
+    """No cloud connection, so share configuration answers 503.
+
+    A PUT that also names read and write has the same shape and the same 503.
+    The signed ShareSettings statement reaching Exemem is not proven in this
+    repository. A two-node DEV proof must make these requests:
+
+    1. Publisher GET /api/databases/{id}/share/config. No stored statement
+       answers read "members" and write "proposals".
+    2. Publisher PUT /api/databases/{id}/share/config with the same members,
+       read "anyone", and write "direct". The node POSTs
+       /api/cloud/backups/v2/share/members/settings/get, signs sequence 1, and
+       POSTs /api/cloud/backups/v2/share/members/settings/set. Members are
+       unchanged, so it does not POST /api/cloud/backups/v2/share/members/set.
+       The reply is 200, the same member revision, committed true.
+    3. Publisher GET /api/databases/{id}/share/config again. read is "anyone"
+       and write is "direct".
+    4. Publisher repeats that PUT. The pair is unchanged, so no settings
+       statement and no member set. 200, same revision.
+    5. Publisher PUT /api/databases/{id}/share/config with only write
+       "proposals" (read omitted). The node signs sequence 2 (anyone,
+       proposals) and POSTs /api/cloud/backups/v2/share/members/settings/set.
+       No member set.
+    6. Publisher PUT /api/databases/{id}/share/config that changes a member and
+       sets read back to "members". Settings set goes first (sequence 3,
+       members and proposals), then the member set. If the member set fails,
+       that member error is the reply and sequence 3 stays stored. A repeat
+       sends no statement and retries the members while expectedRevision
+       still matches.
+    7. After the member node's sync refresh, GET /api/databases.
+       selfAccess.read and selfAccess.write come from POST
+       /api/cloud/backups/v2/share/members/settings/get with the member
+       LastDBNode token and X-LastDB-Self-Access: 1, in the same refresh as
+       POST /api/cloud/backups/v2/share/members/read. No stored statement is
+       members and proposals. A successor copies the stored member_writes
+       map and does not change it.
+    """
     config = {"expectedRevision": "0", "requestId": REQUEST_ID, "members": []}
+    path = f"/api/databases/{database}/share/config"
     get_owner, get_ext = compare(
-        node, sock, "GET", f"/api/databases/{database}/share/config", None,
+        node, sock, "GET", path, None,
         {"action": "share_config", "database": database})
-    put_owner, put_ext = compare(
-        node, sock, "PUT", f"/api/databases/{database}/share/config", config,
-        {"action": "set_share_config", "database": database, "config": config})
+    put_owner, put_ext = share_put(node, sock, database, path, config)
+    both = dict(config, read="anyone", write="direct")
+    both_owner, both_ext = share_put(node, sock, database, path, both)
+    one = dict(config, write="proposals")
+    one_owner, one_ext = share_put(node, sock, database, path, one)
+    require(get_owner == 503 and put_owner == 503 and both_owner == 503 and one_owner == 503,
+            f"share shape was GET {get_owner} PUT {put_owner} "
+            f"read/write {both_owner} write {one_owner}")
     print(f"Databases extension share: GET owner {get_owner} extension {get_ext}, "
-          f"PUT owner {put_owner} extension {put_ext}", flush=True)
+          f"PUT owner {put_owner} extension {put_ext}, "
+          f"read/write owner {both_owner} extension {both_ext}, "
+          f"write owner {one_owner} extension {one_ext}. "
+          "The signed statement reaching Exemem is not proven.", flush=True)
+
+
+def share_put(node, sock, database, path, config):
+    return compare(
+        node, sock, "PUT", path, config,
+        {"action": "set_share_config", "database": database, "config": config})
 
 
 def round_trip(sock, database, schema=SCHEMA, note=NOTE):
@@ -261,11 +312,15 @@ def owner_message(raw):
     except json.JSONDecodeError:
         value = None
     if isinstance(value, dict):
+        detail = value.get("message")
+        code = value.get("error")
+        if (isinstance(detail, str) and detail and isinstance(code, str) and code
+                and code not in SHARE):
+            return f"{code}: {detail}"
         for key in ("message", "reason"):
             got = value.get(key)
             if isinstance(got, str) and got:
                 return got
-        code = value.get("error")
         if isinstance(code, str) and code:
             return SHARE.get(code, "request refused")
     return text.strip() or "request refused"

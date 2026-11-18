@@ -40,6 +40,26 @@ pub(super) fn register(home: &Path, receipt: &ManagedReceipt) -> Result<(), Stri
     Ok(())
 }
 
+/// Drop this app's grant. `Ok(true)` means a grant was stored and is gone.
+///
+/// No stored grant is success (`Ok(false)`) and does not rewrite the file.
+/// The caller's connect error is returned unchanged so a stopped node can be
+/// told from a timeout or a refused request.
+pub(super) fn unregister(home: &Path, app: &str) -> Result<bool, String> {
+    let body = json!({ "app": app });
+    let socket = lastdb_node::lastdb_uds::socket_path(&home.join("data"));
+    let raw =
+        crate::uds_client::post_json_with_timeout(&socket, "/api/apps/unregister", &body, TIMEOUT)?;
+    let reply = crate::uds_client::parse_json_response(&raw, "app grant")?;
+    if reply.get("app").and_then(Value::as_str) != Some(app) {
+        return Err(format!("the node did not unregister app '{app}'"));
+    }
+    reply
+        .get("removed")
+        .and_then(Value::as_bool)
+        .ok_or_else(|| format!("the node did not say whether app '{app}' was removed"))
+}
+
 /// Put the previous version back and register its access again.
 pub(super) fn undo_activation(
     root: &Path,

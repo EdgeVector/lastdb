@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "LastDB app API",
-    "version": "41",
+    "version": "42",
     "description": "The app API lastdbd serves today: POST /v1/read, POST /v1/write, and POST /v1/x/<name>. info.version is the node api_version. Extensions carry no version: adding one does not change api_version, and removing one is refused. The app socket accepts a request body of at most 8388608 bytes. The owner socket does not use that cap. On the app socket a whole-request refusal uses the error object. A read that fails one item returns HTTP 200 and puts the same error object in that item."
   },
   "x-lastdb-extensions-carry-version": false,
@@ -785,14 +785,16 @@
         "type": "object",
         "additionalProperties": false,
         "required": ["expectedRevision", "requestId", "members"],
-        "description": "The body of PUT /api/databases/{id}/share/config.",
+        "description": "The body of PUT /api/databases/{id}/share/config. read and write are optional. Omit either one to keep the stored value. No stored statement is members and proposals. An unchanged pair sends no settings statement.",
         "properties": {
           "expectedRevision": {"type": "string", "description": "Decimal revision the caller last read."},
           "requestId": {"type": "string", "description": "Non-nil lowercase UUID."},
           "members": {
             "type": "array",
             "items": {"$ref": "#/components/schemas/DatabasesShareMember"}
-          }
+          },
+          "read": {"type": "string", "enum": ["members", "anyone"], "description": "Who may read. Omit it to keep the stored value."},
+          "write": {"type": "string", "enum": ["proposals", "direct"], "description": "Where a submit append goes. Omit it to keep the stored value."}
         }
       },
       "DatabasesSchema": {
@@ -1007,13 +1009,15 @@
       "DatabasesShareConfigReply": {
         "type": "object",
         "additionalProperties": true,
-        "required": ["ok", "user_hash", "databaseId", "revision", "members"],
-        "description": "The owner share configuration envelope.",
+        "required": ["ok", "user_hash", "databaseId", "revision", "read", "write", "members"],
+        "description": "The owner share configuration envelope. read and write are the stored settings. No stored statement is members and proposals.",
         "properties": {
           "ok": {"type": "boolean"},
           "user_hash": {"type": "string"},
           "databaseId": {"type": "string"},
           "revision": {"type": "string"},
+          "read": {"type": "string", "enum": ["members", "anyone"]},
+          "write": {"type": "string", "enum": ["proposals", "direct"]},
           "members": {"type": "array", "items": {"type": "object", "additionalProperties": true}}
         }
       },
