@@ -81,7 +81,7 @@ fn accept(
         if database_id.is_some() {
             return Err("--db does not apply to an open read link".into());
         }
-        return post_accept(data_dir, json!({ "link": link, "name": name }));
+        return post_accept(data_dir, &json!({ "link": link, "name": name }));
     }
     let invitation = invitation.ok_or("invitation file is required")?;
     let publisher = publisher.ok_or("publisher key is required")?;
@@ -94,15 +94,15 @@ fn accept(
     if let Some(database_id) = database_id {
         body["database_id"] = json!(database_id);
     }
-    post_accept(data_dir, body)
+    post_accept(data_dir, &body)
 }
 
-fn post_accept(data_dir: Option<PathBuf>, body: Value) -> Result<(), String> {
+fn post_accept(data_dir: Option<PathBuf>, body: &Value) -> Result<(), String> {
     let target = DatabaseTarget::open(data_dir, None)?;
     let raw = post_json_with_timeout(
         &target.socket,
         &target.path("/api/databases/accept"),
-        &body,
+        body,
         Duration::from_secs(10),
     )?;
     println!("{}", parse_json_response(&raw, "database registration")?);
