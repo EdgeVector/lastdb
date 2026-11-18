@@ -34,6 +34,16 @@ export class TransportError extends LastDbError {
   }
 }
 
+/** Retry the same body with this UUID when the share upload outcome is uncertain. */
+export class ShareSubmissionUncertainError extends LastDbError {
+  constructor(
+    readonly mutationId: string,
+    override readonly cause: unknown,
+  ) {
+    super('Share submission outcome is unavailable. Retry with the same mutation ID and body.');
+  }
+}
+
 /** The node answered with an HTTP status the SDK has no specific class for. */
 export class UnexpectedResponseError extends LastDbError {
   constructor(

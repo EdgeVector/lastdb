@@ -106,9 +106,43 @@ Point both at the same LastDB home. The Social client returns the stable
 database ID.
 
 A received database is read with `read` and `database` set to that ID. A
-write to a received database is refused. `getShareSubmissionStatus(mutationId)`
-on a client selected to that database reports `submitted`, `published`,
-`discarded`, or `unknown` for a submission this node already sent.
+`write` to a received database is refused: the node answers
+`a received database is read only`.
+
+`submitProposal(schemaName, op, options?)` queues one encrypted proposal on
+a received whole-database share. Select that database first. The call posts
+the proposal document to `POST /api/databases/{id}/submissions` on the owner
+socket, with the proposal id in the `Idempotency-Key` header. The document
+is the mutation document a received database used to accept. It is not a
+`/v1/write` item, and the call does not write a record on this node. A
+`202` receipt means the publisher's pending log accepted the append. The
+publisher still checks the proposal. Reuse the same id and the same body
+when the outcome is uncertain: `submitProposal` throws
+`ShareSubmissionUncertainError` with `.mutationId`.
+
+```ts
+import { randomUUID } from 'node:crypto';
+
+const { client: share } = await recipient.openDatabaseSession(albumDatabaseId, 'write');
+const mutationId = randomUUID();
+const proposal = await share.submitProposal('social/Comment', {
+  mutationType: 'create',
+  expected: { type: 'absent' },
+  alternates: {},
+  key: { hash: 'photo-7', range: mutationId },
+  record: {
+    target: { database: albumDatabaseId, schema: 'social/Photo', key: 'photo-7' },
+    social_comment_text: 'Great photo',
+    created_at: new Date().toISOString(),
+  },
+}, { mutationId });
+console.log(`Queued ${proposal.mutationId}`);
+```
+
+A read session cannot submit. Pass a write session, or call with no session
+on the owner socket. `getShareSubmissionStatus(mutationId)` on a client
+selected to that database reports `submitted`, `published`, `discarded`, or
+`unknown` for a submission this node already sent.
 
 ## Owner operations
 
@@ -119,6 +153,7 @@ on a client selected to that database reports `submitted`, `published`,
 - `listDatabases()`, `createDatabase(req)`, `bindDatabaseSpec(id, spec)`,
   `issueDatabaseSession(id, intent)`, `openDatabaseSession(id, intent)`,
   `select(id, { databaseSession? })` — named databases and sessions.
+- `submitProposal(schemaName, op, options?)` — queue one proposal on a received database.
 - `getShareSubmissionStatus(mutationId)` — status of one share submission.
 
 ## App API

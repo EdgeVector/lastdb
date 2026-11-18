@@ -3,7 +3,7 @@
  *
  * Wraps a node's Unix-socket data plane. Record calls are the app API
  * (`read`, `write`, `changes`). The owner socket still serves databases,
- * sharing status, version, and the schema list.
+ * share proposals, sharing status, version, and the schema list.
  */
 
 export { connect, LastDbClient, ownerClient } from './client.js';
@@ -100,12 +100,25 @@ export type {
 } from './schemaOps.js';
 
 export type {
+  CasExpectation,
   ConnectOptions,
+  CreateMutationOp,
   DatabaseSession,
   DatabaseSessionIntent,
+  DeleteMutationOp,
+  FileMarker,
   JsonValue,
+  KeyValue,
+  MutationConvergence,
+  MutationDurability,
+  MutationOp,
+  MutationOptions,
   NodeVersion,
+  RecordMetadata,
+  ReplaceMutationOp,
+  RowFields,
   SelectDatabaseOptions,
+  ShareSubmissionResult,
   ShareSubmissionStatus,
 } from './types.js';
 
@@ -118,6 +131,7 @@ export {
   nodeTooOldMessage,
   PermissionDeniedError,
   RequestRejectedError,
+  ShareSubmissionUncertainError,
   TransportError,
   UnexpectedResponseError,
 } from './errors.js';

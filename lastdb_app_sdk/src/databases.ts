@@ -10,6 +10,8 @@ import type { DatabaseSession, DatabaseSessionIntent } from './types.js';
 
 /** Canonical LastDB runtime API route strings used by the SDK. */
 export const LASTDB_API_ROUTES = {
+  /** Owner socket. Scoped to `/api/databases/{id}/submissions`. A proposal, not a record write. */
+  shareSubmission: '/api/submissions',
   shareSubmissionStatus: '/api/submissions/status',
   autoIdentity: '/api/system/auto-identity',
   schemas: '/api/schemas',

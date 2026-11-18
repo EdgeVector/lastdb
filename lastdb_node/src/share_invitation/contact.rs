@@ -124,13 +124,14 @@ fn binding_bytes(identity: &[u8; 32], encryption: &PublicKey) -> Vec<u8> {
 }
 
 pub(crate) mod inbox {
-    use aes_gcm::aead::{Aead, KeyInit, Payload};
+    use aes_gcm::aead::{Aead, AeadCore, KeyInit, Payload};
     use aes_gcm::{Aes256Gcm, Nonce};
     use fold_db::canonical::CanonicalWriter;
     use fold_db::security::Ed25519KeyPair;
     use hkdf::Hkdf;
+    use rand::rngs::OsRng;
     use sha2::Sha256;
-    use x25519_dalek::{PublicKey, SharedSecret, StaticSecret};
+    use x25519_dalek::{EphemeralSecret, PublicKey, SharedSecret, StaticSecret};
     use zeroize::Zeroizing;
 
     use crate::share_invitation::{Result, ShareInvitationError};
@@ -166,6 +167,23 @@ pub(crate) mod inbox {
         database: &str,
     ) -> Result<PublicKey> {
         Ok(PublicKey::from(&secret(publisher, database)?))
+    }
+
+    pub(crate) fn seal(recipient: &PublicKey, aad: &[u8], body: &[u8]) -> Result<Vec<u8>> {
+        let ephemeral = EphemeralSecret::random_from_rng(OsRng);
+        let public = PublicKey::from(&ephemeral);
+        let shared = ephemeral.diffie_hellman(recipient);
+        let key = sealed_box_key(&shared, DOMAIN).map_err(|_| INVALID)?;
+        let cipher = Aes256Gcm::new_from_slice(&*key).map_err(|_| INVALID)?;
+        let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+        let ciphertext = cipher
+            .encrypt(&nonce, Payload { msg: body, aad })
+            .map_err(|_| INVALID)?;
+        let mut sealed = Vec::with_capacity(44 + ciphertext.len());
+        sealed.extend_from_slice(public.as_bytes());
+        sealed.extend_from_slice(&nonce);
+        sealed.extend_from_slice(&ciphertext);
+        Ok(sealed)
     }
 
     pub(crate) fn open(

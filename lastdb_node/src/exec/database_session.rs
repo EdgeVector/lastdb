@@ -80,7 +80,7 @@ pub(in crate::exec) fn admit(req: &UdsRequest, host: &Host) -> bool {
     let Some(token) = req.header(HEADER) else {
         return true;
     };
-    let Some((database, _write)) = host.database_sessions.get(token) else {
+    let Some((database, write)) = host.database_sessions.get(token) else {
         return false;
     };
     if req.method == "GET" && req.target == "/api/version" {
@@ -90,14 +90,58 @@ pub(in crate::exec) fn admit(req: &UdsRequest, host: &Host) -> bool {
         return false;
     };
     let path = path.split(['?', '#']).next().unwrap_or_default();
-    database.as_str() == id && allowed(&req.method, path)
+    database.as_str() == id && allowed(&req.method, path, write)
 }
 
-fn allowed(method: &str, path: &str) -> bool {
+fn allowed(method: &str, path: &str, write: bool) -> bool {
     match (method, path) {
         ("POST", "submissions/status") | ("GET", "schemas" | "schema") => true,
         ("GET", path) if path.starts_with("schema/") => true,
+        ("POST", "submissions") => write,
         _ => false,
+    }
+}
+
+pub(super) async fn submit_signed(
+    req: &UdsRequest,
+    ctx: &AccessContext,
+    host: &Host,
+    share: &RegisteredShare,
+) -> UdsResponse {
+    use crate::log_sync::ContributionError;
+    if !share.whole_database() {
+        return error_response(403, "this share is read-only", ctx);
+    }
+    if !replay_durable(host, share) {
+        return error_response(503, "database snapshot is not durable", ctx);
+    }
+    let Some(id) = req
+        .header("Idempotency-Key")
+        .and_then(|value| Id::try_from(value.to_owned()).ok())
+    else {
+        return error_response(400, "a shared write requires a UUID Idempotency-Key", ctx);
+    };
+    match crate::log_sync::submit_share_write(host, share, &id, &req.body).await {
+        Ok(sequence) => {
+            let mut response = json_ok(&json!({
+                "ok": true, "status": "submitted", "mutation_id": id,
+                "submission_sequence": sequence,
+            }));
+            if response.status == 200 {
+                response.status = 202;
+                response.reason = "Accepted";
+            }
+            response
+        }
+        Err(ContributionError::Invalid) => {
+            error_response(400, "invalid shared mutation or schema definition", ctx)
+        }
+        Err(ContributionError::Forbidden) => {
+            error_response(403, "this member cannot submit this shared mutation", ctx)
+        }
+        Err(ContributionError::Unavailable) => {
+            error_response(503, "shared mutation was not confirmed", ctx)
+        }
     }
 }
 

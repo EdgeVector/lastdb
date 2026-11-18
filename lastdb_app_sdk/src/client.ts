@@ -3,8 +3,8 @@
  *
  * Wraps the node's Unix-socket data plane. `read`, `write`, and `changes`
  * call the app API (`/v1`). The other methods are owner-socket operations
- * that are not record calls: version, identity, schemas, databases, and
- * share-submission status.
+ * that are not record calls: version, identity, schemas, databases,
+ * share proposals, and share-submission status.
  */
 
 import { existsSync } from 'node:fs';
@@ -43,6 +43,7 @@ import {
   type LoadedSchema,
   type SchemaDescriptor,
 } from './schemaOps.js';
+import { executeSubmitProposal } from './shareProposal.js';
 import { executeShareSubmissionStatus } from './shareStatus.js';
 import { openDiscoveredSocket, udsTransport, withDefaultHeaders, type Transport } from './transport.js';
 import type * as Types from './types.js';
@@ -146,6 +147,19 @@ export class LastDbClient<DatabaseId extends string | undefined = undefined> {
   /** `GET /api/system/auto-identity` — resolve the local owner identity. */
   autoIdentity(): Promise<AutoIdentityResult> {
     return executeAutoIdentity(this.context);
+  }
+
+  /**
+   * `POST /api/databases/{id}/submissions` — queue one encrypted proposal.
+   * The body is the proposal document, not a `/v1/write` item.
+   * Select a received whole-database share first. This call does not write a record.
+   */
+  submitProposal(
+    schemaName: string,
+    op: Types.MutationOp,
+    options?: Types.MutationOptions,
+  ): Promise<Types.ShareSubmissionResult> {
+    return executeSubmitProposal(this.context, schemaName, op, options);
   }
 
   /** Read the outcome of one submission made by this receiving LastDB node. */

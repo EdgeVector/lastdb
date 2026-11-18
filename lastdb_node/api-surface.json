@@ -20,6 +20,7 @@
     "/api/databases/accept",
     "/api/databases/session",
     "/api/databases/spec",
+    "/api/databases/{database}/submissions",
     "/api/databases/{database}/submissions/status",
     "/api/db/cleanup",
     "/api/db/delete-ledger",
@@ -49,6 +50,7 @@
     "/api/databases/spec",
     "/api/schema",
     "/api/schemas",
+    "/api/submissions",
     "/api/submissions/status",
     "/api/system/auto-identity",
     "/api/version"

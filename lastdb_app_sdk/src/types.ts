@@ -67,3 +67,99 @@ export interface ShareSubmissionStatus {
   mutationId: string;
   status: 'submitted' | 'published' | 'discarded' | 'unknown';
 }
+
+/** The field values of a proposal record, keyed by field name. */
+export type RowFields = Record<string, JsonValue>;
+
+/**
+ * Explicit record coordinates. A proposal sends this object as `key_value`.
+ * Coordinates are independent of fields.
+ */
+export interface KeyValue {
+  hash: string | null;
+  range: string | null;
+}
+
+/** One condition covers the complete record in a proposal. */
+export type CasExpectation =
+  | { type: 'absent' }
+  | { type: 'revision'; revision: string };
+
+/** Convergence field the proposal document can carry. The publisher decides the write. */
+export type MutationConvergence = 'sync' | 'async';
+
+/** Durability field the proposal document can carry. It is not a local commit. */
+export type MutationDurability = 'queued' | 'durable';
+
+/** File marker inside a proposal. The receiver route refuses a proposal that has one. */
+export interface FileMarker {
+  name?: string;
+  media_type?: string;
+  size_bytes: number;
+  sha256: string;
+}
+
+/** The one metadata block a proposal can name. */
+export interface RecordMetadata {
+  source_file_name: string | null;
+  metadata?: Record<string, string>;
+  file?: FileMarker;
+}
+
+interface ProposalTarget {
+  key: KeyValue;
+  /** Exactly every declared name. Null requires allow_absent in the schema. */
+  alternates: Record<string, KeyValue | null>;
+  convergence?: MutationConvergence;
+  durability?: MutationDurability;
+}
+
+interface CompleteRecord {
+  record: RowFields;
+  /** Absence clears metadata. Copy from a full read when retaining metadata. */
+  metadata?: RecordMetadata | null;
+}
+
+export type CreateMutationOp = ProposalTarget &
+  CompleteRecord & {
+    mutationType: 'create';
+    expected: { type: 'absent' };
+  };
+
+export type ReplaceMutationOp = ProposalTarget &
+  CompleteRecord & {
+    mutationType: 'replace';
+    expected: { type: 'revision'; revision: string };
+  };
+
+export type DeleteMutationOp = ProposalTarget & {
+  mutationType: 'delete' | 'purge';
+  expected: { type: 'revision'; revision: string };
+  record?: never;
+  metadata?: never;
+};
+
+/**
+ * One proposal document for `POST /api/databases/{id}/submissions`.
+ * This is the mutation document a received database used to accept.
+ * It is not a `/v1/write` item.
+ */
+export type MutationOp = CreateMutationOp | ReplaceMutationOp | DeleteMutationOp;
+
+/** Options for {@link MutationOp} submission on a received database. */
+export interface MutationOptions {
+  /** UUID for this proposal. Reuse it with the same body on retry. */
+  mutationId?: string;
+  /** Optional per-request timeout override in milliseconds. */
+  timeoutMs?: number;
+  /** Installed definition id. The publisher replaces this with the definition it has. */
+  definitionId?: string;
+}
+
+/** An append receipt. The publisher may still reject the proposal. */
+export interface ShareSubmissionResult {
+  status: 'submitted';
+  mutationId: string;
+  /** Writer sequence within this submission. Correlate by mutationId. */
+  submissionSequence: number;
+}

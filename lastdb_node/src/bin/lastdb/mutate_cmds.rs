@@ -3,6 +3,9 @@
 //! The request file is one conditional mutation: a create that expects the
 //! key to be absent, or a replace or delete at a revision. A file, when
 //! present, is a local path. The node commits the mutation on `POST /v1/write`.
+//! A received database gets that route's refusal, `a received database is read
+//! only`. This command does not submit a share proposal. A proposal is
+//! `POST /api/databases/{id}/submissions` on the owner socket.
 
 use super::v1_records;
 use super::*;

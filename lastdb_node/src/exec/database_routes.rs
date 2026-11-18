@@ -41,10 +41,13 @@ pub(in crate::exec) async fn execute_database_request(
     if let Some(selector) = submission_status_selector(req) {
         return run_submission_status(selector, req, ctx, host).await;
     }
+    if let Some(selector) = submission_selector(req) {
+        return run_submission(selector, req, ctx, host).await;
+    }
     let Some((selector, path)) = split_database_path(&req.target) else {
         return content_free(404, "Not Found");
     };
-    if path == "submissions/status" {
+    if path == "submissions/status" || path == "submissions" {
         return uds_router::method_not_allowed_response("POST");
     }
     if let Some(route) = super::database_share::Route::parse(path) {
@@ -94,6 +97,7 @@ async fn dispatch(
 /// Bounded mutation and sharing requests can leave the socket worker.
 pub(in crate::exec) fn is_deferred_database_request(req: &UdsRequest) -> bool {
     submission_status_selector(req).is_some()
+        || submission_selector(req).is_some()
         || split_database_path(&req.target)
             .is_some_and(|(_, path)| super::database_share::Route::parse(path).is_some())
 }
@@ -111,6 +115,14 @@ pub(in crate::exec) async fn execute_deferred_database_request(
             ctx,
             handler_timeout(),
             run_submission_status(selector, req, ctx, host),
+        )
+        .await;
+    }
+    if let Some(selector) = submission_selector(req) {
+        return with_handler_timeout_budget(
+            ctx,
+            handler_timeout(),
+            run_submission(selector, req, ctx, host),
         )
         .await;
     }
@@ -132,6 +144,11 @@ fn submission_status_selector(req: &UdsRequest) -> Option<&str> {
     (req.method == "POST" && path == "submissions/status").then_some(selector)
 }
 
+fn submission_selector(req: &UdsRequest) -> Option<&str> {
+    let (selector, path) = split_database_path(&req.target)?;
+    (req.method == "POST" && path == "submissions").then_some(selector)
+}
+
 async fn run_submission_status(
     selector: &str,
     req: &UdsRequest,
@@ -142,6 +159,22 @@ async fn run_submission_status(
         Ok(Selection::Signed(share)) => {
             super::database_session::submission_status(req, ctx, host, &share).await
         }
+        Ok(_) => error_response(404, "this database has no received submissions", ctx),
+        Err(response) => response,
+    }
+}
+
+async fn run_submission(
+    selector: &str,
+    req: &UdsRequest,
+    ctx: &AccessContext,
+    host: &Host,
+) -> UdsResponse {
+    match resolve_database(selector, ctx, host) {
+        Ok(Selection::Signed(share)) => {
+            super::database_session::submit_signed(req, ctx, host, &share).await
+        }
+        // An owned database is not a receiver. The route does not write a record.
         Ok(_) => error_response(404, "this database has no received submissions", ctx),
         Err(response) => response,
     }

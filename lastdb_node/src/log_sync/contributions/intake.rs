@@ -13,13 +13,33 @@ use sha2::{Digest as _, Sha256};
 use std::sync::Arc;
 
 use super::{
-    schema_id, terminal_record_error, CloudLog, ContributionError, ProposalResult, Submission,
-    BODY_LIMIT, DEVICE_PREFIX, INBOX_NAMESPACE,
+    inbox, schema_id, terminal_record_error, CloudLog, ContributionError, ProposalResult,
+    Submission, BODY_LIMIT, DEVICE_PREFIX, INBOX_NAMESPACE,
 };
 use crate::host::Host;
 use crate::log_envelope::DatabaseContentKey;
 use crate::named_grant::lock_member;
-use crate::share_invitation::inbox;
+
+pub(super) async fn receiver_base(
+    store: &FoldDB,
+    mutation: &Mutation,
+) -> Result<Option<String>, ContributionError> {
+    let CasExpectation::Revision { revision } = &mutation.expected else {
+        return Ok(None);
+    };
+    let found = match store
+        .mutation_manager()
+        .shared_record_revision(&mutation.schema_name, &mutation.key_value)
+        .await
+    {
+        Ok(row) => row,
+        Err(error) if terminal_record_error(&error) => return Ok(None),
+        Err(_) => return Err(ContributionError::Unavailable),
+    };
+    Ok(found
+        .filter(|row| row.local_revision == *revision)
+        .map(|row| row.mutation_id))
+}
 
 pub(super) fn parse(body: &[u8]) -> Result<Mutation, ContributionError> {
     if body.len() > BODY_LIMIT {

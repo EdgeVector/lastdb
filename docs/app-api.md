@@ -78,7 +78,7 @@ Every write carries a condition, so two writers cannot overwrite each other with
 - `{ "error": { "code": "conflict", "message": "mutation 1: the record is at another revision", "index": 1, "reason": "revision" } }`
 - A schema that declares alternate keys takes their addresses in `alternates` on a `create` and a `replace`.
 - The list is all or nothing. Every mutation in one list names the same database.
-- A write that names a received database is refused. The status is 403 and the code is `permission_denied`. The message is `a received database is read only`. An unknown identifier is `not_found` with the message `database is not registered on this node`.
+- A write that names a received database is refused. The status is 403 and the code is `permission_denied`. The message is `a received database is read only`. An unknown identifier is `not_found` with the message `database is not registered on this node`. A receiver does not use this route for a proposal. The proposal route is on the owner socket. See Sharing.
 - The reply comes after the write is on disk. `revisions` holds the new revision of each record, in order.
 
 A read returns each record's `revision` beside its key.
@@ -334,7 +334,35 @@ A node serves two sockets in its data directory.
   schema get, `POST /api/apps/declare-schema` (the installer), schema seed and
   drop, backup, and admin. It does not serve a separate record query, mutation,
   key list, file-byte upload, or `GET /api/changes`. Those calls are unknown
-  paths. Record reads and writes use `/v1/read` and `/v1/write`.
+  paths. Record reads and writes use `/v1/read` and `/v1/write`. A receiver's
+  proposal is `POST /api/databases/{id}/submissions`. That call is not a record write.
+
+## Sharing
+
+A receiver of a whole-database share submits one encrypted proposal on the
+owner socket. The app socket does not serve this path.
+
+```
+POST /api/databases/{id}/submissions
+Idempotency-Key: <uuid>
+
+{ "type": "mutation", "schema": "social/Comment", "record": { … },
+  "key_value": { "hash": "photo-7", "range": "<uuid>" }, "alternates": { },
+  "mutation_type": "create", "expected": { "type": "absent" },
+  "source_file_name": null, "metadata": null, "file": null }
+```
+
+- The body is one proposal document. It is the mutation document a received database accepted. It is not a record API and it is not a `/v1/write` item.
+- The proposal id is the `Idempotency-Key` header. It is one non-nil UUID. The body has no separate id field. The same id and the same body are idempotent.
+- The route answers only for a received whole-database share. It never writes a record on this node. It seals the proposal and appends it to the publisher's pending log.
+- The node replaces `definition_id` with the installed schema definition before it seals the proposal. `convergence` and `durability` are optional. A proposal that carries a file is refused.
+- `202` means the pending log accepted the append: `{ "ok": true, "status": "submitted", "mutation_id": "<uuid>", "submission_sequence": 1 }`. The publisher still checks the proposal.
+- An owned database, including the owner's own database, answers `404` with the text `this database has no received submissions`. An unknown id answers `404` with the text `database is not registered on this node`. A share that is not a whole database answers `403` with the text `this share is read-only`.
+- A missing or invalid `Idempotency-Key` answers `400` with the text `a shared write requires a UUID Idempotency-Key`. A document the node cannot parse answers `400` with the text `invalid shared mutation or schema definition`. A receiver that is not active answers `403` with the text `this member cannot submit this shared mutation`.
+- A snapshot that is not durable answers `503` with the text `database snapshot is not durable`. An append the node cannot confirm answers `503` with the text `shared mutation was not confirmed`.
+- A database session may call this route only when the session is a write session. A read session is refused before the handler. The owner socket with no session header may call it.
+- `GET` on this path is not served. The status call beside it is `POST /api/databases/{id}/submissions/status` with `{ "mutationId": "<uuid>" }`. Its answer is `submitted`, `published`, `discarded`, or `unknown`.
+- `/v1/write` to a received database stays refused with `a received database is read only`.
 
 ## The launcher
 

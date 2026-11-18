@@ -44,6 +44,7 @@ pub(crate) struct OpenedShareInvitation {
     pub(crate) permission: GuestReadPermission,
     pub(crate) publication_key: Zeroizing<[u8; 32]>,
     pub(crate) spec: Option<crate::profile::PublicationSpec>,
+    pub(crate) inbox_key: Option<PublicKey>,
 }
 
 /// Load the recipient decryption and contact authority from a LastDB identity home.
@@ -214,6 +215,7 @@ impl ShareRecipient {
             permission,
             publication_key: Zeroizing::new(*publication_key),
             spec,
+            inbox_key,
         })
     }
 }
