@@ -34,7 +34,7 @@ struct Placed {
     through: u64,
 }
 
-pub(super) async fn ensure_base(
+pub(in crate::log_sync) async fn ensure_base(
     host: &Host,
     share: &RegisteredShare,
     log: &CloudLog,
@@ -63,7 +63,11 @@ pub(super) async fn ensure_base(
 
 /// The service dropped the cursor. Download the current snapshot beside the
 /// live store, then replace the store and replay from the new position.
-pub(super) async fn restart(host: &Host, database_id: &str, log: &CloudLog) -> Result<(), String> {
+pub(in crate::log_sync) async fn restart(
+    host: &Host,
+    database_id: &str,
+    log: &CloudLog,
+) -> Result<(), String> {
     let id = Id::try_from(database_id.to_owned()).map_err(|_| "database id was refused")?;
     let dir = parent(host, &id)?;
     let incoming = dir.join(INCOMING);
