@@ -3,14 +3,16 @@
 use std::os::unix::net::UnixStream;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::time::Instant;
 
+use fold_db::access::AccessContext;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tracing::Instrument;
 
 use super::{
     app_api, block_on_data_route, block_on_route, calling_app, database_routes, database_session,
 };
-use crate::host::Host;
+use crate::host::{ops, Host};
 use crate::lastdb_uds::uds_http::{self, UdsRequest, UdsResponse};
 use crate::lastdb_uds::uds_router::{self, ControlRoute, DataRoute};
 use crate::lastdb_uds::{ConnectionWork, SubmitError, UdsSocket, UdsWorkerPool};
@@ -156,25 +158,28 @@ impl UdsServer {
         comp: ConnectionWork,
         mut lease: OwnedSemaphorePermit,
     ) -> std::io::Result<()> {
+        let started = Instant::now();
         let (mut req, ctx) = match uds_http::receive_connection(
             &mut stream,
             &self.host.user_hash,
             &self.read_policy,
         )? {
             uds_http::Received::Finished => return Ok(()),
-            uds_http::Received::BodyTooLarge => {
+            uds_http::Received::BodyTooLarge(req) => {
                 let response = app_api::refuse(413, APP_BODY_TOO_LARGE);
-                return uds_http::finish_connection(&mut stream, &response);
+                let call = ops::call_of(&req.target);
+                return self.finish(&mut stream, &req, call, &response, started);
             }
             uds_http::Received::Ready(req, ctx) => (req, ctx),
         };
+        let call = ops::call_of(&req.target);
         if self.apps {
             let response = calling_app::serve(&self.handle, &req, &ctx, &self.host);
-            return uds_http::finish_connection(&mut stream, &response);
+            return self.finish(&mut stream, &req, call, &response, started);
         }
         if !database_session::admit(&req, &self.host) {
             let response = UdsResponse::new(403, "Forbidden", b"database session refused".to_vec());
-            return uds_http::finish_connection(&mut stream, &response);
+            return self.finish(&mut stream, &req, call, &response, started);
         }
         let routed = uds_router::route(&req);
         let deferred = match &routed {
@@ -185,33 +190,16 @@ impl UdsServer {
             _ => None,
         };
         if let Some(write) = deferred.filter(|_| retain_permits(&mut lease, &req)) {
-            let (host, replies) = (Arc::clone(&self.host), Arc::clone(&self.mutation_replies));
-            self.handle.spawn(
-                async move {
-                    let Ok(slot) = replies.acquire_owned().await else {
-                        return;
-                    };
-                    let resp = if write {
-                        super::execute_data_route_with_timeout(
-                            DataRoute::V1Write,
-                            &req,
-                            &ctx,
-                            &host,
-                        )
-                        .await
-                    } else {
-                        database_routes::execute_deferred_database_request(&mut req, &ctx, &host)
-                            .await
-                    };
-                    drop((req, lease));
-                    comp.resume(stream, move |mut s, _| {
-                        let res = uds_http::finish_connection(&mut s, &resp);
-                        drop((resp, slot));
-                        log_io(&res);
-                    });
-                }
-                .in_current_span(),
-            );
+            self.spawn_deferred(Deferred {
+                stream,
+                comp,
+                lease,
+                req,
+                ctx,
+                call,
+                write,
+                started,
+            });
             return Ok(());
         }
         let resp = match routed {
@@ -230,8 +218,81 @@ impl UdsServer {
             }
             ControlRoute::NotFound => UdsResponse::new(404, "Not Found", b"Not Found".to_vec()),
         };
-        uds_http::finish_connection(&mut stream, &resp)
+        self.finish(&mut stream, &req, call, &resp, started)
     }
+
+    fn finish(
+        &self,
+        stream: &mut UnixStream,
+        req: &UdsRequest,
+        call: ops::CallLabel,
+        response: &UdsResponse,
+        started: Instant,
+    ) -> std::io::Result<()> {
+        let wrote = uds_http::finish_connection(stream, response);
+        self.host.ops.record(&ops::Completed {
+            apps: self.apps,
+            headers: &req.headers,
+            body: &req.body,
+            call,
+            status: response.status,
+            elapsed: started.elapsed(),
+        });
+        wrote
+    }
+
+    fn spawn_deferred(&self, job: Deferred) {
+        let (host, replies) = (Arc::clone(&self.host), Arc::clone(&self.mutation_replies));
+        self.handle.spawn(
+            async move {
+                let Ok(slot) = replies.acquire_owned().await else {
+                    return;
+                };
+                let Deferred {
+                    stream,
+                    comp,
+                    lease,
+                    mut req,
+                    ctx,
+                    call,
+                    write,
+                    started,
+                } = job;
+                let resp = if write {
+                    super::execute_data_route_with_timeout(DataRoute::V1Write, &req, &ctx, &host)
+                        .await
+                } else {
+                    database_routes::execute_deferred_database_request(&mut req, &ctx, &host).await
+                };
+                host.ops.record(&ops::Completed {
+                    apps: false,
+                    headers: &req.headers,
+                    body: &req.body,
+                    call,
+                    status: resp.status,
+                    elapsed: started.elapsed(),
+                });
+                drop((req, lease));
+                comp.resume(stream, move |mut socket, _| {
+                    let res = uds_http::finish_connection(&mut socket, &resp);
+                    drop((resp, slot));
+                    log_io(&res);
+                });
+            }
+            .in_current_span(),
+        );
+    }
+}
+
+struct Deferred {
+    stream: UnixStream,
+    comp: ConnectionWork,
+    lease: OwnedSemaphorePermit,
+    req: UdsRequest,
+    ctx: AccessContext,
+    call: ops::CallLabel,
+    write: bool,
+    started: Instant,
 }
 
 fn log_io(res: &std::io::Result<()>) {
