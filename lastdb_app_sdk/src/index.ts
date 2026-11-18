@@ -103,8 +103,6 @@ export type {
   CasExpectation,
   ConnectOptions,
   CreateMutationOp,
-  DatabaseSession,
-  DatabaseSessionIntent,
   DeleteMutationOp,
   FileMarker,
   JsonValue,
@@ -117,7 +115,6 @@ export type {
   RecordMetadata,
   ReplaceMutationOp,
   RowFields,
-  SelectDatabaseOptions,
   ShareSubmissionResult,
   ShareSubmissionStatus,
 } from './types.js';

@@ -7,9 +7,7 @@ use std::sync::Arc;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tracing::Instrument;
 
-use super::{
-    app_api, block_on_data_route, block_on_route, calling_app, database_routes, database_session,
-};
+use super::{app_api, block_on_data_route, block_on_route, calling_app, database_routes};
 use crate::host::Host;
 use crate::lastdb_uds::uds_http::{self, UdsRequest, UdsResponse};
 use crate::lastdb_uds::uds_router::{self, ControlRoute, DataRoute};
@@ -170,10 +168,6 @@ impl UdsServer {
         };
         if self.apps {
             let response = calling_app::serve(&self.handle, &req, &ctx, &self.host);
-            return uds_http::finish_connection(&mut stream, &response);
-        }
-        if !database_session::admit(&req, &self.host) {
-            let response = UdsResponse::new(403, "Forbidden", b"database session refused".to_vec());
             return uds_http::finish_connection(&mut stream, &response);
         }
         let routed = uds_router::route(&req);

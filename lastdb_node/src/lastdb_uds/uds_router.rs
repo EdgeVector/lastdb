@@ -12,7 +12,7 @@ use super::uds_http::{UdsRequest, UdsResponse};
 /// The only hand-edited interface version. ci-required fails a change to the
 /// socket surface that leaves it unchanged; after an edit run
 /// `python3 scripts/lints/api_surface.py --write`.
-pub const API_VERSION: u32 = 39;
+pub const API_VERSION: u32 = 40;
 pub const SOCKET_FILE_NAME: &str = "folddb.sock";
 /// The socket for installed apps. It serves only the app API, to a caller
 /// the node has registered by app id.
@@ -23,7 +23,7 @@ pub const CLOUD_WAKE_PATH: &str = "/api/cloud/wake";
 
 const SOCKET_TMP_SUFFIX: &str = ".tmp";
 const MAX_SOCKET_PATH_LEN: usize = 103;
-const CAPABILITIES_JSON: &str = r#"{"owned_app_schemas_v1":true,"atomic_owned_mutations_v1":true,"compound_alternate_keys_v1":true,"independent_hash_range_v1":true,"database_sessions_v1":true,"named_schema_write_grants_v1":true,"whole_database_create_retry_v1":true}"#;
+const CAPABILITIES_JSON: &str = r#"{"owned_app_schemas_v1":true,"atomic_owned_mutations_v1":true,"compound_alternate_keys_v1":true,"independent_hash_range_v1":true,"named_schema_write_grants_v1":true,"whole_database_create_retry_v1":true}"#;
 const EXTENSIONS_JSON: &str = r#"["changes"]"#;
 
 pub fn socket_path(data_dir: &Path) -> PathBuf {

@@ -8,14 +8,14 @@ are defined in `lastdb_node/app-api.json`. The TypeScript types are generated
 from that file.
 
 The owner socket still serves version, identity, the schema list, named
-databases, short-lived database sessions, and the status of a share
-submission. `LASTDB_SDK_API_VERSION` and `LASTDB_MIN_SUPPORTED_API_VERSION`
+databases, and the status of a share submission.
+`LASTDB_SDK_API_VERSION` and `LASTDB_MIN_SUPPORTED_API_VERSION`
 are generated from the node source.
 
 ## Install a build of the SDK
 
 ```bash
-npm install /path/to/lastdb-app-sdk-0.18.0.tgz
+npm install /path/to/lastdb-app-sdk-0.19.0.tgz
 ```
 
 Build a tarball from this directory with `npm ci`, `npm run build`, and
@@ -60,45 +60,31 @@ const db = ownerClient({
 await db.requireApiVersion(LASTDB_SDK_API_VERSION);
 ```
 
-## Named databases and sessions
+## Named databases
 
 `listDatabases` reads `GET /api/databases`. The personal database and received
 shares stay in that list. `createDatabase` calls `POST /api/databases` to create
 an owned database, and `bindDatabaseSpec` calls `POST /api/databases/spec` to
 bind or clear an owned database's spec. `select` returns a new client bound to
-one database ID or alias without mutating the existing client.
+one database ID or alias without mutating the existing client. That selection
+is the database for schema list, schema get, `submitProposal`, and
+`getShareSubmissionStatus`.
+
+`read`, `write`, and `changes` do not copy it. Name the database with the
+`database` field on each item. Omit `database` to address the personal database.
 
 ```ts
 const root = await connect({ appId: 'photos' });
 const created = await root.createDatabase({ name: 'photo-drafts', kind: 'personal' });
 const drafts = root.select(created.id);
 const same = await connect({ appId: 'photos', databaseId: created.name ?? created.id });
-```
-
-To mint an owner-approved short-lived database session (`POST /api/databases/session`)
-and attach `X-LastDB-Database-Session` to every scoped request, call
-`issueDatabaseSession` or `openDatabaseSession`:
-
-```ts
-const { session, client: draftReader } = await root.openDatabaseSession(created.id, 'read');
-// Omitting `database` addresses the session's database.
-const [album] = await draftReader.read([
-  { schema: 'photos/Album', key: { hash: 'vacation' } },
+const [album] = await root.read([
+  { database: created.id, schema: 'photos/Album', key: { hash: 'vacation' } },
 ]);
-
-const delegated = await connect({
-  appId: 'photos-viewer',
-  databaseId: session.databaseId,
-  databaseSession: session.session,
-});
 ```
 
-Keep `session.session` tokens out of logs. Schema list and schema get on a
-selected database use `/api/databases/<selector>/...`. `read` and `write` do
-not. On a session client, omit `database` to address that session's database.
-An item that names a different database is `permission_denied` and its message
-is `a database session addresses only its own database`. With no session, omit
-`database` to address the personal database. A session cannot call `changes`.
+Schema list and schema get on a selected database use
+`/api/databases/<selector>/...`.
 
 ## Set up sharing with Social
 
@@ -127,7 +113,7 @@ when the outcome is uncertain: `submitProposal` throws
 ```ts
 import { randomUUID } from 'node:crypto';
 
-const { client: share } = await recipient.openDatabaseSession(albumDatabaseId, 'write');
+const share = recipient.select(albumDatabaseId);
 const mutationId = randomUUID();
 const proposal = await share.submitProposal('social/Comment', {
   mutationType: 'create',
@@ -143,10 +129,9 @@ const proposal = await share.submitProposal('social/Comment', {
 console.log(`Queued ${proposal.mutationId}`);
 ```
 
-A read session cannot submit. Pass a write session, or call with no session
-on the owner socket. `getShareSubmissionStatus(mutationId)` on a client
-selected to that database reports `submitted`, `published`, `discarded`, or
-`unknown` for a submission this node already sent.
+`getShareSubmissionStatus(mutationId)` on a client selected to that database
+reports `submitted`, `published`, `discarded`, or `unknown` for a submission
+this node already sent.
 
 ## Owner operations
 
@@ -155,8 +140,7 @@ selected to that database reports `submitted`, `published`, `discarded`, or
 - `listSchemas()`, `getSchema(schemaName)`, `resolveSchema(descriptor)` —
   schema catalog.
 - `listDatabases()`, `createDatabase(req)`, `bindDatabaseSpec(id, spec)`,
-  `issueDatabaseSession(id, intent)`, `openDatabaseSession(id, intent)`,
-  `select(id, { databaseSession? })` — named databases and sessions.
+  `select(id)` — named databases.
 - `submitProposal(schemaName, op, options?)` — queue one proposal on a received database.
 - `getShareSubmissionStatus(mutationId)` — status of one share submission.
 
@@ -168,12 +152,8 @@ An app started by the LastDB launcher runs on the app socket. The launcher sets
 request. The app socket serves only these three methods.
 
 Pass `database` on a read, a mutation, or `changes` to name a database. These
-methods do not copy the database chosen by `select`. A database-session header
-already on the client is still sent. On that client, an omitted `database`
-addresses the session's database, and an item that names a different database
-is `permission_denied` with the message `a database session addresses only its own database`.
-With no session, an omitted `database` addresses the personal database. A
-session cannot call `changes`.
+methods do not copy the database chosen by `select`. An omitted `database`
+addresses the personal database.
 
 - `read(reads)` posts `{ reads }` to `POST /v1/read` and returns one result per
   read, in order. A result is `{ records, next_cursor }`, `{ keys, next_cursor }`
@@ -197,7 +177,7 @@ session cannot call `changes`.
   `POST /v1/x/changes` and returns `{ id, head, through, gap, changes }`.
   Omit `after` and the read starts at 0.
 
-Version 0.18.0 takes the app API types from `lastdb_node/app-api.json`.
+Version 0.19.0 takes the app API types from `lastdb_node/app-api.json`.
 Regenerate them with `python3 scripts/lints/app_api_types.py --write`.
 CI runs the same script with `--check` and fails when the committed file differs.
 Use the schema names: `ReadItem`, `WriteItem`, `ChangesRequest`, `ChangesReply`,
@@ -250,8 +230,7 @@ console.log(feed.head, feed.gap, feed.changes);
   `.expected`, `.actual`, and `.body`.
 - `RequestRejectedError` — `400` / `404` / non-CAS `409` / `413` request or
   target rejection with `.kind`, `.status`, and `.body`.
-- `PermissionDeniedError` — `403` posture, namespace, or session denial with
-  `.category`.
+- `PermissionDeniedError` — `403` posture or namespace denial with `.category`.
 - `AuthenticationRequiredError` — `401` credential failure.
 - `AppApiError` — non-200 reply from `read`, `write`, or `changes`, with
   `.status`, `.code`, and `.message`. A refusal that names one mutation also
