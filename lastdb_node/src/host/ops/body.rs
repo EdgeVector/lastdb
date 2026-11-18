@@ -252,8 +252,8 @@ fn skip_number(input: &[u8], mut index: usize) -> Option<usize> {
     let start = index;
     if input.get(index) == Some(&b'0') {
         index += 1;
-    } else if input.get(index).is_some_and(|byte| byte.is_ascii_digit()) {
-        while input.get(index).is_some_and(|byte| byte.is_ascii_digit()) {
+    } else if input.get(index).is_some_and(u8::is_ascii_digit) {
+        while input.get(index).is_some_and(u8::is_ascii_digit) {
             index += 1;
         }
     } else {
@@ -262,7 +262,7 @@ fn skip_number(input: &[u8], mut index: usize) -> Option<usize> {
     if input.get(index) == Some(&b'.') {
         index += 1;
         let fraction = index;
-        while input.get(index).is_some_and(|byte| byte.is_ascii_digit()) {
+        while input.get(index).is_some_and(u8::is_ascii_digit) {
             index += 1;
         }
         if index == fraction {
@@ -275,7 +275,7 @@ fn skip_number(input: &[u8], mut index: usize) -> Option<usize> {
             index += 1;
         }
         let exponent = index;
-        while input.get(index).is_some_and(|byte| byte.is_ascii_digit()) {
+        while input.get(index).is_some_and(u8::is_ascii_digit) {
             index += 1;
         }
         if index == exponent {

@@ -360,9 +360,7 @@ fn client_of<'a>(done: &'a Completed<'a>) -> &'a str {
     if done.apps {
         return "";
     }
-    header(done.headers, "X-LastDB-Client")
-        .map(str::trim)
-        .unwrap_or("")
+    header(done.headers, "X-LastDB-Client").map_or("", str::trim)
 }
 
 fn header<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'a str> {
