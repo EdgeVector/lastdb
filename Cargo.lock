@@ -1709,7 +1709,6 @@ name = "mutation_log"
 version = "0.1.0"
 dependencies = [
  "database_policy",
- "sha2 0.10.9",
 ]
 
 [[package]]

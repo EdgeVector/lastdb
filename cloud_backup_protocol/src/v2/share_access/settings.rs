@@ -4,9 +4,8 @@
 //! One statement per shared database. `read` and `write` are independent.
 //! Every pair is a statement. `proposals` means a Submit member's next append
 //! goes to the proposal log. `direct` means that append goes to the mutation
-//! log. The log model records that append as a direct write. Entries already
-//! in the proposal log stay until the publisher settles them. The statement
-//! does not look at either log.
+//! log. Entries already in the proposal log stay until the publisher settles
+//! them. The statement does not look at either log.
 //!
 //! The publisher signs the statement on its own. A signature proves the
 //! publisher wrote it. It does not prove the statement is the newest one.

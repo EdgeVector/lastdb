@@ -3,14 +3,13 @@ name = "mutation_log"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
-description = "Pure published-log state machine for personal and shareable databases (whole-database shares keep a separate pending inbox). No clock, no I/O."
+description = "Pure mutation-log state machine for personal and shareable databases. A shareable database also has a proposal log. No clock, no I/O."
 
 [lints]
 workspace = true
 
 [dependencies]
 database_policy = { path = "../database_policy" }
-sha2 = { workspace = true }
 
 [lib]
 path = "src/lib.rs"
