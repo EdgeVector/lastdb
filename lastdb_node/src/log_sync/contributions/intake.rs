@@ -13,12 +13,13 @@ use sha2::{Digest as _, Sha256};
 use std::sync::Arc;
 
 use super::{
-    inbox, schema_id, terminal_record_error, CloudLog, ContributionError, ProposalResult,
-    Submission, BODY_LIMIT, DEVICE_PREFIX, INBOX_NAMESPACE,
+    schema_id, terminal_record_error, CloudLog, ContributionError, ProposalResult, Submission,
+    BODY_LIMIT, DEVICE_PREFIX, INBOX_NAMESPACE,
 };
 use crate::host::Host;
 use crate::log_envelope::DatabaseContentKey;
 use crate::named_grant::lock_member;
+use crate::share_invitation::inbox;
 
 pub(super) fn parse(body: &[u8]) -> Result<Mutation, ContributionError> {
     if body.len() > BODY_LIMIT {

@@ -19,6 +19,7 @@ use crate::registered_share::RegisteredShare;
 
 use super::cloud::CloudLog;
 use super::http::{paths, Endpoint, Proof};
+use super::received;
 
 pub(super) use intake::apply;
 
