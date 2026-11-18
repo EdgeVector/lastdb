@@ -7,7 +7,7 @@ use futures::StreamExt as _;
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 
-use super::calling_app::active_app;
+use super::super::calling_app::active_app;
 use super::{bad, database, error_value, fail, key_filter, ok, require_exact_name, require_read};
 use crate::exec::query::{execute_query, QueryResponseFormat};
 use crate::exec::reply::{map_host_err, HostError};
