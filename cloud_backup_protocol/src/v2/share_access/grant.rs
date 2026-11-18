@@ -7,7 +7,7 @@ use super::succession::{self, member_role};
 use super::{
     account_key_matches, MemberListReadResponse, MemberListRevision, MemberListUpdate,
     NativeDatabase, NodeReadToken, ShareEnvironment, ShareHttpMethod, ShareMemberRole, ShareRead,
-    ShareSettings, ShareWrite, MUTATION_LOG_DELIVERY_OBJECT_PATH, MUTATION_LOG_INBOX_LIST_PATH,
+    ShareSettings, MUTATION_LOG_DELIVERY_OBJECT_PATH, MUTATION_LOG_INBOX_LIST_PATH,
     MUTATION_LOG_INBOX_SETTLE_PATH, MUTATION_LOG_SNAPSHOT_BYTES_PATH, SHARE_MEMBER_GET_PATH,
     SHARE_MEMBER_LIST_READ_PATH, SHARE_SETTINGS_GET_PATH, SHARE_SETTINGS_SET_PATH,
 };
@@ -263,11 +263,9 @@ pub fn authorize_settings_get(
 
 /// Authorize `POST` [`SHARE_MEMBER_GET_PATH`] for one member key.
 ///
-/// The publisher may name any member, and any other active member may name
-/// only its own key. That is the rule on [`super::MemberGetRequest`], beside
-/// [`member_list_read_view`]. When `write` is `direct`, an active member may
-/// name another member, so a node can check that a log writer is on the
-/// publisher-signed list. A revoked key stays refused.
+/// The publisher may name any member. Any other active member may name only
+/// its own key. That is the rule on [`super::MemberGetRequest`], beside
+/// [`member_list_read_view`]. A revoked key stays refused.
 pub fn authorize_member_get(
     current: &MemberListReadResponse,
     settings: Option<&ShareSettings>,
@@ -279,9 +277,6 @@ pub fn authorize_member_get(
     bind_settings(settings, current, target.environment)?;
     let access = authorize(current, &token.node_public_key)?;
     if access == ShareAccess::Publisher || token.node_public_key == *member {
-        return Ok(());
-    }
-    if settings_direct(settings) {
         return Ok(());
     }
     Err(ProtocolError::unauthorized("share.member.other"))
@@ -316,10 +311,6 @@ fn bind_settings(
 
 fn settings_anyone(settings: Option<&ShareSettings>) -> bool {
     settings.is_some_and(|settings| settings.read == ShareRead::Anyone)
-}
-
-fn settings_direct(settings: Option<&ShareSettings>) -> bool {
-    settings.is_some_and(|settings| settings.write == ShareWrite::Direct)
 }
 
 fn require_signed(

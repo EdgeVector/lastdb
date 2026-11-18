@@ -62,11 +62,6 @@ pub struct Entry {
     /// Set when the publisher key copied a submission into the log.
     pub incorporated_from: Option<Incorporation>,
     /// Opaque record bytes. This crate does not decode them.
-    ///
-    /// A direct-log writer signature, when present, is a frame in front of the
-    /// sealed envelope. [`crate::carried_payload`] splits it. A payload whose
-    /// first byte is the sealed-envelope version has no frame, so an existing
-    /// entry stays valid.
     pub payload: Vec<u8>,
 }
 
@@ -98,20 +93,30 @@ pub struct StoredEntry {
     pub accepted_at_ms: u64,
     /// The accepted entry. Its author time stays as sealed.
     pub entry: Entry,
-    /// Set by append when this log is shareable, `write` was `direct`, and the
-    /// writer is not the publisher.
-    ///
-    /// The caller cannot set it. There is no field on [`Entry`] and no field on
-    /// the list wire. A shell that loads an entry stored before this mark, or
-    /// an entry whose stored mark is absent, sets false. False stays false if
-    /// the settings change later.
-    pub direct_write: bool,
 }
 
 impl StoredEntry {
     pub(crate) fn merge_stamp(&self) -> Stamp {
         self.entry.merge_stamp(self.accepted_at_ms)
     }
+}
+
+/// Which log of a database this value is.
+///
+/// The shell sets this from the log it loaded. Append trusts it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LogRole {
+    /// The mutation log. Every database has one.
+    ///
+    /// A reader who may read is served every entry. The publisher may append.
+    /// An active Submit holder may append while `write` is `direct`.
+    Mutation,
+    /// The proposal log of a shareable database.
+    ///
+    /// Only the publisher lists it. The publisher or an active Submit holder
+    /// may append. `write` does not refuse this log. [`LogState::append_log`]
+    /// is the decision for which log a Submit holder uses.
+    Proposal,
 }
 
 /// A database is personal or shareable. It is never both.
@@ -123,13 +128,11 @@ pub enum DatabaseKind {
     Personal,
     /// A database receivers may be granted.
     ///
-    /// Only official namespaces can be appended. A reader other than the
-    /// publisher sees entries whose writer key is the publisher, including
-    /// re-appends, and entries stored with [`StoredEntry::direct_write`].
-    /// `read: anyone` gives that same view to a caller with no grant.
-    /// The writer's later role does not hide or reveal an entry.
+    /// Only official namespaces can be appended. A reader who may read the
+    /// mutation log is served every entry. `read: anyone` lets a caller with
+    /// no grant read that log. The writer's identity does not hide an entry.
     Shareable {
-        /// Node key that authors the readable entries and incorporates submissions.
+        /// Node key that publishes the snapshot and incorporates submissions.
         publisher: PrincipalId,
     },
 }
@@ -139,10 +142,9 @@ pub enum DatabaseKind {
 pub enum Capability {
     /// Read and append a personal database from any device of this node key.
     Owner,
-    /// Read entries whose writer key is the publisher key, and entries stored
-    /// as direct writes.
+    /// Read the mutation log.
     Receive,
-    /// Append pending submissions from any device of this node key, and read those entries.
+    /// Append on the log [`LogState::append_log`] names, and read the mutation log.
     Submit,
 }
 
@@ -168,15 +170,16 @@ pub struct AppendBatch {
 
 /// The whole log as a value. The shell stores it. This crate does not.
 ///
-/// This models one log: a personal mutation log, a share's mutation log, or
-/// the separate proposal log. Writer tips and read positions are keyed by
-/// node key and device.
+/// This models one log. [`LogRole`] says which. Writer tips and read positions
+/// are keyed by node key and device.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LogState {
     /// Database this log belongs to.
     pub database_id: DatabaseId,
     /// Personal or shareable.
     pub kind: DatabaseKind,
+    /// Mutation log or proposal log. The shell sets this from the log it loaded.
+    pub role: LogRole,
     /// Delivery head. Absent while the log has no entries.
     pub head: Option<Head>,
     /// Last accepted writer sequence for each writer. Missing means zero.
@@ -192,12 +195,27 @@ pub struct LogState {
 }
 
 impl LogState {
-    /// Open an empty log for one database.
+    /// Open an empty mutation log for one database.
     #[must_use]
     pub fn open(database_id: DatabaseId, kind: DatabaseKind) -> Self {
+        Self::empty(database_id, kind, LogRole::Mutation)
+    }
+
+    /// Open an empty proposal log for a shareable database.
+    #[must_use]
+    pub fn open_proposal(database_id: DatabaseId, publisher: PrincipalId) -> Self {
+        Self::empty(
+            database_id,
+            DatabaseKind::Shareable { publisher },
+            LogRole::Proposal,
+        )
+    }
+
+    fn empty(database_id: DatabaseId, kind: DatabaseKind, role: LogRole) -> Self {
         Self {
             database_id,
             kind,
+            role,
             head: None,
             tips: BTreeMap::new(),
             trimmed_tips: BTreeMap::new(),

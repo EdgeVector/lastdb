@@ -22,8 +22,6 @@ export interface ConnectOptions<DatabaseId extends string | undefined = undefine
   socketPath?: string;
   /** Database ID or local alias registered on this node. Omit for the default database. */
   databaseId?: DatabaseId;
-  /** Short-lived owner-approved session token (`X-LastDB-Database-Session`). Requires `databaseId`. */
-  databaseSession?: string;
   /** Headers attached to every request this client sends (per-call headers win). */
   defaultHeaders?: Record<string, string>;
   /** Best-effort client label (`X-LastDB-Client`). Defaults to `appId`. */
@@ -34,23 +32,6 @@ export interface ConnectOptions<DatabaseId extends string | undefined = undefine
   requireApiVersion?: number;
   /** Caller label for `NodeTooOldError` messages (defaults to `appId`). */
   appLabel?: string;
-}
-
-/** Options when scoping an existing client to a named or shared database via `select`. */
-export interface SelectDatabaseOptions {
-  /** Short-lived owner-approved session token (`X-LastDB-Database-Session`) for this database. */
-  databaseSession?: string;
-}
-
-/** Access posture requested for `POST /api/databases/session`. */
-export type DatabaseSessionIntent = 'read' | 'write';
-
-/** Short-lived scoped database session issued by `POST /api/databases/session`. */
-export interface DatabaseSession {
-  databaseId: string;
-  intent: DatabaseSessionIntent;
-  session: string;
-  expiresInSeconds: number;
 }
 
 /** The node's answer to `GET /api/version`. */
