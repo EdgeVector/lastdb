@@ -103,7 +103,8 @@ pub(super) fn mutate_command(
 ) -> Result<(), String> {
     let body = read_mutation_json(request_file)?;
     let (doc, file) = take_input(request_file, body)?;
-    let item = v1_records::record_write(&doc, v1_records::database(target), file.written())?;
+    let written = file.written();
+    let item = v1_records::record_write(&doc, v1_records::database(target), &written)?;
     let timeout = if durable {
         handler_timeout().saturating_add(Duration::from_secs(20))
     } else {

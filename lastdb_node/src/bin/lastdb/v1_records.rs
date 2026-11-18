@@ -149,7 +149,7 @@ pub(super) fn key_report(
 pub(super) fn record_write(
     mutation: &Value,
     database: Option<&str>,
-    file: WrittenFile<'_>,
+    file: &WrittenFile<'_>,
 ) -> Result<Value, String> {
     let linking = matches!(file, WrittenFile::Link(_));
     if !v1_capable(mutation, linking) {
