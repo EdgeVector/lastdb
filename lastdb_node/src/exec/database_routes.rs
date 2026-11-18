@@ -16,8 +16,9 @@ enum Selection {
     Signed(Box<RegisteredShare>),
 }
 
-/// Dispatch a database registry operation, or a schema read, seed, or drop,
-/// on the explicitly selected database. Record reads and writes use `/v1`.
+/// Dispatch a database registry operation, or a schema read, seed, drop, or
+/// installer placement, on the explicitly selected database. Record reads and
+/// writes use `/v1`.
 pub(in crate::exec) async fn execute_database_request(
     req: &mut UdsRequest,
     ctx: &AccessContext,
@@ -218,5 +219,8 @@ fn is_database_operation(route: DataRoute) -> bool {
 
 fn is_scoped_operation(route: DataRoute) -> bool {
     is_database_operation(route)
-        || matches!(route, DataRoute::SeedSystemSchema | DataRoute::DropSchema)
+        || matches!(
+            route,
+            DataRoute::SeedSystemSchema | DataRoute::DropSchema | DataRoute::AppsDeclareSchema
+        )
 }
