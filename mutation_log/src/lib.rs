@@ -8,27 +8,43 @@
 //! A database is [`DatabaseKind::Personal`] or [`DatabaseKind::Shareable`].
 //! A personal database accepts app-private namespaces and rejects a receiver
 //! grant. A shareable database rejects an app-private namespace on append.
-//! ExeMem gives receivers only entries written by the publisher, including
-//! when filtering legacy mixed history. Whole-database shares also have a
-//! separate pending inbox log that only the publisher reads. The publisher's
-//! LastDB validates those mutations and publishes accepted changes under its own key.
+//! A personal database has one log. With the default settings, a shared
+//! database has two: the publisher log, which only the publisher writes and
+//! which recipients read, and the inbox, which only the publisher reads.
+//! The publisher's LastDB validates inbox mutations and publishes accepted
+//! changes on its own log. Those settings give recipients only entries
+//! written by the publisher.
+//!
+//! [`BoundPolicy::with_share`] carries the two settings. The default is
+//! members and proposals, which is absent share settings. `read: anyone`
+//! lets a caller with no grant read publisher-written entries and does not
+//! let that caller append. `write: direct` keeps the existing Submit append
+//! check and also shows entries written by keys that hold Submit.
 
 #![deny(clippy::disallowed_methods, clippy::disallowed_types)]
 
 mod append;
+mod authorship;
 mod model;
 mod read;
+mod share;
 
 use std::fmt;
 
 use database_policy::{admit_namespace, valid_label, NamespaceClass, SpecBinding};
 
 pub use append::AppendOutcome;
+pub use authorship::{
+    attach_writer_signature, carried_payload, sealed_sha256, writer_entry_digest, CarriedPayload,
+    WriterEntryBinding, SEALED_ENVELOPE_VERSION, WRITER_ENTRY_DOMAIN, WRITER_FRAME_PREFIX,
+    WRITER_FRAME_VERSION, WRITER_SIGNATURE_LEN,
+};
 pub use model::{
     AppendBatch, Capability, DatabaseKind, Entry, Grant, Head, Incorporation, LogState, Stamp,
     StoredEntry, Writer,
 };
 pub use read::{ListPage, ScopedHead};
+pub use share::{ShareAdmission, ShareRead, ShareWrite};
 
 /// Entries applied in one append transaction.
 pub const APPEND_BATCH_LIMIT: usize = 90;
@@ -92,19 +108,43 @@ label_id!(
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BoundPolicy {
     binding: Option<SpecBinding>,
+    share: ShareAdmission,
 }
 
 impl BoundPolicy {
     /// No spec binding. Share appends fail closed.
+    ///
+    /// Share admission is [`ShareAdmission::default`]: members and proposals.
     #[must_use]
     pub fn absent() -> Self {
-        Self { binding: None }
+        Self {
+            binding: None,
+            share: ShareAdmission::default(),
+        }
     }
 
     pub(crate) fn new(binding: SpecBinding) -> Self {
         Self {
             binding: Some(binding),
+            share: ShareAdmission::default(),
         }
+    }
+
+    /// Use these share settings for later append and read calls.
+    ///
+    /// Pass [`ShareAdmission::default`] when the database has no settings.
+    /// That is `absent_share_settings` in `cloud_backup_protocol`: members and
+    /// proposals. Map `ShareRead` and `ShareWrite` by variant name.
+    #[must_use]
+    pub fn with_share(mut self, share: ShareAdmission) -> Self {
+        self.share = share;
+        self
+    }
+
+    /// Share settings supplied for this call. The default is members and proposals.
+    #[must_use]
+    pub fn share(&self) -> ShareAdmission {
+        self.share
     }
 
     /// Build the policy from the stored `{ "name", "version" }` object.
@@ -168,6 +208,8 @@ pub enum LogError {
     Unauthorized,
     /// A shareable database was asked to store an app-private namespace.
     AppPrivateNamespace,
+    /// `read: anyone` was combined with `write: direct`.
+    InvalidShareSettings,
     /// A personal database was asked to grant a receiver or a contributor.
     PersonalNotShareable,
     /// An owner grant was asked of a shareable database.
@@ -210,6 +252,9 @@ impl fmt::Display for LogError {
             Self::Unauthorized => f.write_str("not authorized for this log step"),
             Self::AppPrivateNamespace => {
                 f.write_str("app-private namespace cannot enter a shareable database")
+            }
+            Self::InvalidShareSettings => {
+                f.write_str("read anyone cannot combine with write direct")
             }
             Self::PersonalNotShareable => {
                 f.write_str("a personal database cannot be granted to a receiver")

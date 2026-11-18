@@ -1,5 +1,5 @@
 use crate::{
-    BoundPolicy, Capability, DatabaseKind, Grant, LogError, LogState, PrincipalId, Stamp,
+    BoundPolicy, Capability, DatabaseKind, Entry, Grant, LogError, LogState, PrincipalId, Stamp,
     StoredEntry, LIST_PAGE_LIMIT,
 };
 
@@ -41,22 +41,55 @@ fn entry_visible(
         DatabaseKind::Personal => holds_owner(database, reader),
         DatabaseKind::Shareable { publisher } => {
             policy.allows_in_share(&entry.namespace)
-                && (reader == publisher
-                    || (&entry.writer.key == publisher && holds_receive(database, reader)))
+                && share_visible(database, entry, reader, publisher, policy)
         }
     }
 }
 
+/// Publisher-log visibility. The default matches the old predicate.
+///
+/// The publisher sees every official entry. Anyone else needs Receive, or
+/// `read: anyone`, or Submit when `write` is `direct`. That reader then sees
+/// publisher-written entries. `write: direct` also shows an entry whose writer
+/// key holds Submit. `proposals` does not.
+fn share_visible(
+    database: &LogState,
+    entry: &Entry,
+    reader: &PrincipalId,
+    publisher: &PrincipalId,
+    policy: &BoundPolicy,
+) -> bool {
+    if reader == publisher {
+        return true;
+    }
+    let admission = policy.share();
+    let can_read = holds_receive(database, reader)
+        || admission.reads_without_grant()
+        || (admission.shows_submit_writers() && holds_submit(database, reader));
+    if !can_read {
+        return false;
+    }
+    if &entry.writer.key == publisher {
+        return true;
+    }
+    admission.shows_submit_writers() && holds_submit(database, &entry.writer.key)
+}
+
 impl LogState {
     /// Whether this key may call list or head.
+    ///
+    /// `policy` is the caller's share settings. The default does not change
+    /// this check. `read: anyone` also allows a caller that holds no grant.
+    /// That caller still cannot append.
     #[must_use]
-    pub fn reader_allowed(&self, principal: &PrincipalId) -> bool {
+    pub fn reader_allowed(&self, principal: &PrincipalId, policy: &BoundPolicy) -> bool {
         match &self.kind {
             DatabaseKind::Personal => holds_owner(self, principal),
             DatabaseKind::Shareable { publisher } => {
                 principal == publisher
                     || holds_receive(self, principal)
                     || holds_submit(self, principal)
+                    || policy.share().reads_without_grant()
             }
         }
     }
@@ -103,7 +136,7 @@ impl LogState {
         reader: &PrincipalId,
         policy: &BoundPolicy,
     ) -> Result<Option<ScopedHead>, LogError> {
-        if !self.reader_allowed(reader) {
+        if !self.reader_allowed(reader, policy) {
             return Err(LogError::Unauthorized);
         }
         Ok(scoped_head(self, reader, policy))
@@ -120,7 +153,7 @@ impl LogState {
         if limit == 0 || limit > LIST_PAGE_LIMIT {
             return Err(LogError::InvalidPage);
         }
-        if !self.reader_allowed(reader) {
+        if !self.reader_allowed(reader, policy) {
             return Err(LogError::Unauthorized);
         }
         Ok(page(self, reader, after, limit, policy))

@@ -10,11 +10,23 @@ The publisher's LastDB downloads and decrypts the pending changes. It checks eac
 
 These requirements apply as Social adds features and as LastDB and ExeMem change their storage and transport.
 
-- Keep both stored logs under the same database ID. The published log and pending mutation log have independent positions. Do not replace the split with a mixed log and a read filter. Keep older mixed history private and recoverable through migrations.
-- Every active receiver can read the whole published database and send an encrypted proposal, even with an empty write grant. Receivers follow only the published log. Only the publisher can read or settle the pending log, including entries submitted by a receiver who asks for their own.
+- A personal database has one log. A shared database has exactly two logs under the same database ID: the publisher log and the inbox. Their positions are independent.
+- Every active receiver can read the whole publisher log and send an encrypted proposal, even with an empty write grant. Receivers follow only the publisher log. Only the publisher can read or settle the inbox, including entries submitted by a receiver who asks for their own.
 - Keep the current publisher-signed configuration for each database, including its revision, receiver identities, active or revoked state, and schema write grants. ExeMem checks active membership. The publisher's LastDB uses the confirmed configuration on its machine to check every downloaded and decrypted proposal. Apps display the grant.
-- Keep approval, local commit, publication, and settlement in that order. Denied or invalid proposals produce no published change. For accepted proposals, the publisher uploads the committed change under its own key before marking the pending entry processed. LastDB decides when stored entries and retry records are safe to retire.
-- The publisher's authenticated settlement authorizes ExeMem to remove the original encrypted proposal from the pending log. Retain the identity needed for exact append retries and any outcome the publisher supplied. Settling an entry preserves both logs, their positions, and the publisher's accepted record history.
+- Keep approval, local commit, publication, and settlement in that order. Denied or invalid proposals produce no published change. For accepted proposals, the publisher appends the committed change to its own log before marking the inbox entry processed. LastDB decides when stored entries and retry records are safe to retire.
+- The publisher's authenticated settlement authorizes ExeMem to remove the original encrypted proposal from the inbox. Retain the identity needed for exact append retries and any outcome the publisher supplied. Settling an entry preserves both logs, their positions, and the publisher's accepted record history.
+
+These requirements are the default settings (Tom, 2026-11-18). A database with no settings, or with read members and write proposals, follows them. The access table later in this document describes that default.
+
+ExeMem stores one publisher-signed settings statement per shared database. The statement has two settings.
+
+Share, the default, sets read to members and write to proposals. Only the publisher writes the publisher log. A member appends to the inbox. The publisher checks the proposal and publishes the accepted change.
+
+Deliver sets read to anyone and write to proposals. A caller with no member entry may read the publisher log when it holds the read key from a link. Only the publisher writes. That caller cannot append.
+
+Org sets read to members and write to direct. An active member with the Submit role appends directly to the publisher log. There is no inbox for that database. Order is the order ExeMem assigns at append. Those writes are not checked the way a proposal is.
+
+Read anyone together with write direct is not valid. In every case only the publisher publishes snapshots. Read anyone lets a caller with no grant read publisher-written entries. Write direct lets every reader see entries written by the publisher and by keys that hold Submit.
 
 Tom's explicit direction is required to change these requirements. [Agent instructions](../../AGENTS.md#preserve-whole-database-sharing-tom-2026-11-14)
 

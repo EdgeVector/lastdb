@@ -44,10 +44,10 @@ removed page with `git show 13a2cf188:<path>`.
 Keep these requirements in every LastDB, Social, SDK, and ExeMem change that
 touches whole-database sharing. Change them only at Tom's explicit direction.
 
-- Keep the published log and the pending mutation log as separate stored logs
-  with independent positions under one database ID. Do not delete either log
-  or combine them behind a read filter. Keep older mixed history private and
-  recoverable through migrations.
+- A personal database has one log. A shared database has exactly two logs
+  under one database ID: the publisher log and the inbox. Their positions are
+  independent. Do not delete either log, combine them, or keep a mixed-log
+  path. There is no compatibility with a retired log format.
 - Every active receiver can read the whole published database and append an
   encrypted proposal, even with an empty write grant. Only the publisher can
   read or settle pending entries. Receivers cannot read even their own
@@ -60,6 +60,34 @@ touches whole-database sharing. Change them only at Tom's explicit direction.
 - Commit allowed changes locally and publish them under the publisher's key
   before marking their pending entries processed. Discard denied or invalid
   changes. A queue receipt confirms delivery to the pending log.
+
+The bullets above are the default settings (Tom, 2026-11-18). A database with
+no settings, or with read `members` and write `proposals`, follows them. The
+published bytes do not change.
+
+ExeMem stores one publisher-signed settings statement per shared database.
+The statement has two settings: who may read the publisher's log, and who may
+write it.
+
+- Share, which is the default: read is `members` and write is `proposals`.
+  Only the publisher writes the publisher log. A member appends to the inbox.
+  The publisher checks the proposal and publishes the accepted change.
+- Deliver: read is `anyone` and write is `proposals`. A caller with no member
+  entry may read the publisher log. That caller holds the read key from a
+  link. Only the publisher writes. The caller cannot append.
+- Org: read is `members` and write is `direct`. An active member with the
+  Submit role appends directly to the publisher log. There is no inbox for
+  that database. Order is the order ExeMem assigns at append. Those writes
+  are not checked the way a proposal is.
+
+`read: anyone` together with `write: direct` is not valid. In every case only
+the publisher publishes snapshots.
+
+With `read: anyone`, a caller that holds no grant reads publisher-written
+entries the way a Receive holder does, and that caller cannot append. With
+`write: direct`, every reader sees entries written by the publisher and
+entries written by keys that hold Submit. With `proposals`, a reader still
+sees only publisher-written entries.
 
 Read the [sharing design](docs/designs/shared-database-mutation-logs.md#requirements-to-preserve)
 before changing this path.

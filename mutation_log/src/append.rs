@@ -26,6 +26,8 @@ impl LogState {
         let allowed = match &self.kind {
             DatabaseKind::Personal => crate::read::holds_owner(self, &writer.key),
             DatabaseKind::Shareable { publisher } => {
+                // `read: anyone` does not append. `write: direct` uses this
+                // same check: an active Submit holder appends to this log.
                 &writer.key == publisher || crate::read::holds_submit(self, &writer.key)
             }
         };
@@ -38,7 +40,7 @@ impl LogState {
 
     /// Check a previously admitted entry against a loaded writer history.
     /// The caller authorizes the writer before reading that history. The
-    /// separate pending log uses this to recognize retries of legacy appends.
+    /// separate inbox log uses this to recognize an exact append retry.
     pub fn is_append_retry(&self, entry: &Entry) -> Result<bool, LogError> {
         if entry.database_id != self.database_id {
             return Err(LogError::WrongDatabase);
