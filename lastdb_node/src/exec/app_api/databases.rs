@@ -5,7 +5,7 @@ use fold_db::access::AccessContext;
 use serde_json::{Map, Value};
 
 use super::databases_reply::pass_owner;
-use super::{bad, require_extension, require_write};
+use super::{bad, require_extension};
 use crate::exec::calling_app::active_app;
 use crate::exec::database_routes;
 use crate::exec::reply::HostError;
@@ -156,15 +156,9 @@ fn declare_request(body: &Map<String, Value>, host: &Host) -> Result<OwnerCall, 
         &["database", "schema", "intent", "retention", "app_id"],
     )?;
     let schema = required_object(body, "schema")?;
-    // A missing or empty name is the owner handler's refusal. The grant check
-    // applies only to a name the app could have declared.
-    if let Some(name) = schema
-        .get("name")
-        .and_then(Value::as_str)
-        .filter(|name| !name.is_empty())
-    {
-        require_write(name)?;
-    }
+    // The databases extension is the permission. The read and write lists
+    // govern /v1/read and /v1/write. A missing or empty name is the owner
+    // handler's refusal, and that handler requires the namespace to match app_id.
     let app_id = declared_app_id(body)?;
     let id = database_id(body, host)?;
     let mut owner = Map::new();
