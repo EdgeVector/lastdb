@@ -157,7 +157,6 @@ def mutation(schema, key_value, record, operation="replace", *, alternates=None,
         "type": "mutation", "schema": schema, "key_value": key_value, "record": record,
         "alternates": alternates or {}, "mutation_type": operation,
         "expected": expected if expected is not None else {"type": "absent"} if operation == "create" else None,
-        "durability": "durable", "convergence": "sync",
     }
 
 
