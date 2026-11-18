@@ -22,16 +22,17 @@ rules — and every agent (Claude, Codex, or otherwise) should follow it.
 The one thing worth repeating here, because getting it wrong invalidates a
 whole design before a line is written:
 
-> **LastDB is Dynamo-style NoSQL, NOT a table/SQL database.** No scan, no
-> WHERE-style field filter, no JOIN. Point get by exact key is O(1); a range
-> under one hash is O(log M); a full scan is not an operation. A schema is a
+> **LastDB is Dynamo-style NoSQL, NOT a table/SQL database.** No WHERE-style
+> field filter, no JOIN. Point get by exact key is O(1); a range under one hash
+> is O(log M). One whole-schema read exists: a paged listing of a schema's
+> primary keys (`keys_only`, `docs/app-api.md`), followed by reads by key. A schema is a
 > catalog, not a table. Each primary key holds one record: all fields of the
 > schema in one stored value. A named alternate key finds that same record.
 
 Before designing or planning anything against LastDB, read the brain records:
 
 - `concepts-lastdb-canonical-model` — CANONICAL (schema → record → file blob,
-  named keys, and the no-scan contract). If a code comment disagrees with
+  named keys, keyed reads and the key listing). If a code comment disagrees with
   it, it wins; fix the comment.
 - `concepts-lastdb-agent-access-model` — day-to-day do / don't rules.
 
