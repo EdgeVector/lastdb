@@ -1,6 +1,9 @@
-//! Publisher-signed share settings: one statement per shared database.
+//! Publisher-signed share settings: who may read the mutation log, and who may write it.
+//! Decided state: docs/designs/shared-database-mutation-logs.md (mutation log, proposal log, share settings).
 //!
-//! The statement says who may read the publisher's log and who may write it.
+//! One statement per shared database. `proposals` means members append to the
+//! proposal log and only the publisher writes the mutation log. `direct` means
+//! an active Submit member appends to the mutation log and there is no proposal log.
 //! The publisher signs the statement on its own. A signature proves the
 //! publisher wrote it. It does not prove the statement is the newest one.
 //! A reader that needs that keeps the sequence it last saw.
@@ -27,24 +30,24 @@ pub const SHARE_SETTINGS_SET_PATH: &str = "/api/cloud/backups/v2/share/members/s
 /// existing `share/members/{proxy+}` route. `BackupTransport` inserts `/api`.
 pub const SHARE_SETTINGS_GET_PATH: &str = "/api/cloud/backups/v2/share/members/settings/get";
 
-/// Who may read the publisher's log.
+/// Who may read the mutation log.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ShareRead {
-    /// An active member reads the publisher's log. This is the absent value.
+    /// An active member reads the mutation log. This is the absent value.
     Members,
-    /// A caller with no member entry may read the publisher's log.
+    /// A caller with no member entry may read the mutation log.
     Anyone,
 }
 
-/// Who may write the publisher's log.
+/// Who may write the mutation log.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ShareWrite {
-    /// A member appends to the private pending log. The publisher publishes.
+    /// A member appends to the proposal log. The publisher writes the mutation log.
     /// This is the absent value.
     Proposals,
-    /// An active Submit member appends to the publisher's log. No pending log.
+    /// An active Submit member appends to the mutation log. No proposal log.
     Direct,
 }
 
@@ -68,9 +71,9 @@ pub struct ShareSettings {
     pub environment: ShareEnvironment,
     /// Shared database. `stream_id` is the database id.
     pub stream: Stream,
-    /// Who may read the publisher's log.
+    /// Who may read the mutation log.
     pub read: ShareRead,
-    /// Who may write the publisher's log.
+    /// Who may write the mutation log.
     pub write: ShareWrite,
     /// Count of signed settings statements for this database, starting at one.
     pub sequence: DecimalU64,

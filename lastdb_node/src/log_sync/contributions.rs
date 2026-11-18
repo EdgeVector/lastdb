@@ -1,4 +1,5 @@
-//! Queue encrypted mutations from active receivers in the publisher's pending log.
+//! Queue encrypted member proposals on the proposal log.
+//! Decided state: docs/designs/shared-database-mutation-logs.md (mutation log, proposal log, share settings).
 //!
 //! Receiver apps use schema grants to guide the UI. The publisher's intake
 //! checks those grants against the actual mutation before any shared write.

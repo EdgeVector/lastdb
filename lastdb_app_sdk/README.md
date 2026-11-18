@@ -119,7 +119,7 @@ the proposal document to `POST /api/databases/{id}/submissions` on the owner
 socket, with the proposal id in the `Idempotency-Key` header. The document
 is the mutation document a received database used to accept. It is not a
 `/v1/write` item, and the call does not write a record on this node. A
-`202` receipt means the publisher's pending log accepted the append. The
+`202` receipt means the proposal log accepted the append. The
 publisher still checks the proposal. Reuse the same id and the same body
 when the outcome is uncertain: `submitProposal` throws
 `ShareSubmissionUncertainError` with `.mutationId`.

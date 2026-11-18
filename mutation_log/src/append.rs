@@ -40,7 +40,7 @@ impl LogState {
 
     /// Check a previously admitted entry against a loaded writer history.
     /// The caller authorizes the writer before reading that history. The
-    /// separate inbox log uses this to recognize an exact append retry.
+    /// separate proposal log uses this to recognize an exact append retry.
     pub fn is_append_retry(&self, entry: &Entry) -> Result<bool, LogError> {
         if entry.database_id != self.database_id {
             return Err(LogError::WrongDatabase);

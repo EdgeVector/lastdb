@@ -46,7 +46,7 @@ fn entry_visible(
     }
 }
 
-/// Publisher-log visibility. The default matches the old predicate.
+/// Mutation-log visibility. The default matches the previous predicate.
 ///
 /// The publisher sees every official entry. Anyone else needs Receive, or
 /// `read: anyone`, or Submit when `write` is `direct`. That reader then sees

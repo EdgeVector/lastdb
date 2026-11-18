@@ -13,24 +13,24 @@
 
 use crate::LogError;
 
-/// Who may read the publisher's log.
+/// Who may read the mutation log.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ShareRead {
-    /// An active member reads the publisher's log. This is the absent value.
+    /// An active member reads the mutation log. This is the absent value.
     #[default]
     Members,
     /// A caller with no grant reads publisher-written entries and cannot append.
     Anyone,
 }
 
-/// Who may write the publisher's log.
+/// Who may write the mutation log.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ShareWrite {
-    /// Members append to the pending log. Readers see publisher-written entries.
+    /// Members append to the proposal log. Readers see publisher-written entries.
     /// This is the absent value.
     #[default]
     Proposals,
-    /// An active Submit holder appends to this log. Readers also see those entries.
+    /// An active Submit holder appends to the mutation log. Readers also see those entries.
     Direct,
 }
 

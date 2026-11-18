@@ -1,18 +1,21 @@
-//! Pure functional core of the published cloud mutation log.
+//! Pure functional core of one mutation log.
+//! Decided state: docs/designs/shared-database-mutation-logs.md (mutation log, proposal log, share settings).
 //!
-//! The core models one ordered published log value. Entries are tagged by writer
+//! The core models one ordered log value. Entries are tagged by writer
 //! (node key, device). The caller supplies time, IDs, and a [`BoundPolicy`].
+//! The same value models a personal database, a share's mutation log, or that
+//! share's proposal log.
 //!
 //! # Sharing
 //!
 //! A database is [`DatabaseKind::Personal`] or [`DatabaseKind::Shareable`].
 //! A personal database accepts app-private namespaces and rejects a receiver
 //! grant. A shareable database rejects an app-private namespace on append.
-//! A personal database has one log. With the default settings, a shared
-//! database has two: the publisher log, which only the publisher writes and
-//! which recipients read, and the inbox, which only the publisher reads.
-//! The publisher's LastDB validates inbox mutations and publishes accepted
-//! changes on its own log. Those settings give recipients only entries
+//! A personal database has one mutation log. With the default settings, a
+//! shared database has two: the mutation log, which only the publisher writes
+//! and which members read, and the proposal log, which only the publisher reads.
+//! The publisher's LastDB checks proposal-log entries and appends accepted
+//! changes to the mutation log. Those settings give members only entries
 //! written by the publisher.
 //!
 //! [`BoundPolicy::with_share`] carries the two settings. The default is

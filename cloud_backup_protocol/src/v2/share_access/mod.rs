@@ -1,16 +1,17 @@
-//! Share access v2 wire types.
+//! Share access v2 wire types for the mutation log, the proposal log, and share settings.
+//! Decided state: docs/designs/shared-database-mutation-logs.md (mutation log, proposal log, share settings).
 //!
 //! A member list names the Ed25519 node keys that may read one shared database.
-//! On a whole-database share, any active receiver may submit encrypted mutations.
-//! Only the publisher may read or settle the pending log. Receivers follow the
-//! published log, and the publisher's LastDB checks schema write permissions.
+//! On a whole-database share, any active member may submit encrypted mutations.
+//! Only the publisher may read or settle the proposal log. Members follow the
+//! mutation log, and the publisher's LastDB checks schema write permissions.
 //! The publisher signs each new revision. A revoked key stays
 //! on that revision until a later revision sets `regrant`. v1 does not rotate
 //! keys. These types do no I/O, do not verify signatures, and do not cap the
 //! member count.
 //!
-//! [`ShareSettings`] is the one statement per database for who may read and
-//! who may write the publisher's log. No statement means
+//! [`ShareSettings`] is the one statement per database for who may read the
+//! mutation log and who may write it. No statement means
 //! [`absent_share_settings`]: members read, and members append proposals.
 //!
 //! A signed request uses the `LastDBNode` authorization scheme. The token is
@@ -80,9 +81,9 @@ pub const MUTATION_LOG_SNAPSHOT_BYTES_PATH: &str =
 /// Read one signed ciphertext range of a record file.
 pub const MUTATION_LOG_DELIVERY_OBJECT_PATH: &str =
     "/api/cloud/backups/v2/mutation-log/delivery/object";
-/// Read a pending page from the publisher-only contribution inbox.
+/// Read one page of the proposal log. The path keeps the spelling `inbox`.
 pub const MUTATION_LOG_INBOX_LIST_PATH: &str = "/api/cloud/backups/v2/mutation-log/inbox/list";
-/// Settle a durable page in the publisher-only contribution inbox.
+/// Settle one durable page of the proposal log. The path keeps the spelling `inbox`.
 pub const MUTATION_LOG_INBOX_SETTLE_PATH: &str = "/api/cloud/backups/v2/mutation-log/inbox/settle";
 
 /// The publisher key is the account key: the first 16 bytes of SHA-256 over

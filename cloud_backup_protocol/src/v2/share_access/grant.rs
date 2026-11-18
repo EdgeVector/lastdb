@@ -40,7 +40,7 @@ pub enum ShareAccess {
     Publisher,
     /// Active member with no schema writes granted.
     Reader,
-    /// Active member with a contributor grant. Whole-database inbox append
+    /// Active member with a contributor grant. Whole-database proposal-log append
     /// access depends on active membership for both roles.
     Contributor,
 }

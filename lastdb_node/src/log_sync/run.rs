@@ -1,4 +1,4 @@
-//! Pull, apply, save local download progress, and drain publisher inboxes.
+//! Pull, apply, save local download progress, and drain the proposal log.
 
 use std::path::Path;
 use std::sync::atomic::AtomicBool;

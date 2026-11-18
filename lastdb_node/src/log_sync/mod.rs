@@ -1,4 +1,5 @@
-//! Daemon adapter for the encrypted cloud mutation log.
+//! Daemon adapter for the mutation log. A `proposals` share also drains the proposal log.
+//! Decided state: docs/designs/shared-database-mutation-logs.md (mutation log, proposal log, share settings).
 //!
 //! Resolve a database by its registered id. Authorization determines the
 //! permitted writes. Snapshot recovery installs into that database and the
