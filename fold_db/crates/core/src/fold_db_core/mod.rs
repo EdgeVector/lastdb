@@ -29,8 +29,9 @@ pub mod factory {
         pub capture_accepted: bool,
         /// Preserve the original native root before a personal home starts cloud capture.
         pub capture_initial_snapshot: bool,
-        /// Remember the publisher's mutation identity beside each whole-database share record.
-        pub track_shared_record_revisions: bool,
+        /// Host notes for each committed record. Absent when the host keeps no notes.
+        pub record_log:
+            Option<std::sync::Arc<dyn crate::fold_db_core::mutation_manager::RecordWriteLog>>,
     }
 
     /// Creates a fully initialized FoldDB instance based on the database configuration.
@@ -126,7 +127,7 @@ impl FoldDB {
             Arc::clone(&db_ops),
             Arc::clone(&schema_manager),
             writer_id,
-            options.track_shared_record_revisions,
+            options.record_log,
         ));
         info!("Created MutationManager for mutation operations");
         info!(target: "fold_node::database", "native writes complete on disk before acknowledgment");

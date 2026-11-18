@@ -10,7 +10,7 @@ The publisher's LastDB downloads and decrypts the pending changes. It checks eac
 
 These requirements apply as Social adds features and as LastDB and ExeMem change their storage and transport.
 
-- Keep both stored logs under the same database ID. The published log and pending mutation log have independent positions. Do not replace the split with a mixed log and a read filter. Keep older mixed history private and recoverable through migrations.
+- A personal database has one log. A shared database has exactly two logs under the same database ID: the publisher log and the inbox. Their positions are independent. There is no mixed log and no read filter over mixed history.
 - Every active receiver can read the whole published database and send an encrypted proposal, even with an empty write grant. Receivers follow only the published log. Only the publisher can read or settle the pending log, including entries submitted by a receiver who asks for their own.
 - Keep the current publisher-signed configuration for each database, including its revision, receiver identities, active or revoked state, and schema write grants. ExeMem checks active membership. The publisher's LastDB uses the confirmed configuration on its machine to check every downloaded and decrypted proposal. Apps display the grant.
 - Keep approval, local commit, publication, and settlement in that order. Denied or invalid proposals produce no published change. For accepted proposals, the publisher uploads the committed change under its own key before marking the pending entry processed. LastDB decides when stored entries and retry records are safe to retire.
@@ -24,7 +24,7 @@ Social owns contacts and circles on the publisher's LastDB. For a database, it r
 
 A named scope such as `"writeSchemas": {"names": ["social/Comment"]}` matches the exact canonical name in that database. A compatible schema update leaves the grant in force. The submitted operation still has to match the installed definition and pass the normal record checks. A different name needs its own grant. Existing signed arrays of exact definition IDs retain their original meaning. An empty array grants reads only, and `"all"` covers every schema in that database. ExeMem carries the signed scope and leaves schema checks to the publisher.
 
-For a conditional replacement or delete, the receiver passes the identity of the published record version in the encrypted proposal. LastDB stores this identity with each whole-database share record it writes or downloads. The publisher checks the identity against its current record and uses its own record revision when committing. An intervening write causes the proposal to be discarded. A record already present before both clients track this identity needs an updated publication before a receiver can edit it this way.
+For a conditional replacement or delete, the receiver passes the identity of the published record version in the encrypted proposal. The share layer stores that identity, and the original comment creator, beside the download journal for the record revision it wrote or downloaded. The record store holds the record and does not store share identity. The publisher checks the identity against its current record and uses its own record revision when committing. An intervening write causes the proposal to be discarded. A record without this identity needs an updated publication before a receiver can edit it this way.
 
 An accepted receiver create records the verified sender as the author. On a receiver edit, the publisher copies the stored record metadata, including the source filename and any original author, from the same record version checked for the edit. The accepted mutation records the editor's identity.
 
@@ -55,21 +55,21 @@ The submitting receiver can request the outcome for its mutation UUID.
 The publisher supplies the outcome in its authenticated settlement after
 publication. ExeMem retains it with a digest of the original encrypted entry and
 returns only the caller's own result through the signed access route.
-The result carries the UUID and status alone. Older publishers can settle
-without an outcome, which the receiver reports as unknown.
+The result carries the UUID and status alone. A settlement response that does
+not carry that result is an error.
 
 Whole-database revocation stops new reads and submissions. Narrowing a write grant leaves whole-database reads available. The publisher refuses an uncommitted submission from a superseded sharing revision. A contributor with current permission can submit the write again. Previously published records and data already downloaded remain available under the normal database rules.
 
-## Transport and rollout
+## Transport
 
-`POST /api/cloud/backups/v2/mutation-log/append` keeps its existing signed envelope with the database ID, writer device, and encrypted entries. ExeMem uses the caller's database role to select the log. `head`, `list`, and snapshot delivery continue to serve the published database. The publisher's LastDB uses signed `inbox/list` with a database ID and `inbox/settle` with a database ID and inclusive inbox position. Each request binds the signing node, database, path, and current sharing revision.
+`POST /api/cloud/backups/v2/mutation-log/append` keeps its signed envelope with the database ID, writer device, and encrypted entries. ExeMem uses the caller's database role to select the log. Only the publisher can append to the publisher log. A receiver append goes to the inbox. Receivers cannot write the publisher log. `head`, `list`, and snapshot delivery serve the publisher log. The publisher's LastDB uses signed `inbox/list` with a database ID and `inbox/settle` with a database ID, inclusive inbox position, and the decision for each entry. Each request binds the signing node, database, path, and current sharing revision.
 
-ExeMem stores the inbox in a separate partition for the original database ID. It keeps the inbox delivery position, settlement position, and idempotency records independent of the published log. It treats the mutation payloads as ciphertext. LastDB owns schema validation, record and attachment semantics, and decisions about safe retirement of data.
+ExeMem stores the inbox in a separate partition for the original database ID. It keeps the inbox delivery position, settlement position, and idempotency records independent of the publisher log. It treats the mutation payloads as ciphertext. LastDB owns schema validation, record and attachment semantics, and decisions about safe retirement of data.
 
-The first upgraded publisher's inbox read activates the split for its whole-database share. An older publisher continues to drain the existing queue until it upgrades. Racing appends either complete before activation in the old queue, or retry against the new inbox after activation. The upgraded publisher continues to drain historical entries through the existing publisher-only path. The published view served to receivers filters out every historical entry written by a receiver. The earlier ExeMem implementation kept ciphertext after settlement. ExeMem deploys support for reading the compact receipt before enabling replacement on new settlements. Earlier settled entries and historical mixed logs follow their existing read and recovery paths.
+A contribution reaches readers only after the publisher commits it and appends that committed change to its own log. The publisher log contains only the publisher's entries. There is no mixed-log intake, no drain of historical receiver entries, and no compatibility with a retired log format or an older server.
 
 ## Publisher device authority
 
 A whole-database share uses one active publisher device. Before deciding proposals in the private inbox, the publisher checks its durable download position against the current published log. If an owned device sees a published write from another device with the same publisher key, it reports that it cannot continue shared sync. Pending proposals stay available. The signed publisher key authenticates the publisher, and the writer device ID identifies entries. Two machines that share the publisher key can still open the inbox at the same time before either publishes.
 
-Supporting authorized replacement or replicas requires an explicit owner policy. ExeMem would bind one database's publishing authority to an independently authenticated device key and revision. Its transactions would verify that revision for publisher appends and both settlement paths. Replicas would get the published view and would replay accepted contribution receipts along with the records. An owner-approved handoff would confirm the old publisher's accepted writes reached the cloud before changing authority, and older clients would need a rollout decision before a share enrolls.
+Supporting authorized replacement or replicas requires an explicit owner policy. ExeMem would bind one database's publishing authority to an independently authenticated device key and revision. Its transactions would verify that revision for publisher appends and inbox settlement. Replicas would get the publisher log and would replay accepted contribution receipts along with the records. An owner-approved handoff would confirm the old publisher's accepted writes reached the cloud before changing authority.

@@ -7,6 +7,10 @@ use super::super::Entry;
 use super::{Error, Inner, Note, Pending, PendingNote};
 use std::path::Path;
 
+pub(super) fn mutation_recorded(root: &Path, id: &str) -> Result<bool, Error> {
+    files::read_id(root, id).map(|found| found.is_some())
+}
+
 pub(super) fn ensure_tree(root: &Path) -> Result<(), Error> {
     io::ensure_dir(root)?;
     io::ensure_dir(&root.join("entries"))?;
@@ -56,9 +60,6 @@ pub(super) fn reconcile(root: &Path, inner: &mut Inner) -> Result<(), Error> {
     let mut retained = 0u64;
     for sequence in &expected {
         let meta = files::read_meta(&entries.join(files::seq_name(*sequence)))?;
-        if meta.authored_at_ms.is_none() {
-            inner.legacy_through = *sequence;
-        }
         retained = retained
             .saturating_add(meta.envelope_bytes)
             .saturating_add(meta.file_bytes);
@@ -104,16 +105,7 @@ pub(super) fn finish_pending(root: &Path, inner: &mut Inner) -> Result<(), Error
         return files::gap(root, inner);
     }
     match files::install(root, inner, &pending) {
-        Ok(()) => {
-            if let Some(note) = pending
-                .notes
-                .iter()
-                .rfind(|note| note.authored_at_ms.is_none())
-            {
-                inner.legacy_through = note.sequence;
-            }
-            files::retire_files(root)
-        }
+        Ok(()) => files::retire_files(root),
         Err(Error::Gap) => files::gap(root, inner),
         Err(error) => Err(error),
     }
