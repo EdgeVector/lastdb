@@ -286,14 +286,6 @@ async fn fetch_list(
             old
         }
     };
-    let stale = chrono::DateTime::parse_from_rfc3339(&accepted.generated_at)
-        .is_ok_and(|g| chrono::Utc::now().signed_duration_since(g).num_days() >= 7);
-    if stale {
-        eprintln!(
-            "note: registry list was generated at {} (at least 7 days ago)",
-            accepted.generated_at
-        );
-    }
     Ok(accepted)
 }
 
@@ -306,7 +298,8 @@ async fn fetch_list(
 /// skipped. Any other failure stops the lookup: skipping it could silently offer
 /// an older release of an app whose newer list could not be read.
 ///
-/// The returned list carries the header of the highest level found.
+/// The returned list carries the header of the highest level found. The age
+/// note follows the newest `generated_at` accepted in this range.
 pub async fn fetch_supported(
     location: &IndexLocation,
     channel: &str,
@@ -314,12 +307,14 @@ pub async fn fetch_supported(
     trust: &VerifyingKey,
 ) -> Result<InterfaceList, String> {
     let mut merged: Option<InterfaceList> = None;
+    let mut newest: Option<String> = None;
     for level in (min_api.min(api)..=api).rev() {
         let list = match fetch_list(location, channel, level, trust).await {
             Ok(list) => list,
             Err(e) if e.starts_with(ABSENT) => continue,
             Err(e) => return Err(e),
         };
+        newest = newer_generated_at(newest, &list.generated_at);
         if let Some(top) = merged.as_mut() {
             for entry in list.apps {
                 if !top.apps.iter().any(|e| e.app_id == entry.app_id) {
@@ -330,9 +325,34 @@ pub async fn fetch_supported(
             merged = Some(list);
         }
     }
+    if let Some(generated_at) = newest.as_deref() {
+        note_stale_list(generated_at);
+    }
     merged.ok_or_else(|| {
         format!("the registry has no {channel} list for lastdb API {min_api} to {api}")
     })
+}
+
+fn newer_generated_at(current: Option<String>, candidate: &str) -> Option<String> {
+    let Ok(at) = chrono::DateTime::parse_from_rfc3339(candidate) else {
+        return current;
+    };
+    let keep = current
+        .as_deref()
+        .is_some_and(|prev| chrono::DateTime::parse_from_rfc3339(prev).is_ok_and(|old| old >= at));
+    if keep {
+        current
+    } else {
+        Some(candidate.to_owned())
+    }
+}
+
+fn note_stale_list(generated_at: &str) {
+    let stale = chrono::DateTime::parse_from_rfc3339(generated_at)
+        .is_ok_and(|stamp| chrono::Utc::now().signed_duration_since(stamp).num_days() >= 7);
+    if stale {
+        eprintln!("note: registry list was generated at {generated_at} (at least 7 days ago)");
+    }
 }
 
 pub(crate) fn authorized_transition(
