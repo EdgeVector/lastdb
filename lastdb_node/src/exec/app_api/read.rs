@@ -265,7 +265,11 @@ fn shape(page: &Value, keys_only: bool) -> Result<Value, HostError> {
             .iter()
             .map(|row| {
                 json!({
-                    "key": row["key"], "revision": row["revision"], "record": row["fields"],
+                    "key": row["key"],
+                    "revision": row["revision"],
+                    "created_by": row["created_by"],
+                    "updated_by": row["updated_by"],
+                    "record": row["fields"],
                     "file": file_info(&row["metadata"]["file"]),
                 })
             })

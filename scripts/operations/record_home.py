@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Exercise a fresh CI record-model home across warm reads, TTL sweep, restarts, and refusals."""
 import argparse
+import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 import time
 
@@ -91,11 +93,39 @@ def one(node, key):
     return held(rows[0]["record"])
 
 
-def hash_records(node):
+def node_key(node, cli):
+    """Lowercase hex of this node's public key. The contact command reads the key file."""
+    out = node.root / "node-contact.txt"
+    result = subprocess.run(
+        [str(cli), "--data-dir", str(node.home), "share", "contact", "--out", str(out)],
+        capture_output=True, text=True, timeout=60, check=False,
+        env={**os.environ, "LASTDB_HOME": str(node.home)},
+    )
+    require(result.returncode == 0, "lastdb share contact failed: " + result.stderr)
+    key = json.loads(result.stdout)["recipient_public_key"]
+    require(isinstance(key, str) and len(key) == 64 and set(key) <= set("0123456789abcdef"),
+            "the node key is not lowercase hex")
+    return key
+
+
+def authorship(node, key, created_by, updated_by):
+    row = query(node, "RecordById", {"HashKey": key})[0]
+    require(row["created_by"] == created_by and row["updated_by"] == updated_by,
+            f"{key} authorship differs: " + repr((row.get("created_by"), row.get("updated_by"))))
+
+
+def hash_records(node, cli):
+    author = node_key(node, cli)
     mutate(node, "RecordById", {"hash": "one"}, {"id": "one", "bucket": "b1", "value": "v1"}, "create")
     require(one(node, "one") == {"id": "one", "bucket": "b1", "value": "v1"}, "the created record differs")
+    authorship(node, "one", author, author)
     mutate(node, "RecordById", {"hash": "one"}, {"id": "one", "bucket": "b1", "value": "v2"})
     require(one(node, "one") == {"id": "one", "bucket": "b1", "value": "v2"}, "the full replacement differs")
+    authorship(node, "one", author, author)
+    refused(lambda: mutate(node, "RecordById", {"hash": "one"},
+                           {"id": "one", "bucket": "b1", "value": "v2", "created_by": author}),
+            ("HTTP 400", "unknown_fields", "created_by"))
+    require(one(node, "one")["value"] == "v2", "a refused created_by write changed the record")
     mutate(node, "RecordById", {"hash": "one"}, {"id": "one", "bucket": "b1"})
     require("value" not in one(node, "one"), "an omitted field survived replacement")
     mutate(node, "RecordById", {"hash": "one"}, {"id": "one", "bucket": "b1", "value": "v2"})
@@ -112,7 +142,7 @@ def hash_records(node):
     require(row["key"]["hash"] == "external-key" and held(row["record"]) == {"value": "standalone"},
             "independent primary/alternate addresses required payload key fields")
     external_boundaries(node, external)
-    print("Hash records: create, full replacement, omitted-field removal, batch read by key passed", flush=True)
+    print("Hash records: create, full replacement, omitted-field removal, batch read by key, authorship passed", flush=True)
 
 
 def external_boundaries(node, external):
@@ -304,7 +334,7 @@ def main():
         marker = (node.home / "data" / "laststore-pack-node-v1").read_text()
         require(marker_format(marker) == HOME_FORMAT, f"the new home is not format {HOME_FORMAT}: " + repr(marker))
         install(node)
-        hash_records(node)
+        hash_records(node, args.cli.resolve(strict=True))
         wide_empty_record_erasure(node)
         alternate_keys(node)
         range_records(node)

@@ -20,6 +20,7 @@ impl MutationManager {
         stamp: &ReplayStamp,
         settle: bool,
     ) -> Result<bool, SchemaError> {
+        mutation.writer = Some(stamp.writer_key.clone());
         self.db_ops.metadata().require_replay_scope()?;
         let schema = self.load_schema_for_delta(&mutation.schema_name).await?;
         let address = self.replay_record_address(&schema.name, &mutation.key_value)?;
@@ -145,7 +146,8 @@ impl MutationManager {
                 .await?;
         }
         if !unchanged {
-            self.apply_replay_record(mutation).await?;
+            self.apply_replay_record(mutation, &winner.writer_key)
+                .await?;
         }
         Ok(true)
     }
@@ -190,6 +192,8 @@ pub(super) fn same_content(left: Option<&StoredRecord>, right: Option<&StoredRec
                 && a.alternates == b.alternates
                 && a.fields == b.fields
                 && a.meta == b.meta
+                && a.created_by == b.created_by
+                && a.updated_by == b.updated_by
                 && a.file == b.file
                 && a.inline_file == b.inline_file
         }

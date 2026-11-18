@@ -144,7 +144,6 @@ export type {
   MutationOp,
   MutationOptions,
   NodeVersion,
-  RecordMetadata,
   ReplaceMutationOp,
   RowFields,
   SelectDatabaseOptions,

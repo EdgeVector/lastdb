@@ -291,7 +291,11 @@ impl MutationManager {
             });
         }
         if !unchanged {
-            self.apply_replay_record(mutation).await?;
+            let writer = original
+                .writer
+                .as_deref()
+                .ok_or_else(|| invalid("replay writer is missing"))?;
+            self.apply_replay_record(mutation, writer).await?;
         }
         Ok(())
     }

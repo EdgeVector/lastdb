@@ -70,6 +70,8 @@ fn format_row(key: &KeyValue, record: Record, compact: bool) -> Value {
     let mut row = serde_json::Map::from_iter([
         ("key".into(), json!(key)),
         ("revision".into(), Value::String(record.revision)),
+        ("created_by".into(), json!(record.created_by)),
+        ("updated_by".into(), json!(record.updated_by)),
         ("alternates".into(), json!(record.alternates)),
         (
             "fields".into(),

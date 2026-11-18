@@ -25,7 +25,7 @@ POST /v1/read
 
 200
 { "results": [
-    { "records": [ { "key": { "hash": "n1", "range": null }, "revision": "9c2e…", "record": { … } } ], "next_cursor": null },
+    { "records": [ { "key": { "hash": "n1", "range": null }, "revision": "9c2e…", "created_by": "ab12…", "updated_by": "ab12…", "record": { … }, "file": null } ], "next_cursor": null },
     { "keys": [ … ], "next_cursor": "b3f1…" },
     { "records": [ … ], "next_cursor": null },
     { "error": { "code": "not_found", "message": "…" } },
@@ -82,7 +82,7 @@ Every write carries a condition, so two writers cannot overwrite each other with
 - A write that names a received database is refused. The status is 403 and the code is `permission_denied`. The message is `a received database is read only`. An unknown identifier is `not_found` with the message `database is not registered on this node`. A receiver does not use this route for a proposal. The proposal route is on the owner socket. See Sharing.
 - The reply comes after the write is on disk. `revisions` holds the new revision of each record, in order.
 
-A read returns each record's `revision` beside its key.
+A read returns each record's `revision`, `created_by`, and `updated_by` beside its key. The database sets both. Each is the lowercase hex node key of a writer, or null on a record written before they existed. A write that names `created_by` or `updated_by`, on the write item or inside `record`, is refused.
 
 ## Files
 
@@ -493,10 +493,10 @@ Idempotency-Key: <uuid>
 { "type": "mutation", "schema": "social/Comment", "record": { … },
   "key_value": { "hash": "photo-7", "range": "<uuid>" }, "alternates": { },
   "mutation_type": "create", "expected": { "type": "absent" },
-  "source_file_name": null, "metadata": null, "file": null }
+  "file": null }
 ```
 
-- The body is one proposal document. It is the mutation document a received database accepted. It is not a record API and it is not a `/v1/write` item.
+- The body is one proposal document. It is the mutation document a received database accepted. It is not a record API and it is not a `/v1/write` item. It does not carry a source file name or a metadata map. The database sets `created_by` and `updated_by` from the authenticated writer. For `social/Comment`, the creator is the live record's `created_by`.
 - The proposal id is the `Idempotency-Key` header. It is one non-nil UUID. The body has no separate id field. The same id and the same body are idempotent.
 - The route answers only for a received whole-database share. It never writes a record on this node. It seals the proposal and appends it to the proposal log.
 - The node replaces `definition_id` with the installed schema definition before it seals the proposal. `convergence` and `durability` are optional. A proposal that carries a file is refused.

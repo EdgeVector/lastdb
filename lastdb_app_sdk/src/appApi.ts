@@ -190,6 +190,13 @@ function parseFile(value: JsonValue | undefined, body: unknown): Api.FileInfo | 
   return file;
 }
 
+function parseAuthor(value: JsonValue | undefined, body: unknown): string | null {
+  if (value === undefined) throw invalid('app API returned a record with no author', body);
+  if (value === null) return null;
+  if (typeof value === 'string' && value.length > 0) return value;
+  throw invalid('app API returned an invalid record', body);
+}
+
 function parseRecord(value: JsonValue, body: unknown): Api.Record {
   if (!isObject(value) || typeof value['revision'] !== 'string' || value['revision'].length === 0) {
     throw invalid('app API returned an invalid record', body);
@@ -198,6 +205,8 @@ function parseRecord(value: JsonValue, body: unknown): Api.Record {
   return {
     key: parseKey(value['key'], body),
     revision: value['revision'],
+    created_by: parseAuthor(value['created_by'], body),
+    updated_by: parseAuthor(value['updated_by'], body),
     record: value['record'],
     file: parseFile(value['file'], body),
   };

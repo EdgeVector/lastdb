@@ -428,11 +428,13 @@
       "Record": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["key", "revision", "record", "file"],
-        "description": "One record. file is null when the record has no file.",
+        "required": ["key", "revision", "created_by", "updated_by", "record", "file"],
+        "description": "One record. created_by and updated_by are lowercase hex node keys set by the database, or null on a record written before they existed. file is null when the record has no file.",
         "properties": {
           "key": {"$ref": "#/components/schemas/Key"},
           "revision": {"type": "string"},
+          "created_by": {"type": ["string", "null"]},
+          "updated_by": {"type": ["string", "null"]},
           "record": {"$ref": "#/components/schemas/FieldValues"},
           "file": {
             "oneOf": [

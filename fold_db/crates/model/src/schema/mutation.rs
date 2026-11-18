@@ -193,7 +193,11 @@ pub enum Operation {
         key_value: KeyValue,
         alternates: BTreeMap<String, Option<KeyValue>>,
         mutation_type: MutationType,
+        /// Ignored. Old proposal bodies may still carry it. The node does not store it.
+        #[serde(default)]
         source_file_name: Option<String>,
+        /// Ignored. Old proposal bodies may still carry it. The node does not store it.
+        #[serde(default)]
         metadata: Option<HashMap<String, String>>,
         file: Option<FileMarker>,
         expected: CasExpectation,
@@ -217,6 +221,10 @@ pub struct Mutation {
     pub mutation_type: MutationType,
     pub source_file_name: Option<String>,
     pub metadata: Option<HashMap<String, String>>,
+    /// Lowercase hex of the writer. The node sets this. It is not on the wire.
+    pub writer: Option<String>,
+    /// Set only when installing a saved record. Both values are copied, including when absent.
+    pub copied_authorship: Option<(Option<String>, Option<String>)>,
     pub imported_written_at: Option<u64>,
     pub expected: CasExpectation,
     pub erase_caller: Option<&'static str>,
@@ -246,6 +254,8 @@ impl Mutation {
             mutation_type,
             source_file_name: None,
             metadata: None,
+            writer: None,
+            copied_authorship: None,
             imported_written_at: None,
             expected,
             erase_caller: None,

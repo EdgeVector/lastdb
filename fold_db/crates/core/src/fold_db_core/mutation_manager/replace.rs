@@ -101,26 +101,6 @@ pub(super) fn check_expectation(
             "record is newer than the erasure cutoff".into(),
         ));
     }
-    if matches!(
-        mutation.mutation_type,
-        MutationType::Replace | MutationType::Delete
-    ) {
-        if let (Some(adm), Some(live)) = (&mutation.contribution, record.filter(|r| r.is_live())) {
-            if adm.schema_scope {
-                return Ok(());
-            }
-            let author = live
-                .meta
-                .as_ref()
-                .and_then(|m| m.metadata.get("share_author"))
-                .map(String::as_str);
-            if author != Some(adm.writer.as_str()) {
-                return Err(SchemaError::InvalidField(
-                    "share contribution can change only a record its writer created".into(),
-                ));
-            }
-        }
-    }
     Ok(())
 }
 
@@ -175,7 +155,27 @@ pub(super) fn replace_record(
     replacement
         .validate(schema.require_record_keys()?)
         .map_err(SchemaError::InvalidData)?;
-    Ok(StoredRecord::replacement(replacement, stamp, before))
+    let mut stored = StoredRecord::replacement(replacement, stamp, before);
+    stamp_authors(&mut stored, mutation, before);
+    Ok(stored)
+}
+
+/// `created_by` stays with the previous live record when that record has one.
+/// A create, including one on a deleted key, starts a new `created_by`.
+fn stamp_authors(record: &mut StoredRecord, mutation: &Mutation, before: Option<&StoredRecord>) {
+    if let Some((created_by, updated_by)) = &mutation.copied_authorship {
+        record.created_by.clone_from(created_by);
+        record.updated_by.clone_from(updated_by);
+        return;
+    }
+    let Some(writer) = mutation.writer.clone() else {
+        return;
+    };
+    let previous = before
+        .filter(|existing| existing.is_live())
+        .and_then(|existing| existing.created_by.clone());
+    record.created_by = Some(previous.unwrap_or_else(|| writer.clone()));
+    record.updated_by = Some(writer);
 }
 
 fn replacement_metadata(
