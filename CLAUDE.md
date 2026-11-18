@@ -43,15 +43,16 @@ This rule supersedes the local build commands and coordination rules below.
 - While CI waits, do not substitute a local build or benchmark.
 
 > **READ FIRST BEFORE DESIGNING OR PLANNING — LastDB is Dynamo-style NoSQL,
-> NOT a table/SQL database.** There is no scan, no WHERE-style field filter,
-> no JOIN. Everything is reached by a named key.
+> NOT a table/SQL database.** There is no WHERE-style field filter and no
+> JOIN. Records are reached by a named key.
 >
 > | Operation | Shape | Complexity |
 > |---|---|---|
 > | Point get | exact hash (or hash+range) key | **O(1)** |
 > | Range under one hash | prefix/between on the range key, hash fixed | **O(log M)** |
 > | Multi-get | K exact keys | **O(K)** |
-> | Full scan | — | **not supported** |
+> | Key listing | `keys_only` with no key and no range; pages of primary keys | **grows with the schema** |
+> | Field-value filter | — | **not supported** |
 >
 > Storage ladder: **schema → record → file**. A schema is a catalog, not
 > a table. Each primary key holds one record: all fields of the schema in one
@@ -59,6 +60,10 @@ This rule supersedes the local build commands and coordination rules below.
 > stored at a path made from its schema and key. A named alternate key finds the same record through an explicitly supplied
 > address. Keys are independent of payload fields. Every mutation supplies all declared
 > alternate names; a replacement supplies the complete payload without merging. A relationship with different data uses its own schema.
+>
+> The key listing is the one whole-schema read (Tom, 2026-11-17; `docs/app-api.md`, Read). It returns
+> keys, not records. List the keys, then read the records by key in batches. Use it to build, rebuild or
+> inspect, not as the normal read path.
 >
 > **Read before you design** (the brain records are canonical; if a code
 > comment disagrees with them, they win; fix the comment):
