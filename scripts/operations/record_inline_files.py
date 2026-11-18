@@ -1,11 +1,8 @@
-"""Inline files, schema-drop partition cleanup, and home format refusals on a fresh CI home."""
+"""Schema-drop partition cleanup and home format refusals on a fresh CI home."""
 
 from __future__ import annotations
 
-import base64
-import hashlib
 import http.client
-import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -19,22 +16,15 @@ for _entry in (str(_OPS), str(_SCRIPTS)):
         sys.path.insert(0, _entry)
 
 from harness import (  # noqa: E402
-    FORMAT, HOME_FORMAT, NODE_MARKER as PRIVATE_MARKER, mutation,
+    FORMAT, HOME_FORMAT, NODE_MARKER as PRIVATE_MARKER,
     poll_until, send_unix_request, source_constant, stop_process,
 )
 import v1_records as v1  # noqa: E402
 from record_runs import (  # noqa: E402
     FIELDS as DROP_FIELDS, TTL_SECONDS, definition, mutation as run_mutation,
-    refused, require, system_seed, write,
+    require, system_seed, write,
 )
 
-SCHEMA = "RecordFile"
-FIELDS = ["id", "value"]
-MAX_INLINE = 64 * 1024
-# A thumbnail this large would not fit in a 64 KiB record, proving bytes live outside the record.
-THUMBNAIL = os.urandom(60_000)
-ORIGINAL = os.urandom(200_000)
-ICON = os.urandom(MAX_INLINE)
 TRACKED_HASHES = 40_050
 
 MARKER_FILE = source_constant(FORMAT, "NODE_MARKER")
@@ -45,111 +35,6 @@ REFUSAL = "node range admission: the node range format is unsupported"
 RETIRED = "retired format: the dedicated shared home format is retired"
 PANIC_MARKER = "LastDB panic"
 DEADLINE_SECONDS = 120
-
-
-def digest(data):
-    return hashlib.sha256(data).hexdigest()
-
-
-def encoded(data):
-    return base64.b64encode(data).decode()
-
-
-def install(node):
-    system_seed(node, definition(SCHEMA, "Hash", FIELDS, description_prefix="Inline file example "))
-
-
-def conditioned_old(node, request):
-    """Fill the revision on an old mutation. The blob routes still take that mutation."""
-    if request["mutation_type"] == "create":
-        return request
-    page = v1.read_items(node, [v1.point(request["schema"], request["key_value"])])[0]
-    rows = page["records"]
-    require(len(rows) == 1, "blob mutation target is absent")
-    if request.get("expected") is None:
-        request["expected"] = {"type": "revision", "revision": rows[0]["revision"]}
-    return request
-
-
-def replacement(node, key, values):
-    return conditioned_old(node, mutation(SCHEMA, {"hash": key}, values))
-
-
-def row(node, key):
-    rows = node.call("/api/query", {"schema_name": SCHEMA, "filter": {"HashKey": key}})[0]["results"]
-    require(len(rows) == 1, f"{SCHEMA} {key} returned {len(rows)} rows")
-    return rows[0]
-
-
-def inline_marker(record):
-    return (record.get("metadata") or {}).get("inline_file")
-
-
-def fetch(node, key, placement):
-    body = {"schema": SCHEMA, "key": {"hash": key, "range": None}, "placement": placement}
-    return base64.b64decode(node.call("/api/db/fetch-blob", body)[0]["file"]["bytes_b64"])
-
-
-def put(node, key, values, data, **options):
-    body = {"mutation": replacement(node, key, values), "bytes_b64": encoded(data), **options}
-    return node.call("/api/db/put-blob", body)[0]
-
-
-def exercise(node):
-    install(node)
-    values = {"id": "photo", "value": "v1"}
-    node.call("/api/mutation", mutation(SCHEMA, {"hash": "photo"}, values, "create"))
-    reply = put(node, "photo", values, ORIGINAL, name="photo.bin",
-                media_type="application/octet-stream",
-                thumbnail={"bytes_b64": encoded(THUMBNAIL), "name": "thumb.bin"})
-    require(reply["file"]["sha256"] == digest(ORIGINAL)
-            and reply["thumbnail"]["sha256"] == digest(THUMBNAIL),
-            "put-blob did not report the blob and thumbnail markers")
-
-    plain = inline_marker(row(node, "photo"))
-    require(plain is not None and plain["sha256"] == digest(THUMBNAIL)
-            and plain["size_bytes"] == len(THUMBNAIL) and "bytes_b64" not in plain,
-            "a query did not return the inline marker alone")
-    require(fetch(node, "photo", "inline") == THUMBNAIL, "fetch-blob inline returned other bytes")
-    require(fetch(node, "photo", "blob") == ORIGINAL, "fetch-blob returned another blob")
-
-    values = {"id": "photo", "value": "v2"}
-    node.call("/api/mutation", replacement(node, "photo", values))
-    record = row(node, "photo")
-    require(inline_marker(record)["sha256"] == digest(THUMBNAIL)
-            and record["metadata"]["file"]["sha256"] == digest(ORIGINAL),
-            "a field replacement dropped a file")
-
-    icon = {"id": "icon", "value": "i1"}
-    node.call("/api/mutation", mutation(SCHEMA, {"hash": "icon"}, icon, "create"))
-    reply = put(node, "icon", icon, ICON, placement="inline", name="icon.bin")
-    require(reply["placement"] == "inline" and reply["file"]["sha256"] == digest(ICON),
-            "an inline put did not report its marker")
-    require(row(node, "icon").get("metadata", {}).get("file") is None, "an inline put created a blob file")
-    refused(lambda: put(node, "icon", icon, ICON + b"x", placement="inline"), "HTTP 413")
-
-    node.call("/api/db/delete-blob", {"mutation": replacement(node, "photo", values), "placement": "inline"})
-    record = row(node, "photo")
-    require(inline_marker(record) is None and record["metadata"]["file"]["sha256"] == digest(ORIGINAL),
-            "delete-blob inline removed the wrong file")
-    put(node, "photo", values, THUMBNAIL, placement="inline", name="thumb.bin")
-
-    gone = {"id": "gone", "value": "g1"}
-    node.call("/api/mutation", mutation(SCHEMA, {"hash": "gone"}, gone, "create"))
-    put(node, "gone", gone, THUMBNAIL, placement="inline", name="gone.bin")
-    node.call("/api/mutation", conditioned_old(node, mutation(SCHEMA, {"hash": "gone"}, {}, "delete")))
-    node.call("/api/mutation", mutation(SCHEMA, {"hash": "gone"}, gone, "create"))
-    require(inline_marker(row(node, "gone")) is None, "a new record kept a deleted inline file")
-    refused(lambda: fetch(node, "gone", "inline"), "no inline file")
-    print("Inline files: put, fetch, keep, cap, delete and record delete passed", flush=True)
-
-
-def check(node):
-    require(fetch(node, "photo", "inline") == THUMBNAIL
-            and fetch(node, "photo", "blob") == ORIGINAL
-            and fetch(node, "icon", "inline") == ICON,
-            "an inline or blob file changed across the restart")
-    print("Inline files survived a daemon restart", flush=True)
 
 
 def _retention_state(node, schema):

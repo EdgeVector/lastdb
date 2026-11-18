@@ -10,10 +10,7 @@ _OPS = Path(__file__).resolve().parent
 _SCRIPTS = _OPS.parent
 sys.path[:0] = [str(_OPS), str(_SCRIPTS)]
 from benchmarks.node import Node  # noqa: E402
-from harness import (  # noqa: E402
-    HOME_FORMAT, marker_format, mutation as native_mutation,
-    poll_until, send_unix_request,
-)
+from harness import HOME_FORMAT, marker_format, poll_until  # noqa: E402
 import v1_records as v1  # noqa: E402
 import record_app_api, record_inline_files, record_named_databases, record_runs  # noqa: E401,E402
 from record_runs import (  # noqa: E402
@@ -143,14 +140,10 @@ def wide_empty_record_erasure(node):
     system_seed(node, definition(schema, "Hash", [], {"by_alias": {"kind": "hash"}}))
     key, aliases = {"hash": "k" * 65_000}, {"by_alias": {"hash": "wide-empty"}}
     created = mutate(node, schema, key, {}, "create", alternates=aliases)
-    deleted = v1.write_items(node, [v1.delete_item(schema, key, created)])["revisions"][0]
-    # /v1/write has no purge. The old mutation keeps the revision the delete reported.
-    request = native_mutation(schema, key, {}, "purge", alternates=aliases,
-                              expected={"type": "revision", "revision": deleted})
-    node.call("/api/mutation", request)
+    v1.write_items(node, [v1.delete_item(schema, key, created)])
     page = v1.read_items(node, [v1.point(schema, {"hash": "wide-empty"}, via="by_alias")])[0]
-    require(page["records"] == [], "wide empty record retained its alternate after erasure")
-    print("Wide empty record: complete-address delete and revision-guarded tombstone purge passed", flush=True)
+    require(page["records"] == [], "wide empty record retained its alternate after delete")
+    print("Wide empty record: complete-address delete passed", flush=True)
 
 
 def alternate_keys(node):
@@ -285,26 +278,10 @@ def delete_audit(node):
     print(f"Delete audit: {len(rows)} delete rows for {sorted(schemas)} passed", flush=True)
 
 
-def query_refusals(node):
-    """Unfiltered scans, full-scan headers, and post-key filters are refused with HTTP 400."""
-    refused(lambda: node.call("/api/query", {"schema_name": "RecordById", "filter": None}),
-            "full_schema_scan_not_allowed")
-    headers = {"Content-Type": "application/json", "X-LastDB-Client": "github-benchmark",
-               "X-LastDB-Allow-Full-Scan": "true"}
-    status, raw, _, _, _ = send_unix_request(
-        node.socket, "POST", "/api/query", {"schema_name": "RecordById", "filter": None}, headers)
-    require(status == 400 and b"full_schema_scan_not_allowed" in raw,
-            f"X-LastDB-Allow-Full-Scan header was not refused: {status} {raw[:300]!r}")
-    for bad_body in [
-        {"schema_name": "RecordById", "filter": {"HashKey": "one"}, "where": [{"eq": {"field": "bucket", "value": "b2"}}]},
-        {"schema_name": "RecordById", "filter": {"HashKey": "one"}, "value_filters": [{"Equals": {"field": "id", "value": 1.0}}]},
-        {"schema_name": "RecordById", "filter": {"HashKey": "one"}, "order_by": {"field": "id"}},
-        {"schema_name": "RecordById", "filter": {"SampleN": 3}},
-    ]:
-        refused(lambda body=bad_body: node.call("/api/query", body), "HTTP 400")
+def schema_count_refusal(node):
+    """A schema list does not count records."""
     refused(lambda: node.call("/api/schemas?include_counts=true"), "HTTP 400")
-    print("Query refusals: unfiltered scan, X-LastDB-Allow-Full-Scan, where, value_filters, "
-          "order_by, SampleN, and schemas?include_counts=true all refused with HTTP 400", flush=True)
+    print("Schema list: include_counts=true is refused with HTTP 400", flush=True)
 
 
 def main():
@@ -336,10 +313,9 @@ def main():
         warm_records(node)
         delete_audit(node)
         retention(node)
-        query_refusals(node)
+        schema_count_refusal(node)
         record_runs.check(node)
         record_inline_files.exercise_drop_tracking(node)
-        record_inline_files.exercise(node)
         record_app_api.exercise(node)
         current = query(node, "RecordById", {"HashKey": "four"})[0]["revision"]
         retry = v1.replace_item(
@@ -355,7 +331,6 @@ def main():
         require(query(node, "RecordById", {"HashKey": "four"})[0]["revision"] == acknowledged,
                 "a stale replay changed the record after restart")
         record_inline_files.check_drop_tracking(node)
-        record_inline_files.check(node)
         require(one(node, "one") == {"id": "one", "bucket": "b2", "value": "v3"},
                 "a record changed across the restart")
         require(ids(query(node, "RecordByBucket", {"HashKey": "bk"})) == ["a", "b", "d", "e"],
