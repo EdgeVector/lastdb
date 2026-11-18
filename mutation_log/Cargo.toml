@@ -10,6 +10,7 @@ workspace = true
 
 [dependencies]
 database_policy = { path = "../database_policy" }
+sha2 = { workspace = true }
 
 [lib]
 path = "src/lib.rs"

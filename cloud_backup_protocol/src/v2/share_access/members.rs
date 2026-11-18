@@ -45,7 +45,7 @@ impl<'de> Deserialize<'de> for Ed25519Signature {
 /// `Read` is the reader capability. `Submit` is the contributor capability:
 /// reader rights plus pending submissions. The log core maps `Read` to
 /// `Receive`, and `Submit` to both capabilities for legacy log history.
-/// Either active role may append to the whole-database pending log.
+/// Either active role may append to the whole-database proposal log.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ShareMemberRole {

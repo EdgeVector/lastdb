@@ -62,6 +62,11 @@ pub struct Entry {
     /// Set when the publisher key copied a submission into the log.
     pub incorporated_from: Option<Incorporation>,
     /// Opaque record bytes. This crate does not decode them.
+    ///
+    /// A direct-log writer signature, when present, is a frame in front of the
+    /// sealed envelope. [`crate::carried_payload`] splits it. A payload whose
+    /// first byte is the sealed-envelope version has no frame, so an existing
+    /// entry stays valid.
     pub payload: Vec<u8>,
 }
 
@@ -110,8 +115,10 @@ pub enum DatabaseKind {
     Personal,
     /// A database receivers may be granted.
     ///
-    /// Only official namespaces can be appended. A receiver reads entries
-    /// whose writer key is `publisher`, including re-appends.
+    /// Only official namespaces can be appended. With the default settings a
+    /// receiver reads entries whose writer key is `publisher`, including
+    /// re-appends. `read: anyone` gives that view to a caller with no grant.
+    /// `write: direct` also shows entries written by keys that hold Submit.
     Shareable {
         /// Node key that authors the readable entries and incorporates submissions.
         publisher: PrincipalId,
@@ -124,6 +131,7 @@ pub enum Capability {
     /// Read and append a personal database from any device of this node key.
     Owner,
     /// Read entries whose writer key is the publisher key.
+    /// `write: direct` also shows entries written by a key that holds Submit.
     Receive,
     /// Append pending submissions from any device of this node key, and read those entries.
     Submit,
@@ -151,9 +159,9 @@ pub struct AppendBatch {
 
 /// The whole log as a value. The shell stores it. This crate does not.
 ///
-/// This models one log: a personal database log, a share's publisher log, or
-/// the separate inbox. Writer tips and read positions are keyed by node key
-/// and device.
+/// This models one log: a personal mutation log, a share's mutation log, or
+/// the separate proposal log. Writer tips and read positions are keyed by
+/// node key and device.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LogState {
     /// Database this log belongs to.

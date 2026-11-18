@@ -1,4 +1,5 @@
 //! Publisher-only sharing configuration, member grant/revoke, and invitation routes.
+//! Decided state: docs/designs/shared-database-mutation-logs.md (mutation log, proposal log, share settings).
 use super::*;
 use crate::host::owned;
 use crate::lastdb_uds::uds_router::method_not_allowed_response;
