@@ -354,7 +354,7 @@ def app_socket(node):
 
 def same_grant_leaves_the_file(node):
     """Registering the same grant does not rewrite app-grants.json. A different grant does."""
-    path = Path(node.socket).with_name("app-grants.json")
+    path = node.home / "data" / "app-grants.json"
     access = {"read": [BY_ID], "write": [], "extensions": []}
     node.call("/api/apps/register", {"app": "grantfile", "access": access})
     before = (path.read_bytes(), path.stat().st_mtime_ns)
