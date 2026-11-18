@@ -12,7 +12,7 @@ use super::uds_http::{UdsRequest, UdsResponse};
 /// The only hand-edited interface version. ci-required fails a change to the
 /// socket surface that leaves it unchanged; after an edit run
 /// `python3 scripts/lints/api_surface.py --write`.
-pub const API_VERSION: u32 = 41;
+pub const API_VERSION: u32 = 42;
 pub const SOCKET_FILE_NAME: &str = "folddb.sock";
 /// The socket for installed apps. It serves only the app API, to a caller
 /// the node has registered by app id.
@@ -151,6 +151,7 @@ pub enum DataRoute {
     V1Changes,
     V1Databases,
     AppRegister,
+    AppUnregister,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -212,6 +213,7 @@ pub fn route(req: &UdsRequest) -> ControlRoute {
         "/v1/x/changes" => Some(("POST", V1Changes)),
         "/v1/x/databases" => Some(("POST", V1Databases)),
         "/api/apps/register" => Some(("POST", AppRegister)),
+        "/api/apps/unregister" => Some(("POST", AppUnregister)),
         "/api/system/auto-identity" => Some(("GET", AutoIdentity)),
         "/api/system/boot-identity" => Some(("GET", BootIdentity)),
         _ if path
