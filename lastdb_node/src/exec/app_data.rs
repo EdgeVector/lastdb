@@ -79,6 +79,46 @@ pub(in crate::exec) fn write_export(
     write_new(&files, &dest, hash, bytes)
 }
 
+/// The path when a regular file of `size` is already named `hash` in `dir`.
+pub(in crate::exec) fn existing_named(dir: &Path, hash: &str, size: u64) -> Option<PathBuf> {
+    let dest = named_path(dir, hash).ok()?;
+    if !real_dir(dir) {
+        return None;
+    }
+    let meta = regular_file(&dest)?;
+    (meta.len() == size).then_some(dest)
+}
+
+/// Write `bytes` to `<dir>/<hash>`. A regular file of the same size is reused.
+/// `dir` must already exist. This does not create it.
+pub(in crate::exec) fn write_named(
+    dir: &Path,
+    hash: &str,
+    bytes: &[u8],
+) -> Result<PathBuf, HostError> {
+    if !real_dir(dir) {
+        return Err(HostError::internal(
+            "file_dir must be a directory and not a symlink",
+        ));
+    }
+    let dest = named_path(dir, hash)?;
+    if regular_file(&dest).is_some_and(|meta| meta.len() == bytes.len() as u64) {
+        return Ok(dest);
+    }
+    write_new(dir, &dest, hash, bytes)
+}
+
+fn named_path(dir: &Path, hash: &str) -> Result<PathBuf, HostError> {
+    if !valid_hash(hash) {
+        return Err(HostError::internal("record file hash is not 64 hex digits"));
+    }
+    let dest = dir.join(hash);
+    if dest.parent() != Some(dir) {
+        return Err(HostError::internal("file export left the named folder"));
+    }
+    Ok(dest)
+}
+
 fn real_dir(path: &Path) -> bool {
     fs::symlink_metadata(path).is_ok_and(|meta| meta.is_dir() && !meta.file_type().is_symlink())
 }
@@ -243,7 +283,7 @@ fn open_dir(path: &Path) -> Result<fs::File, HostError> {
         .open(path)
         .map_err(|error| {
             HostError::internal(format!(
-                "could not open the app files folder: {}",
+                "could not open the folder the file is written in: {}",
                 error.kind()
             ))
         })

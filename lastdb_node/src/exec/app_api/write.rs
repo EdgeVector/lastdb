@@ -18,7 +18,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use super::refusal::{conflict_error, name_conflict, WrittenKey, ABSENT};
-use super::{bad, fail, in_database, key_filter, ok, require_exact_name, require_write};
+use super::{bad, fail, key_filter, ok, require_exact_name, require_write};
 use crate::exec::mutation::commit_mutations;
 use crate::exec::query::{execute_query, QueryResponseFormat};
 use crate::exec::reply::HostError;
@@ -98,7 +98,7 @@ async fn write(host: &Host, body: &[u8]) -> Result<Value, HostError> {
         require_write(&item.schema).map_err(|error| error.at(index))?;
     }
     let database = items.first().and_then(|item| item.database.clone());
-    in_database(database.as_deref(), host, async {
+    super::database::write_in(database.as_deref(), host, async {
         for (index, item) in items.iter().enumerate() {
             require_exact_name(host, &item.schema).map_err(|error| error.at(index))?;
         }

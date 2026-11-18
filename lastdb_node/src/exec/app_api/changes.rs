@@ -7,7 +7,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use super::{
-    bad, declared_reads, fail, in_database, ok, require_exact_name, require_extension, require_read,
+    bad, database, declared_reads, fail, ok, require_exact_name, require_extension, require_read,
 };
 use crate::exec::reply::HostError;
 use crate::exec::schema_routes::resolve_schema_name;
@@ -65,7 +65,7 @@ async fn changes(host: &Host, body: &[u8]) -> Result<Value, HostError> {
     }
     // Zero reads the head without entries.
     let limit = request.limit.map_or(CHANGES_PAGE, |n| n.min(CHANGES_PAGE));
-    in_database(request.database.as_deref(), host, async {
+    database::changes_in(request.database.as_deref(), host, async {
         // Entries carry the runtime schema name. On the owner socket a name
         // that resolves to no schema stays as written and matches nothing.
         // On the app socket the name must be the exact schema name.

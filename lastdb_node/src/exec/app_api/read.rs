@@ -7,9 +7,8 @@ use futures::StreamExt as _;
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 
-use super::{
-    bad, error_value, fail, in_database, key_filter, ok, require_exact_name, require_read,
-};
+use super::calling_app::active_app;
+use super::{bad, database, error_value, fail, key_filter, ok, require_exact_name, require_read};
 use crate::exec::query::{execute_query, QueryResponseFormat};
 use crate::exec::reply::{map_host_err, HostError};
 use crate::exec::schema_routes::resolve_schema_name;
@@ -48,6 +47,9 @@ struct ReadItem {
     keys_only: bool,
     #[serde(default)]
     file: bool,
+    /// Owner socket only. The folder a held file is written into.
+    #[serde(default)]
+    file_dir: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -131,8 +133,8 @@ async fn list_keys(host: &Host, item: ReadItem) -> Result<Value, HostError> {
             "a read of records names a key or a range; only keys_only lists a schema",
         ));
     }
-    if item.via.is_some() || item.file {
-        return Err(bad("a key list takes no via and no file"));
+    if item.via.is_some() || item.file || item.file_dir.is_some() {
+        return Err(bad("a key list takes no via, no file, and no file_dir"));
     }
     let limit = match item.limit {
         Some(0) => return Err(bad("limit must be at least 1")),
@@ -140,7 +142,7 @@ async fn list_keys(host: &Host, item: ReadItem) -> Result<Value, HostError> {
         None => KEY_LIST_DEFAULT,
     };
     let (schema, cursor) = (item.schema, item.cursor);
-    in_database(item.database.as_deref(), host, async {
+    database::read_in(item.database.as_deref(), host, async {
         require_exact_name(host, &schema)?;
         let canonical = resolve_schema_name(host, &schema)?
             .ok_or_else(|| HostError::new(404, format!("no schema is named {schema}")))?;
@@ -164,6 +166,7 @@ async fn list_keys(host: &Host, item: ReadItem) -> Result<Value, HostError> {
 
 async fn read_one(host: &Host, item: ReadItem) -> Result<Value, HostError> {
     require_read(&item.schema)?;
+    let owner_dir = file_dir(&item)?;
     if item.key.is_none() && item.range.is_none() {
         return list_keys(host, item).await;
     }
@@ -186,16 +189,43 @@ async fn read_one(host: &Host, item: ReadItem) -> Result<Value, HostError> {
         response_format,
     };
     let (keys_only, with_paths) = (item.keys_only, item.file);
-    in_database(item.database.as_deref(), host, async {
+    database::read_in(item.database.as_deref(), host, async {
         require_exact_name(host, &schema)?;
         let page = execute_query(host, request).await?;
         let mut out = shape(&page, keys_only)?;
         if !keys_only {
-            super::file_place::attach(host, &schema, &page, &mut out, with_paths).await?;
+            super::file_place::attach(
+                host,
+                &schema,
+                &page,
+                &mut out,
+                with_paths,
+                owner_dir.as_deref(),
+            )
+            .await?;
         }
         Ok(out)
     })
     .await
+}
+
+/// `file_dir` is an owner-socket folder. An app's folder is its grant.
+fn file_dir(item: &ReadItem) -> Result<Option<std::path::PathBuf>, HostError> {
+    let Some(dir) = item.file_dir.as_deref() else {
+        return Ok(None);
+    };
+    if active_app().is_some() {
+        return Err(bad(
+            "file_dir is refused on the app socket; the app's folder is fixed by its grant",
+        ));
+    }
+    if !item.file {
+        return Err(bad("file_dir requires file"));
+    }
+    if item.key.is_none() && item.range.is_none() {
+        return Err(bad("a key list takes no via, no file, and no file_dir"));
+    }
+    super::owner_file::accept(dir).map(Some)
 }
 
 /// The name, media type, size and local path of a record's file, or null without one.

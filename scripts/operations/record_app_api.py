@@ -21,6 +21,7 @@ import app_api_schema  # noqa: E402
 import benchmarks.node as _bench_node  # noqa: E402
 import record_app_api_all  # noqa: E402
 import record_app_api_calls  # noqa: E402
+import record_app_api_owner_file  # noqa: E402
 
 app_api_schema.install(sys.modules[__name__], _bench_node, record_app_api_calls)
 
@@ -359,6 +360,7 @@ def exercise(node):
     files(node)
     changes(node)
     app_socket(node)
+    record_app_api_owner_file.exercise(node)
 
 
 def named_database(node, database):
