@@ -92,7 +92,6 @@ fn exact(path: &str) -> Option<&'static str> {
         "/api/cloud/wake" => "/api/cloud/wake",
         "/api/databases" => "/api/databases",
         "/api/databases/accept" => "/api/databases/accept",
-        "/api/databases/session" => "/api/databases/session",
         "/api/databases/spec" => "/api/databases/spec",
         "/api/db/cleanup" => "/api/db/cleanup",
         "/api/db/delete-ledger" => "/api/db/delete-ledger",
