@@ -1,5 +1,5 @@
 /**
- * Typed error for a non-200 app API reply.
+ * Typed error for a refused app API reply.
  * Callers that read only `code` and `message` stay valid.
  */
 

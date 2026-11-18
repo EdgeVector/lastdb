@@ -42,7 +42,8 @@
     "/v1/write"
   ],
   "extensions": [
-    "changes"
+    "changes",
+    "databases"
   ],
   "app_routes": [
     "/api/databases",

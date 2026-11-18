@@ -153,6 +153,49 @@ POST /v1/x/changes
 - `POST /v1/x/changes` does not serve a received database. That request is `not_found` and its message is `a received database is not served by /v1/x/changes`. The node does not open the receiver store. An unknown identifier is `not_found` with the message `database is not registered on this node`.
 - A database session cannot call this route. The node answers 403 with the text `database session refused`.
 
+### databases
+
+An app lists and creates named databases, places a schema in one, and uses a
+whole-database share. The owner routes stay where they are. This call runs
+the same handlers.
+
+```
+POST /v1/x/databases
+{ "action": "create", "name": "notes", "sharingMode": "whole_database" }
+
+200
+{ "ok": true, "user_hash": "…", "database": { "id": "…", "name": "notes",
+  "kind": "shareable", "access": "owner", "state": "ready",
+  "sharingMode": "whole_database" } }
+```
+
+| `action` | Owner route | Other fields | Success |
+|---|---|---|---|
+| `list` | `GET /api/databases` | none | 200 `{ok, user_hash, databases}` |
+| `create` | `POST /api/databases` | `name`, `spec`, `kind`, `sharingMode` | 200 `{ok, user_hash, database}` |
+| `accept` | `POST /api/databases/accept` | `invitation`, `publisher`, `name`, `database_id` | 200 `{ok, user_hash, database}` |
+| `schemas` | `GET /api/databases/{id}/schemas` | `database`, `include_full`, `include_definition_ids` | 200 schema list |
+| `declare_schema` | `POST /api/databases/{id}/apps/declare-schema` | `database`, `schema`, `intent`, `retention`, `app_id` on the owner socket | 200 declare envelope |
+| `share_config` | `GET /api/databases/{id}/share/config` | `database` | 200 `{ok, user_hash, databaseId, revision, members}` |
+| `set_share_config` | `PUT /api/databases/{id}/share/config` | `database`, `config` | 200 `{ok, user_hash, databaseId, requestId, revision, committed}` |
+| `invite` | `POST /api/databases/{id}/invitations` | `database`, `contactCode`, `expectedNodeKey`, `expiresInHours` | 200 `{ok, user_hash, databaseId, invitation}` |
+| `submit` | `POST /api/databases/{id}/submissions` | `database`, `mutation`, `idempotency_key` | 202 `{ok, status, mutation_id, submission_sequence}` |
+| `submission_status` | `POST /api/databases/{id}/submissions/status` | `database`, `mutationId` | 200 `{ok, mutation_id, status}` |
+
+- `database` is the id or the name. Omit it, or send JSON null, and the call uses the personal database. A bad value is `invalid_request` and the message is `invalid database identifier`. `list`, `create`, and `accept` reject the field as `unknown field database`. `accept` names its target `database_id`.
+- `kind` is `shareable` or `personal`. Omit it for `shareable`. `sharingMode` is `whole_database`, and then `spec` must be absent. `spec` is `{name, version}`.
+- A present `Idempotency-Key` header on `create` is forwarded. It is a v4 UUID, and the text must equal that UUID, only when `sharingMode` is `whole_database`. Any other present key is `invalid_request` and the message is `whole-database creation uses a v4 UUID idempotency key`. An absent header is allowed.
+- `include_full` and `include_definition_ids` are booleans. `true` is sent as that query flag. `false` and JSON null are omitted. Another type is `invalid_request`.
+- On the app socket `declare_schema` uses the calling app as `app_id`. The body must not carry `app_id`. That field is `invalid_request` and the message is `declare_schema does not take app_id on the app socket`. The schema `name` must be one the app's write grant allows. `"*"` allows every name. The owner handler also requires that name to be `{app_id}/{local}`, or a local name with no slash, which it prefixes with the app id. A missing or empty name is the owner handler's refusal. On the owner socket `app_id` is required. A missing or empty value is `app_id is required`.
+- `intent` is `catalog_sync`. Omit it for that value. `retention` sits beside `schema`, not inside it. It has `ttl_days` or `ttl_seconds`, and optional `confirm_expire_existing`.
+- `config` is the owner PUT body: `expectedRevision`, `requestId`, and `members`. `mutation` is the owner submission document. Its tag is `type` with the value `mutation`. `idempotency_key` becomes the `Idempotency-Key` header. It is a non-nil lowercase UUID.
+- `submit` answers 202. It appends the proposal to the share's pending log. It does not write a record. `submission_status` reads that proposal. The status text comes from the share service.
+- An app that did not declare `databases` is `permission_denied`. The message is `the app {id} did not declare the extension databases`. The node checks this before it reads the body. An unknown `action` is `invalid_request` and the message is `unknown action {action}`. An unknown field is `unknown field {name}`. A missing or empty required string is `{name} is required`. A value of another type is `{name} must be a string`, or `must be an object`, or `must be a boolean`.
+- A success reply is the owner route's JSON, including the status. A refusal uses the app API error object. Status 402 becomes 403 `permission_denied` and keeps the payment message. A share error uses its `message`, or else its `reason`, or else a sentence: `share_revision_conflict` is 409 `conflict` and the message is `the share configuration is at another revision`; `share_configuration_unconfirmed` is 503 `busy` and the message is `share configuration is not confirmed`; `invalid_share_configuration` keeps the `reason` text as 400 `invalid_request`.
+- Record reads and writes in a named database stay on `/v1/read` and `/v1/write` under the app's schema grants. This extension adds none.
+- The call does not serve backup, cloud, status, registration, members, spec binding, or a database session. A database session on the owner socket is refused before this handler. The answer is HTTP 403 and the text `database session refused`, the same as `changes`.
+- The app socket does not serve `POST /api/databases/{id}/apps/declare-schema`. An app places a schema with `declare_schema`.
+
 ## Errors
 
 A refusal is an HTTP status with one body shape:
@@ -353,7 +396,8 @@ A node serves two sockets in its data directory.
 - The installer places one schema on the personal database with
   `POST /api/apps/declare-schema`. The same body placed in one database this
   node owns is `POST /api/databases/{id}/apps/declare-schema`. The app socket
-  does not serve that path.
+  does not serve that path. An app places a schema with `declare_schema` on
+  `POST /v1/x/databases`.
 
 ## Place a schema in an owned database
 

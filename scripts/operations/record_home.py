@@ -13,6 +13,7 @@ from benchmarks.node import Node  # noqa: E402
 from harness import HOME_FORMAT, marker_format, poll_until  # noqa: E402
 import v1_records as v1  # noqa: E402
 import record_app_api, record_inline_files, record_named_databases, record_runs  # noqa: E401,E402
+import record_app_api_databases  # noqa: E402
 from record_runs import (  # noqa: E402
     FIELDS, RANGED, definition, held, ids, ledger, listed_hashes, refused, require, system_seed,
 )
@@ -340,6 +341,8 @@ def main():
         require(query(node, "RecordTtl", {"HashKey": "old"}) == [], "an expired record came back")
         print("Records survived a daemon restart and expired records stayed absent", flush=True)
         record_named_databases.check(node, args.cli.resolve(strict=True), output)
+        # The created database stays. The named-database list requires its own six rows.
+        record_app_api_databases.exercise(node)
     finally:
         node.close()
 
