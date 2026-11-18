@@ -190,17 +190,29 @@ function parseFile(value: JsonValue | undefined, body: unknown): Api.FileInfo | 
   return file;
 }
 
+/** A missing key is absent. Null is not the contract: the node omits the key. */
+function parseAuthor(value: JsonValue | undefined, body: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value === 'string' && value.length > 0) return value;
+  throw invalid('app API returned an invalid record', body);
+}
+
 function parseRecord(value: JsonValue, body: unknown): Api.Record {
   if (!isObject(value) || typeof value['revision'] !== 'string' || value['revision'].length === 0) {
     throw invalid('app API returned an invalid record', body);
   }
   if (!isObject(value['record'])) throw invalid('app API returned an invalid record', body);
-  return {
+  const record: Api.Record = {
     key: parseKey(value['key'], body),
     revision: value['revision'],
     record: value['record'],
     file: parseFile(value['file'], body),
   };
+  const createdBy = parseAuthor(value['created_by'], body);
+  const updatedBy = parseAuthor(value['updated_by'], body);
+  if (createdBy !== undefined) record.created_by = createdBy;
+  if (updatedBy !== undefined) record.updated_by = updatedBy;
+  return record;
 }
 
 function parseItemError(value: Record<string, JsonValue>, body: unknown): Api.Error {

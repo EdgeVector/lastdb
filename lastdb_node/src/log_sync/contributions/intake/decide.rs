@@ -22,10 +22,7 @@ pub(super) struct SubmissionView<'a> {
 }
 
 pub(super) enum IntakeDecision {
-    Publish {
-        author_id: Option<String>,
-        revision: Option<String>,
-    },
+    Publish { revision: Option<String> },
     Discard(&'static str),
 }
 
@@ -53,15 +50,11 @@ pub(super) fn decide(grant: &GrantView<'_>, submission: &SubmissionView<'_>) -> 
     } else {
         None
     };
-    let author_id = standard.then(|| fold_db::hex::sha256_hex(submission.writer.as_bytes()));
     let Some(base) = submission.base else {
         return if required_creator.is_some() {
             discard("comment edit has no base version")
         } else {
-            IntakeDecision::Publish {
-                author_id,
-                revision: None,
-            }
+            IntakeDecision::Publish { revision: None }
         };
     };
     if !matches!(mutation.expected, CasExpectation::Revision { .. }) {
@@ -70,11 +63,10 @@ pub(super) fn decide(grant: &GrantView<'_>, submission: &SubmissionView<'_>) -> 
     let Some(local) = submission.local.filter(|row| row.mutation_id == base) else {
         return discard("record version is not the submitted base");
     };
-    if required_creator.is_some_and(|creator| local.comment_creator.as_deref() != Some(creator)) {
+    if required_creator.is_some_and(|creator| local.created_by.as_deref() != Some(creator)) {
         return discard("comment creator does not match the editor");
     }
     IntakeDecision::Publish {
-        author_id,
         revision: Some(local.local_revision.clone()),
     }
 }

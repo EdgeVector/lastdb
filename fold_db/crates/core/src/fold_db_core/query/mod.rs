@@ -41,6 +41,8 @@ pub struct RecordMetadata {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Record {
     pub revision: String,
+    pub created_by: Option<String>,
+    pub updated_by: Option<String>,
     pub alternates: BTreeMap<String, Option<KeyValue>>,
     pub fields: HashMap<String, Value>,
     pub metadata: Option<RecordMetadata>,
@@ -66,6 +68,8 @@ impl Record {
         });
         Self {
             revision: r.stamp.revision(),
+            created_by: r.created_by.clone(),
+            updated_by: r.updated_by.clone(),
             alternates: r.alternates.clone(),
             fields: r.fields.clone().into_iter().collect(),
             metadata,

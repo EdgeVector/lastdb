@@ -167,6 +167,12 @@ pub struct StoredRecord {
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub fields: BTreeMap<String, Value>,
     pub stamp: RecordStamp,
+    /// Lowercase hex node key. Absent on a record written before this field existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_by: Option<String>,
+    /// Lowercase hex node key of the writer of this revision.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updated_by: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub meta: Option<RecordMeta>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -198,6 +204,8 @@ impl StoredRecord {
             alternates: value.target.alternates,
             fields: value.fields,
             stamp,
+            created_by: None,
+            updated_by: None,
             meta: value.metadata,
             file: value.file,
             file_version,
@@ -224,6 +232,8 @@ impl StoredRecord {
             alternates: BTreeMap::new(),
             fields: BTreeMap::new(),
             stamp,
+            created_by: None,
+            updated_by: None,
             meta: None,
             file: None,
             file_version: None,

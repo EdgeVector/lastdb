@@ -273,6 +273,8 @@ fn record_charge(coord: &RecordCoordinate, record: &StoredRecord) -> usize {
         + meta
         + record.file.as_ref().map_or(0, marker)
         + record.inline_file.as_ref().map_or(0, marker)
+        + cap(&record.created_by)
+        + cap(&record.updated_by)
         + record.stamp.position.source_stream.as_str().len()
         + record
             .file_version
