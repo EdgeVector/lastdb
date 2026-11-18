@@ -1,6 +1,7 @@
 //! `lastdb ops`: print completed requests by caller and by schema.
 
-use std::io::{self, Write};
+use std::fmt::Write;
+use std::io::{self, Write as IoWrite};
 use std::time::Duration;
 
 use serde_json::Value;
@@ -18,9 +19,7 @@ pub(super) fn ops(
     let raw = get_path(&socket, "/api/ops", TIMEOUT)?;
     let body = split_http_200(raw.as_bytes(), "ops")?;
     if json {
-        io::stdout()
-            .write_all(body)
-            .map_err(|error| format!("ops: {error}"))?;
+        IoWrite::write_all(&mut io::stdout(), body).map_err(|error| format!("ops: {error}"))?;
         return Ok(());
     }
     let value: Value =
@@ -191,7 +190,7 @@ fn number(row: &Value, key: &str) -> Result<u64, String> {
 fn client_text(row: &Value) -> Result<String, String> {
     match row.get("client") {
         Some(Value::Null) => Ok(String::new()),
-        Some(Value::String(value)) => Ok(value.clone()),
+        Some(Value::String(value)) => Ok(value.to_owned()),
         _ => Err("ops row has no client".to_owned()),
     }
 }
@@ -260,11 +259,12 @@ fn emit(cells: &[impl AsRef<str>], widths: &[usize], right: &[bool]) {
         }
         let cell = cell.as_ref();
         let width = widths[index];
-        if right[index] {
-            line.push_str(&format!("{cell:>width$}"));
+        let written = if right[index] {
+            write!(line, "{cell:>width$}")
         } else {
-            line.push_str(&format!("{cell:<width$}"));
-        }
+            write!(line, "{cell:<width$}")
+        };
+        written.expect("a string accepts the cell");
     }
     println!("{line}");
 }
