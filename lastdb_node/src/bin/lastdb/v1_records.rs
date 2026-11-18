@@ -16,6 +16,13 @@ pub(super) struct LinkedFile {
     pub(super) media_type: Option<String>,
 }
 
+/// What `/v1/write` receives for `file`. Clear is JSON null. Absent sends no key.
+pub(super) enum WrittenFile<'a> {
+    Absent,
+    Clear,
+    Link(&'a LinkedFile),
+}
+
 pub(super) fn database(target: &DatabaseTarget) -> Option<&str> {
     target.selector.as_deref()
 }
@@ -142,9 +149,10 @@ pub(super) fn key_report(
 pub(super) fn record_write(
     mutation: &Value,
     database: Option<&str>,
-    file: Option<&LinkedFile>,
+    file: WrittenFile<'_>,
 ) -> Result<Value, String> {
-    if !v1_capable(mutation, file.is_some()) {
+    let linking = matches!(file, WrittenFile::Link(_));
+    if !v1_capable(mutation, linking) {
         return Err("invalid complete mutation".into());
     }
     let Some(op) = mutation["mutation_type"].as_str() else {
@@ -165,8 +173,14 @@ pub(super) fn record_write(
         };
         item.insert("revision".into(), json!(revision));
     }
-    if let Some(link) = file {
-        item.insert("file".into(), file_link(link));
+    match file {
+        WrittenFile::Link(link) => {
+            item.insert("file".into(), file_link(link));
+        }
+        WrittenFile::Clear => {
+            item.insert("file".into(), Value::Null);
+        }
+        WrittenFile::Absent => {}
     }
     Ok(Value::Object(item))
 }

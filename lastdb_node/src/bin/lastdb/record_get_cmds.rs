@@ -105,7 +105,10 @@ pub(super) fn get_record(
     let mut item =
         v1_records::record_item(schema_name, hash, key_range, v1_records::database(target));
     if let Some(dir) = hydrate {
-        let folder = dir.to_str().ok_or("hydrate folder is not a utf-8 path")?;
+        let absolute = absolute_dir(dir)?;
+        let folder = absolute
+            .to_str()
+            .ok_or("hydrate folder is not a utf-8 path")?;
         let obj = item.as_object_mut().ok_or("read item is incomplete")?;
         obj.insert("file".into(), json!(true));
         obj.insert("file_dir".into(), json!(folder));
@@ -125,6 +128,15 @@ pub(super) fn get_record(
         print_get_human(&val);
     }
     Ok(())
+}
+
+/// Resolve `dir` without creating it. The node still checks ownership and mode.
+fn absolute_dir(dir: &Path) -> Result<std::path::PathBuf, String> {
+    let absolute = std::path::absolute(dir).map_err(|error| format!("hydrate folder: {error}"))?;
+    if !absolute.is_dir() {
+        return Err("hydrate folder must be an existing directory".into());
+    }
+    Ok(absolute)
 }
 
 fn note_hydrated_file(page: &Value, view: &mut Value, file_required: bool) -> Result<(), String> {

@@ -149,7 +149,7 @@
     "schemas": {
       "DatabaseName": {
         "type": "string",
-        "description": "1 to 64 bytes: ASCII letters, digits, hyphen, and underscore. Omit the field to use the personal database. An unknown identifier is not_found and its message is \"database is not registered on this node\". A received database can be read. A write to one is permission_denied because a received database is read only. /v1/x/changes does not serve a received database."
+        "description": "1 to 64 bytes: ASCII letters, digits, hyphen, and underscore. With no database session, omit the field to use the personal database. On a request that carries X-LastDB-Database-Session, omit the field to address that session's database. An item that names a different database is permission_denied and its message is \"a database session addresses only its own database\". An unknown identifier is not_found and its message is \"database is not registered on this node\". A received database can be read. A write to one is permission_denied because a received database is read only. /v1/x/changes does not serve a received database, and a database session cannot call it."
       },
       "SchemaName": {
         "type": "string",

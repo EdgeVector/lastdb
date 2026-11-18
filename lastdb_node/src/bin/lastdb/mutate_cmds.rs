@@ -15,25 +15,62 @@ use serde_json::{Map, Value};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
-use uuid::Uuid;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RecordInput {
     mutation: Value,
+    /// Absent sends no file. JSON null clears a replace. An object links a path.
+    #[serde(default, deserialize_with = "input_file")]
     file: InputFile,
+}
+
+#[derive(Default)]
+enum InputFile {
+    #[default]
+    Absent,
+    Clear,
+    Link(FileBody),
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct InputFile {
+struct FileBody {
     source: PathBuf,
     #[serde(default)]
     name: Option<String>,
     #[serde(default)]
     media_type: Option<String>,
-    #[serde(default)]
-    local: Option<bool>,
+}
+
+fn input_file<'de, D>(deserializer: D) -> Result<InputFile, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(match Option::<FileBody>::deserialize(deserializer)? {
+        None => InputFile::Clear,
+        Some(body) => InputFile::Link(body),
+    })
+}
+
+enum TakenFile {
+    Absent,
+    Clear,
+    Link(v1_records::LinkedFile),
+}
+
+impl TakenFile {
+    fn written(&self) -> v1_records::WrittenFile<'_> {
+        match self {
+            Self::Absent => v1_records::WrittenFile::Absent,
+            Self::Clear => v1_records::WrittenFile::Clear,
+            Self::Link(link) => v1_records::WrittenFile::Link(link),
+        }
+    }
+
+    fn linked(&self) -> bool {
+        matches!(self, Self::Link(_))
+    }
 }
 
 #[derive(Deserialize)]
@@ -63,23 +100,17 @@ pub(super) fn mutate_command(
     target: &DatabaseTarget,
     request_file: &Path,
     durable: bool,
-    mutation_id: Option<Uuid>,
 ) -> Result<(), String> {
-    if mutation_id.is_some() && target.selector.is_none() {
-        return Err("--mutation-id requires --db".into());
-    }
     let body = read_mutation_json(request_file)?;
-    let (doc, link) = take_input(request_file, body)?;
-    let item = v1_records::record_write(&doc, v1_records::database(target), link.as_ref())?;
+    let (doc, file) = take_input(request_file, body)?;
+    let item = v1_records::record_write(&doc, v1_records::database(target), file.written())?;
     let timeout = if durable {
         handler_timeout().saturating_add(Duration::from_secs(20))
     } else {
         Duration::from_secs(10)
     };
-    let reply = v1_records::write_mutations(target, &item, timeout).map_err(|error| {
-        mutation_id.map_or(error.clone(), |id| format!("{error} (mutation ID {id})"))
-    })?;
-    println!("{}", v1_records::receipt(&reply, link.is_some()));
+    let reply = v1_records::write_mutations(target, &item, timeout)?;
+    println!("{}", v1_records::receipt(&reply, file.linked()));
     Ok(())
 }
 
@@ -97,36 +128,38 @@ fn read_mutation_json(request_file: &Path) -> Result<Value, String> {
     serde_json::from_str(&text).map_err(|e| format!("invalid mutation JSON: {e}"))
 }
 
-fn take_input(
-    request_file: &Path,
-    body: Value,
-) -> Result<(Value, Option<v1_records::LinkedFile>), String> {
+fn take_input(request_file: &Path, body: Value) -> Result<(Value, TakenFile), String> {
     if body.get("mutation").is_none() {
         let doc: MutationDoc =
             serde_json::from_value(body).map_err(|e| format!("invalid complete mutation: {e}"))?;
-        return Ok((doc_value(&doc)?, None));
+        return Ok((doc_value(&doc)?, TakenFile::Absent));
     }
     let input: RecordInput =
         serde_json::from_value(body).map_err(|e| format!("invalid record input: {e}"))?;
-    if input.file.local == Some(false) {
-        return Err("a file is named by a path".into());
-    }
     let doc: MutationDoc = serde_json::from_value(input.mutation)
         .map_err(|e| format!("invalid complete mutation: {e}"))?;
+    let file = match input.file {
+        InputFile::Absent => TakenFile::Absent,
+        InputFile::Clear => TakenFile::Clear,
+        InputFile::Link(file) => TakenFile::Link(linked_file(request_file, file)?),
+    };
+    Ok((doc_value(&doc)?, file))
+}
+
+fn linked_file(request_file: &Path, file: FileBody) -> Result<v1_records::LinkedFile, String> {
     let base = request_file.parent().unwrap_or(Path::new(""));
-    let source = base.join(&input.file.source);
+    let source = base.join(&file.source);
     let canonical =
         std::fs::canonicalize(&source).map_err(|e| format!("open {}: {e}", source.display()))?;
     let path = canonical
         .to_str()
         .ok_or_else(|| format!("open {}: path is not utf-8", source.display()))?
         .to_owned();
-    let link = v1_records::LinkedFile {
+    Ok(v1_records::LinkedFile {
         path,
-        name: input.file.name,
-        media_type: input.file.media_type,
-    };
-    Ok((doc_value(&doc)?, Some(link)))
+        name: file.name,
+        media_type: file.media_type,
+    })
 }
 
 fn doc_value(doc: &MutationDoc) -> Result<Value, String> {

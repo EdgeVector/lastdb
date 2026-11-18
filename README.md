@@ -137,13 +137,15 @@ Use `lastdb --help` to see the commands in the installed release.
 | `db` | List the local database and accepted shares. |
 | `admin` | Diagnose or maintain a home. |
 
-Supply file bytes in the same `mutate --request-file` operation as the record.
+Name a file by path in the same `mutate --request-file` operation as the record.
+The command does not copy the file, and the file must stay where it is.
 Use a JSON object with `mutation` set to the complete conditional request and
 `file` set to an object with `source` and optional `name` and `media_type`. The
 source path is relative to the request file, or to the working directory for
 stdin. A record with a required file cannot be written without its file. A
-bare record replacement keeps the existing file. A replacement with
-`file: null` in the same envelope removes an optional file.
+request with no `file` key sends no file, so a bare record replacement keeps
+the existing file. On a replace, `file: null` in the same envelope clears an
+optional file.
 
 ### Publish an app
 

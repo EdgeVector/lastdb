@@ -81,6 +81,7 @@ and attach `X-LastDB-Database-Session` to every scoped request, call
 
 ```ts
 const { session, client: draftReader } = await root.openDatabaseSession(created.id, 'read');
+// Omitting `database` addresses the session's database.
 const [album] = await draftReader.read([
   { schema: 'photos/Album', key: { hash: 'vacation' } },
 ]);
@@ -93,8 +94,11 @@ const delegated = await connect({
 ```
 
 Keep `session.session` tokens out of logs. Schema list and schema get on a
-selected database use `/api/databases/<selector>/...`. `read`, `write`, and
-`changes` do not. Pass `database` on the item.
+selected database use `/api/databases/<selector>/...`. `read` and `write` do
+not. On a session client, omit `database` to address that session's database.
+An item that names a different database is `permission_denied` and its message
+is `a database session addresses only its own database`. With no session, omit
+`database` to address the personal database. A session cannot call `changes`.
 
 ## Set up sharing with Social
 
@@ -165,8 +169,11 @@ request. The app socket serves only these three methods.
 
 Pass `database` on a read, a mutation, or `changes` to name a database. These
 methods do not copy the database chosen by `select`. A database-session header
-already on the client is still sent; the app API selects its database from
-the JSON body.
+already on the client is still sent. On that client, an omitted `database`
+addresses the session's database, and an item that names a different database
+is `permission_denied` with the message `a database session addresses only its own database`.
+With no session, an omitted `database` addresses the personal database. A
+session cannot call `changes`.
 
 - `read(reads)` posts `{ reads }` to `POST /v1/read` and returns one result per
   read, in order. A result is `{ records, next_cursor }`, `{ keys, next_cursor }`

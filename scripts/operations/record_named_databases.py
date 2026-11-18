@@ -14,7 +14,7 @@ import uuid
 
 _OPS = Path(__file__).resolve().parent
 sys.path[:0] = [str(_OPS), str(_OPS.parent)]
-from harness import mutation  # noqa: E402
+from harness import mutation, send_unix_request  # noqa: E402
 import v1_records as v1  # noqa: E402
 from record_runs import (  # noqa: E402
     FIELDS, MISSING_DATABASE, RANGED, definition, refused, require, system_seed,
@@ -72,6 +72,7 @@ def prepare(node, cli, output):
     check_list(node, saved, alpha_spec={"name": "notes", "version": 1})
     cli_read(node, cli, family["id"], "family")
     cli_read(node, cli, "alpha", "alpha")
+    check_sessions(node, notes["id"], family["id"])
     print("Named databases: create under ordinary names and keyed isolation passed", flush=True)
 
 
@@ -212,3 +213,113 @@ def check_cli_operations(node, cli, output, database_id):
     wrong = run_cmd(node, cli, "--db", MISSING_DATABASE, "mutate", "--request-file", str(request))
     require(wrong.returncode == 1 and "database is not registered" in wrong.stderr,
             "an unknown database selector must refuse the mutation before dispatch: " + wrong.stderr)
+    clear_file(node, cli, output, database_id)
+
+
+SESSION_OTHER = "a database session addresses only its own database"
+
+
+def issue_session(node, database_id, intent):
+    body = node.call("/api/databases/session", {"databaseId": database_id, "intent": intent})[0]
+    token = body.get("session")
+    require(isinstance(token, str) and token, "a database session did not return a token")
+    return token
+
+
+def session_call(node, token, path, body):
+    headers = {"Content-Type": "application/json", "X-LastDB-Database-Session": token}
+    status, raw, _headers, _elapsed, _sent = send_unix_request(node.socket, "POST", path, body, headers)
+    return status, raw
+
+
+def record_at(node, database, key):
+    options = {} if database is None else {"database": database}
+    rows = v1.read_items(node, [v1.point("RecordById", {"hash": key}, **options)])[0]["records"]
+    if not rows:
+        return None
+    require(len(rows) == 1, f"{database or 'personal'} returned {len(rows)} rows for {key}")
+    return rows[0]["record"]["value"]
+
+
+def session_record(schema_key, value):
+    return v1.create_item(
+        "RecordById", {"hash": schema_key},
+        {"id": schema_key, "bucket": "b1", "value": value},
+        alternates={"by_bucket": {"hash": "b1", "range": schema_key}},
+    )
+
+
+def check_sessions(node, notes_id, family_id):
+    """A session reads and writes only its own database through /v1."""
+    token = issue_session(node, notes_id, "read")
+    status, raw = session_call(node, token, "/v1/read", {"reads": [
+        {"schema": "RecordById", "key": {"hash": "one"}},
+        {"schema": "RecordById", "key": {"hash": "one"}, "database": notes_id},
+        {"schema": "RecordById", "key": {"hash": "one"}, "database": family_id},
+    ]})
+    body = json.loads(raw)
+    results = body["results"]
+    require(status == 200 and results[0]["records"][0]["record"]["value"] == "owner-only",
+            "an omitted database did not read the session database: " + raw.decode())
+    require(results[1]["records"][0]["record"]["value"] == "owner-only",
+            "the session database id did not read that database: " + raw.decode())
+    error = results[2]["error"]
+    require(error["code"] == "permission_denied" and error["message"] == SESSION_OTHER and error["index"] == 2,
+            "a read session item naming another database was not refused: " + repr(error))
+    status, raw = session_call(node, token, "/v1/write", {"mutations": [session_record("session-read", "no")]})
+    require(status == 403 and raw == b"database session refused",
+            "a read session write was not refused: " + repr(raw))
+    token = issue_session(node, notes_id, "write")
+    status, raw = session_call(node, token, "/v1/write", {"mutations": [session_record("session-write", "from-session")]})
+    written = json.loads(raw)
+    require(status == 200 and written["written"] == 1, "a write session did not write: " + raw.decode())
+    require(record_at(node, notes_id, "session-write") == "from-session",
+            "the write session did not write its own database")
+    require(record_at(node, None, "session-write") is None,
+            "the write session wrote the personal database")
+    v1.write_items(node, [v1.delete_item(
+        "RecordById", {"hash": "session-write"}, written["revisions"][0], database=notes_id,
+    )])
+    require(record_at(node, notes_id, "session-write") is None,
+            "the session proof record stayed behind")
+    other = session_record("session-other", "crossed")
+    other["database"] = family_id
+    status, raw = session_call(node, token, "/v1/write", {"mutations": [other]})
+    refused = json.loads(raw)["error"]
+    require(status == 403 and refused["code"] == "permission_denied"
+            and refused["message"] == SESSION_OTHER and refused["index"] == 0,
+            "a write session item naming another database was not refused: " + raw.decode())
+    require(record_at(node, family_id, "session-other") is None,
+            "a refused session write landed in the other database")
+
+
+def clear_file(node, cli, output, database_id):
+    """`lastdb mutate` links a file by path, then clears it with `"file": null`."""
+    folder = output / "cli-file"
+    folder.mkdir()
+    (folder / "note.txt").write_text("keep this file where it is\n")
+    created = mutation(
+        "RecordById", {"hash": "cli-file"}, {"id": "cli-file", "bucket": "b1", "value": "with-file"},
+        "create", alternates={"by_bucket": {"hash": "b1", "range": "cli-file"}}, expected={"type": "absent"},
+    )
+    request = folder / "create.json"
+    request.write_text(json.dumps({"mutation": created, "file": {"source": "note.txt", "name": "note.txt"}}))
+    written = run_cmd(node, cli, "--db", database_id, "mutate", "--request-file", str(request))
+    require(written.returncode == 0, "mutate did not link a file: " + written.stderr)
+    revision = json.loads(written.stdout)["record_revision"]
+    got = run_cmd(node, cli, "--db", database_id, "get", "RecordById", "--key-hash", "cli-file", "--json")
+    linked = json.loads(got.stdout)["results"][0].get("metadata", {}).get("file")
+    require(got.returncode == 0 and isinstance(linked, dict) and linked.get("name") == "note.txt",
+            "mutate did not link the file by path: " + got.stdout)
+    replacement = mutation(
+        "RecordById", {"hash": "cli-file"}, {"id": "cli-file", "bucket": "b1", "value": "with-file"},
+        "replace", alternates={"by_bucket": {"hash": "b1", "range": "cli-file"}},
+        expected={"type": "revision", "revision": revision},
+    )
+    clear = folder / "clear.json"
+    clear.write_text(json.dumps({"mutation": replacement, "file": None}))
+    cleared = run_cmd(node, cli, "--db", database_id, "mutate", "--request-file", str(clear))
+    require(cleared.returncode == 0, "mutate did not clear a file: " + cleared.stderr)
+    again = run_cmd(node, cli, "--db", database_id, "get", "RecordById", "--key-hash", "cli-file", "--json")
+    require(again.returncode == 0 and "metadata" not in json.loads(again.stdout)["results"][0],
+            "the cleared record still names a file: " + again.stdout)

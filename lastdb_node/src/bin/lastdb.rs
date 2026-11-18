@@ -144,8 +144,7 @@ fn run(cli: Cli) -> Result<(), String> {
                 Command::Mutate {
                     request_file,
                     durable,
-                    mutation_id,
-                } => mutate_command(&t, &request_file, durable, mutation_id),
+                } => mutate_command(&t, &request_file, durable),
                 Command::GetKeys(a) => list_record_keys(&t, &a),
                 Command::Get {
                     schema,

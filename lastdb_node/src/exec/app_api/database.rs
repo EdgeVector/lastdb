@@ -120,3 +120,72 @@ async fn read_received<T>(
 fn durable(host: &Host, share: &RegisteredShare) -> bool {
     crate::database_replay::prefix_durable(&host.home, share.id.as_str())
 }
+
+const SESSION_DATABASE: &str = "a database session addresses only its own database";
+
+/// A database session addresses one database.
+///
+/// An item that omits `database` addresses that database: this fills the field
+/// with the session id. An item that names the session database, by that id or
+/// by a name that resolves to it, keeps the caller's string. An item that names
+/// a different database is `permission_denied`. An unknown or invalid selector
+/// is left as written, so the existing check answers it.
+pub(super) fn bind_item(
+    host: &Host,
+    session: Option<&str>,
+    database: &mut Option<String>,
+) -> Result<(), HostError> {
+    let Some(session) = session else {
+        return Ok(());
+    };
+    let Some(selector) = database.clone() else {
+        *database = Some(session.to_owned());
+        return Ok(());
+    };
+    if selector == session {
+        return Ok(());
+    }
+    match known_database(host, &selector)? {
+        Some(id) if id != session => Err(bad(SESSION_DATABASE)),
+        _ => Ok(()),
+    }
+}
+
+/// The id of a database this node can name. `None` leaves the existing check
+/// in place. An owned store whose id cannot be named is refused: opening it
+/// would skip the session boundary.
+fn known_database(host: &Host, selector: &str) -> Result<Option<String>, HostError> {
+    if !valid_selector(selector) {
+        return Ok(None);
+    }
+    let resolved = match host.owned.resolve(selector) {
+        Ok(resolved) => resolved,
+        Err(_) => return Ok(None),
+    };
+    match resolved {
+        ResolvedStore::Owner => Ok(host.owned.owner().ok().map(|entry| entry.id)),
+        ResolvedStore::Owned(_) => owned_id(host, selector),
+        ResolvedStore::Absent => Ok(received_id(host, selector)),
+    }
+}
+
+fn owned_id(host: &Host, selector: &str) -> Result<Option<String>, HostError> {
+    let entries = host
+        .owned
+        .owned_entries()
+        .map_err(|_| HostError::new(503, REGISTRY_UNAVAILABLE))?;
+    match entries
+        .into_iter()
+        .find(|entry| entry.id == selector || entry.name.as_deref() == Some(selector))
+    {
+        Some(entry) => Ok(Some(entry.id)),
+        None => Err(HostError::new(503, REGISTRY_UNAVAILABLE)),
+    }
+}
+
+fn received_id(host: &Host, selector: &str) -> Option<String> {
+    match registered_share::resolve(&host.home, selector) {
+        Ok(Some(share)) if share.signed_log => Some(share.id.as_str().to_owned()),
+        _ => None,
+    }
+}

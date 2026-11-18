@@ -112,13 +112,16 @@ pub(super) enum Command {
         #[arg(long)]
         timeout: Option<u64>,
     },
+    /// Write one conditional record.
+    ///
+    /// The request names a file by path. The command does not copy the file,
+    /// and the file must stay where it is. On a replace, `"file": null` clears
+    /// the record's file. A request with no `file` key sends no file.
     Mutate {
         #[arg(long)]
         request_file: PathBuf,
         #[arg(long)]
         durable: bool,
-        #[arg(long)]
-        mutation_id: Option<uuid::Uuid>,
     },
     GetKeys(RecordListArgs),
     Get {
@@ -129,7 +132,9 @@ pub(super) enum Command {
         key_range: Option<String>,
         #[arg(long)]
         json: bool,
-        /// Folder the node writes the record's file into. The folder must already exist.
+        /// Folder the node writes the record's file into. A relative path is
+        /// resolved to an absolute path. The folder must already exist. This
+        /// command does not create it.
         #[arg(long, value_name = "DIR")]
         hydrate: Option<PathBuf>,
     },

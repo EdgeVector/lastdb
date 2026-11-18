@@ -105,14 +105,14 @@ pub(in crate::exec) async fn write_route(
     _ctx: &AccessContext,
     host: &Host,
 ) -> UdsResponse {
-    match write(host, &req.body).await {
+    match write(req, host).await {
         Ok(body) => ok(&body),
         Err(error) => fail(&error),
     }
 }
 
-async fn write(host: &Host, body: &[u8]) -> Result<Value, HostError> {
-    let items = parse(body)?;
+async fn write(req: &UdsRequest, host: &Host) -> Result<Value, HostError> {
+    let items = parse(host, req)?;
     for (index, item) in items.iter().enumerate() {
         require_write(&item.schema).map_err(|error| error.at(index))?;
     }
@@ -194,16 +194,24 @@ fn located_keys(host: &Host, items: &[WriteItem]) -> Result<Vec<WrittenKey>, Hos
     Ok(located)
 }
 
-fn parse(body: &[u8]) -> Result<Vec<WriteItem>, HostError> {
-    let parsed: WriteBody = serde_json::from_slice(body)
+fn parse(host: &Host, req: &UdsRequest) -> Result<Vec<WriteItem>, HostError> {
+    let mut parsed: WriteBody = serde_json::from_slice(&req.body)
         .map_err(|error| bad(format!("invalid /v1/write body: {error}")))?;
-    let Some(first) = parsed.mutations.first() else {
+    let session = crate::exec::database_session::database_id(req, host)?;
+    if parsed.mutations.is_empty() {
         return Err(bad("mutations must hold at least one mutation"));
-    };
-    for (index, item) in parsed.mutations.iter().enumerate() {
-        if item.database != first.database {
+    }
+    for index in 0..parsed.mutations.len() {
+        super::database::bind_item(
+            host,
+            session.as_deref(),
+            &mut parsed.mutations[index].database,
+        )
+        .map_err(|error| error.at(index))?;
+        if parsed.mutations[index].database != parsed.mutations[0].database {
             return Err(bad("every mutation in one write names the same database").at(index));
         }
+        let item = &parsed.mutations[index];
         let (record, revision) = (item.record.is_some(), item.revision.is_some());
         let shape = match item.op {
             Op::Create if matches!(item.file, FileInput::Clear) => {
@@ -249,11 +257,8 @@ async fn stored_alternates(host: &Host, item: &WriteItem) -> Result<Alternates, 
     }
 }
 
-/// No live record at this key. The engine requires every declared alternate
-/// name before it checks the condition, and it compares those addresses only
-/// when a record is live. A shape-valid stand-in, taken from the schema the
-/// write already loads, lets the commit report `absent`. When no stand-in
-/// fits, this keyed read has already shown that the record is absent.
+/// No live record at this key. A shape-valid stand-in lets the commit report
+/// `absent`. When none fits, this keyed read has already shown that absence.
 fn absent_addresses(host: &Host, item: &WriteItem) -> Result<Alternates, HostError> {
     let Some(name) = resolve_schema_name(host, &item.schema)? else {
         return Ok(Alternates::new());
@@ -330,10 +335,7 @@ fn sample_range(range_type: Option<&FieldValueType>) -> Option<String> {
     )
 }
 
-/// Describe the linked file, set it on the mutation, and return what to
-/// remember after the commit. The file stays where it is.
-/// One answer for every file that cannot be linked, so a caller does not
-/// learn from the refusal whether a path exists.
+/// Link the file in place. Every path that cannot be linked gets the same refusal.
 const UNUSABLE_FILE: &str =
     "the file cannot be linked: it must be a regular file outside the LastDB home";
 
