@@ -236,8 +236,8 @@ def _latest_checks(source):
     raise ValueError("The exact-source check list did not finish within its bound")
 
 
-# The snapshot gate includes the exact-source build, operation and provider
-# retirement. Keep the release wait within the 7200s cap below.
+# The snapshot gate includes the exact-source build and operation. It does not
+# wait for provider retirement. Keep the release wait within the 7200s cap below.
 RELEASE_GATE_WAIT_SECONDS = 5400
 
 

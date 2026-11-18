@@ -4,7 +4,10 @@ name: Snapshot round trip
 # records only. A pull request checks this recipe's syntax and receives no
 # cloud credentials. The gate itself runs only for a push to main, the daily
 # schedule, or a manual dispatch of main. Each proof attempt uses its own
-# DEV account. The release check also requires account retirement.
+# DEV account. The release check reports as soon as the import finishes.
+# Account retirement runs after it as its own job: it waits for the upload
+# grants of that account to expire, about 15 minutes, and a failure there still
+# fails the run.
 #
 # exemem-infra deploy.yml can start a build of this commit with no inputs:
 #   gh workflow run snapshot-roundtrip-dev.yml --repo EdgeVector/lastdb --ref main
@@ -198,27 +201,24 @@ jobs:
     # Releases continue to require this exact check name on the frozen source.
     # Other selections cannot publish a newer skipped check under that name.
     name: ${{ (github.event_name == 'pull_request' || github.event.inputs.mode == 'resume-cleanup') && 'snapshot-roundtrip-not-requested' || github.event.inputs.mode == 'native-cutoff' && 'snapshot-native-cutoff-dev' || github.event.inputs.client == 'nightly' && 'snapshot-roundtrip-published-nightly' || 'snapshot-roundtrip-dev' }}
-    needs: [snapshot-operation, snapshot-retirement]
+    # This check does not wait for account retirement. Retirement has to wait
+    # for the account's upload grants to expire, which says nothing about
+    # whether backup and restore work.
+    needs: snapshot-operation
     if: always() && github.repository == 'EdgeVector/lastdb' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && github.event.inputs.mode != 'resume-cleanup'
     runs-on: ubuntu-24.04
     timeout-minutes: 3
     steps:
-      - name: Require a successful import and retirement from the same original attempt
+      - name: Require a successful import
         env:
           PROOF: ${{ needs.snapshot-operation.result }}
-          RETIREMENT: ${{ needs.snapshot-retirement.result }}
           PROOF_ATTEMPT: ${{ needs.snapshot-operation.outputs.attempt }}
-          RETIREMENT_ATTEMPT: ${{ needs.snapshot-retirement.outputs.attempt }}
         run: |
           set -euo pipefail
-          printf 'Snapshot operation: %s\nAccount retirement: %s\n' "$PROOF" "$RETIREMENT"
+          printf 'Snapshot operation: %s\n' "$PROOF"
           test "$PROOF" = success
-          test "$RETIREMENT" = success
-          if [[ ! "$PROOF_ATTEMPT" =~ ^[1-9][0-9]{0,4}$ || "$PROOF_ATTEMPT" != "$RETIREMENT_ATTEMPT" ]]; then
-            echo 'The product and retirement results must come from the same original attempt.' >&2
-            exit 1
-          fi
-          printf 'Verified original snapshot attempt %s\n' "$PROOF_ATTEMPT"
+          [[ "$PROOF_ATTEMPT" =~ ^[1-9][0-9]{0,4}$ ]]
+          printf 'Verified snapshot attempt %s\n' "$PROOF_ATTEMPT"
 
   snapshot-resume-origin:
     name: Verify the earlier snapshot attempt
