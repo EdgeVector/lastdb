@@ -146,7 +146,7 @@ pub(super) fn bind_item(
         return Ok(());
     }
     match known_database(host, &selector)? {
-        Some(id) if id != session => Err(bad(SESSION_DATABASE)),
+        Some(id) if id != session => Err(HostError::new(403, SESSION_DATABASE)),
         _ => Ok(()),
     }
 }
