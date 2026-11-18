@@ -181,9 +181,13 @@ pub(super) fn as_mutation(schema: &str, key: KeyValue, record: Option<StoredReco
         kind,
         CasExpectation::Absent,
     );
-    if let Some(meta) = meta {
+    // Author keys travel in `copied_authorship`, not in the copied map.
+    if let Some(meta) = meta.and_then(lastdb_model::record_value::RecordMeta::drop_reserved_authors)
+    {
         mutation.source_file_name = meta.source_file_name;
-        mutation.metadata = Some(meta.metadata.into_iter().collect());
+        if !meta.metadata.is_empty() {
+            mutation.metadata = Some(meta.metadata.into_iter().collect());
+        }
     }
     mutation.copied_authorship = copied_authorship;
     mutation
