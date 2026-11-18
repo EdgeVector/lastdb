@@ -1,14 +1,18 @@
 """The databases extension on the app socket of a fresh generated home.
 
 An app that did not declare databases is refused. An app that did lists and
-creates a database, places one schema, reads the schema list, and reads and
+creates a database, places schemas, reads the schema list, and reads and
 writes the share configuration through the same handlers as the owner routes.
-A following /v1/write and /v1/read round-trips one record in that database.
+A following /v1/write and /v1/read round-trips one record of a schema the
+write list names.
 
-The write grant also names social/Note. declare_schema with app_id social
-places that schema and a record round-trips. The same call for a schema
-outside the grant is refused. Without app_id the owner handler refuses
-social/Note because the namespace is not the calling app.
+declare_schema does not consult the write list. The app places
+databasesproof/Other and social/Outside, which the write list does not name,
+and those calls succeed. A /v1/write of a record of either schema in that
+database is refused. The write list names social/Note. declare_schema with
+app_id social places that schema and a record round-trips. Without app_id
+the owner handler refuses social/Note because the namespace is not the
+calling app.
 
 invite, accept, submit, and submission_status need two nodes that share one
 database. No operation in this tree does that, so this proof does not call them.
@@ -25,10 +29,12 @@ from record_runs import definition, require
 APP = "databasesproof"
 # The owner handler requires schema.name to be "{app_id}/{local}".
 SCHEMA = "databasesproof/Note"
+# Not in the write list. The databases extension still places it.
 OTHER = "databasesproof/Other"
-# A schema in another namespace. The write grant names it. app_id is that namespace.
+# A schema in another namespace. The write list names it. app_id is that namespace.
 FOREIGN = "social/Note"
 FOREIGN_NAMESPACE = "social"
+# Another namespace, and not in the write list. declare_schema still places it.
 OUTSIDE = "social/Outside"
 NAME = "dbext"
 NOTE = "kept"
@@ -56,18 +62,17 @@ def exercise(node):
     without_extension(sock)
     register(node, ["databases"])
     database = create_database(node, sock)
-    declare_note(sock, database)
-    refused(sock, {"action": "declare_schema", "database": database, "schema": {"name": OTHER}},
-            403, "permission_denied", f"the app {APP} did not declare that it writes {OTHER}")
+    place(sock, database, SCHEMA)
+    place_ungranted(sock, database)
     place_other_namespace(sock, database)
     refused(sock, {"action": "nope"}, 400, "invalid_request", "unknown action nope")
     same_schemas(node, sock, database)
     prove_share(node, sock, database)
     round_trip(sock, database)
     round_trip(sock, database, FOREIGN, FOREIGN_NOTE)
-    print("Databases extension: list, create, declare_schema, a schema in another "
-          "namespace, schemas, share_config, set_share_config, and a named read and "
-          "write passed", flush=True)
+    print("Databases extension: list, create, declare_schema without a write grant, "
+          "a schema in another namespace, schemas, share_config, set_share_config, "
+          "and a named read and write passed", flush=True)
 
 
 def register(node, extensions):
@@ -106,32 +111,41 @@ def same_list(node, sock):
     return reply
 
 
-def declare_note(sock, database):
-    schema = definition(SCHEMA, "Hash", ["id", "note"], description_prefix="Databases extension ")
+def place(sock, database, name, app_id=None):
+    schema = definition(name, "Hash", ["id", "note"], description_prefix="Databases extension ")
     schema.pop("source", None)
-    status, reply = app_post(sock, {"action": "declare_schema", "database": database, "schema": schema})
-    require(status == 200 and reply.get("schema_name") == SCHEMA and reply.get("app_id") == APP
+    body = {"action": "declare_schema", "database": database, "schema": schema}
+    if app_id is not None:
+        body["app_id"] = app_id
+    status, reply = app_post(sock, body)
+    expect = APP if app_id is None else app_id
+    require(status == 200 and reply.get("schema_name") == name and reply.get("app_id") == expect
             and reply.get("resolution") == "register",
-            f"declare_schema failed: {status} {reply.get('error')!r}")
+            f"declare_schema of {name} failed: {status} {reply.get('error')!r}")
     return schema
 
 
+def place_ungranted(sock, database):
+    """The write list does not name this schema. The extension still places it."""
+    place(sock, database, OTHER)
+    write_refused(sock, database, OTHER)
+
+
 def place_other_namespace(sock, database):
-    schema = definition(FOREIGN, "Hash", ["id", "note"], description_prefix="Databases extension ")
-    schema.pop("source", None)
-    status, reply = app_post(sock, {
-        "action": "declare_schema", "database": database, "schema": schema,
-        "app_id": FOREIGN_NAMESPACE,
-    })
-    require(status == 200 and reply.get("schema_name") == FOREIGN
-            and reply.get("app_id") == FOREIGN_NAMESPACE and reply.get("resolution") == "register",
-            f"declare_schema with app_id failed: {status} {reply.get('error')!r}")
-    refused(sock, {
-        "action": "declare_schema", "database": database,
-        "schema": {"name": OUTSIDE}, "app_id": FOREIGN_NAMESPACE,
-    }, 403, "permission_denied", f"the app {APP} did not declare that it writes {OUTSIDE}")
+    schema = place(sock, database, FOREIGN, FOREIGN_NAMESPACE)
+    place(sock, database, OUTSIDE, FOREIGN_NAMESPACE)
+    write_refused(sock, database, OUTSIDE)
     refused(sock, {"action": "declare_schema", "database": database, "schema": schema},
             400, "invalid_request", "schema.name namespace must match request.app_id")
+
+
+def write_refused(sock, database, schema):
+    item = create(schema, {"hash": "one"}, {"id": "one", "note": "no"}, database=database)
+    status, reply = v1_post(sock, "/v1/write", {"mutations": [item]})
+    error = reply.get("error") or {}
+    require(status == 403 and error.get("code") == "permission_denied" and error.get("index") == 0
+            and error.get("message") == f"the app {APP} did not declare that it writes {schema}",
+            f"a write of {schema} was {status} {error!r}")
 
 
 def same_schemas(node, sock, database):
@@ -144,7 +158,7 @@ def same_schemas(node, sock, database):
     require(status == 200 and owner_status == 200 and reply == json.loads(raw),
             f"schemas differ: extension {status} owner {owner_status}")
     names = {row["name"] for row in reply["schemas"]}
-    require(SCHEMA in names and FOREIGN in names, "schemas omitted a placed schema")
+    require({SCHEMA, OTHER, FOREIGN, OUTSIDE} <= names, "schemas omitted a placed schema")
 
 
 def prove_share(node, sock, database):
