@@ -124,7 +124,15 @@ impl MutationManager {
     }
 
     /// Materialize a winning whole-record change in the caller's native replay scope.
-    pub async fn apply_replay_record(&self, mut mutation: Mutation) -> Result<(), SchemaError> {
+    /// `writer` is the log entry's writer key. A caller that already set one keeps it.
+    pub async fn apply_replay_record(
+        &self,
+        mut mutation: Mutation,
+        writer: &str,
+    ) -> Result<(), SchemaError> {
+        if mutation.writer.is_none() {
+            mutation.writer = Some(writer.to_owned());
+        }
         self.db_ops.metadata().require_replay_scope()?;
         let address = self.replay_record_address(&mutation.schema_name, &mutation.key_value)?;
         let before = self.replay_preimage(address).await?;
@@ -159,10 +167,12 @@ pub(super) fn as_mutation(schema: &str, key: KeyValue, record: Option<StoredReco
     };
     let mut fields = HashMap::new();
     let mut meta = None;
+    let mut copied_authorship = None;
     if let Some(record) = record {
         target.alternates = record.alternates;
         fields = record.fields.into_iter().collect();
         meta = record.meta;
+        copied_authorship = Some((record.created_by, record.updated_by));
     }
     let mut mutation = Mutation::with_uuid(
         uuid::Uuid::new_v4().to_string(),
@@ -175,5 +185,6 @@ pub(super) fn as_mutation(schema: &str, key: KeyValue, record: Option<StoredReco
         mutation.source_file_name = meta.source_file_name;
         mutation.metadata = Some(meta.metadata.into_iter().collect());
     }
+    mutation.copied_authorship = copied_authorship;
     mutation
 }

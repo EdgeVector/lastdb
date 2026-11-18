@@ -223,24 +223,13 @@ fn v1_capable(mutation: &Value, linking: bool) -> bool {
     }
 }
 
-/// A file marker, source name, metadata, or definition id has no field on `/v1/write`.
+/// A file marker or definition id has no field on `/v1/write`.
 fn kept_aside(mutation: &Value) -> bool {
-    named(mutation, "file")
-        || named(mutation, "source_file_name")
-        || named(mutation, "definition_id")
-        || metadata_present(mutation)
+    named(mutation, "file") || named(mutation, "definition_id")
 }
 
 fn named(mutation: &Value, field: &str) -> bool {
     mutation.get(field).is_some_and(|value| !value.is_null())
-}
-
-fn metadata_present(mutation: &Value) -> bool {
-    match mutation.get("metadata") {
-        None | Some(Value::Null) => false,
-        Some(Value::Object(map)) => !map.is_empty(),
-        Some(_) => true,
-    }
 }
 
 fn alternates_clear(mutation: &Value) -> bool {
@@ -267,6 +256,12 @@ fn query_row(record: &Value) -> Value {
     let mut row = Map::new();
     row.insert("key".into(), record["key"].clone());
     row.insert("revision".into(), record["revision"].clone());
+    // The read reply omits an author key when the record has none. Do not invent null.
+    for name in ["created_by", "updated_by"] {
+        if let Some(value) = record.get(name).filter(|value| value.is_string()) {
+            row.insert(name.into(), value.clone());
+        }
+    }
     row.insert("fields".into(), record["record"].clone());
     if let Some(file) = record.get("file").filter(|file| !file.is_null()) {
         row.insert("metadata".into(), json!({ "file": file_marker(file) }));

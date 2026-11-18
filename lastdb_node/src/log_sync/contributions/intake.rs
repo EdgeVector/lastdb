@@ -7,7 +7,6 @@ use fold_db::schema::types::{
     cas::CasExpectation, operations::Operation, KeyValue, Mutation, MutationType, Query,
     SchemaError,
 };
-use fold_db::STANDARD_COMMENT_SCHEMA;
 use mutation_log::Entry;
 use std::sync::Arc;
 
@@ -33,26 +32,20 @@ pub(super) async fn receiver_base(
     let CasExpectation::Revision { revision } = &mutation.expected else {
         return Ok(None);
     };
-    let found = match live_revision(store, mutation).await {
+    let found = match live_record(store, mutation).await {
         Ok(row) => row,
         Err(error) if terminal_record_error(&error) => return Ok(None),
         Err(_) => return Err(ContributionError::Unavailable),
     };
-    let Some(current) = found.filter(|row| row == revision) else {
+    let Some((current, _)) = found.filter(|(row, _)| row == revision) else {
         return Ok(None);
     };
     let address = store
         .mutation_manager()
         .record_storage_address(&mutation.schema_name, &mutation.key_value)
         .map_err(|_| ContributionError::Unavailable)?;
-    let saved = identity::local_identity(
-        &host.home,
-        database_id,
-        &address,
-        &current,
-        mutation.schema_name == STANDARD_COMMENT_SCHEMA,
-    )
-    .map_err(|_| ContributionError::Unavailable)?;
+    let saved = identity::local_identity(&host.home, database_id, &address, &current)
+        .map_err(|_| ContributionError::Unavailable)?;
     Ok(saved.map(|row| row.mutation_id))
 }
 
@@ -68,8 +61,6 @@ pub(super) fn parse(body: &[u8]) -> Result<Mutation, ContributionError> {
         mutation_type,
         expected,
         definition_id,
-        source_file_name,
-        metadata,
         file,
         ..
     } = serde_json::from_slice(body).map_err(|_| ContributionError::Invalid)?;
@@ -89,8 +80,6 @@ pub(super) fn parse(body: &[u8]) -> Result<Mutation, ContributionError> {
         expected,
     );
     mutation.definition_id = definition_id;
-    mutation.source_file_name = source_file_name;
-    mutation.metadata = metadata;
     Ok(mutation)
 }
 
@@ -157,7 +146,7 @@ pub(in crate::log_sync) async fn apply(
         Err(_) => return Ok(ProposalResult::Discarded),
     };
     let local = if opened.base.is_some() {
-        load_local(host, &store, database, &name, &opened.mutation).await?
+        load_local(host, &store, database, &opened.mutation).await?
     } else {
         None
     };
@@ -275,31 +264,32 @@ async fn load_local(
     host: &Host,
     store: &FoldDB,
     database: &str,
-    schema: &str,
     mutation: &Mutation,
 ) -> Result<Option<LocalIdentity>, String> {
-    let revision = match live_revision(store, mutation).await {
-        Ok(revision) => revision,
+    let found = match live_record(store, mutation).await {
+        Ok(found) => found,
         Err(error) if terminal_record_error(&error) => return Ok(None),
         Err(_) => return Err("member write preimage is unavailable".into()),
     };
-    let Some(revision) = revision else {
+    let Some((revision, created_by)) = found else {
         return Ok(None);
     };
     let address = store
         .mutation_manager()
         .record_storage_address(&mutation.schema_name, &mutation.key_value)
         .map_err(|_| "member write preimage is unavailable")?;
-    identity::local_identity(
-        &host.home,
-        database,
-        &address,
-        &revision,
-        schema == STANDARD_COMMENT_SCHEMA,
-    )
+    let Some(mut local) = identity::local_identity(&host.home, database, &address, &revision)?
+    else {
+        return Ok(None);
+    };
+    local.created_by = created_by;
+    Ok(Some(local))
 }
 
-async fn live_revision(store: &FoldDB, mutation: &Mutation) -> Result<Option<String>, SchemaError> {
+async fn live_record(
+    store: &FoldDB,
+    mutation: &Mutation,
+) -> Result<Option<(String, Option<String>)>, SchemaError> {
     let query = Query::new_with_filter(
         mutation.schema_name.clone(),
         Some(key_filter(&mutation.key_value)?),
@@ -310,7 +300,10 @@ async fn live_revision(store: &FoldDB, mutation: &Mutation) -> Result<Option<Str
             "record lookup returned more than one row".into(),
         ));
     }
-    Ok(records.into_values().next().map(|record| record.revision))
+    Ok(records
+        .into_values()
+        .next()
+        .map(|record| (record.revision, record.created_by)))
 }
 
 fn key_filter(key: &KeyValue) -> Result<HashRangeFilter, SchemaError> {

@@ -153,6 +153,12 @@ async fn apply_change(
         }
         payload::Change::Record(mut change) => {
             apply::stage_file(store, key, database_id, entry, change.as_mut(), files).await?;
+            // A contribution names its member. Otherwise the entry names the publisher.
+            let writer = match change.mutation.contribution.as_ref() {
+                Some(admission) => admission.writer.clone(),
+                None => entry.writer_key.clone(),
+            };
+            change.mutation.writer = Some(writer);
             if apply::bind_expected(store, &mut change.mutation, resumed).await? {
                 return first_conflict(apply::write_record(store, change.mutation, resumed).await);
             }

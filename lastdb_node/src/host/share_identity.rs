@@ -1,7 +1,7 @@
 //! Share identity stored beside the download journal.
 //!
-//! A whole-database share remembers the publisher mutation and, for a standard
-//! comment, the verified creator. The record store does not keep those markers.
+//! A whole-database share remembers which mutation wrote a record revision.
+//! The creator of a record is `created_by` on the record itself.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -10,7 +10,6 @@ use std::sync::Arc;
 use cloud_backup_protocol::Id;
 use fold_db::fold_db_core::mutation_manager::{RecordWriteLog, RecordWriteNote};
 use fold_db::schema::SchemaError;
-use fold_db::STANDARD_COMMENT_SCHEMA;
 
 use crate::profile::private_fs as disk;
 
@@ -62,7 +61,8 @@ pub(crate) fn store_receipt(home: &Path, database_id: &str, id: &[u8; 32]) -> Re
 pub(crate) struct LocalIdentity {
     pub(crate) local_revision: String,
     pub(crate) mutation_id: String,
-    pub(crate) comment_creator: Option<String>,
+    /// Filled by the caller from the live record. This module does not store it.
+    pub(crate) created_by: Option<String>,
 }
 
 pub(crate) fn local_identity(
@@ -70,29 +70,20 @@ pub(crate) fn local_identity(
     database_id: &str,
     address: &str,
     revision: &str,
-    comment: bool,
 ) -> Result<Option<LocalIdentity>, String> {
     let mutation = mutation_path(home, database_id, address).map_err(|error| error.to_string())?;
     let Some(mutation_id) = marker_at(&mutation, revision)? else {
         return Ok(None);
     };
-    let comment_creator = if comment {
-        let creator =
-            creator_path(home, database_id, address).map_err(|error| error.to_string())?;
-        marker_at(&creator, revision)?
-    } else {
-        None
-    };
     Ok(Some(LocalIdentity {
         local_revision: revision.to_owned(),
         mutation_id,
-        comment_creator,
+        created_by: None,
     }))
 }
 
 fn plan(log: &IdentityLog, notes: &[RecordWriteNote]) -> Result<Vec<PlannedWrite>, SchemaError> {
     let mut mutation: BTreeMap<String, Option<Vec<u8>>> = BTreeMap::new();
-    let mut creator: BTreeMap<String, Option<Vec<u8>>> = BTreeMap::new();
     for note in notes {
         mutation.insert(
             note.address.clone(),
@@ -101,33 +92,10 @@ fn plan(log: &IdentityLog, notes: &[RecordWriteNote]) -> Result<Vec<PlannedWrite
                 .map(|revision| marker(revision, &note.mutation_id))
                 .transpose()?,
         );
-        if note.schema_name != STANDARD_COMMENT_SCHEMA {
-            continue;
-        }
-        let previous = match creator.get(&note.address) {
-            Some(planned) => planned.clone(),
-            None => read_marker(&creator_path(&log.home, &log.database_id, &note.address)?)?,
-        };
-        let carried = match (&note.before_revision, previous.as_deref()) {
-            (Some(before), Some(bytes)) => value_at(bytes, before)?,
-            _ => note.created_by.clone(),
-        };
-        let next = match &note.after_revision {
-            Some(revision) => carried
-                .map(|creator| marker(revision, &creator))
-                .transpose()?,
-            None => None,
-        };
-        if next.is_some() || previous.is_some() {
-            creator.insert(note.address.clone(), next);
-        }
     }
     let mut writes = Vec::new();
     for (address, body) in mutation {
         writes.push((mutation_path(&log.home, &log.database_id, &address)?, body));
-    }
-    for (address, body) in creator {
-        writes.push((creator_path(&log.home, &log.database_id, &address)?, body));
     }
     Ok(writes)
 }
@@ -184,10 +152,6 @@ fn receipt_path(home: &Path, database_id: &str, id: &[u8; 32]) -> Result<PathBuf
 
 fn mutation_path(home: &Path, database_id: &str, address: &str) -> Result<PathBuf, SchemaError> {
     named(home, database_id, "mutation", address)
-}
-
-fn creator_path(home: &Path, database_id: &str, address: &str) -> Result<PathBuf, SchemaError> {
-    named(home, database_id, "creator", address)
 }
 
 fn named(

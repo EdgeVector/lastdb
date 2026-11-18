@@ -429,10 +429,18 @@
         "type": "object",
         "additionalProperties": false,
         "required": ["key", "revision", "record", "file"],
-        "description": "One record. file is null when the record has no file.",
+        "description": "One record. created_by and updated_by are lowercase hex node keys set by the database. The node omits each key when the record has no value for it. It does not send null. file is null when the record has no file.",
         "properties": {
           "key": {"$ref": "#/components/schemas/Key"},
           "revision": {"type": "string"},
+          "created_by": {
+            "type": "string",
+            "description": "Lowercase hex node key of the creator. Omitted when the record has none."
+          },
+          "updated_by": {
+            "type": "string",
+            "description": "Lowercase hex node key of the writer of this revision. Omitted when the record has none."
+          },
           "record": {"$ref": "#/components/schemas/FieldValues"},
           "file": {
             "oneOf": [

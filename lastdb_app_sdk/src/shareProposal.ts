@@ -41,9 +41,7 @@ export function buildProposalDocument(
     alternates: op.alternates,
     mutation_type: op.mutationType,
     expected: op.expected,
-    source_file_name: op.metadata?.source_file_name ?? null,
-    metadata: op.metadata?.metadata ?? null,
-    file: op.metadata?.file ?? null,
+    file: null,
   };
   if (op.convergence !== undefined) body.convergence = op.convergence;
   if (op.durability !== undefined) body.durability = op.durability;

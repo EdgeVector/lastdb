@@ -34,11 +34,8 @@ pub(super) async fn commit(
         mut opened,
         decision,
     } = input;
-    let (author_id, revision) = match decision {
-        IntakeDecision::Publish {
-            author_id,
-            revision,
-        } => (author_id, revision),
+    let revision = match decision {
+        IntakeDecision::Publish { revision } => revision,
         IntakeDecision::Discard(reason) => {
             tracing::debug!(
                 target: "lastdbd::log_sync",
@@ -48,12 +45,6 @@ pub(super) async fn commit(
             return Ok(ProposalResult::Discarded);
         }
     };
-    if let Some(author) = author_id {
-        opened
-            .mutation
-            .record_fields
-            .insert("author_id".into(), author.into());
-    }
     if let Some(revision) = revision {
         opened.mutation.expected = CasExpectation::Revision { revision };
     }
@@ -112,12 +103,7 @@ fn prepare(
 ) {
     mutation.uuid = mutation_uuid(&receipt_id);
     let creates_record = mutation.mutation_type == MutationType::Create;
-    if creates_record {
-        mutation
-            .metadata
-            .get_or_insert_with(std::collections::HashMap::new)
-            .insert("share_author".into(), writer.to_owned());
-    }
+    mutation.writer = Some(writer.to_owned());
     mutation.contribution = Some(ContributionAdmission {
         definition_id: definition.to_owned(),
         receipt_id,
