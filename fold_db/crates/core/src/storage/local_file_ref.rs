@@ -54,7 +54,7 @@ fn invalid(message: impl std::fmt::Display) -> StorageError {
     StorageError::InvalidOperation(message.to_string())
 }
 
-fn catalog_lock(runtime: &PackRuntime) -> StorageResult<MutexGuard<'_, ()>> {
+pub(super) fn catalog_lock(runtime: &PackRuntime) -> StorageResult<MutexGuard<'_, ()>> {
     runtime
         .local_file_refs_lock
         .lock()
@@ -95,6 +95,44 @@ pub(super) fn has_references(runtime: &PackRuntime) -> StorageResult<bool> {
 
 pub(super) fn has_stopped_references(node: &Path) -> StorageResult<bool> {
     Ok(!load(&node.join("local-file-refs.json"))?.files.is_empty())
+}
+
+pub(super) fn snapshot_budget(node: &Path) -> StorageResult<Option<u64>> {
+    let catalog = load(&node.join("local-file-refs.json"))?;
+    if catalog.files.is_empty() {
+        return Ok(None);
+    }
+    let mut bytes = 1u64 << 20;
+    for entry in catalog.files.values() {
+        bytes = entry
+            .size_bytes
+            .checked_add(2048)
+            .and_then(|size| size.checked_mul(2))
+            .and_then(|size| bytes.checked_add(size))
+            .ok_or_else(|| invalid("snapshot file size overflow"))?;
+    }
+    Ok(Some(bytes))
+}
+
+/// Visit one verified, sealed reference at a time for a private snapshot CAS.
+pub(super) fn snapshot_rows(
+    node: &Path,
+    content_key: &[u8; 32],
+    mut accept: impl FnMut(String, Vec<u8>) -> StorageResult<()>,
+) -> StorageResult<()> {
+    for (path, entry) in load(&node.join("local-file-refs.json"))?.files {
+        if !path.starts_with(crate::storage::format::RECORD_FILE_PREFIX) {
+            return Err(invalid("snapshot reference has an invalid file key"));
+        }
+        let bytes = read_verified_local_file(&entry)?;
+        let (sha256, row) = crate::storage::format::metadata::seal_row(content_key, &bytes)
+            .map_err(|error| invalid(format!("snapshot file encryption: {error}")))?;
+        if sha256 != entry.sha256 {
+            return Err(invalid("snapshot file differs from its reference marker"));
+        }
+        accept(path, row)?;
+    }
+    Ok(())
 }
 
 pub(in crate::storage) fn sha256_regular_file(

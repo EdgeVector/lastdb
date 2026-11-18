@@ -202,6 +202,15 @@ impl DbOperations {
         Arc::clone(&self.runtime)
     }
 
+    /// Capture native files and the verified bytes of local file references.
+    pub async fn capture_synced_snapshot(
+        &self,
+    ) -> StorageResult<Option<crate::storage::disk_pack::snapshot::DatabaseSnapshot>> {
+        self.runtime
+            .capture_synced_snapshot(zeroize::Zeroizing::new(self.record_store.node_key))
+            .await
+    }
+
     #[must_use]
     pub fn batch_operation_limit(&self) -> usize {
         self.runtime.batch_operation_limit()
