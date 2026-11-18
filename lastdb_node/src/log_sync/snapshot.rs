@@ -9,7 +9,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use cloud_backup_protocol::{DecimalU64, Digest, Id};
-use fold_db::storage::disk_pack::{snapshot::DatabaseSnapshot, NativeCloudWorkGuard, PackRuntime};
+use fold_db::storage::disk_pack::{snapshot::DatabaseSnapshot, NativeCloudWorkGuard};
 use serde::{Deserialize, Serialize};
 
 use crate::host::{
@@ -71,7 +71,7 @@ async fn publish(
     if cloud_head != through {
         return Err(AWAIT_INCOMING.into());
     }
-    let cut = capture(host, &runtime, at_start && previous.is_none()).await?;
+    let cut = capture(host, &store, at_start && previous.is_none()).await?;
     let bootstrap = at_start
         && previous.is_none()
         && (cut.needs_initial_coverage
@@ -131,10 +131,11 @@ async fn publish(
 
 async fn capture(
     host: &Host,
-    runtime: &Arc<PackRuntime>,
+    store: &fold_db::fold_db_core::FoldDB,
     first_personal: bool,
 ) -> Result<DatabaseSnapshot, String> {
     let freeze_error = |error: StorageError| format!("cannot freeze the database files: {error}");
+    let runtime = store.db_ops().native_runtime();
     if first_personal && runtime.accepted_status().snapshot_required {
         let seed = Zeroizing::new(host.keypair.secret_key_bytes());
         let key = E2eKeys::from_ed25519_seed(&seed).map_err(|error| error.to_string())?;
@@ -146,7 +147,8 @@ async fn capture(
             return Ok(cut);
         }
     }
-    runtime
+    store
+        .db_ops()
         .capture_synced_snapshot()
         .await
         .map_err(freeze_error)?

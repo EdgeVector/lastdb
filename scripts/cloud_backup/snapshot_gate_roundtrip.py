@@ -9,6 +9,7 @@ import time
 
 from node import OwnedNode, execute
 import v1_records as v1
+import snapshot_gate_files as files
 from snapshot_gate_aws import current_attempt, gate_id, note, register_and_track, summary
 from support import CREDENTIALS_FILE, OperationError, private_file, read_json, require, stable, write_private
 
@@ -197,6 +198,8 @@ def seed(programs, node, database_id, numbers):
     require(len(matched) == 1 and matched[0].get("kind") == "personal", "database_registered")
     install_schema(node, database_id)
     digest, write_seconds, request_seconds = write_records(node, database_id)
+    files.seed(node, database_id, node.home.parent / "external-files")
+    note(numbers, "referenced_files", len(files.SIZES))
     note(numbers, "seed_write_seconds", round(write_seconds, 3))
     note(numbers, "seed_write_request_seconds", round(request_seconds, 3))
     note(numbers, "seed_records_per_second", round(RECORDS / write_seconds, 1))
@@ -291,6 +294,8 @@ def check_restored(programs, destination, database_id, digest, numbers, account)
     try:
         restored.start()
         count = verify_records(restored, database_id, digest)
+        files.verify(restored, database_id, destination.parent / "restored-files")
+        note(numbers, "restored_files", len(files.SIZES))
         require_record(restored, database_id, TAIL_KEY, TAIL_BODY)
         write_record(restored, database_id, "live", "live")
         require_record(restored, database_id, "live", "live")
@@ -323,6 +328,11 @@ def run_gate(programs, root, owner):
         register_and_track(attempt, owner)
         node.start()
         upload(programs, node, database_id, numbers)
+        note(numbers, "initial_snapshot_upload_seconds", numbers["upload_seconds"])
+        files.verify(node, database_id, root / "external-files", referenced=True)
+        upload(programs, node, database_id, numbers)
+        files.verify(node, database_id, root / "external-files", referenced=True)
+        note(numbers, "synced_snapshot_with_file_references", "ok")
         tail_started = time.monotonic()
         write_record(node, database_id, TAIL_KEY, TAIL_BODY)
         wait_for_tail(home, database_id, numbers["snapshot_through"])
@@ -332,6 +342,7 @@ def run_gate(programs, root, owner):
         connection.mkdir(mode=0o700)
         (home / CREDENTIALS_FILE).rename(connection / CREDENTIALS_FILE)
         shutil.rmtree(home)
+        shutil.rmtree(root / "external-files")
         restore(programs, connection, destination, database_id, owner.phrase, numbers)
         check_restored(programs, destination, database_id, digest, numbers, owner.account)
     finally:
