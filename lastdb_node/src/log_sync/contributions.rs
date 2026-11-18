@@ -106,7 +106,7 @@ pub(crate) fn validate_write_scopes(
     if !entry.whole_database() {
         return Ok(());
     }
-    if update.has_legacy_writer() {
+    if update.writer_missing_scope() {
         return Err(invalid("every writer needs an explicit schema write scope"));
     }
     let ResolvedStore::Owned(store) = host
