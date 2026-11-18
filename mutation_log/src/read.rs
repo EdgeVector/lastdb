@@ -1,5 +1,5 @@
 use crate::{
-    BoundPolicy, Capability, DatabaseKind, Entry, Grant, LogError, LogState, PrincipalId, Stamp,
+    BoundPolicy, Capability, DatabaseKind, Grant, LogError, LogState, PrincipalId, Stamp,
     StoredEntry, LIST_PAGE_LIMIT,
 };
 
@@ -41,20 +41,20 @@ fn entry_visible(
         DatabaseKind::Personal => holds_owner(database, reader),
         DatabaseKind::Shareable { publisher } => {
             policy.allows_in_share(&entry.namespace)
-                && share_visible(database, entry, reader, publisher, policy)
+                && share_visible(database, stored, reader, publisher, policy)
         }
     }
 }
 
-/// Mutation-log visibility. The default matches the previous predicate.
+/// Mutation-log visibility.
 ///
-/// The publisher sees every official entry. Anyone else needs Receive, or
-/// `read: anyone`, or Submit when `write` is `direct`. That reader then sees
-/// publisher-written entries. `write: direct` also shows an entry whose writer
-/// key holds Submit. `proposals` does not.
+/// The publisher sees every entry. Anyone else needs Receive, Submit, or
+/// `read: anyone`. That reader then sees an entry the publisher wrote, or an
+/// entry stored with [`StoredEntry::direct_write`]. The current settings and
+/// the writer's current role are not part of this choice.
 fn share_visible(
     database: &LogState,
-    entry: &Entry,
+    stored: &StoredEntry,
     reader: &PrincipalId,
     publisher: &PrincipalId,
     policy: &BoundPolicy,
@@ -62,17 +62,13 @@ fn share_visible(
     if reader == publisher {
         return true;
     }
-    let admission = policy.share();
     let can_read = holds_receive(database, reader)
-        || admission.reads_without_grant()
-        || (admission.shows_submit_writers() && holds_submit(database, reader));
+        || holds_submit(database, reader)
+        || policy.share().reads_without_grant();
     if !can_read {
         return false;
     }
-    if &entry.writer.key == publisher {
-        return true;
-    }
-    admission.shows_submit_writers() && holds_submit(database, &entry.writer.key)
+    &stored.entry.writer.key == publisher || stored.direct_write
 }
 
 impl LogState {

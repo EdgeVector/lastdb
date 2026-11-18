@@ -1,16 +1,19 @@
-//! Publisher-signed share settings: who may read the mutation log, and who may write it.
+//! Publisher-signed share settings: who may read, and where a Submit append goes.
 //! Decided state: docs/designs/shared-database-mutation-logs.md (mutation log, proposal log, share settings).
 //!
-//! One statement per shared database. `proposals` means members append to the
-//! proposal log and only the publisher writes the mutation log. `direct` means
-//! an active Submit member appends to the mutation log and there is no proposal log.
+//! One statement per shared database. `read` and `write` are independent.
+//! Every pair is a statement. `proposals` means a Submit member's next append
+//! goes to the proposal log. `direct` means that append goes to the mutation
+//! log. The log model records that append as a direct write. Entries already
+//! in the proposal log stay until the publisher settles them. The statement
+//! does not look at either log.
+//!
 //! The publisher signs the statement on its own. A signature proves the
 //! publisher wrote it. It does not prove the statement is the newest one.
 //! A reader that needs that keeps the sequence it last saw.
 //!
 //! No stored statement means [`absent_share_settings`]: members read, and
-//! members append proposals. `read: anyone` together with `write: direct`
-//! is not a statement.
+//! members append proposals.
 
 use super::{account_key_matches, Ed25519Signature, ShareEnvironment};
 use crate::v2::{limits, Stream, Version};
@@ -36,18 +39,18 @@ pub const SHARE_SETTINGS_GET_PATH: &str = "/api/cloud/backups/v2/share/members/s
 pub enum ShareRead {
     /// An active member reads the mutation log. This is the absent value.
     Members,
-    /// A caller with no member entry may read the mutation log.
+    /// A caller with no member entry reads what a member reads and cannot append.
     Anyone,
 }
 
-/// Who may write the mutation log.
+/// Where a Submit member's append goes from now on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ShareWrite {
-    /// A member appends to the proposal log. The publisher writes the mutation log.
+    /// A Submit member's next append goes to the proposal log.
     /// This is the absent value.
     Proposals,
-    /// An active Submit member appends to the mutation log. No proposal log.
+    /// A Submit member's next append goes to the mutation log.
     Direct,
 }
 
@@ -73,7 +76,7 @@ pub struct ShareSettings {
     pub stream: Stream,
     /// Who may read the mutation log.
     pub read: ShareRead,
-    /// Who may write the mutation log.
+    /// Where a Submit member's append goes from now on.
     pub write: ShareWrite,
     /// Count of signed settings statements for this database, starting at one.
     pub sequence: DecimalU64,
@@ -86,18 +89,16 @@ pub struct ShareSettings {
 }
 
 impl ShareSettings {
-    /// Check the sequence, the time, the publisher account, and the mode pair.
+    /// Check the sequence, the time, and the publisher account.
     ///
-    /// This does not verify the signature.
+    /// Every `read` and `write` pair is valid. This does not verify the
+    /// signature and does not look at either log.
     pub fn validate(&self) -> Result<(), ProtocolError> {
         if self.sequence.get() == 0 {
             return Err(ProtocolError::invalid("share.settings.sequence"));
         }
         if self.signed_at_ms.get() == 0 {
             return Err(ProtocolError::invalid("share.settings.signed_at_ms"));
-        }
-        if self.read == ShareRead::Anyone && self.write == ShareWrite::Direct {
-            return Err(ProtocolError::invalid("share.settings.mode"));
         }
         account_key_matches(&self.publisher_public_key, &self.stream.scope.account_id)
     }

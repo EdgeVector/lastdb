@@ -11,18 +11,18 @@
 //! A database is [`DatabaseKind::Personal`] or [`DatabaseKind::Shareable`].
 //! A personal database accepts app-private namespaces and rejects a receiver
 //! grant. A shareable database rejects an app-private namespace on append.
-//! A personal database has one mutation log. With the default settings, a
-//! shared database has two: the mutation log, which only the publisher writes
-//! and which members read, and the proposal log, which only the publisher reads.
-//! The publisher's LastDB checks proposal-log entries and appends accepted
-//! changes to the mutation log. Those settings give members only entries
-//! written by the publisher.
+//! A personal database has one mutation log. A shared database also has a
+//! proposal log. Members append to the proposal log only while `write` is
+//! `proposals`. The publisher reads and settles that log under any setting.
+//! `read` and `write` are independent. Every pair is valid.
 //!
 //! [`BoundPolicy::with_share`] carries the two settings. The default is
 //! members and proposals, which is absent share settings. `read: anyone`
-//! lets a caller with no grant read publisher-written entries and does not
-//! let that caller append. `write: direct` keeps the existing Submit append
-//! check and also shows entries written by keys that hold Submit.
+//! lets a caller with no grant read what a member reads and does not let
+//! that caller append. A fresh member append while `write` is `direct` is
+//! stored with [`StoredEntry::direct_write`]. A reader other than the
+//! publisher sees publisher-written entries and those marked entries. The
+//! current settings do not change an entry that is already stored.
 
 #![deny(clippy::disallowed_methods, clippy::disallowed_types)]
 
@@ -211,8 +211,6 @@ pub enum LogError {
     Unauthorized,
     /// A shareable database was asked to store an app-private namespace.
     AppPrivateNamespace,
-    /// `read: anyone` was combined with `write: direct`.
-    InvalidShareSettings,
     /// A personal database was asked to grant a receiver or a contributor.
     PersonalNotShareable,
     /// An owner grant was asked of a shareable database.
@@ -255,9 +253,6 @@ impl fmt::Display for LogError {
             Self::Unauthorized => f.write_str("not authorized for this log step"),
             Self::AppPrivateNamespace => {
                 f.write_str("app-private namespace cannot enter a shareable database")
-            }
-            Self::InvalidShareSettings => {
-                f.write_str("read anyone cannot combine with write direct")
             }
             Self::PersonalNotShareable => {
                 f.write_str("a personal database cannot be granted to a receiver")
