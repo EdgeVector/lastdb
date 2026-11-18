@@ -25,15 +25,13 @@ import {
   bindNodeDatabaseSpec,
   createNodeDatabase,
   databaseScope,
-  issueNodeDatabaseSession,
   listNodeDatabases,
-  validateDatabaseSelector,
   type ClientContext,
   type CreateDatabaseRequest,
   type DatabaseSpec,
   type ListedDatabase,
 } from './databases.js';
-import { RequestRejectedError, TransportError } from './errors.js';
+import { TransportError } from './errors.js';
 import {
   executeAutoIdentity,
   executeGetSchema,
@@ -47,29 +45,8 @@ import {
 } from './schemaOps.js';
 import { executeSubmitProposal } from './shareProposal.js';
 import { executeShareSubmissionStatus } from './shareStatus.js';
-import { openDiscoveredSocket, udsTransport, withDefaultHeaders, type Transport } from './transport.js';
+import { openDiscoveredSocket, udsTransport, type Transport } from './transport.js';
 import type * as Types from './types.js';
-
-const DATABASE_SESSION_HEADER = 'X-LastDB-Database-Session';
-
-function resolveSessionHeaders(
-  databaseId: string | undefined,
-  databaseSession: string | undefined,
-): Record<string, string> {
-  if (databaseSession === undefined) return {};
-  if (databaseId === undefined) {
-    throw new RequestRejectedError(
-      'database_session',
-      'databaseSession requires an explicit databaseId',
-    );
-  }
-  validateDatabaseSelector(databaseId);
-  const trimmed = databaseSession.trim();
-  if (trimmed.length === 0 || /[\r\n]/.test(trimmed)) {
-    throw new RequestRejectedError('database_session', 'Invalid LastDB database session token');
-  }
-  return { [DATABASE_SESSION_HEADER]: trimmed };
-}
 
 /** Attach `X-LastDB-Client` unless the caller already provided one. */
 function buildClientHeaders(
@@ -96,7 +73,6 @@ export async function connect<DatabaseId extends string | undefined = undefined>
 
   const client = new LastDbClient<DatabaseId>(options.appId, transport, {
     databaseId: options.databaseId,
-    databaseSession: options.databaseSession,
   });
   const required = options.requireApiVersion ?? LASTDB_SDK_API_VERSION;
   if (required > 0) {
@@ -108,7 +84,6 @@ export async function connect<DatabaseId extends string | undefined = undefined>
 /** Behavior switches for {@link LastDbClient} (set via `ConnectOptions` or `ownerClient`). */
 export interface LastDbClientOptions<DatabaseId extends string | undefined = undefined> {
   databaseId?: DatabaseId;
-  databaseSession?: string;
 }
 
 /** A connected LastDB app client. Construct via {@link connect} or `ownerClient`. */
@@ -121,13 +96,11 @@ export class LastDbClient<DatabaseId extends string | undefined = undefined> {
     private readonly baseTransport: Transport,
     options: LastDbClientOptions<DatabaseId> = {},
   ) {
-    const databasePath = databaseScope(options.databaseId);
-    const sessionHeaders = resolveSessionHeaders(options.databaseId, options.databaseSession);
     this.databaseId = options.databaseId as DatabaseId;
     this.context = {
       appId,
-      transport: withDefaultHeaders(baseTransport, sessionHeaders),
-      databasePath,
+      transport: baseTransport,
+      databasePath: databaseScope(options.databaseId),
     };
   }
 
@@ -230,26 +203,13 @@ export class LastDbClient<DatabaseId extends string | undefined = undefined> {
     return bindNodeDatabaseSpec(this.baseTransport, databaseId, spec, this.appId);
   }
 
-  /** `POST /api/databases/session` — issue a short-lived session restricted to `databaseId`. */
-  issueDatabaseSession(databaseId: string, intent: Types.DatabaseSessionIntent): Promise<Types.DatabaseSession> {
-    return issueNodeDatabaseSession(this.baseTransport, databaseId, intent, this.appId);
-  }
-
-  /** Issue a short-lived database session and return a scoped client bound to it. */
-  async openDatabaseSession(
-    databaseId: string,
-    intent: Types.DatabaseSessionIntent,
-  ): Promise<{ session: Types.DatabaseSession; client: LastDbClient<string> }> {
-    const session = await this.issueDatabaseSession(databaseId, intent);
-    return { session, client: this.select(session.databaseId, { databaseSession: session.session }) };
-  }
-
-  /** Return a client bound to `databaseId` (and optional `databaseSession`) without mutating `this`. */
-  select(databaseId: string, options: Types.SelectDatabaseOptions = {}): LastDbClient<string> {
-    return new LastDbClient(this.appId, this.baseTransport, {
-      databaseId,
-      databaseSession: options.databaseSession,
-    });
+  /**
+   * Return a client bound to `databaseId` without mutating `this`.
+   * Schema list, schema get, `submitProposal`, and `getShareSubmissionStatus` use it.
+   * `read`, `write`, and `changes` do not: name `database` on each item.
+   */
+  select(databaseId: string): LastDbClient<string> {
+    return new LastDbClient(this.appId, this.baseTransport, { databaseId });
   }
 }
 
@@ -259,11 +219,6 @@ export interface OwnerClientOptions<DatabaseId extends string | undefined = unde
   appId: string;
   /** Database ID or local alias. Omit for the personal default. */
   databaseId?: DatabaseId;
-  /**
-   * Short-lived owner-approved database session token (`X-LastDB-Database-Session`).
-   * Requires `databaseId`. Keep session tokens out of logs.
-   */
-  databaseSession?: string;
   /** Best-effort client label (`X-LastDB-Client`). Defaults to `appId`. */
   clientId?: string;
   /** Control-socket path. The file must exist. */
@@ -289,6 +244,5 @@ export function ownerClient<DatabaseId extends string | undefined = undefined>(
   const transport = udsTransport(socketPath, headers, { timeoutMs });
   return new LastDbClient(options.appId, transport, {
     databaseId: options.databaseId,
-    databaseSession: options.databaseSession,
   });
 }

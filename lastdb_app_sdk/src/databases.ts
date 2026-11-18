@@ -1,12 +1,11 @@
 /**
  * Canonical API routes, database-scope path builders, and owner-socket database
- * catalog, creation, spec binding, and session issuance.
+ * catalog, creation, and spec binding.
  */
 
 import { RequestRejectedError, UnexpectedResponseError } from './errors.js';
 import { isObject, sendJsonObject } from './responseParsers.js';
 import type { Transport } from './transport.js';
-import type { DatabaseSession, DatabaseSessionIntent } from './types.js';
 
 /** Canonical LastDB runtime API route strings used by the SDK. */
 export const LASTDB_API_ROUTES = {
@@ -23,9 +22,7 @@ export const LASTDB_API_ROUTES = {
   databasesSpec: '/api/databases/spec',
   /** Owner socket signed-log share invitation acceptance endpoint. */
   databasesAccept: '/api/databases/accept',
-  /** Owner socket short-lived database session issuance endpoint. */
-  databasesSession: '/api/databases/session',
-  /** The client↔node compatibility handshake. Admitted on all sessions. */
+  /** The client↔node compatibility handshake. */
   version: '/api/version',
 } as const;
 
@@ -177,45 +174,6 @@ export async function bindNodeDatabaseSpec(
     { body: { id: databaseId, spec } },
   );
   return parseListedDatabase(body['database']);
-}
-
-/**
- * `POST /api/databases/session` — issue an owner-approved short-lived session
- * restricted to `databaseId` and `intent` (`'read'` or `'write'`).
- */
-export async function issueNodeDatabaseSession(
-  transport: Transport,
-  databaseId: string,
-  intent: DatabaseSessionIntent,
-  appId = 'lastdb-sdk',
-): Promise<DatabaseSession> {
-  validateDatabaseSelector(databaseId);
-  if (intent !== 'read' && intent !== 'write') {
-    throw new RequestRejectedError(
-      'invalid_request',
-      'database session intent must be read or write',
-    );
-  }
-  const body = await sendJsonObject(
-    transport,
-    'POST',
-    LASTDB_API_ROUTES.databasesSession,
-    'database session',
-    appId,
-    { body: { databaseId, intent }, redactBody: true },
-  );
-  const session = body['session'];
-  const expiresInSeconds = body['expiresInSeconds'];
-  if (
-    typeof session !== 'string' ||
-    session.length === 0 ||
-    typeof expiresInSeconds !== 'number' ||
-    !Number.isSafeInteger(expiresInSeconds) ||
-    expiresInSeconds <= 0
-  ) {
-    throw new UnexpectedResponseError('database session returned an invalid token envelope', 200, null);
-  }
-  return { databaseId, intent, session, expiresInSeconds };
 }
 
 function buildCreateBody(request: CreateDatabaseRequest): CreateDatabaseRequest {

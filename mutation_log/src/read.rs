@@ -1,12 +1,12 @@
 use crate::{
-    BoundPolicy, Capability, DatabaseKind, Grant, LogError, LogState, PrincipalId, Stamp,
+    BoundPolicy, Capability, DatabaseKind, Grant, LogError, LogRole, LogState, PrincipalId, Stamp,
     StoredEntry, LIST_PAGE_LIMIT,
 };
 
 /// Head a reader is allowed to see.
 ///
-/// `cursor` is the log head's delivery sequence. `stamp` is the last entry
-/// this reader can see, and it is absent when every stored entry is hidden.
+/// `cursor` is the log head's delivery sequence. `stamp` is the last entry of
+/// this database. It is absent when the log has no such entry.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ScopedHead {
     /// Log head delivery sequence. Hidden entries do not move it backward.
@@ -18,70 +18,40 @@ pub struct ScopedHead {
 /// One page of entries the reader may see, in delivery order.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ListPage {
-    /// Visible entries, oldest first.
+    /// Entries of this database, oldest first.
     pub entries: Vec<StoredEntry>,
-    /// Last delivery sequence scanned, including entries this reader cannot see.
+    /// Last delivery sequence scanned.
     ///
-    /// The next call passes this value as `after`, so hidden entries are covered.
-    /// Unchanged when nothing after `after` was scanned.
+    /// The next call passes this value as `after`. An entry for another
+    /// database is scanned and not returned. Unchanged when nothing after
+    /// `after` was scanned.
     pub next: u64,
 }
 
-fn entry_visible(
-    database: &LogState,
-    stored: &StoredEntry,
-    reader: &PrincipalId,
-    policy: &BoundPolicy,
-) -> bool {
-    let entry = &stored.entry;
-    if entry.database_id != database.database_id {
-        return false;
-    }
-    match &database.kind {
-        DatabaseKind::Personal => holds_owner(database, reader),
-        DatabaseKind::Shareable { publisher } => {
-            policy.allows_in_share(&entry.namespace)
-                && share_visible(database, stored, reader, publisher, policy)
-        }
-    }
-}
-
-/// Mutation-log visibility.
+/// An entry of this log.
 ///
-/// The publisher sees every entry. Anyone else needs Receive, Submit, or
-/// `read: anyone`. That reader then sees an entry the publisher wrote, or an
-/// entry stored with [`StoredEntry::direct_write`]. The current settings and
-/// the writer's current role are not part of this choice.
-fn share_visible(
-    database: &LogState,
-    stored: &StoredEntry,
-    reader: &PrincipalId,
-    publisher: &PrincipalId,
-    policy: &BoundPolicy,
-) -> bool {
-    if reader == publisher {
-        return true;
-    }
-    let can_read = holds_receive(database, reader)
-        || holds_submit(database, reader)
-        || policy.share().reads_without_grant();
-    if !can_read {
-        return false;
-    }
-    &stored.entry.writer.key == publisher || stored.direct_write
+/// A reader who passed [`LogState::reader_allowed`] is served every entry
+/// whose database id is this log. The writer is not a filter. Namespace
+/// admission is an append rule, not a read filter.
+fn entry_in_log(database: &LogState, stored: &StoredEntry) -> bool {
+    stored.entry.database_id == database.database_id
 }
 
 impl LogState {
     /// Whether this key may call list or head.
     ///
     /// `policy` is the caller's share settings. The default does not change
-    /// this check. `read: anyone` also allows a caller that holds no grant.
-    /// That caller still cannot append.
+    /// the mutation log. `read: anyone` also allows a caller that holds no
+    /// grant on that log. That caller still cannot append.
+    ///
+    /// The proposal log is listed by the publisher only.
     #[must_use]
     pub fn reader_allowed(&self, principal: &PrincipalId, policy: &BoundPolicy) -> bool {
-        match &self.kind {
-            DatabaseKind::Personal => holds_owner(self, principal),
-            DatabaseKind::Shareable { publisher } => {
+        match (&self.kind, self.role) {
+            (DatabaseKind::Personal, LogRole::Mutation) => holds_owner(self, principal),
+            (DatabaseKind::Personal, LogRole::Proposal) => false,
+            (DatabaseKind::Shareable { publisher }, LogRole::Proposal) => principal == publisher,
+            (DatabaseKind::Shareable { publisher }, LogRole::Mutation) => {
                 principal == publisher
                     || holds_receive(self, principal)
                     || holds_submit(self, principal)
@@ -135,7 +105,7 @@ impl LogState {
         if !self.reader_allowed(reader, policy) {
             return Err(LogError::Unauthorized);
         }
-        Ok(scoped_head(self, reader, policy))
+        Ok(scoped_head(self))
     }
 
     /// List visible entries after the caller's position.
@@ -152,7 +122,7 @@ impl LogState {
         if !self.reader_allowed(reader, policy) {
             return Err(LogError::Unauthorized);
         }
-        Ok(page(self, reader, after, limit, policy))
+        Ok(page(self, after, limit))
     }
 }
 
@@ -219,24 +189,18 @@ pub(crate) fn holds_submit(database: &LogState, principal: &PrincipalId) -> bool
         .any(|grant| grant.principal == *principal && grant.capability == Capability::Submit)
 }
 
-fn scoped_head(state: &LogState, reader: &PrincipalId, policy: &BoundPolicy) -> Option<ScopedHead> {
+fn scoped_head(state: &LogState) -> Option<ScopedHead> {
     let cursor = state.head.as_ref().map(|head| head.delivery_seq)?;
     let mut stamp = None;
     for stored in &state.entries {
-        if entry_visible(state, stored, reader, policy) {
+        if entry_in_log(state, stored) {
             stamp = Some(stored.merge_stamp());
         }
     }
     Some(ScopedHead { cursor, stamp })
 }
 
-fn page(
-    state: &LogState,
-    reader: &PrincipalId,
-    after: u64,
-    limit: usize,
-    policy: &BoundPolicy,
-) -> ListPage {
+fn page(state: &LogState, after: u64, limit: usize) -> ListPage {
     let mut entries = Vec::new();
     let mut next = after;
     for stored in &state.entries {
@@ -244,7 +208,7 @@ fn page(
             continue;
         }
         next = stored.delivery_seq;
-        if !entry_visible(state, stored, reader, policy) {
+        if !entry_in_log(state, stored) {
             continue;
         }
         entries.push(stored.clone());

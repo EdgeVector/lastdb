@@ -55,12 +55,11 @@ export class UnexpectedResponseError extends LastDbError {
   }
 }
 
-/** Posture/namespace/session denial category (`403`). */
+/** Posture or namespace denial category (`403`). */
 export type PermissionCategory =
   | 'namespace_denied'
   | 'unverified_identity'
   | 'write_denied'
-  | 'session_denied'
   | 'unknown';
 
 export class PermissionDeniedError extends LastDbError {
@@ -87,13 +86,9 @@ export function classifyPermissionReason(reason: string): PermissionCategory {
   if (
     r.includes('write denied by namespace isolation') ||
     r.includes('this share is read-only') ||
-    r.includes('permits local read sessions only') ||
     r.includes('unavailable on a received database')
   ) {
     return 'write_denied';
-  }
-  if (r.includes('database session refused')) {
-    return 'session_denied';
   }
   return 'unknown';
 }

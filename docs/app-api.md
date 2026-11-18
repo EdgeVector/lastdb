@@ -46,7 +46,7 @@ POST /v1/read
   otherwise, and at most 1000. Follow `next_cursor` until it is null for all of
   them. It takes no `via`, no `file`, and no `file_dir`. An app that keeps
   something derived from a schema uses it to build and to rebuild.
-- `database` selects a database. With no database session, omitting it uses the personal database. On a request that carries `X-LastDB-Database-Session`, omitting it addresses that session's database. An item that names a different database is `permission_denied` and its message is `a database session addresses only its own database`. The read still returns one result per item.
+- `database` selects a database. Omit it to use the personal database. The read still returns one result per item.
 - A received database uses the same request and the same reply as an owned database: a keyed read, a range, `keys_only`, paging, and `via`. The node reads the receiver store. `via` uses that store's alternate keys. An alternate the schema does not declare is the same error as on an owned database.
 - The received snapshot must already be durable. Until sync has stored that marker, the read item is `busy` and its message is `database snapshot is not durable`. If the receiver store cannot be opened, the message is `database store is unavailable`.
 - An unknown identifier is `not_found`. Its message is `database is not registered on this node`. A registration that is not a signed log gets that same message. A bad identifier is `invalid_request` and its message is `invalid database identifier`.
@@ -77,8 +77,7 @@ Every write carries a condition, so two writers cannot overwrite each other with
 - `index` is the zero-based position of the first mutation whose condition failed. `reason` is `exists` when a `create` finds a record at the key, `absent` when a `replace` or a `delete` finds no record, or `revision` when the record is at another revision.
 - `{ "error": { "code": "conflict", "message": "mutation 1: the record is at another revision", "index": 1, "reason": "revision" } }`
 - A schema that declares alternate keys takes their addresses in `alternates` on a `create` and a `replace`.
-- The list is all or nothing. Every mutation in one list names the same database.
-- A database session follows the same database rule. Omitting `database` addresses the session's database. An item that names a different database refuses the list with `permission_denied`, that item's `index`, and the message `a database session addresses only its own database`. A read session cannot call this route. The node answers 403 with the text `database session refused`.
+- The list is all or nothing. Every mutation in one list names the same database. Omit `database` to use the personal database.
 - A write that names a received database is refused. The status is 403 and the code is `permission_denied`. The message is `a received database is read only`. An unknown identifier is `not_found` with the message `database is not registered on this node`. A receiver does not use this route for a proposal. The proposal route is on the owner socket. See Sharing.
 - The reply comes after the write is on disk. `revisions` holds the new revision of each record, in order.
 
@@ -150,8 +149,7 @@ POST /v1/x/changes
 - The app saves `through` as its new position. When `id` differs from the one it
   saved, or `gap` is true, it rebuilds from key pages.
 - The owner uses the same `POST /v1/x/changes` call.
-- `POST /v1/x/changes` does not serve a received database. That request is `not_found` and its message is `a received database is not served by /v1/x/changes`. The node does not open the receiver store. An unknown identifier is `not_found` with the message `database is not registered on this node`.
-- A database session cannot call this route. The node answers 403 with the text `database session refused`.
+- `POST /v1/x/changes` does not serve a received database. That request is `not_found` and its message is `a received database is not served by /v1/x/changes`. The node does not open the receiver store. An unknown identifier is `not_found` with the message `database is not registered on this node`. Omit `database` to use the personal database.
 
 ### databases
 
@@ -194,7 +192,7 @@ POST /v1/x/databases
 - An app that did not declare `databases` is `permission_denied`. The message is `the app {id} did not declare the extension databases`. The node checks this before it reads the body. An unknown `action` is `invalid_request` and the message is `unknown action {action}`. An unknown field is `unknown field {name}`. A missing or empty required string is `{name} is required`. A value of another type is `{name} must be a string`, or `must be an object`, or `must be a boolean`.
 - A success reply is the owner route's JSON, including the status. A refusal uses the app API error object. Status 402 becomes 403 `permission_denied` and keeps the payment message. A share error uses its `message`, or else its `reason`, or else a sentence: `share_revision_conflict` is 409 `conflict` and the message is `the share configuration is at another revision`; `share_configuration_unconfirmed` is 503 `busy` and the message is `share configuration is not confirmed`; `invalid_share_configuration` keeps the `reason` text as 400 `invalid_request`.
 - Record reads and writes in a named database stay on `/v1/read` and `/v1/write` under the app's schema grants. This extension adds none.
-- The call does not serve backup, cloud, status, registration, members, spec binding, or a database session. A database session on the owner socket is refused before this handler. The answer is HTTP 403 and the text `database session refused`, the same as `changes`.
+- The call does not serve backup, cloud, status, registration, members, or spec binding.
 - The app socket does not serve `POST /api/databases/{id}/apps/declare-schema`. An app places a schema with `declare_schema`.
 
 ## Errors
@@ -504,7 +502,6 @@ Idempotency-Key: <uuid>
 - An owned database, including the owner's own database, answers `404` with the text `this database has no received submissions`. An unknown id answers `404` with the text `database is not registered on this node`. A share that is not a whole database answers `403` with the text `this share is read-only`.
 - A missing or invalid `Idempotency-Key` answers `400` with the text `a shared write requires a UUID Idempotency-Key`. A document the node cannot parse answers `400` with the text `invalid shared mutation or schema definition`. A receiver that is not active answers `403` with the text `this member cannot submit this shared mutation`.
 - A snapshot that is not durable answers `503` with the text `database snapshot is not durable`. An append the node cannot confirm answers `503` with the text `shared mutation was not confirmed`.
-- A database session may call this route only when the session is a write session. A read session is refused before the handler. The owner socket with no session header may call it.
 - `GET` on this path is not served. The status call beside it is `POST /api/databases/{id}/submissions/status` with `{ "mutationId": "<uuid>" }`. Its answer is `submitted`, `published`, `discarded`, or `unknown`.
 - `/v1/write` to a received database stays refused with `a received database is read only`.
 

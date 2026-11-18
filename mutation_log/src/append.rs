@@ -1,6 +1,7 @@
 use crate::{
-    AppendBatch, BoundPolicy, DatabaseKind, Entry, LogError, LogState, ShareWrite, StoredEntry,
-    Writer, APPEND_BATCH_LIMIT,
+    read::{holds_owner, holds_submit},
+    AppendBatch, BoundPolicy, DatabaseKind, Entry, LogError, LogRole, LogState, ShareWrite,
+    StoredEntry, Writer, APPEND_BATCH_LIMIT,
 };
 
 /// Result of an append that did not fail.
@@ -22,19 +23,34 @@ pub enum AppendOutcome {
 }
 
 impl LogState {
-    fn authorize_append(&self, writer: &Writer) -> Result<(), LogError> {
-        let allowed = match &self.kind {
-            DatabaseKind::Personal => crate::read::holds_owner(self, &writer.key),
-            DatabaseKind::Shareable { publisher } => {
-                // `read` does not grant an append. The service chooses the log.
-                // An active Submit holder may append to the log this call names.
-                &writer.key == publisher || crate::read::holds_submit(self, &writer.key)
+    /// The log this writer may append to under the settings in force.
+    ///
+    /// [`LogRole`] on this value is not an input. The grants and the kind are.
+    /// A personal database names the mutation log for an owner. On a shareable
+    /// database the publisher names the mutation log. An active Submit holder
+    /// names the mutation log while `write` is `direct`, and the proposal log
+    /// while `write` is `proposals`. `read` does not grant an append.
+    pub fn append_log(&self, writer: &Writer, policy: &BoundPolicy) -> Result<LogRole, LogError> {
+        match &self.kind {
+            DatabaseKind::Personal => {
+                if holds_owner(self, &writer.key) {
+                    Ok(LogRole::Mutation)
+                } else {
+                    Err(LogError::Unauthorized)
+                }
             }
-        };
-        if allowed {
-            Ok(())
-        } else {
-            Err(LogError::Unauthorized)
+            DatabaseKind::Shareable { publisher } => {
+                if &writer.key == publisher {
+                    return Ok(LogRole::Mutation);
+                }
+                if !holds_submit(self, &writer.key) {
+                    return Err(LogError::Unauthorized);
+                }
+                Ok(match policy.share().write() {
+                    ShareWrite::Direct => LogRole::Mutation,
+                    ShareWrite::Proposals => LogRole::Proposal,
+                })
+            }
         }
     }
 
@@ -62,44 +78,49 @@ impl LogState {
     /// An exact re-append is a duplicate once in total. A different payload
     /// on a stored submission is [`LogError::Conflict`].
     ///
-    /// A fresh entry on a shareable log is stored with
-    /// [`StoredEntry::direct_write`] when `policy` says [`ShareWrite::Direct`]
-    /// and the writer is not the publisher. The caller cannot set that mark.
-    /// A duplicate leaves the mark already stored.
+    /// A duplicate leaves the stored entry as it is.
+    ///
+    /// This is the mutation log. A [`LogRole::Proposal`] value is refused.
+    /// On a shareable database the publisher may append. An active Submit
+    /// holder may append only while `write` is `direct`. While `write` is
+    /// `proposals`, [`Self::append_log`] names the proposal log and this
+    /// method refuses that holder.
     pub fn append(
         &self,
         batch: &AppendBatch,
         policy: &BoundPolicy,
     ) -> Result<(Self, AppendOutcome), LogError> {
-        check_batch(self, batch, policy)?;
-        let last = self.tips.get(&batch.writer).copied().unwrap_or(0);
-        confirm_repeats(self, batch, last)?;
-        let seqs: Vec<u64> = batch.entries.iter().map(|entry| entry.writer_seq).collect();
-        let start = classify_seqs(last, &seqs)?;
-        if start == seqs.len() {
-            return Ok((self.clone(), duplicate_outcome(last)?));
+        if self.role != LogRole::Mutation {
+            return Err(LogError::Unauthorized);
         }
-        require_fresh(self, batch, start)?;
-        if fresh_is_repeat(self, batch, start)? {
-            return Ok((self.clone(), duplicate_outcome(last)?));
+        if self.append_log(&batch.writer, policy)? != LogRole::Mutation {
+            return Err(LogError::Unauthorized);
         }
-        ensure_delivery_room(self, seqs.len() - start)?;
-        let direct_write = member_direct_write(self, &batch.writer, policy);
-        Ok(commit(self, batch, start, direct_write))
+        store(self, batch, policy)
     }
-}
 
-/// True when a non-publisher writer appends to a shareable log under `write: direct`.
-///
-/// The publisher's own entries stay unmarked. They are visible because the
-/// writer is the publisher. The service appends that member write to the
-/// mutation log. The same `append` on the proposal log would mark those
-/// entries too.
-fn member_direct_write(state: &LogState, writer: &Writer, policy: &BoundPolicy) -> bool {
-    let DatabaseKind::Shareable { publisher } = &state.kind else {
-        return false;
-    };
-    policy.share().write() == ShareWrite::Direct && writer.key != *publisher
+    /// Apply one batch to the proposal log.
+    ///
+    /// The publisher or an active Submit holder may append. `write` is not
+    /// read here. Call this when [`Self::append_log`] returns
+    /// [`LogRole::Proposal`]. A [`LogRole::Mutation`] value is refused.
+    /// A personal database is refused.
+    pub fn append_proposal(
+        &self,
+        batch: &AppendBatch,
+        policy: &BoundPolicy,
+    ) -> Result<(Self, AppendOutcome), LogError> {
+        if self.role != LogRole::Proposal {
+            return Err(LogError::Unauthorized);
+        }
+        let DatabaseKind::Shareable { publisher } = &self.kind else {
+            return Err(LogError::PersonalNotShareable);
+        };
+        if &batch.writer.key != publisher && !holds_submit(self, &batch.writer.key) {
+            return Err(LogError::Unauthorized);
+        }
+        store(self, batch, policy)
+    }
 }
 
 fn check_batch(
@@ -113,7 +134,6 @@ fn check_batch(
     if batch.entries.len() > APPEND_BATCH_LIMIT {
         return Err(LogError::BatchTooLarge);
     }
-    state.authorize_append(&batch.writer)?;
     for entry in &batch.entries {
         check_entry(state, batch, entry, policy)?;
     }
@@ -276,12 +296,28 @@ fn require_submission(state: &LogState, entry: &Entry) -> Result<(), LogError> {
     }
 }
 
-fn commit(
+fn store(
     state: &LogState,
     batch: &AppendBatch,
-    start: usize,
-    direct_write: bool,
-) -> (LogState, AppendOutcome) {
+    policy: &BoundPolicy,
+) -> Result<(LogState, AppendOutcome), LogError> {
+    check_batch(state, batch, policy)?;
+    let last = state.tips.get(&batch.writer).copied().unwrap_or(0);
+    confirm_repeats(state, batch, last)?;
+    let seqs: Vec<u64> = batch.entries.iter().map(|entry| entry.writer_seq).collect();
+    let start = classify_seqs(last, &seqs)?;
+    if start == seqs.len() {
+        return Ok((state.clone(), duplicate_outcome(last)?));
+    }
+    require_fresh(state, batch, start)?;
+    if fresh_is_repeat(state, batch, start)? {
+        return Ok((state.clone(), duplicate_outcome(last)?));
+    }
+    ensure_delivery_room(state, seqs.len() - start)?;
+    Ok(commit(state, batch, start))
+}
+
+fn commit(state: &LogState, batch: &AppendBatch, start: usize) -> (LogState, AppendOutcome) {
     let mut next = state.clone();
     let mut delivery = next.head.as_ref().map_or(0, |head| head.delivery_seq);
     let mut delivery_seqs = Vec::new();
@@ -294,7 +330,6 @@ fn commit(
             delivery_seq: delivery,
             accepted_at_ms: batch.accepted_at_ms,
             entry: entry.clone(),
-            direct_write,
         };
         next.head = Some(crate::Head {
             delivery_seq: delivery,
