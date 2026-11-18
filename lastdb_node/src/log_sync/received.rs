@@ -74,10 +74,6 @@ impl AccessView {
             stale: true,
         }
     }
-
-    pub(crate) fn can_submit(&self) -> bool {
-        !self.stale && self.state == AccessState::Active
-    }
 }
 
 pub(super) async fn turn(host: &Arc<Host>) -> Pause {

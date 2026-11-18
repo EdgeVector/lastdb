@@ -182,11 +182,30 @@ pub mod record_replacement {
         Revision { revision: String },
     }
 
+    /// Map entries only the node may write. An older build accepts any map entry.
+    pub const CREATED_BY_META_KEY: &str = "created_by";
+    pub const UPDATED_BY_META_KEY: &str = "updated_by";
+
     #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
     #[serde(deny_unknown_fields)]
     pub struct RecordMetadata {
         pub source_file_name: Option<String>,
         pub metadata: BTreeMap<String, String>,
+    }
+
+    impl RecordMetadata {
+        #[must_use]
+        pub fn is_reserved_author_key(key: &str) -> bool {
+            key == CREATED_BY_META_KEY || key == UPDATED_BY_META_KEY
+        }
+
+        /// Drop `created_by` and `updated_by`. A copied map must not keep them.
+        #[must_use]
+        pub fn drop_reserved_authors(mut self) -> Option<Self> {
+            self.metadata
+                .retain(|key, _| !Self::is_reserved_author_key(key));
+            (self.source_file_name.is_some() || !self.metadata.is_empty()).then_some(self)
+        }
     }
 
     #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

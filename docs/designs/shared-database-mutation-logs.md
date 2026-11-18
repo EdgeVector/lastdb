@@ -2,11 +2,11 @@
 
 ## Decided state
 
-Tom decided this on 2026-11-18, and corrected it the same day.
+Tom decided this on 2026-11-18, and corrected it the same day. Later the same day he decided that the mutation log is the database: a reader is served every entry in it, and ExeMem is the single place that decides who may append and what that reader is served.
 
-The **mutation log** is the log every database has. A personal database already has one under that name. A shared database has the same log. The name is not "the publisher's log" or "the published log", because those names assume only the publisher writes it. While `write` is `direct`, an active member with the Submit role can write it too.
+The **mutation log** is the log every database has. A personal database already has one under that name. A shared database has the same log. The name is not "the publisher's log" or "the published log", because those names assume only the publisher writes it. While `write` is `direct`, an active member with the Submit role can write it too. Every entry in the mutation log is part of the database.
 
-The **proposal log** is the other log of a shared database. Members append to it only while `write` is `proposals`. Entries already there stay until the publisher settles them. The publisher can list and settle that log under any setting. Changing `read` or `write` does not delete the log, refuse the change, or rewrite an entry already stored.
+The **proposal log** is the other log of a shared database. An active member with the Submit role appends to it while `write` is `proposals`. A member's proposal goes only to that log. Entries already there stay until the publisher settles them. The publisher can list and settle that log under any setting. Changing `read` or `write` does not delete the log, refuse the change, or rewrite an entry already stored.
 
 Tom, 2026-11-18: "The different database types of sharing should just be Exemem configurations. It shouldn't care what the underlying is."
 
@@ -14,63 +14,75 @@ Tom, 2026-11-18: "from Exemem's point of view: it shouldn't know whether it's sh
 
 Tom, 2026-11-18: "Let's go with mutation log and proposal log."
 
-One sharing mechanism. Two settings per database. ExeMem stores them and enforces them. The underlying database does not change with the settings. The settings do not name Share, Deliver, or Org.
+Tom, 2026-11-18: ExeMem is the one that serves a member only the logs that member should have. A member's node receives every entry ExeMem serves and does not reject one because of who wrote it. ExeMem is the single point of trust and the single configuration.
 
-`read` is `members` or `anyone`. It says who may read the mutation log, the snapshot, and file ranges. `members` means an active member. `anyone` means a caller with no grant reads what a member reads and cannot append.
+One sharing mechanism. Two settings per database, plus the per-schema member-write map below. ExeMem stores the statement and enforces `read` and `write`. ExeMem does not interpret the map. The underlying database does not change with the settings.
 
-`write` is `proposals` or `direct`. It says where an append by a member with the Submit role goes from now on. `proposals` means the proposal log. `direct` means the mutation log, recorded as a direct write. A publisher may change either setting at any time, in any direction, any number of times.
+`read` is `members` or `anyone`. It says who may read the mutation log, the snapshot, and file ranges. `members` means an active member. `anyone` means a caller with no grant reads what a member reads and cannot append. A caller who may read is served every entry in the mutation log. The writer's identity does not hide an entry. The current settings do not hide an entry that is already stored.
 
-Share, Deliver, and Org are names people use for three combinations. No rule depends on a combination, or on what either log already holds. `read: anyone` together with `write: direct` is valid.
+`write` is `proposals` or `direct`. It says where an append by a member with the Submit role goes from now on. `proposals` means the proposal log. `direct` means the mutation log. The publisher may always append to the mutation log. An active Submit holder may append to the mutation log only while `write` is `direct`. While `write` is `proposals`, the log model refuses a non-publisher append to the mutation log. There is no older path that appends a member's proposal to the mutation log when the proposal log has no head yet. A publisher may change either setting at any time, in any direction, any number of times.
 
-| Name | read | write | What the name refers to |
-| --- | --- | --- | --- |
-| Share (the default; also when no settings exist) | `members` | `proposals` | Members read. A Submit member appends to the proposal log. The publisher writes the mutation log. |
-| Deliver | `anyone` | `proposals` | A caller with no member entry reads, and holds the read key from a link. A Submit member still appends to the proposal log while `write` is `proposals`. There may be no such member. |
-| Org | `members` | `direct` | Members read. A Submit member appends to the mutation log. ExeMem checks only that the member may write. Order is the order ExeMem assigns at append. |
+No rule depends on a combination of the two settings, or on what either log already holds. `read: anyone` together with `write: direct` is valid.
 
-The table is examples of the names. It is not the list of valid pairs, and it does not say which logs exist.
-
-In every case only the publisher publishes a snapshot. A receiver (a member, or an open-link reader) fetches the snapshot and replays the mutation log on top, in the same way that multi-device works.
-
-### The direct-write mark
-
-An entry a member appends to the mutation log while `write` is `direct` is a direct write. The mark is `StoredEntry.direct_write` in `mutation_log`. Append sets it from the settings on that call. The caller does not supply it. `Entry` has no such field. The list wire the node parses, `EntryBody`, has no such field either, and it still rejects an unknown field. An entry stored before the mark, and an entry whose stored mark is absent, reads as not a direct write.
-
-A reader who is not the publisher sees an entry when the publisher wrote it, or when the stored mark is set. The current settings and the writer's current role play no part in that. An entry with no mark that the publisher did not write stays hidden under every setting. The publisher still sees every entry in the log.
-
-The service persists the boolean with the entry it stores. It restores that boolean when it builds a `StoredEntry`. It does not put the boolean on the list or head JSON. It does not recompute the mark from the settings in force at read time.
+In every case only the publisher publishes a snapshot. A receiver (a member, or an open-link reader) fetches the snapshot and replays the mutation log on top, in the same way that multi-device works. The member's node applies every entry it is served.
 
 <a id="requirements-to-preserve"></a>
 
 ## What each setting means
 
-ExeMem stores one publisher-signed settings statement per shared database. The statement has `read` and `write`. The stored spellings are `members` or `anyone`, and `proposals` or `direct`. No stored statement is the Share row. The publisher signs the statement. ExeMem uses it for transport. The publisher's LastDB uses the confirmed configuration on the publisher's machine when it checks a proposal. A change of either setting is the next sequence number and a different pair. The logs' contents are not an input to that check.
+ExeMem stores one publisher-signed settings statement per shared database. The statement has `read`, `write`, and `member_writes`. The stored spellings are `members` or `anyone`, and `proposals` or `direct`. The publisher signs the statement. ExeMem uses `read` and `write` for transport and stores the map without interpreting it. The publisher's LastDB uses the confirmed configuration on the publisher's machine when it checks a proposal. A change of `read`, `write`, or the map is the next sequence number. Repeating all three is refused. The logs' contents are not an input to that check.
 
-### Share
+### `members` and `proposals`
 
-This row is the default. A database with no settings follows it. The requirements below hold for this row.
+This pair is the default. A database with no settings follows it. The requirements below hold for this pair.
 
-- A personal database has one log, the mutation log. A Share database has exactly two logs under one database ID: the mutation log and the proposal log. Their positions are independent. Do not delete either log, combine them, or keep a mixed-log path. There is no compatibility with a retired log format.
-- Every active member can read the mutation-log entries the visibility rule shows, and can append an encrypted proposal, even with an empty write grant. Members follow only the mutation log. Only the publisher can read or settle the proposal log, including an entry from a member who asks for their own. A member cannot read that entry.
+- A personal database has one log, the mutation log. A shared database has exactly two logs under one database ID: the mutation log and the proposal log. Their positions are independent. Do not delete either log, combine them, or keep a mixed-log path. There is no compatibility with a retired log format.
+- Every active member can read every entry in the mutation log, and can append an encrypted proposal, even with an empty write grant. Members follow only the mutation log. Only the publisher can read or settle the proposal log, including an entry from a member who asks for their own. A member cannot read that entry.
 - Keep the publisher-signed configuration for each database, including its revision, member identities, active or revoked state, and schema write grants. ExeMem checks active membership for transport. The publisher's LastDB checks every downloaded and decrypted proposal against the confirmed configuration on its machine. An app's displayed permissions grant no write authority.
 - Keep check, local commit, append to the mutation log, and settlement in that order. A denied or invalid proposal produces no mutation-log entry. For an accepted proposal, the publisher appends the committed change to the mutation log under the publisher's key before marking the proposal-log entry processed. LastDB decides when stored entries and retry records are safe to retire. A queue receipt confirms delivery to the proposal log.
 - The publisher's authenticated settlement authorizes ExeMem to remove the original encrypted proposal from the proposal log. Retain the identity needed for an exact append retry and any outcome the publisher supplied. Settlement preserves both logs, their positions, and the publisher's accepted record history.
 
 On this pair, ExeMem admits a member read of the mutation log and a member append to the proposal log. Only the publisher appends to the mutation log. Only the publisher lists and settles the proposal log.
 
-The publisher's node downloads the proposal log, decrypts each entry, checks the sender's current schema grant and the record rules, commits an accepted change locally, and appends that change to the mutation log. A member's node reads the mutation log and appends proposals. It does not read the proposal log.
+The publisher's node downloads the proposal log, decrypts each entry, checks the sender's current schema grant and the record rules, commits an accepted change locally, and appends that change to the mutation log. A member's node reads the mutation log and appends proposals. It applies every mutation-log entry it is served. It does not read the proposal log.
 
-### Deliver
+### `read: anyone`
 
-This name means `read` `anyone` and `write` `proposals`. There is no third write spelling. `anyone` lets a caller with no member entry read what a member reads, and that caller cannot append. The reader holds the read key from a link. While `write` is `proposals`, a Submit member still appends to the proposal log. A Deliver database may have no such member. Entries already in the proposal log stay until the publisher settles them.
+There is no third write spelling. `anyone` lets a caller with no member entry read what a member reads, and that caller cannot append. The reader holds the read key from a link. While `write` is `proposals`, a Submit member still appends to the proposal log. The database may have no such member. Entries already in the proposal log stay until the publisher settles them.
 
-The reader's node fetches the publisher's snapshot and replays the mutation log. It does not append.
+The reader's node fetches the publisher's snapshot and replays the mutation log. It applies every entry it is served. It does not append.
 
-### Org
+### `write: direct`
 
-This name means `read` `members` and `write` `direct`. An active member with the Submit role appends to the mutation log. Append records `direct_write` on that stored entry. ExeMem checks only that the member may write. It does not check the mutation the way the publisher checks a proposal. Order is the order ExeMem assigns at append. Entries already in the proposal log stay until the publisher settles them.
+An active member with the Submit role appends to the mutation log. ExeMem checks only that the member may write. It does not check the mutation the way the publisher checks a proposal. Order is the order ExeMem assigns at append. Entries already in the proposal log stay until the publisher settles them.
 
-A member node with Submit appends straight to the mutation log while `write` is `direct`. Readers see the publisher's entries and the entries marked at append. The publisher still publishes the snapshot.
+A member node with Submit appends straight to the mutation log while `write` is `direct`. A reader who may read is served that entry with every other entry in the mutation log. The publisher still publishes the snapshot.
+
+### Examples an app might choose
+
+The names below are examples of configurations an app might choose. No rule depends on a name.
+
+| Name | read | write | What the name refers to |
+| --- | --- | --- | --- |
+| Share (the default; also when no settings exist) | `members` | `proposals` | Members read every mutation-log entry. A Submit member appends to the proposal log. The publisher writes the mutation log. |
+| Deliver | `anyone` | `proposals` | A caller with no member entry reads every mutation-log entry, and holds the read key from a link. A Submit member still appends to the proposal log while `write` is `proposals`. There may be no such member. |
+| Org | `members` | `direct` | Members read every mutation-log entry. A Submit member appends to the mutation log. ExeMem checks only that the member may write. Order is the order ExeMem assigns at append. |
+
+## Member write behaviours
+
+What a member may do to the records of each schema is a setting of the database. The schema's author does not set it, and it is not set per member. The settings statement carries it as `member_writes`: a map from a canonical schema name, such as `social/Comment`, to one behaviour.
+
+- `owner_only`. A member cannot write records of this schema. A schema that is not in the map has this behaviour. An empty map means every schema is `owner_only`.
+- `own_records`. A member with write access may create a record, and may replace or delete a record only when that member created it.
+- `shared`. A member with write access may create, replace, and delete any record.
+
+The map lives in the one settings statement ExeMem already stores for the database. ExeMem stores the statement and does not interpret the map. It cannot read the entries. The publisher's LastDB enforces the map when it checks a proposal.
+
+While `write` is `direct` there is no proposal check. No third party enforces the map on that path. The map is a statement of intent for apps.
+
+An empty map is valid, and it is what an absent `member_writes` field means. The signed digest omits an empty map, so a statement stored before this field still verifies. A successor is unchanged only when `read`, `write`, and the map are all the same. A change of only the map is a real change.
+
+The map holds at most 256 names. A name is non-empty and at most 128 bytes. `ShareWriteScope::Named` does not cap the byte length. It rejects an empty name, leading or trailing whitespace, and a control character. This map uses that check and adds the 128-byte cap. The largest settings set request those bounds accept is 70,635 bytes. The control JSON limit is 256 KiB (262,144 bytes).
 
 ## Sharing configuration
 
@@ -82,11 +94,11 @@ A named scope such as `"writeSchemas": {"names": ["social/Comment"]}` matches th
 
 For a conditional replacement or delete, the member passes the identity of the record version in the encrypted proposal. The share layer stores that identity beside the download journal for the record revision it wrote or downloaded. `created_by` and `updated_by` are on the record. The publisher checks the identity against its current record and uses its own record revision when committing. An intervening write causes the proposal to be discarded. A record without this identity needs an updated publication before a member can edit it this way.
 
-The database sets `created_by` and `updated_by`. A caller cannot write them. `created_by` is set only when no live record is at the key: a create, or a create on a deleted key. On a replace, `created_by` is whatever the previous live record has, including when it is absent. `updated_by` is the writer. The same rule applies to a local write, an accepted proposal, replay on an own device, a baseline, and replay on a receiver. An existing meta block stays on a member replace. New records have no meta block. A proposal's source file name and metadata map are not stored.
+The database sets `created_by` and `updated_by`. A caller cannot write them. `created_by` is set only when no live record is at the key: a create, or a create on a deleted key. On a replace, `created_by` is whatever the previous live record has, including when it is absent. `updated_by` is the writer. The same rule applies to a local write, an accepted proposal, replay on an own device, a baseline, and replay on a receiver. The two values are entries in the record's existing meta map. An older build accepts those entries. On a member replace the other meta entries stay, and these two keys are written from this rule, not copied from the previous map. A record with no other meta entries still has a meta block when either value is set. A proposal's source file name and metadata map are not stored.
 
-The standard `social/Comment` schema has a fixed write rule on whole-database shares. A member with a current write grant can create comments and edit their own comments. The publisher can edit or delete any comment. A member's delete is discarded. The creator is the live record's `created_by` at the checked revision. The node does not set `author_id`, and it keeps no creator marker. A comment with no `created_by` stays readable and only the publisher can edit it, before and after the publisher edits it. A publisher edit leaves `created_by` absent. Social and apps read `created_by`. LastDB enforces the rule for every grant, including all-schema grants. Other schemas keep their existing write behavior.
+The standard `social/Comment` schema has a fixed write rule on whole-database shares. A member with a current write grant can create comments and edit their own comments. The publisher can edit or delete any comment. A member's delete is discarded. The creator is the live record's `created_by` at the checked revision. The node does not set `author_id`, and it keeps no creator marker. A comment with no `created_by` stays readable and only the publisher can edit it, before and after the publisher edits it. A publisher edit leaves `created_by` absent. Social and apps read `created_by`. LastDB enforces the rule for every grant, including all-schema grants. Other schemas keep their existing write behavior. That fixed rule is what the node does today. The decided configuration is `member_writes` (`own_records` for a schema the publisher lists that way). The node does not read the map yet.
 
-This table is the Share example: `members` and `proposals`. Members append to the proposal log only while `write` is `proposals`. Entries already there stay until the publisher settles them. While `write` is `direct`, an active Submit member appends to the mutation log instead.
+This table is `members` and `proposals`. Members append to the proposal log only while `write` is `proposals`. Entries already there stay until the publisher settles them. While `write` is `direct`, an active Submit member appends to the mutation log instead, and a reader is served that entry with every other mutation-log entry.
 
 | Identity on this database | Read mutation log | Append to mutation log | Append to proposal log | Read and settle proposal log |
 | --- | --- | --- | --- | --- |
@@ -94,7 +106,7 @@ This table is the Share example: `members` and `proposals`. Members append to th
 | Active member | Yes | | Yes | |
 | Outside the active roster | | | | |
 
-On the Share row the proposal log has fixed access rules, including for a member's own entries. Members see their own grant and the mutation log. The publisher sees the roster.
+On this pair the proposal log has fixed access rules, including for a member's own entries. Members see their own grant and every entry in the mutation log. The publisher sees the roster.
 
 ## From invitation to shared data
 
@@ -120,11 +132,11 @@ Whole-database revocation stops new reads and submissions. Narrowing a write gra
 
 ## Transport
 
-`POST /api/cloud/backups/v2/mutation-log/append` keeps its signed envelope with the database ID, writer device, and encrypted entries. ExeMem uses the caller's database role and the share settings to select the log. On the Share row, only the publisher appends to the mutation log, and a member append goes to the proposal log. `head`, `list`, and snapshot delivery serve the mutation log. The publisher's LastDB uses signed `inbox/list` with a database ID and `inbox/settle` with a database ID, inclusive proposal-log position, and the decision for each entry. Those path spellings stay. Each request binds the signing node, database, path, and current sharing revision.
+`POST /api/cloud/backups/v2/mutation-log/append` keeps its signed envelope with the database ID, writer device, and encrypted entries. ExeMem uses the caller's database role and the share settings to select the log. While `write` is `proposals`, only the publisher appends to the mutation log, and a member append goes to the proposal log. `head`, `list`, and snapshot delivery serve every entry in the mutation log to a caller who may read. The publisher's LastDB uses signed `inbox/list` with a database ID and `inbox/settle` with a database ID, inclusive proposal-log position, and the decision for each entry. Those path spellings stay. Each request binds the signing node, database, path, and current sharing revision.
 
 ExeMem stores the proposal log in a separate partition for the same database ID. It keeps that log's delivery position, settlement position, and idempotency records independent of the mutation log. It treats the mutation payloads as ciphertext. LastDB owns schema validation, record and attachment semantics, and decisions about safe retirement of data.
 
-On the Share example, a contribution reaches readers only after the publisher commits it and appends that committed change to the mutation log. While `write` is `proposals`, that log gains only the publisher's entries. While `write` is `direct`, a Submit member's append is on the mutation log and is marked as a direct write.
+While `write` is `proposals`, a contribution reaches readers only after the publisher commits it and appends that committed change to the mutation log. A non-publisher append to the mutation log is refused. While `write` is `direct`, a Submit member's append is on the mutation log, and a reader who may read is served it with every other entry.
 
 ## Publisher device authority
 
@@ -134,11 +146,13 @@ Supporting authorized replacement or replicas requires an explicit owner policy.
 
 ## Status
 
-The settings statement and the log model treat `read` and `write` as independent. `ShareSettings::validate` accepts every pair. `ShareAdmission::new` returns the pair and does not fail. The absent value is still `members` and `proposals`. `validate_successor_of` still requires the next sequence and refuses a statement that repeats the same `read` and `write`.
+The settings statement and the log model treat `read` and `write` as independent. `ShareSettings::validate` accepts every pair. `ShareAdmission::new` returns the pair and does not fail. The absent value is still `members` and `proposals`, and the absent member-write map is empty. `validate_successor_of` still requires the next sequence and refuses a statement that repeats the same `read`, `write`, and `member_writes`.
 
-`read: anyone` lets a caller with no grant read what a member reads and does not let that caller append. A fresh member append while `write` is `direct` sets `StoredEntry.direct_write`. A reader other than the publisher sees publisher-written entries and entries with that mark. `LogError::InvalidShareSettings` is gone. `ShareAdmission::shows_submit_writers` is gone.
+The settings statement can carry `member_writes`. An empty map is left out of the digest, so a statement stored before the field still verifies. The node does not set the map and does not enforce it yet.
 
-The list wire is unchanged. `lastdb_node/src/log_sync/wire.rs` `EntryBody` still has `deny_unknown_fields` and no direct-write field. The node parser sets `direct_write` false on the `StoredEntry` it builds, because the mark is not on that wire.
+`read: anyone` lets a caller with no grant read the mutation log and does not let that caller append. `LogState::append_log` names the log for a writer. `LogState::append` is the mutation log: the publisher, or an active Submit holder while `write` is `direct`. While `write` is `proposals`, a non-publisher append to that log is refused. `LogState::append_proposal` is the proposal log, for the publisher or an active Submit holder. `LogState::reader_allowed` decides who may read. On the mutation log, a caller who may read is served every entry. On the proposal log, only the publisher may read. There is no per-entry writer mark and no per-entry writer signature.
+
+The list wire is unchanged. `lastdb_node/src/log_sync/wire.rs` `EntryBody` still has `deny_unknown_fields`.
 
 On the node, a member applies every mutation-log entry it is served. The node does not check who wrote an entry. `created_by` and `updated_by` come from the contribution writer when the body has one, otherwise from the entry's writer key. Entries are applied in the order served. An entry whose action does not hold against the record as it stands is skipped, and replay continues. An entry that cannot be decrypted or parsed is skipped and logged. The publisher's own node replays member-written entries in its mutation log by that same rule. A second device of the publisher is still refused for the whole page.
 
@@ -146,11 +160,11 @@ While `write` is `direct` and this node is an active Submit member, `/v1/write` 
 
 These are not built:
 
-- ExeMem enforcement. The service does not yet choose the mutation log or the proposal log from `write`, and it does not yet persist or restore `direct_write`. It must not refuse a change to `direct` or `anyone` because unsettled proposals exist, because the mutation log holds entries the publisher did not write, or because `read` is `anyone`. Members append to the proposal log only while `write` is `proposals`. An `anyone` database is not a database without a proposal log. ExeMem does not yet assign a direct append's order or store the mark. The log model accepts a Submit append on a shareable log and records the mark when `write` is `direct`.
-- The open-link read (the Deliver example). A reader with no member entry cannot yet read by holding the read key from a link.
+- ExeMem enforcement. The service still has to follow `append_log`, stop storing a direct-write attribute, and serve every mutation-log entry to a reader who may read. It must not append a member's proposal to the mutation log when the proposal log has no head. It must not refuse a change to `direct` or `anyone` because unsettled proposals exist, because the mutation log holds entries the publisher did not write, or because `read` is `anyone`. An `anyone` database is not a database without a proposal log. ExeMem does not yet assign a direct append's order.
+- The open-link read. A reader with no member entry cannot yet read by holding the read key from a link.
 - Receiver snapshot fetch. A member or an open-link reader does not yet fetch the publisher's snapshot and replay the mutation log on top.
 
-The node does not yet pass a stored statement into the log model. It reads the settings with the settings get call when it decides whether this node may append.
+The node does not yet pass a stored statement into the log model. It reads `read` and `write` with the settings get call when it decides whether this node may append. It does not set or enforce `member_writes`.
 
 ## Old names
 

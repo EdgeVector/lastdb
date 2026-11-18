@@ -3,8 +3,7 @@
 //!
 //! The core models one ordered log value. Entries are tagged by writer
 //! (node key, device). The caller supplies time, IDs, and a [`BoundPolicy`].
-//! The same value models a personal database, a share's mutation log, or that
-//! share's proposal log.
+//! [`LogRole`] says whether the value is the mutation log or the proposal log.
 //!
 //! # Sharing
 //!
@@ -12,22 +11,24 @@
 //! A personal database accepts app-private namespaces and rejects a receiver
 //! grant. A shareable database rejects an app-private namespace on append.
 //! A personal database has one mutation log. A shared database also has a
-//! proposal log. Members append to the proposal log only while `write` is
-//! `proposals`. The publisher reads and settles that log under any setting.
+//! proposal log.
+//!
+//! The mutation log is the database. A reader who may read is served every
+//! entry in it. The publisher may append to it. An active Submit holder may
+//! append to it only while `write` is `direct`. While `write` is `proposals`,
+//! [`LogState::append`] refuses that holder. The holder appends to the
+//! proposal log with [`LogState::append_proposal`]. [`LogState::append_log`]
+//! names the log. Only the publisher reads the proposal log.
 //! `read` and `write` are independent. Every pair is valid.
 //!
 //! [`BoundPolicy::with_share`] carries the two settings. The default is
 //! members and proposals, which is absent share settings. `read: anyone`
-//! lets a caller with no grant read what a member reads and does not let
-//! that caller append. A fresh member append while `write` is `direct` is
-//! stored with [`StoredEntry::direct_write`]. A reader other than the
-//! publisher sees publisher-written entries and those marked entries. The
-//! current settings do not change an entry that is already stored.
+//! lets a caller with no grant read the mutation log and does not let that
+//! caller append.
 
 #![deny(clippy::disallowed_methods, clippy::disallowed_types)]
 
 mod append;
-mod authorship;
 mod model;
 mod read;
 mod share;
@@ -37,14 +38,9 @@ use std::fmt;
 use database_policy::{admit_namespace, valid_label, NamespaceClass, SpecBinding};
 
 pub use append::AppendOutcome;
-pub use authorship::{
-    attach_writer_signature, carried_payload, sealed_sha256, writer_entry_digest, CarriedPayload,
-    WriterEntryBinding, SEALED_ENVELOPE_VERSION, WRITER_ENTRY_DOMAIN, WRITER_FRAME_PREFIX,
-    WRITER_FRAME_VERSION, WRITER_SIGNATURE_LEN,
-};
 pub use model::{
-    AppendBatch, Capability, DatabaseKind, Entry, Grant, Head, Incorporation, LogState, Stamp,
-    StoredEntry, Writer,
+    AppendBatch, Capability, DatabaseKind, Entry, Grant, Head, Incorporation, LogRole, LogState,
+    Stamp, StoredEntry, Writer,
 };
 pub use read::{ListPage, ScopedHead};
 pub use share::{ShareAdmission, ShareRead, ShareWrite};

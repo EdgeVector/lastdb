@@ -42,15 +42,28 @@ removed page with `git show 13a2cf188:<path>`.
 ## Preserve whole-database sharing (Tom, 2026-11-14)
 
 Read the [sharing design](docs/designs/shared-database-mutation-logs.md) before
-changing this path. That document is the decided state: the mutation log, the
-proposal log, and two independent settings (Tom, 2026-11-18).
+changing this path. That document is the decided state: the mutation log is the
+database, the proposal log is separate, and the two settings are independent
+(Tom, 2026-11-18).
+
+The mutation log is the database. Every entry in it is part of the database.
+A caller who may read is served every entry. No entry is hidden because of who
+wrote it. ExeMem alone decides who may append and what a reader is served. A
+member's node applies every entry it is served. It does not reject an entry
+because of who wrote it.
 
 `read` (`members` or `anyone`) says who may read the mutation log, the snapshot,
-and file ranges. `write` (`proposals` or `direct`) says where an append by a
-member with the Submit role goes from now on: the proposal log, or the mutation
-log. A publisher may change either setting at any time, in any direction.
-Share, Deliver, and Org are names for three combinations. No rule depends on a
-combination or on what either log already holds. `anyone` with `direct` is valid.
+and file ranges. `write` (`proposals` or `direct`) says where an append by an
+active member with the Submit role goes from now on. `proposals` means the
+proposal log. `direct` means the mutation log. A publisher may change either
+setting at any time, in any direction. No rule depends on a combination of the
+two, or on what either log already holds. `anyone` with `direct` is valid.
+
+The publisher may always append to the mutation log. An active Submit member
+may append to the mutation log only while `write` is `direct`. While `write`
+is `proposals`, that member appends to the proposal log, and the log model
+refuses a non-publisher append to the mutation log. There is no older path
+that puts a member's proposal on the mutation log.
 
 The default is read `members` and write `proposals`, including when no settings
 exist. Keep these requirements for that default. Change them only at Tom's
@@ -59,32 +72,24 @@ explicit direction.
 - A personal database has one log, the mutation log. A shared database has the
   mutation log and the proposal log under one database ID. Their positions are
   independent. Do not combine them, or keep a mixed-log path. There is no
-  compatibility with a retired log format. Members append to the proposal log
-  only while `write` is `proposals`. Entries already there stay until the
-  publisher settles them.
-- Every active member can read the mutation-log entries the visibility rule
-  shows and, while `write` is `proposals`, append an encrypted proposal, even
-  with an empty write grant. Only the publisher can read or settle proposal-log
-  entries. Members cannot read even their own entries on that log. While
-  `write` is `proposals`, only the publisher's changes reach the mutation log.
+  compatibility with a retired log format. Entries already on the proposal log
+  stay until the publisher settles them.
+- Every active member can read every mutation-log entry and, while `write` is
+  `proposals`, append an encrypted proposal, even with an empty write grant.
+  Only the publisher can read or settle proposal-log entries. Members cannot
+  read even their own entries on that log.
 - Keep the publisher-signed, revisioned configuration per database. ExeMem
-  uses the active roster for transport access. The publisher's LastDB uses the
-  confirmed configuration on the publisher's machine to check the sender's
-  current schema grant and the record rules after downloading and decrypting
-  each proposal. An app's displayed permissions grant no write authority.
+  uses the active roster and the settings for transport. The publisher's LastDB
+  uses the confirmed configuration on the publisher's machine to check the
+  sender's current schema grant and the record rules after downloading and
+  decrypting each proposal. An app's displayed permissions grant no write
+  authority.
 - Commit allowed changes locally and append them to the mutation log under the
   publisher's key before marking their proposal-log entries processed. Discard
   denied or invalid changes. A queue receipt confirms delivery to the proposal
   log.
 
-A direct write is `StoredEntry.direct_write`, set at append from the settings
-in force, never by the caller. A reader other than the publisher sees entries
-the publisher wrote and entries with that mark. The current settings and the
-writer's current role do not change an entry already stored. An unmarked entry
-the publisher did not write stays hidden. A member's node applies every
-mutation-log entry ExeMem serves and does not check who wrote it.
-
-The three names, as examples only:
+The three names, as examples of configurations an app might choose:
 
 - Share: `members` and `proposals`. This is the default.
 - Deliver: `anyone` and `proposals`. The reader has no member entry and holds
@@ -92,7 +97,8 @@ The three names, as examples only:
   while `write` is `proposals`.
 - Org: `members` and `direct`. An active member with Submit appends to the
   mutation log. ExeMem checks only that the member may write. Order is the
-  order ExeMem assigns at append.
+  order ExeMem assigns at append. A reader is served that entry with every
+  other entry in the mutation log.
 
 In every case only the publisher publishes a snapshot. A receiver fetches that
 snapshot and replays the mutation log on top. The settings do not change bytes
