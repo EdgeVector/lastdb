@@ -49,8 +49,27 @@ struct WriteItem {
     alternates: Alternates,
     #[serde(default)]
     revision: Option<String>,
-    #[serde(default)]
-    file: Option<FileLink>,
+    /// Absent keeps a replace's file. JSON null clears it. An object links a path.
+    #[serde(default, deserialize_with = "file_input")]
+    file: FileInput,
+}
+
+#[derive(Default)]
+enum FileInput {
+    #[default]
+    Absent,
+    Clear,
+    Link(FileLink),
+}
+
+fn file_input<'de, D>(deserializer: D) -> Result<FileInput, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(match Option::<FileLink>::deserialize(deserializer)? {
+        None => FileInput::Clear,
+        Some(link) => FileInput::Link(link),
+    })
 }
 
 /// A link to a file on disk that the caller can read. No bytes pass through
@@ -145,14 +164,16 @@ async fn prepare(host: &Host, items: Vec<WriteItem>) -> Result<Prepared, HostErr
         } else {
             std::mem::take(&mut item.alternates)
         };
-        let link = item.file.take();
+        let file = std::mem::replace(&mut item.file, FileInput::Absent);
         let mut mutation = build(item, alternates);
-        if let Some(link) = link {
-            linked.push(
+        match file {
+            FileInput::Link(link) => linked.push(
                 link_file(host, &mut mutation, link)
                     .await
                     .map_err(|error| error.at(index))?,
-            );
+            ),
+            FileInput::Clear => mutation.file_write = Some(FileWrite::Clear),
+            FileInput::Absent => {}
         }
         mutations.push(mutation);
     }
@@ -185,11 +206,16 @@ fn parse(body: &[u8]) -> Result<Vec<WriteItem>, HostError> {
         }
         let (record, revision) = (item.record.is_some(), item.revision.is_some());
         let shape = match item.op {
+            Op::Create if matches!(item.file, FileInput::Clear) => {
+                Err("a create names a file by path or omits it")
+            }
             Op::Create if record && !revision => Ok(()),
             Op::Create => Err("a create carries a record and no revision"),
             Op::Replace if record && revision => Ok(()),
             Op::Replace => Err("a replace carries a record and the revision it replaces"),
-            Op::Delete if item.file.is_some() => Err("a delete carries no file"),
+            Op::Delete if !matches!(item.file, FileInput::Absent) => {
+                Err("a delete carries no file")
+            }
             Op::Delete if !record && revision && item.alternates.is_empty() => Ok(()),
             Op::Delete => Err("a delete carries the revision it deletes and no record"),
         };

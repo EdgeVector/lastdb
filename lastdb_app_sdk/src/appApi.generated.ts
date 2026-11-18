@@ -266,7 +266,7 @@ export interface WriteCreate {
   revision?: never;
 }
 
-/** A replace. It carries a record and the revision it replaces. A replace without a revision or without a record is HTTP 400. */
+/** A replace. It carries a record and the revision it replaces. A replace without a revision or without a record is HTTP 400. A file path links that file. JSON null clears the record's file, and the node frees the bytes when no record names them. Omitting file keeps the record's file. */
 export interface WriteReplace {
   database?: DatabaseName;
   schema: SchemaName;
@@ -275,7 +275,8 @@ export interface WriteReplace {
   record: FieldValues;
   alternates?: Alternates;
   revision: string;
-  file?: FileLink;
+  /** A path links that file. JSON null clears the record's file. Omitting the field keeps the record's file. */
+  file?: null | FileLink;
 }
 
 /** A delete. It carries the revision it deletes, no record, and no file. alternates is omitted or empty. The node loads the stored alternates. A record, a file, or a non-empty alternates object is HTTP 400. */
