@@ -142,7 +142,7 @@ pub(super) fn key_report(
 pub(super) fn record_write(
     mutation: &Value,
     database: Option<&str>,
-    file: Option<LinkedFile>,
+    file: Option<&LinkedFile>,
 ) -> Result<Value, String> {
     if !v1_capable(mutation, file.is_some()) {
         return Err("invalid complete mutation".into());
