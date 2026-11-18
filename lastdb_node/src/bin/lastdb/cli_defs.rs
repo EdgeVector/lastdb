@@ -229,6 +229,25 @@ pub(crate) enum AppCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Remove one installed app.
+    ///
+    /// Drops the app's grant and deletes the command links this app installed,
+    /// every version directory, the current and previous links, and the install
+    /// receipt. Schemas and records stay. The app data folder stays unless
+    /// `--delete-data` is set. There is no flag that deletes schemas or records.
+    /// An app that is not installed is an error, except a later run that only
+    /// has a grant left to drop. If the node is not running, the files are still
+    /// removed and the command says the grant was not. Run it again when the
+    /// node is up. An app whose install ran `post_install` steps is refused:
+    /// the manifest has no uninstall step. Prints JSON.
+    Remove {
+        app_id: String,
+        /// Also remove the app data folder. Schemas and records stay.
+        #[arg(long)]
+        delete_data: bool,
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand, Debug)]

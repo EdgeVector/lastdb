@@ -1,5 +1,5 @@
 {
-  "api_version": 41,
+  "api_version": 42,
   "min_supported_api_version": 38,
   "capabilities": [
     "atomic_owned_mutations_v1",
@@ -13,6 +13,7 @@
     "/api/admin/shed",
     "/api/apps/declare-schema",
     "/api/apps/register",
+    "/api/apps/unregister",
     "/api/backup/snapshot",
     "/api/cloud/wake",
     "/api/databases",

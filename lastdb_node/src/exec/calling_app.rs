@@ -127,6 +127,45 @@ fn register_error(error: &RegisterError) -> HostError {
     }
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct UnregisterBody {
+    app: String,
+}
+
+/// `POST /api/apps/unregister` on the owner socket: drop one app's grant.
+///
+/// The route is `unregister` because it undoes `register` and nothing else.
+/// The node does not delete the app's files or its records. No stored grant
+/// answers success with `removed: false`. The reply's `app` is the app id
+/// the request sent.
+pub(in crate::exec) fn unregister_route(
+    req: &UdsRequest,
+    ctx: &AccessContext,
+    host: &Host,
+) -> UdsResponse {
+    let result = (|| {
+        if !ctx.is_owner {
+            return Err(HostError::new(403, "the owner unregisters an app"));
+        }
+        if req.body.len() > MAX_REGISTER_BODY {
+            return Err(HostError::new(413, "app unregister request is too large"));
+        }
+        let body: UnregisterBody = serde_json::from_slice(&req.body).map_err(|error| {
+            HostError::new(400, format!("invalid app unregister request: {error}"))
+        })?;
+        if !app_identity_crypto::valid_app_id(&body.app) {
+            return Err(HostError::new(400, "invalid app id"));
+        }
+        let removed = host
+            .app_grants
+            .unregister(&body.app)
+            .map_err(|error| register_error(&error))?;
+        Ok(json!({ "app": body.app, "removed": removed }))
+    })();
+    render(result, ctx)
+}
+
 /// Serve one request on the app socket.
 pub(in crate::exec) fn serve(
     handle: &tokio::runtime::Handle,

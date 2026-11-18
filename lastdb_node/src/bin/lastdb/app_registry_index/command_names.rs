@@ -92,6 +92,11 @@ fn add_listed(dir: &Path, app: &str, names: &mut HashSet<String>) -> Result<(), 
     Ok(())
 }
 
+/// True when another installed app lists this command.
+pub(super) fn listed_by_other(command: &str, app: &str) -> Result<bool, String> {
+    Ok(other_owner(command, app)?.is_some())
+}
+
 fn other_owner(command: &str, app: &str) -> Result<Option<String>, String> {
     let apps = managed::apps_root()?;
     let entries = match fs::read_dir(&apps) {
@@ -146,7 +151,7 @@ fn installed_by_app(
     Ok(restricted && owned.contains(command) && target == bin.join("lastdb"))
 }
 
-fn inside_app(target: &Path, root: &Path) -> bool {
+pub(super) fn inside_app(target: &Path, root: &Path) -> bool {
     if !target.is_absolute()
         || target
             .components()

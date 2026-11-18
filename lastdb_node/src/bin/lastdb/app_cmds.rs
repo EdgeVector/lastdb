@@ -105,6 +105,14 @@ pub(super) fn app_command(data_dir: Option<PathBuf>, action: AppCommand) -> Resu
             pin_app_env(&home, source.env.as_deref())?;
             upgrade_apps(&home, all, accept_install, &app_ids, &source)
         }
+        AppCommand::Remove {
+            app_id,
+            delete_data,
+            ..
+        } => {
+            print_pretty_json(&registry::remove::remove(&app_id, &home, delete_data)?);
+            Ok(())
+        }
     }
 }
 
