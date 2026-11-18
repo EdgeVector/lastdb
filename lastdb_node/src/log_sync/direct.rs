@@ -83,11 +83,7 @@ async fn retract(host: &Host, log: &CloudLog) -> Result<(), &'static str> {
     let Some(first) = page.items.first() else {
         return Ok(());
     };
-    let through = page
-        .items
-        .last()
-        .map(sequence_of)
-        .unwrap_or(sequence_of(first));
+    let through = sequence_of(page.items.last().unwrap_or(first));
     let after = sequence_of(first)
         .checked_sub(1)
         .ok_or("invalid local spool position")?;
