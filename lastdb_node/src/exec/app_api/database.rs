@@ -158,9 +158,8 @@ fn known_database(host: &Host, selector: &str) -> Result<Option<String>, HostErr
     if !valid_selector(selector) {
         return Ok(None);
     }
-    let resolved = match host.owned.resolve(selector) {
-        Ok(resolved) => resolved,
-        Err(_) => return Ok(None),
+    let Ok(resolved) = host.owned.resolve(selector) else {
+        return Ok(None);
     };
     match resolved {
         ResolvedStore::Owner => Ok(host.owned.owner().ok().map(|entry| entry.id)),

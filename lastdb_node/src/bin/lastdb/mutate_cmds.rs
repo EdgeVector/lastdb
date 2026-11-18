@@ -147,7 +147,7 @@ fn take_input(request_file: &Path, body: Value) -> Result<(Value, TakenFile), St
 }
 
 fn linked_file(request_file: &Path, file: FileBody) -> Result<v1_records::LinkedFile, String> {
-    let base = request_file.parent().unwrap_or(Path::new(""));
+    let base = request_file.parent().unwrap_or_else(|| Path::new(""));
     let source = base.join(&file.source);
     let canonical =
         std::fs::canonicalize(&source).map_err(|e| format!("open {}: {e}", source.display()))?;
