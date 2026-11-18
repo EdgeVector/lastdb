@@ -346,7 +346,7 @@ fn blank_call(
     }
 }
 
-fn caller_of(done: &Completed<'_>) -> &str {
+fn caller_of<'a>(done: &'a Completed<'a>) -> &'a str {
     if !done.apps {
         return OWNER;
     }
@@ -356,7 +356,7 @@ fn caller_of(done: &Completed<'_>) -> &str {
         .unwrap_or(UNKNOWN)
 }
 
-fn client_of(done: &Completed<'_>) -> &str {
+fn client_of<'a>(done: &'a Completed<'a>) -> &'a str {
     if done.apps {
         return "";
     }

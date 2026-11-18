@@ -53,7 +53,7 @@ impl Scan {
         for index in 0..self.n {
             let same = {
                 let hit = &self.slots[index];
-                usize::from(hit.len) == name.len() && hit.buf[..name.len()] == name
+                usize::from(hit.len) == name.len() && &hit.buf[..name.len()] == name
             };
             if same {
                 self.slots[index].items = self.slots[index].items.saturating_add(1);
