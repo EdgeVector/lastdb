@@ -164,9 +164,10 @@ def same_schemas(node, sock, database):
 def prove_share(node, sock, database):
     """No cloud connection, so share configuration answers 503.
 
-    A PUT that also names read and write has the same shape and the same 503.
-    The signed ShareSettings statement reaching Exemem is not proven in this
-    repository. A two-node DEV proof must make these requests:
+    A PUT that also names read, write, or memberWrites has the same shape and
+    the same 503. A 400 would mean the body was refused before the cloud call.
+    The signed statement and the proposal check are not proven here. A two-node
+    DEV proof must make these requests:
 
     1. Publisher GET /api/databases/{id}/share/config. No stored statement
        answers read "members" and write "proposals".
@@ -195,8 +196,9 @@ def prove_share(node, sock, database):
        /api/cloud/backups/v2/share/members/settings/get with the member
        LastDBNode token and X-LastDB-Self-Access: 1, in the same refresh as
        POST /api/cloud/backups/v2/share/members/read. No stored statement is
-       members and proposals. A successor copies the stored member_writes
-       map and does not change it.
+       members, proposals, and memberWrites {}. A PUT that sets memberWrites
+       signs the next statement with that map. This operation does not prove
+       the proposal check. That needs a publisher and a member against the cloud.
     """
     config = {"expectedRevision": "0", "requestId": REQUEST_ID, "members": []}
     path = f"/api/databases/{database}/share/config"
@@ -208,14 +210,21 @@ def prove_share(node, sock, database):
     both_owner, both_ext = share_put(node, sock, database, path, both)
     one = dict(config, write="proposals")
     one_owner, one_ext = share_put(node, sock, database, path, one)
-    require(get_owner == 503 and put_owner == 503 and both_owner == 503 and one_owner == 503,
+    mapped = dict(config, memberWrites={
+        "social/Comment": "own_records",
+        "social/Album": "owner_only",
+    })
+    map_owner, map_ext = share_put(node, sock, database, path, mapped)
+    require(get_owner == 503 and put_owner == 503 and both_owner == 503
+            and one_owner == 503 and map_owner == 503,
             f"share shape was GET {get_owner} PUT {put_owner} "
-            f"read/write {both_owner} write {one_owner}")
+            f"read/write {both_owner} write {one_owner} memberWrites {map_owner}")
     print(f"Databases extension share: GET owner {get_owner} extension {get_ext}, "
           f"PUT owner {put_owner} extension {put_ext}, "
           f"read/write owner {both_owner} extension {both_ext}, "
-          f"write owner {one_owner} extension {one_ext}. "
-          "The signed statement reaching Exemem is not proven.", flush=True)
+          f"write owner {one_owner} extension {one_ext}, "
+          f"memberWrites owner {map_owner} extension {map_ext}. "
+          "The signed statement and the proposal check are not proven.", flush=True)
 
 
 def share_put(node, sock, database, path, config):

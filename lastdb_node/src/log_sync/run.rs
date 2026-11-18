@@ -201,12 +201,16 @@ async fn drain_inbox(host: &Host, log: &CloudLog) -> Result<(), String> {
             "publisher must finish syncing published changes before processing proposals".into(),
         );
     }
+    // The first active proposal confirms the settings statement with the
+    // service and keeps that map for the page. A failed confirmation returns
+    // before settlement, so the page stays on the proposal log.
+    let mut member_writes = None;
     let mut results = Vec::with_capacity(page.entries.len());
     for stored in &page.entries {
         if &stored.entry.writer.key == log.principal() {
             return Err("publisher entry was returned by the inbox".into());
         }
-        results.push(contributions::apply(host, log, &stored.entry).await?);
+        results.push(contributions::apply(host, log, &stored.entry, &mut member_writes).await?);
     }
     contributions::publish_before_settlement(host, log).await?;
     let body = canonical_bytes(&serde_json::json!({

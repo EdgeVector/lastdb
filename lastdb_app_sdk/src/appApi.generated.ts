@@ -377,7 +377,12 @@ export interface DatabasesShareMember {
   writeSchemas?: DatabasesWriteSchemas;
 }
 
-/** The body of PUT /api/databases/{id}/share/config. read and write are optional. Omit either one to keep the stored value. No stored statement is members and proposals. An unchanged pair sends no settings statement. */
+/** Schema name to member write behaviour. A name that is absent is owner_only. An empty object means every schema is owner_only. */
+export interface DatabasesMemberWrites {
+  [key: string]: ('owner_only' | 'own_records' | 'shared');
+}
+
+/** The body of PUT /api/databases/{id}/share/config. read, write, and memberWrites are optional. Omit one to keep the stored value. An empty memberWrites clears the map. No stored statement is members, proposals, and an empty map. Unchanged read, write, and map send no settings statement. */
 export interface DatabasesShareConfig {
   /** Decimal revision the caller last read. */
   expectedRevision: string;
@@ -388,6 +393,8 @@ export interface DatabasesShareConfig {
   read?: 'members' | 'anyone';
   /** Where a submit append goes. Omit it to keep the stored value. */
   write?: 'proposals' | 'direct';
+  /** Omit it to keep the stored map. An empty object clears it. */
+  memberWrites?: DatabasesMemberWrites;
 }
 
 /** The schema object the owner declare-schema route parses. name is required. Other fields are that object's fields. */
@@ -699,7 +706,7 @@ export interface DatabasesDeclareReply {
   [key: string]: unknown;
 }
 
-/** The owner share configuration envelope. read and write are the stored settings. No stored statement is members and proposals. */
+/** The owner share configuration envelope. read, write, and memberWrites are the stored settings. No stored statement is members, proposals, and an empty memberWrites object. */
 export interface DatabasesShareConfigReply {
   ok: boolean;
   user_hash: string;
@@ -707,6 +714,7 @@ export interface DatabasesShareConfigReply {
   revision: string;
   read: 'members' | 'anyone';
   write: 'proposals' | 'direct';
+  memberWrites: DatabasesMemberWrites;
   members: { [key: string]: unknown }[];
   [key: string]: unknown;
 }

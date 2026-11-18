@@ -25,8 +25,8 @@ Snapshot and delivery-cursor types in that module name objects. They do not fetc
 Whole-database sharing uses the mutation log, the proposal log, and two
 independent settings, `read` and `write`. Members append to the proposal log
 only while `write` is `proposals`. The publisher reads and settles that log
-under any setting. The publisher's LastDB checks schema write grants after
-decryption and publishes only committed changes.
+under any setting. The publisher's LastDB checks the confirmed member-write
+map after decryption and publishes only committed changes.
 [Requirements to preserve](../docs/designs/shared-database-mutation-logs.md#requirements-to-preserve)
 
 The crate root holds the scalar types and digest helpers that `src/v2` uses.
