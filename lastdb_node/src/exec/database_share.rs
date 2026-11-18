@@ -197,26 +197,40 @@ fn host_error(error: ConfigError) -> HostError {
     let (status, code, body) = match error {
         ConfigError::Invalid(reason) => (
             400,
-            "invalid_share_configuration",
+            "invalid_share_configuration".to_owned(),
             json!({ "reason": reason }),
         ),
         ConfigError::Conflict(revision) => (
             409,
-            "share_revision_conflict",
+            "share_revision_conflict".to_owned(),
             json!({ "revision": revision }),
         ),
         ConfigError::PaymentRequired => (
             402,
-            "payment_required",
+            "payment_required".to_owned(),
             json!({
                 "reason": crate::cloud::PAYMENT_REQUIRED_MESSAGE,
                 "message": crate::cloud::PAYMENT_REQUIRED_MESSAGE,
             }),
         ),
-        ConfigError::Unconfirmed => (503, "share_configuration_unconfirmed", json!({})),
+        ConfigError::Unconfirmed => (503, "share_configuration_unconfirmed".to_owned(), json!({})),
+        ConfigError::Refused {
+            status,
+            code,
+            message,
+        } => (shown_status(status), code, json!({ "message": message })),
     };
     let mut body = body;
     body["ok"] = json!(false);
-    body["error"] = json!(code);
+    body["error"] = json!(code.clone());
     HostError::structured(status, code, body)
+}
+
+/// A status outside the owner-visible set becomes a content-free 500 and drops
+/// the service code. 400 stays visible, so the body is kept.
+fn shown_status(status: u16) -> u16 {
+    match status {
+        400 | 401 | 402 | 403 | 404 | 409 | 413 | 422 | 423 | 503 | 507 => status,
+        _ => 400,
+    }
 }
