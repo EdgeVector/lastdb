@@ -1,6 +1,6 @@
 use crate::{
-    AppendBatch, BoundPolicy, DatabaseKind, Entry, LogError, LogState, StoredEntry, Writer,
-    APPEND_BATCH_LIMIT,
+    AppendBatch, BoundPolicy, DatabaseKind, Entry, LogError, LogState, ShareWrite, StoredEntry,
+    Writer, APPEND_BATCH_LIMIT,
 };
 
 /// Result of an append that did not fail.
@@ -26,8 +26,8 @@ impl LogState {
         let allowed = match &self.kind {
             DatabaseKind::Personal => crate::read::holds_owner(self, &writer.key),
             DatabaseKind::Shareable { publisher } => {
-                // `read: anyone` does not append. `write: direct` uses this
-                // same check: an active Submit holder appends to this log.
+                // `read` does not grant an append. The service chooses the log.
+                // An active Submit holder may append to the log this call names.
                 &writer.key == publisher || crate::read::holds_submit(self, &writer.key)
             }
         };
@@ -61,6 +61,11 @@ impl LogState {
     /// is a duplicate. The next value is accepted. A higher value is a gap.
     /// An exact re-append is a duplicate once in total. A different payload
     /// on a stored submission is [`LogError::Conflict`].
+    ///
+    /// A fresh entry on a shareable log is stored with
+    /// [`StoredEntry::direct_write`] when `policy` says [`ShareWrite::Direct`]
+    /// and the writer is not the publisher. The caller cannot set that mark.
+    /// A duplicate leaves the mark already stored.
     pub fn append(
         &self,
         batch: &AppendBatch,
@@ -79,8 +84,22 @@ impl LogState {
             return Ok((self.clone(), duplicate_outcome(last)?));
         }
         ensure_delivery_room(self, seqs.len() - start)?;
-        Ok(commit(self, batch, start))
+        let direct_write = member_direct_write(self, &batch.writer, policy);
+        Ok(commit(self, batch, start, direct_write))
     }
+}
+
+/// True when a non-publisher writer appends to a shareable log under `write: direct`.
+///
+/// The publisher's own entries stay unmarked. They are visible because the
+/// writer is the publisher. The service appends that member write to the
+/// mutation log. The same `append` on the proposal log would mark those
+/// entries too.
+fn member_direct_write(state: &LogState, writer: &Writer, policy: &BoundPolicy) -> bool {
+    let DatabaseKind::Shareable { publisher } = &state.kind else {
+        return false;
+    };
+    policy.share().write() == ShareWrite::Direct && writer.key != *publisher
 }
 
 fn check_batch(
@@ -257,7 +276,12 @@ fn require_submission(state: &LogState, entry: &Entry) -> Result<(), LogError> {
     }
 }
 
-fn commit(state: &LogState, batch: &AppendBatch, start: usize) -> (LogState, AppendOutcome) {
+fn commit(
+    state: &LogState,
+    batch: &AppendBatch,
+    start: usize,
+    direct_write: bool,
+) -> (LogState, AppendOutcome) {
     let mut next = state.clone();
     let mut delivery = next.head.as_ref().map_or(0, |head| head.delivery_seq);
     let mut delivery_seqs = Vec::new();
@@ -270,6 +294,7 @@ fn commit(state: &LogState, batch: &AppendBatch, start: usize) -> (LogState, App
             delivery_seq: delivery,
             accepted_at_ms: batch.accepted_at_ms,
             entry: entry.clone(),
+            direct_write,
         };
         next.head = Some(crate::Head {
             delivery_seq: delivery,

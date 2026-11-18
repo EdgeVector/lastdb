@@ -7,38 +7,39 @@
 //! log as it behaves today. A caller that has a statement passes
 //! [`crate::BoundPolicy::with_share`].
 //!
+//! `read` and `write` are independent. Every pair is valid. Share, Deliver,
+//! and Org are names for three of the pairs. This crate does not treat a pair
+//! as a mode, and it does not look at what the log already holds.
+//!
 //! [`ShareRead`] and [`ShareWrite`] use the same variant names as
 //! `cloud_backup_protocol`. This crate does not depend on that crate. Map one
 //! enum to the other by variant name. A personal database ignores this value.
 
-use crate::LogError;
-
-/// Who may read the mutation log.
+/// Who may read the mutation log, the snapshot, and file ranges.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ShareRead {
-    /// An active member reads the mutation log. This is the absent value.
+    /// An active member reads. This is the absent value.
     #[default]
     Members,
-    /// A caller with no grant reads publisher-written entries and cannot append.
+    /// A caller with no grant reads what a member reads and cannot append.
     Anyone,
 }
 
-/// Who may write the mutation log.
+/// Where a Submit member's append goes from now on.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ShareWrite {
-    /// Members append to the proposal log. Readers see publisher-written entries.
-    /// This is the absent value.
+    /// The proposal log. Readers of the mutation log see publisher-written
+    /// entries and entries already marked as direct writes. This is the absent value.
     #[default]
     Proposals,
-    /// An active Submit holder appends to the mutation log. Readers also see those entries.
+    /// The mutation log. The append path records that choice on the stored entry.
     Direct,
 }
 
 /// The two settings for one shared database.
 ///
 /// [`Default`] is members and proposals, the same pair as
-/// `absent_share_settings` in `cloud_backup_protocol`. Fields stay private so
-/// `read: anyone` cannot be paired with `write: direct`.
+/// `absent_share_settings` in `cloud_backup_protocol`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ShareAdmission {
     read: ShareRead,
@@ -46,12 +47,10 @@ pub struct ShareAdmission {
 }
 
 impl ShareAdmission {
-    /// Accept every pair except `anyone` with `direct`.
-    pub fn new(read: ShareRead, write: ShareWrite) -> Result<Self, LogError> {
-        if read == ShareRead::Anyone && write == ShareWrite::Direct {
-            return Err(LogError::InvalidShareSettings);
-        }
-        Ok(Self { read, write })
+    /// Accept every pair. The two settings do not constrain each other.
+    #[must_use]
+    pub fn new(read: ShareRead, write: ShareWrite) -> Self {
+        Self { read, write }
     }
 
     /// Who may read.
@@ -60,7 +59,7 @@ impl ShareAdmission {
         self.read
     }
 
-    /// Who may write.
+    /// Where a Submit append goes from now on.
     #[must_use]
     pub fn write(self) -> ShareWrite {
         self.write
@@ -70,11 +69,5 @@ impl ShareAdmission {
     #[must_use]
     pub fn reads_without_grant(self) -> bool {
         self.read == ShareRead::Anyone
-    }
-
-    /// `write: direct`. Readers see entries written by keys that hold Submit.
-    #[must_use]
-    pub fn shows_submit_writers(self) -> bool {
-        self.write == ShareWrite::Direct
     }
 }
