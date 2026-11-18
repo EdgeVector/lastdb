@@ -178,6 +178,7 @@ fn serve_node(
     let tasks = spawn_background(&rt, &host, &stop, Arc::clone(&reopen));
     let app_server = server.for_apps();
     let app_pool = app_server.worker_pool();
+    let _ = host.app_uds_workers.set(app_pool.clone());
     let app_snap = app_pool.snapshot();
     tracing::info!(
         workers = app_snap.workers,

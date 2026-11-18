@@ -14,6 +14,8 @@ mod cli_defs;
 mod cloud_cmds;
 #[path = "lastdb/mutate_cmds.rs"]
 mod mutate_cmds;
+#[path = "lastdb/ops_cmds.rs"]
+mod ops_cmds;
 #[path = "lastdb/record_get_cmds.rs"]
 mod record_get_cmds;
 #[path = "lastdb/share_cmds.rs"]
@@ -138,6 +140,7 @@ fn run(cli: Cli) -> Result<(), String> {
         }) => create_database(cli.data_dir, &name, private, json),
         Command::Admin(a) => run_admin(cli.data_dir, a),
         Command::App(a) => app_command(cli.data_dir, a),
+        Command::Ops { by_count, json } => ops_cmds::ops(cli.data_dir, by_count, json),
         c => {
             let t = DatabaseTarget::open(cli.data_dir, cli.db.as_deref())?;
             match c {

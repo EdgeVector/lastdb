@@ -22,11 +22,11 @@ The member-list read uses `member_list_read_view`.
 A node-key revoke covers every device of that key.
 Snapshot and delivery-cursor types in that module name objects. They do not fetch bytes.
 
-Whole-database sharing depends on separate published and pending logs and
-the current publisher-signed configuration for each database. The pending
-log admits proposals from every active receiver and allows only the
-publisher to read or settle entries. The publisher's LastDB checks schema
-write grants after decryption and publishes only committed changes.
+Whole-database sharing uses the mutation log, the proposal log, and two
+independent settings, `read` and `write`. Members append to the proposal log
+only while `write` is `proposals`. The publisher reads and settles that log
+under any setting. The publisher's LastDB checks schema write grants after
+decryption and publishes only committed changes.
 [Requirements to preserve](../docs/designs/shared-database-mutation-logs.md#requirements-to-preserve)
 
 The crate root holds the scalar types and digest helpers that `src/v2` uses.

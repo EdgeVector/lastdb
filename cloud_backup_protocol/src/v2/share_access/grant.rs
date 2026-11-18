@@ -3,14 +3,15 @@
 //! The signed document is the whole member set. A revoked key stays on that
 //! set until a later revision marks it active and sets `regrant`.
 
+use super::succession::{self, member_role};
 use super::{
     account_key_matches, MemberListReadResponse, MemberListRevision, MemberListUpdate,
-    NativeDatabase, NodeReadToken, ShareEnvironment, ShareHttpMethod, ShareMember, ShareMemberRole,
-    ShareMemberState, MUTATION_LOG_DELIVERY_OBJECT_PATH, MUTATION_LOG_INBOX_LIST_PATH,
-    MUTATION_LOG_INBOX_SETTLE_PATH, MUTATION_LOG_SNAPSHOT_BYTES_PATH, SHARE_MEMBER_LIST_READ_PATH,
+    NativeDatabase, NodeReadToken, ShareEnvironment, ShareHttpMethod, ShareMemberRole, ShareRead,
+    ShareSettings, ShareWrite, MUTATION_LOG_DELIVERY_OBJECT_PATH, MUTATION_LOG_INBOX_LIST_PATH,
+    MUTATION_LOG_INBOX_SETTLE_PATH, MUTATION_LOG_SNAPSHOT_BYTES_PATH, SHARE_MEMBER_GET_PATH,
+    SHARE_MEMBER_LIST_READ_PATH, SHARE_SETTINGS_GET_PATH, SHARE_SETTINGS_SET_PATH,
 };
-use crate::{Digest, ProtocolError};
-use std::cmp::Ordering;
+use crate::{Digest, ErrorCode, ProtocolError};
 
 const MUTATION_LOG_CREATE_DATABASE_PATH: &str =
     "/api/cloud/backups/v2/mutation-log/create-database";
@@ -39,7 +40,7 @@ pub enum ShareAccess {
     Publisher,
     /// Active member with no schema writes granted.
     Reader,
-    /// Active member with a contributor grant. Whole-database inbox append
+    /// Active member with a contributor grant. Whole-database proposal-log append
     /// access depends on active membership for both roles.
     Contributor,
 }
@@ -107,7 +108,7 @@ pub(super) fn validate_successor(
         if next.revision.get() != 1 {
             return Err(ProtocolError::invalid("share.grant.revision"));
         }
-        return require_initial(next);
+        return succession::require_initial(next);
     };
     previous.validate()?;
     if next.stream != previous.stream || next.publisher_public_key != previous.publisher_public_key
@@ -120,7 +121,7 @@ pub(super) fn validate_successor(
     if next.revision.get() != expected {
         return Err(ProtocolError::invalid("share.grant.revision"));
     }
-    walk(&previous.members, &next.members)
+    succession::walk(&previous.members, &next.members)
 }
 
 /// Resolve the current grant for `node`.
@@ -218,6 +219,109 @@ pub fn member_list_read_view(
     Ok(MemberListReadView::RevisionOnly)
 }
 
+/// Authorize `POST` [`SHARE_SETTINGS_SET_PATH`].
+///
+/// This sits beside member set ([`super::SHARE_MEMBER_SET_PATH`]): the statement's
+/// publisher signature is the authorization, and this crate does not verify
+/// it. Verify the signature over the digest hex before this call. There is
+/// no [`NodeReadToken`] grant. A member signature is not this check.
+///
+/// `previous` is absent when the database has no settings yet.
+pub fn authorize_settings_set(
+    previous: Option<&ShareSettings>,
+    next: &ShareSettings,
+    method: ShareHttpMethod,
+    path: &str,
+) -> Result<(), ProtocolError> {
+    require_post(method, path, SHARE_SETTINGS_SET_PATH)?;
+    next.validate_successor_of(previous)
+}
+
+/// Authorize `POST` [`SHARE_SETTINGS_GET_PATH`].
+///
+/// The native-database requirement sits beside [`member_list_read_view`].
+/// A stale member-list revision does not reject the call, which sits beside
+/// [`authorize_access_read`]. The publisher and any active member may read.
+/// When `read` is `anyone`, a caller [`authorize`] refuses for membership may
+/// also read. An invalid roster is still refused. The caller still presents
+/// a `LastDBNode` token bound to this database. The signature check and the
+/// nonce spend happen before this call.
+pub fn authorize_settings_get(
+    current: &MemberListReadResponse,
+    settings: Option<&ShareSettings>,
+    token: &NodeReadToken,
+    target: SignedRequestTarget<'_>,
+) -> Result<(), ProtocolError> {
+    require_member_route(token, target, current, SHARE_SETTINGS_GET_PATH)?;
+    bind_settings(settings, current, target.environment)?;
+    match authorize(current, &token.node_public_key) {
+        Ok(_) => Ok(()),
+        Err(error) if error.code == ErrorCode::Unauthorized && settings_anyone(settings) => Ok(()),
+        Err(error) => Err(error),
+    }
+}
+
+/// Authorize `POST` [`SHARE_MEMBER_GET_PATH`] for one member key.
+///
+/// The publisher may name any member, and any other active member may name
+/// only its own key. That is the rule on [`super::MemberGetRequest`], beside
+/// [`member_list_read_view`]. When `write` is `direct`, an active member may
+/// name another member, so a node can check that a log writer is on the
+/// publisher-signed list. A revoked key stays refused.
+pub fn authorize_member_get(
+    current: &MemberListReadResponse,
+    settings: Option<&ShareSettings>,
+    token: &NodeReadToken,
+    member: &Digest,
+    target: SignedRequestTarget<'_>,
+) -> Result<(), ProtocolError> {
+    require_member_route(token, target, current, SHARE_MEMBER_GET_PATH)?;
+    bind_settings(settings, current, target.environment)?;
+    let access = authorize(current, &token.node_public_key)?;
+    if access == ShareAccess::Publisher || token.node_public_key == *member {
+        return Ok(());
+    }
+    if settings_direct(settings) {
+        return Ok(());
+    }
+    Err(ProtocolError::unauthorized("share.member.other"))
+}
+
+fn require_member_route(
+    token: &NodeReadToken,
+    target: SignedRequestTarget<'_>,
+    current: &MemberListReadResponse,
+    path: &str,
+) -> Result<(), ProtocolError> {
+    require_post(target.method, target.path, path)?;
+    token.require_target(target.environment, target.method, target.path)?;
+    bind_request_scope(token, current)?;
+    require_signed(token, &target)
+}
+
+fn bind_settings(
+    settings: Option<&ShareSettings>,
+    current: &MemberListReadResponse,
+    environment: ShareEnvironment,
+) -> Result<(), ProtocolError> {
+    let Some(settings) = settings else {
+        return Ok(());
+    };
+    settings.validate()?;
+    if settings.stream != current.stream || settings.environment != environment {
+        return Err(ProtocolError::invalid("share.settings.identity"));
+    }
+    Ok(())
+}
+
+fn settings_anyone(settings: Option<&ShareSettings>) -> bool {
+    settings.is_some_and(|settings| settings.read == ShareRead::Anyone)
+}
+
+fn settings_direct(settings: Option<&ShareSettings>) -> bool {
+    settings.is_some_and(|settings| settings.write == ShareWrite::Direct)
+}
+
 fn require_signed(
     token: &NodeReadToken,
     target: &SignedRequestTarget<'_>,
@@ -262,102 +366,5 @@ pub fn member_list_revision(current: &MemberListReadResponse) -> MemberListRevis
         version: current.version,
         database_id: current.stream.stream_id.clone(),
         revision: current.revision,
-    }
-}
-
-fn require_initial(next: &MemberListUpdate) -> Result<(), ProtocolError> {
-    if next.members.iter().any(|member| !fresh_grant(member)) {
-        return Err(ProtocolError::invalid("share.grant.initial"));
-    }
-    Ok(())
-}
-
-fn fresh_grant(member: &ShareMember) -> bool {
-    member.state == ShareMemberState::Active && !member.regrant
-}
-
-fn walk(previous: &[ShareMember], next: &[ShareMember]) -> Result<(), ProtocolError> {
-    let mut left = 0;
-    let mut right = 0;
-    while left < previous.len() || right < next.len() {
-        if left < previous.len() && right < next.len() {
-            match previous[left]
-                .node_public_key
-                .cmp(&next[right].node_public_key)
-            {
-                Ordering::Equal => {
-                    transition(&previous[left], &next[right])?;
-                    left += 1;
-                    right += 1;
-                }
-                Ordering::Less => {
-                    omitted(&previous[left])?;
-                    left += 1;
-                }
-                Ordering::Greater => {
-                    introduced(&next[right])?;
-                    right += 1;
-                }
-            }
-        } else if left < previous.len() {
-            omitted(&previous[left])?;
-            left += 1;
-        } else {
-            introduced(&next[right])?;
-            right += 1;
-        }
-    }
-    Ok(())
-}
-
-fn omitted(member: &ShareMember) -> Result<(), ProtocolError> {
-    let field = match member.state {
-        ShareMemberState::Active => "share.grant.omitted",
-        ShareMemberState::Revoked => "share.grant.revoked_omitted",
-    };
-    Err(ProtocolError::invalid(field))
-}
-
-fn introduced(member: &ShareMember) -> Result<(), ProtocolError> {
-    if fresh_grant(member) {
-        return Ok(());
-    }
-    let field = if member.state == ShareMemberState::Revoked {
-        "share.grant.revoke_unknown"
-    } else {
-        "share.grant.regrant"
-    };
-    Err(ProtocolError::invalid(field))
-}
-
-fn transition(previous: &ShareMember, next: &ShareMember) -> Result<(), ProtocolError> {
-    match (previous.state, next.state) {
-        (ShareMemberState::Active, ShareMemberState::Active) if !next.regrant => Ok(()),
-        (_, ShareMemberState::Revoked) if !next.regrant && next.role == previous.role => Ok(()),
-        (ShareMemberState::Revoked, ShareMemberState::Active) if next.regrant => Ok(()),
-        (ShareMemberState::Revoked, ShareMemberState::Active) => {
-            Err(ProtocolError::invalid("share.grant.regrant_required"))
-        }
-        (ShareMemberState::Active, ShareMemberState::Revoked) => {
-            Err(ProtocolError::invalid("share.grant.revoke"))
-        }
-        (ShareMemberState::Revoked, ShareMemberState::Revoked) => {
-            Err(ProtocolError::invalid("share.grant.revoked_state"))
-        }
-        (ShareMemberState::Active, ShareMemberState::Active) => {
-            Err(ProtocolError::invalid("share.grant.regrant"))
-        }
-    }
-}
-
-fn member_role(update: &MemberListUpdate, node: &Digest) -> Result<ShareMemberRole, ProtocolError> {
-    let index = update
-        .members
-        .binary_search_by(|member| member.node_public_key.cmp(node))
-        .map_err(|_| ProtocolError::unauthorized("share.grant.absent"))?;
-    let member = &update.members[index];
-    match member.state {
-        ShareMemberState::Active => Ok(member.role),
-        ShareMemberState::Revoked => Err(ProtocolError::unauthorized("share.grant.revoked")),
     }
 }

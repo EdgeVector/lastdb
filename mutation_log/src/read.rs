@@ -41,22 +41,51 @@ fn entry_visible(
         DatabaseKind::Personal => holds_owner(database, reader),
         DatabaseKind::Shareable { publisher } => {
             policy.allows_in_share(&entry.namespace)
-                && (reader == publisher
-                    || (&entry.writer.key == publisher && holds_receive(database, reader)))
+                && share_visible(database, stored, reader, publisher, policy)
         }
     }
 }
 
+/// Mutation-log visibility.
+///
+/// The publisher sees every entry. Anyone else needs Receive, Submit, or
+/// `read: anyone`. That reader then sees an entry the publisher wrote, or an
+/// entry stored with [`StoredEntry::direct_write`]. The current settings and
+/// the writer's current role are not part of this choice.
+fn share_visible(
+    database: &LogState,
+    stored: &StoredEntry,
+    reader: &PrincipalId,
+    publisher: &PrincipalId,
+    policy: &BoundPolicy,
+) -> bool {
+    if reader == publisher {
+        return true;
+    }
+    let can_read = holds_receive(database, reader)
+        || holds_submit(database, reader)
+        || policy.share().reads_without_grant();
+    if !can_read {
+        return false;
+    }
+    &stored.entry.writer.key == publisher || stored.direct_write
+}
+
 impl LogState {
     /// Whether this key may call list or head.
+    ///
+    /// `policy` is the caller's share settings. The default does not change
+    /// this check. `read: anyone` also allows a caller that holds no grant.
+    /// That caller still cannot append.
     #[must_use]
-    pub fn reader_allowed(&self, principal: &PrincipalId) -> bool {
+    pub fn reader_allowed(&self, principal: &PrincipalId, policy: &BoundPolicy) -> bool {
         match &self.kind {
             DatabaseKind::Personal => holds_owner(self, principal),
             DatabaseKind::Shareable { publisher } => {
                 principal == publisher
                     || holds_receive(self, principal)
                     || holds_submit(self, principal)
+                    || policy.share().reads_without_grant()
             }
         }
     }
@@ -103,7 +132,7 @@ impl LogState {
         reader: &PrincipalId,
         policy: &BoundPolicy,
     ) -> Result<Option<ScopedHead>, LogError> {
-        if !self.reader_allowed(reader) {
+        if !self.reader_allowed(reader, policy) {
             return Err(LogError::Unauthorized);
         }
         Ok(scoped_head(self, reader, policy))
@@ -120,7 +149,7 @@ impl LogState {
         if limit == 0 || limit > LIST_PAGE_LIMIT {
             return Err(LogError::InvalidPage);
         }
-        if !self.reader_allowed(reader) {
+        if !self.reader_allowed(reader, policy) {
             return Err(LogError::Unauthorized);
         }
         Ok(page(self, reader, after, limit, policy))

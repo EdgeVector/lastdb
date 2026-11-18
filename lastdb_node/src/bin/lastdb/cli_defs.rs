@@ -112,6 +112,22 @@ pub(super) enum Command {
         #[arg(long)]
         timeout: Option<u64>,
     },
+    /// Show completed requests, by caller and by schema.
+    ///
+    /// The counts stay in memory. They start at zero when the node starts,
+    /// and a backup does not include them. The call table holds at most 256
+    /// rows. A further new caller and route counts on `{overflow}` and
+    /// `other`. The schema table holds at most 256 rows and folds the same
+    /// way. At most 32 unknown paths are kept. A further unknown path keeps
+    /// its caller and uses `other`.
+    Ops {
+        /// Sort by request count. The default sort is total time.
+        #[arg(long)]
+        by_count: bool,
+        /// Print the route JSON on stdout and nothing else.
+        #[arg(long)]
+        json: bool,
+    },
     /// Write one conditional record.
     ///
     /// The request names a file by path. The command does not copy the file,

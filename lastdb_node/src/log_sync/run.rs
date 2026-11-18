@@ -1,4 +1,4 @@
-//! Pull, apply, save local download progress, and drain publisher inboxes.
+//! Pull, apply, save local download progress, and drain the proposal log.
 
 use std::path::Path;
 use std::sync::atomic::AtomicBool;
@@ -89,17 +89,6 @@ async fn pull_and_checkpoint(host: &Host, ready: &Ready) -> Pause {
                 return apply_contiguous(host, ready, after, page).await;
             }
             Ok(Err(cut)) => {
-                match ready.log.list_async(after).await {
-                    Ok(page) if !page.entries.is_empty() && contiguous(after, &page) => {
-                        return apply_contiguous(host, ready, after, page).await;
-                    }
-                    Ok(_) | Err(LogError::CursorExpired { .. }) => {}
-                    Err(error) => {
-                        tracing::warn!(target: "lastdbd::log_sync", %error, "retained log read failed");
-                        return ready
-                            .download_failed(host, format!("retained log read failed: {error}"));
-                    }
-                }
                 return match super::native_reset::prepare(host, &ready.log, after, &cut).await {
                     Ok(()) => Pause::Reopen,
                     Err(error) => {

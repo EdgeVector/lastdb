@@ -1,6 +1,6 @@
 {
-  "api_version": 40,
-  "min_supported_api_version": 37,
+  "api_version": 41,
+  "min_supported_api_version": 38,
   "capabilities": [
     "atomic_owned_mutations_v1",
     "compound_alternate_keys_v1",
@@ -26,6 +26,7 @@
     "/api/db/native-status",
     "/api/db/schema-retention",
     "/api/db/schemas",
+    "/api/ops",
     "/api/schema",
     "/api/schemas",
     "/api/schemas/drop",
@@ -39,7 +40,8 @@
     "/v1/write"
   ],
   "extensions": [
-    "changes"
+    "changes",
+    "databases"
   ],
   "app_routes": [
     "/api/databases",

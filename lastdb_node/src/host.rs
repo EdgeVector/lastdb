@@ -18,8 +18,10 @@ pub use crate::profile::{user_hash_from_pubkey, IDENTITY_KEY_FILE};
 pub(crate) mod app_grants;
 pub(crate) mod cloud_sync;
 mod logging;
+pub(crate) mod ops;
 pub(crate) mod owned;
 mod recovery;
+pub(crate) mod share_identity;
 pub(crate) use cloud_sync::{BlockedDelivery, ReplayBlockReason};
 pub use logging::init_daemon_logging;
 
@@ -56,11 +58,14 @@ pub struct Host {
     pub keypair: Arc<Ed25519KeyPair>,
     pub user_hash: String,
     pub uds_workers: OnceLock<crate::lastdb_uds::UdsWorkerPool>,
+    /// The app socket's pool. `/api/status` reports it beside [`Self::uds_workers`].
+    pub app_uds_workers: OnceLock<crate::lastdb_uds::UdsWorkerPool>,
     pub(crate) booted_with_credentials: bool,
     pub(crate) cloud_sync: cloud_sync::CloudSyncTracker,
     pub(crate) owned: owned::Tables,
     pub(crate) received: tokio::sync::Mutex<HashMap<String, Arc<FoldDB>>>,
     pub(crate) app_grants: app_grants::AppGrants,
+    pub(crate) ops: ops::Ops,
 }
 
 impl Host {
@@ -123,7 +128,7 @@ impl Host {
             offline_maintenance: false,
             capture_accepted: signed_restore || has_spool || connected,
             capture_initial_snapshot: wants_initial && connected,
-            track_shared_record_revisions: false,
+            record_log: None,
         };
         let db = fold_db::fold_db_core::factory::create_fold_db_with_options(
             &DatabaseConfig::local(data_dir),
@@ -148,11 +153,13 @@ impl Host {
             keypair,
             user_hash,
             uds_workers: OnceLock::new(),
+            app_uds_workers: OnceLock::new(),
             booted_with_credentials: creds_at_boot,
             cloud_sync,
             owned,
             received: tokio::sync::Mutex::new(HashMap::new()),
             app_grants: app_grants::AppGrants::open(&home.join("data")),
+            ops: ops::Ops::default(),
         })
     }
 

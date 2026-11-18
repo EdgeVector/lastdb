@@ -25,7 +25,7 @@ POST /v1/read
 
 200
 { "results": [
-    { "records": [ { "key": { "hash": "n1", "range": null }, "revision": "9c2e…", "record": { … } } ], "next_cursor": null },
+    { "records": [ { "key": { "hash": "n1", "range": null }, "revision": "9c2e…", "created_by": "ab12…", "updated_by": "ab12…", "record": { … }, "file": null } ], "next_cursor": null },
     { "keys": [ … ], "next_cursor": "b3f1…" },
     { "records": [ … ], "next_cursor": null },
     { "error": { "code": "not_found", "message": "…" } },
@@ -81,7 +81,7 @@ Every write carries a condition, so two writers cannot overwrite each other with
 - A write that names a received database is refused. The status is 403 and the code is `permission_denied`. The message is `a received database is read only`. An unknown identifier is `not_found` with the message `database is not registered on this node`. A receiver does not use this route for a proposal. The proposal route is on the owner socket. See Sharing.
 - The reply comes after the write is on disk. `revisions` holds the new revision of each record, in order.
 
-A read returns each record's `revision` beside its key.
+A read returns each record's `revision` beside its key. It also returns `created_by` and `updated_by` when the record has them. Each value is the lowercase hex node key of a writer. The node omits a key when the record has no value for it. It does not send null. A record written before the values existed omits both keys, and so does a node on an older build at this API version. `created_by` is set only when the write creates the record. A replace keeps the previous `created_by`, including when that value is absent. `updated_by` is the writer of this revision. A write that names `created_by` or `updated_by`, on the write item or inside `record`, is refused.
 
 ## Files
 
@@ -150,6 +150,50 @@ POST /v1/x/changes
   saved, or `gap` is true, it rebuilds from key pages.
 - The owner uses the same `POST /v1/x/changes` call.
 - `POST /v1/x/changes` does not serve a received database. That request is `not_found` and its message is `a received database is not served by /v1/x/changes`. The node does not open the receiver store. An unknown identifier is `not_found` with the message `database is not registered on this node`. Omit `database` to use the personal database.
+
+### databases
+
+An app lists and creates named databases, places a schema in one, and uses a
+whole-database share. The owner routes stay where they are. This call runs
+the same handlers.
+
+```
+POST /v1/x/databases
+{ "action": "create", "name": "notes", "sharingMode": "whole_database" }
+
+200
+{ "ok": true, "user_hash": "…", "database": { "id": "…", "name": "notes",
+  "kind": "shareable", "access": "owner", "state": "ready",
+  "sharingMode": "whole_database" } }
+```
+
+| `action` | Owner route | Other fields | Success |
+|---|---|---|---|
+| `list` | `GET /api/databases` | none | 200 `{ok, user_hash, databases}` |
+| `create` | `POST /api/databases` | `name`, `spec`, `kind`, `sharingMode` | 200 `{ok, user_hash, database}` |
+| `accept` | `POST /api/databases/accept` | `invitation`, `publisher`, `name`, `database_id` | 200 `{ok, user_hash, database}` |
+| `schemas` | `GET /api/databases/{id}/schemas` | `database`, `include_full`, `include_definition_ids` | 200 schema list |
+| `declare_schema` | `POST /api/databases/{id}/apps/declare-schema` | `database`, `schema`, `intent`, `retention`, `app_id` | 200 declare envelope |
+| `share_config` | `GET /api/databases/{id}/share/config` | `database` | 200 `{ok, user_hash, databaseId, revision, members}` |
+| `set_share_config` | `PUT /api/databases/{id}/share/config` | `database`, `config` | 200 `{ok, user_hash, databaseId, requestId, revision, committed}` |
+| `invite` | `POST /api/databases/{id}/invitations` | `database`, `contactCode`, `expectedNodeKey`, `expiresInHours` | 200 `{ok, user_hash, databaseId, invitation}` |
+| `submit` | `POST /api/databases/{id}/submissions` | `database`, `mutation`, `idempotency_key` | 202 `{ok, status, mutation_id, submission_sequence}` |
+| `submission_status` | `POST /api/databases/{id}/submissions/status` | `database`, `mutationId` | 200 `{ok, mutation_id, status}` |
+
+- `database` is the id or the name. Omit it, or send JSON null, and the call uses the personal database. A bad value is `invalid_request` and the message is `invalid database identifier`. `list`, `create`, and `accept` reject the field as `unknown field database`. `accept` names its target `database_id`.
+- `kind` is `shareable` or `personal`. Omit it for `shareable`. `sharingMode` is `whole_database`, and then `spec` must be absent. `spec` is `{name, version}`.
+- A present `Idempotency-Key` header on `create` is forwarded. It is a v4 UUID, and the text must equal that UUID, only when `sharingMode` is `whole_database`. Any other present key is `invalid_request` and the message is `whole-database creation uses a v4 UUID idempotency key`. An absent header is allowed.
+- `include_full` and `include_definition_ids` are booleans. `true` is sent as that query flag. `false` and JSON null are omitted. Another type is `invalid_request`.
+- `declare_schema` is allowed by the `databases` extension. An app that declared the extension may place a schema. The read list and the write list are not consulted for `declare_schema`. Those lists govern `/v1/read` and `/v1/write`.
+- On the app socket `declare_schema` takes an optional `app_id`. A present string is passed to the owner handler as that `app_id`. Omit the field, or send JSON null, and `app_id` is the calling app's id. A value that is not a string is `app_id must be a string`. The owner handler requires that name to be `{app_id}/{local}`, or a local name with no slash, which it prefixes with the app id. An app places a schema in another namespace by setting `app_id` to that namespace. Without that field, the owner handler refuses the name: `invalid_request` and the message is `schema.name namespace must match request.app_id`. A missing or empty name is the owner handler's refusal. On the owner socket `app_id` is required. A missing or empty value is `app_id is required`.
+- `intent` is `catalog_sync`. Omit it for that value. `retention` sits beside `schema`, not inside it. It has `ttl_days` or `ttl_seconds`, and optional `confirm_expire_existing`.
+- `config` is the owner PUT body: `expectedRevision`, `requestId`, and `members`. `mutation` is the owner submission document. Its tag is `type` with the value `mutation`. `idempotency_key` becomes the `Idempotency-Key` header. It is a non-nil lowercase UUID.
+- `submit` answers 202. It appends the proposal to the share's proposal log. It does not write a record. `submission_status` reads that proposal. The status text comes from the share service.
+- An app that did not declare `databases` is `permission_denied`. The message is `the app {id} did not declare the extension databases`. The node checks this before it reads the body. An unknown `action` is `invalid_request` and the message is `unknown action {action}`. An unknown field is `unknown field {name}`. A missing or empty required string is `{name} is required`. A value of another type is `{name} must be a string`, or `must be an object`, or `must be a boolean`.
+- A success reply is the owner route's JSON, including the status. A refusal uses the app API error object. Status 402 becomes 403 `permission_denied` and keeps the payment message. A share error uses its `message`, or else its `reason`, or else a sentence: `share_revision_conflict` is 409 `conflict` and the message is `the share configuration is at another revision`; `share_configuration_unconfirmed` is 503 `busy` and the message is `share configuration is not confirmed`; `invalid_share_configuration` keeps the `reason` text as 400 `invalid_request`.
+- Record reads and writes in a named database stay on `/v1/read` and `/v1/write` under the app's schema grants. This extension adds none.
+- The call does not serve backup, cloud, status, registration, members, or spec binding.
+- The app socket does not serve `POST /api/databases/{id}/apps/declare-schema`. An app places a schema with `declare_schema`.
 
 ## Errors
 
@@ -258,9 +302,12 @@ the key, or the alternate keys. That refusal fails the install, and the
 previous version stays active.
 
 The declaration is recorded with the install. The installer registers it when
-that version is activated, when a reinstall finds that version already active,
-and again when a failed activation or a rollback restores the previous version.
-Registering the same app again replaces its grant. The launcher does not
+that version is activated, and again when a failed activation or a rollback
+restores the previous version. A person who runs `lastdb app install <app>` or
+`lastdb app upgrade <app>` also registers when that version is already active,
+so a lost grant can be restored. The registry poll does not. The poll is
+`lastdb app upgrade --all` with `LASTDB_APP_REGISTRY_POLL=1`, and an app that
+is already at the listed release is left as it is. The launcher does not
 register. The app socket serves the app under the grant the node holds.
 
 ## Schemas at publish
@@ -285,7 +332,7 @@ A node serves two sockets in its data directory.
 
 | Socket | File | Serves |
 |---|---|---|
-| Owner socket | `folddb.sock` | The app API, plus databases, sharing, status, the schema catalog, backup, and admin |
+| Owner socket | `folddb.sock` | The app API, plus databases, sharing, status, request counts, the schema catalog, backup, and admin |
 | App socket | `apps.sock` | Only `/v1/read`, `/v1/write` and `/v1/x/<name>`, to a registered app |
 
 - The owner registers one app: `POST /api/apps/register` on the owner socket
@@ -297,7 +344,10 @@ A node serves two sockets in its data directory.
   does not substitute a different id. The reply does not hold
   `expires_in_seconds`. The node keeps one grant per app id: the `read` and
   `write` grants, the `extensions` list, and the data folder when `data` was
-  sent. The same app registered again replaces that grant. A grant has no lifetime.
+  sent. The same app registered again replaces that grant when the read side,
+  the write side, the extensions, or the data folder differ. A side is the same
+  when both are the same set of schema names, or both are `"*"`. The same grant
+  answers success and does not rewrite the file. A grant has no lifetime.
 - The grants are one file, `app-grants.json`, in the data directory beside the
   sockets. The file is mode 0600. The node writes a temporary file and renames
   it into place when a grant changes, and loads the file at start. A missing
@@ -314,8 +364,9 @@ A node serves two sockets in its data directory.
 - A request on the app socket carries the app id in the header
   `X-LastDB-App`. An app id the node has no grant for is refused with
   `permission_denied` and the message `the app socket needs a registered app`.
-  Reinstall the app, or roll back to a retained version, to register the grant
-  again. An app id is a plain app name, checked with the same rule the
+  Run `lastdb app install <app>` or `lastdb app upgrade <app>`, or roll back to
+  a retained version, to register the grant again. The registry poll does not.
+  An app id is a plain app name, checked with the same rule the
   launcher and the installer use.
 - Any route other than the app API answers `not_found` on the app socket.
 - A read names only a schema the app's `read` grant allows, a write only one
@@ -334,12 +385,99 @@ A node serves two sockets in its data directory.
   `schemas` filter, a named grant returns all of those names, and `"*"` returns
   entries for every schema. A `schemas` filter still limits the entries. An
   app whose read grant names nothing gets `permission_denied`.
-- The owner socket also serves databases, sharing, status, the schema list and
-  schema get, `POST /api/apps/declare-schema` (the installer), schema seed and
-  drop, backup, and admin. It does not serve a separate record query, mutation,
+- The owner socket also serves databases, sharing, status, request counts
+  (`GET /api/ops`), the schema list and schema get,
+  `POST /api/apps/declare-schema` (the installer), schema seed and drop,
+  backup, and admin. It does not serve a separate record query, mutation,
   key list, file-byte upload, or `GET /api/changes`. Those calls are unknown
   paths. Record reads and writes use `/v1/read` and `/v1/write`. A receiver's
   proposal is `POST /api/databases/{id}/submissions`. That call is not a record write.
+- The installer places one schema on the personal database with
+  `POST /api/apps/declare-schema`. The same body placed in one database this
+  node owns is `POST /api/databases/{id}/apps/declare-schema`. The app socket
+  does not serve that path. An app places a schema with `declare_schema` on
+  `POST /v1/x/databases`.
+
+## Place a schema in an owned database
+
+`POST /api/apps/declare-schema` writes the schema into the personal database.
+To place that same schema in a named database this node owns, send the same
+body to the database path. The reply is the same object.
+
+```
+POST /api/databases/{id}/apps/declare-schema
+
+{ "app_id": "social", "schema": { "name": "social/Comment", "schema_type": "Hash",
+  "record_keys": { "primary": { "kind": "hash" }, "alternates": {} },
+  "fields": ["id", "text"], "field_types": { "id": "String", "text": "String" },
+  "field_descriptions": { "id": "comment id", "text": "comment text" },
+  "field_versions": { "id": 1, "text": 1 } } }
+```
+
+`intent` defaults to `catalog_sync`. `retention`, when present, sits beside
+`schema`, not inside it. A name that already contains a namespace is declared
+under that namespace, and the namespace has to match `app_id`. A bare name is
+declared under `app_id`.
+
+```
+200
+{ "ok": true, "user_hash": "<owner>", "app_id": "social", "namespace": "social",
+  "schema": "social/Comment", "schema_name": "social/Comment",
+  "descriptive_name": "Comment", "canonical": "social/Comment",
+  "identity_hash": "<hash>", "definition_id": "<portable id>",
+  "resolution": "register", "bind_eligible": true }
+```
+
+`descriptive_name` is the local name when the request omits it. `resolution`
+is `reuse` when that definition is already installed. `retention` is present
+only when the request declared one and the retention step finished.
+
+- `{id}` is the id or the name of a database this node owns. The personal
+  database is one of those. The schema is stored in that database, and that
+  database's accepted log records the schema with kind `schema`. A share
+  publishes that entry when the schema namespace is one the database spec admits.
+- A received database answers 404 and the body is `Not Found`. An id this node
+  does not know answers 404 and the body is `database is not registered on this node`.
+- A registered app that sends this path to the app socket gets `not_found`
+  and the message `the app socket serves only the app API`.
+- `POST /api/schemas/declare` and `POST /api/databases/{id}/schemas/declare`
+  are not routes.
+
+### Request counts
+
+`GET /api/ops` on the owner socket returns the requests completed since the
+node started. The app socket answers `not_found` for this route. The counts
+are in memory only. They start at zero when the node starts. They are not
+written to disk, and a backup does not include them.
+
+`lastdb ops` prints the same counts as aligned text, sorted by total time.
+`--by-count` sorts by request count. `--json` prints the route's JSON on
+stdout and nothing else.
+
+One call row is one caller and one route. On the app socket the caller is
+the app id from `X-LastDB-App`. On the owner socket the caller is `owner`,
+and the row includes `X-LastDB-Client` when the request sent one. A served
+route is its path. A database id in that path is `{database}` and a schema
+name is `{schema}`. A path the node does not serve is kept as sent, cut at
+64 bytes on a character boundary. The row holds the request count, total
+time, slowest request, item count, and refused requests by error code. A
+read counts the reads in the list, a write counts the mutations, and any
+other request counts as one item.
+
+The schema table counts `/v1/read` and `/v1/write` only, by caller, schema,
+and read or write. Each schema named in the request receives that request's
+whole time, once. The item count is the number of list entries for that schema.
+
+The call table holds at most 256 rows. The next new key counts on caller
+`{overflow}`, an empty client, and route `other`. The schema table holds at
+most 256 rows. The next new key counts on caller `{overflow}`, an empty
+client, schema `{overflow}`, and op `read`. One request contributes at most
+8 schema names; further names in that request count on schema `{overflow}`
+for that caller and that read or write. At most 32 distinct unknown paths
+are kept. A further unknown path keeps its caller and uses route `other`.
+A schema name longer than 128 bytes is omitted. The item still counts on
+the call. `{overflow}` and `other` are ordinary keys, so a real caller,
+schema, or path with that name shares the row.
 
 ## Sharing
 
@@ -353,14 +491,14 @@ Idempotency-Key: <uuid>
 { "type": "mutation", "schema": "social/Comment", "record": { … },
   "key_value": { "hash": "photo-7", "range": "<uuid>" }, "alternates": { },
   "mutation_type": "create", "expected": { "type": "absent" },
-  "source_file_name": null, "metadata": null, "file": null }
+  "file": null }
 ```
 
-- The body is one proposal document. It is the mutation document a received database accepted. It is not a record API and it is not a `/v1/write` item.
+- The body is one proposal document. It is the mutation document a received database accepted. It is not a record API and it is not a `/v1/write` item. It does not carry a source file name or a metadata map. The database sets `created_by` only when the write creates the record, and sets `updated_by` from the authenticated writer. A replace keeps the previous `created_by`, including when it is absent. For `social/Comment`, the creator is the live record's `created_by`. A comment with no `created_by` stays editable only by the publisher.
 - The proposal id is the `Idempotency-Key` header. It is one non-nil UUID. The body has no separate id field. The same id and the same body are idempotent.
-- The route answers only for a received whole-database share. It never writes a record on this node. It seals the proposal and appends it to the publisher's pending log.
+- The route answers only for a received whole-database share. It never writes a record on this node. It seals the proposal and appends it to the proposal log.
 - The node replaces `definition_id` with the installed schema definition before it seals the proposal. `convergence` and `durability` are optional. A proposal that carries a file is refused.
-- `202` means the pending log accepted the append: `{ "ok": true, "status": "submitted", "mutation_id": "<uuid>", "submission_sequence": 1 }`. The publisher still checks the proposal.
+- `202` means the proposal log accepted the append: `{ "ok": true, "status": "submitted", "mutation_id": "<uuid>", "submission_sequence": 1 }`. The publisher still checks the proposal.
 - An owned database, including the owner's own database, answers `404` with the text `this database has no received submissions`. An unknown id answers `404` with the text `database is not registered on this node`. A share that is not a whole database answers `403` with the text `this share is read-only`.
 - A missing or invalid `Idempotency-Key` answers `400` with the text `a shared write requires a UUID Idempotency-Key`. A document the node cannot parse answers `400` with the text `invalid shared mutation or schema definition`. A receiver that is not active answers `403` with the text `this member cannot submit this shared mutation`.
 - A snapshot that is not durable answers `503` with the text `database snapshot is not durable`. An append the node cannot confirm answers `503` with the text `shared mutation was not confirmed`.
@@ -384,12 +522,14 @@ directly.
 - On activation, and on rollback, the installer registers that version's
   access, so a process that is already running is served under the new lists
   at once. If activation fails and the previous version is restored, the
-  previous access is registered again. Installing the version that is already
-  active registers that access again.
+  previous access is registered again. When a person runs `lastdb app install
+  <app>` or `lastdb app upgrade <app>` and that version is already active, the
+  installer registers that access again. The registry poll does not.
 - A node that holds no grant for the app refuses its calls with `the app
-  socket needs a registered app`. Reinstall the app, or roll back to a
-  retained version. That registers the grant again. There is no repair command
-  and no registration from the launcher.
+  socket needs a registered app`. Run `lastdb app install <app>` or `lastdb app
+  upgrade <app>`, or roll back to a retained version. That registers the grant
+  again. The registry poll does not. There is no repair command and no
+  registration from the launcher.
 - There is no command that removes an installed app. Pruning a version
   directory that is neither current nor previous does not drop the grant. The
   grant stays until a later registration of that app id replaces it.

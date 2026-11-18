@@ -4,6 +4,11 @@ Creates private and shareable siblings under ordinary names, including names
 that used to be reserved, and checks that the same key stays isolated. After
 the daemon restarts, the same database ids still return those values through
 the socket and the lastdb CLI.
+
+RecordById on each named database is still placed by
+POST /api/databases/{id}/schemas/seed-system, which requires an isolated copy.
+social/CircleNote is placed by POST /api/databases/{id}/apps/declare-schema,
+written and read with the database field, and absent from the personal database.
 """
 import json
 import os
@@ -47,6 +52,7 @@ def prepare(node, cli, output):
     install(node, alpha["id"])
     install(node, work["id"])
     install(node, graph["id"])
+    place_named_schema(node, family["id"])
     write_value(node, notes["id"], "owner-only")
     write_value(node, family["id"], "family")
     write_value(node, alpha["id"], "alpha")
@@ -84,6 +90,7 @@ def check(node, cli, output):
     require(read_value(node, saved["work_id"]) == "work", "work changed across restart")
     require(read_value(node, saved["graph_id"]) == "graph", "graph changed across restart")
     require(owner_id(node) == saved["personal_id"], "the personal database id changed across restart")
+    check_placed_schema(node, saved["family_id"])
     check_list(node, saved, alpha_spec={"name": "notes", "version": 1})
     cli_read(node, cli, saved["family_id"], "family")
     cli_read(node, cli, "social-family", "family")
@@ -118,6 +125,41 @@ def install(node, database_id):
     schema = definition("RecordById", "Hash", FIELDS, {"by_bucket": RANGED},
                         description_prefix="Named database example ")
     system_seed(node, schema, database_id)
+
+
+PLACED_SCHEMA = "social/CircleNote"
+PLACED_NOTE = "placed in the named database"
+
+
+def place_named_schema(node, database_id):
+    """Place one app schema in an owned database and write one record of it there."""
+    schema = definition(PLACED_SCHEMA, "Hash", ["id", "note"], description_prefix="Named database ")
+    schema.pop("source", None)
+    placed = node.call(f"/api/databases/{database_id}/apps/declare-schema", {
+        "app_id": "social", "schema": schema,
+    })[0]
+    require(placed.get("schema_name") == PLACED_SCHEMA and placed.get("namespace") == "social"
+            and placed.get("resolution") == "register" and placed.get("schema") == PLACED_SCHEMA,
+            "declare-schema did not place the schema in the named database: " + repr(placed))
+    v1.write_items(node, [v1.create_item(
+        PLACED_SCHEMA, {"hash": "one"}, {"id": "one", "note": PLACED_NOTE}, database=database_id,
+    )])
+    check_placed_schema(node, database_id)
+
+
+def check_placed_schema(node, database_id):
+    rows = v1.read_items(node, [v1.point(PLACED_SCHEMA, {"hash": "one"}, database=database_id)])[0]["records"]
+    require(len(rows) == 1 and rows[0]["record"]["note"] == PLACED_NOTE,
+            "the named database did not return the placed schema record")
+    require(PLACED_SCHEMA in schema_names(node, database_id),
+            "the named database does not list the placed schema")
+    require(PLACED_SCHEMA not in schema_names(node, None),
+            "the placed schema is also on the personal database")
+
+
+def schema_names(node, database_id):
+    path = "/api/schemas" if database_id is None else f"/api/databases/{database_id}/schemas"
+    return {row["name"] for row in node.call(path)[0]["schemas"]}
 
 
 def write_value(node, database_id, value):

@@ -1,34 +1,53 @@
-//! Pure functional core of the published cloud mutation log.
+//! Pure functional core of one mutation log.
+//! Decided state: docs/designs/shared-database-mutation-logs.md (mutation log, proposal log, share settings).
 //!
-//! The core models one ordered published log value. Entries are tagged by writer
+//! The core models one ordered log value. Entries are tagged by writer
 //! (node key, device). The caller supplies time, IDs, and a [`BoundPolicy`].
+//! The same value models a personal database, a share's mutation log, or that
+//! share's proposal log.
 //!
 //! # Sharing
 //!
 //! A database is [`DatabaseKind::Personal`] or [`DatabaseKind::Shareable`].
 //! A personal database accepts app-private namespaces and rejects a receiver
 //! grant. A shareable database rejects an app-private namespace on append.
-//! ExeMem gives receivers only entries written by the publisher, including
-//! when filtering legacy mixed history. Whole-database shares also have a
-//! separate pending inbox log that only the publisher reads. The publisher's
-//! LastDB validates those mutations and publishes accepted changes under its own key.
+//! A personal database has one mutation log. A shared database also has a
+//! proposal log. Members append to the proposal log only while `write` is
+//! `proposals`. The publisher reads and settles that log under any setting.
+//! `read` and `write` are independent. Every pair is valid.
+//!
+//! [`BoundPolicy::with_share`] carries the two settings. The default is
+//! members and proposals, which is absent share settings. `read: anyone`
+//! lets a caller with no grant read what a member reads and does not let
+//! that caller append. A fresh member append while `write` is `direct` is
+//! stored with [`StoredEntry::direct_write`]. A reader other than the
+//! publisher sees publisher-written entries and those marked entries. The
+//! current settings do not change an entry that is already stored.
 
 #![deny(clippy::disallowed_methods, clippy::disallowed_types)]
 
 mod append;
+mod authorship;
 mod model;
 mod read;
+mod share;
 
 use std::fmt;
 
 use database_policy::{admit_namespace, valid_label, NamespaceClass, SpecBinding};
 
 pub use append::AppendOutcome;
+pub use authorship::{
+    attach_writer_signature, carried_payload, sealed_sha256, writer_entry_digest, CarriedPayload,
+    WriterEntryBinding, SEALED_ENVELOPE_VERSION, WRITER_ENTRY_DOMAIN, WRITER_FRAME_PREFIX,
+    WRITER_FRAME_VERSION, WRITER_SIGNATURE_LEN,
+};
 pub use model::{
     AppendBatch, Capability, DatabaseKind, Entry, Grant, Head, Incorporation, LogState, Stamp,
     StoredEntry, Writer,
 };
 pub use read::{ListPage, ScopedHead};
+pub use share::{ShareAdmission, ShareRead, ShareWrite};
 
 /// Entries applied in one append transaction.
 pub const APPEND_BATCH_LIMIT: usize = 90;
@@ -92,19 +111,43 @@ label_id!(
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BoundPolicy {
     binding: Option<SpecBinding>,
+    share: ShareAdmission,
 }
 
 impl BoundPolicy {
     /// No spec binding. Share appends fail closed.
+    ///
+    /// Share admission is [`ShareAdmission::default`]: members and proposals.
     #[must_use]
     pub fn absent() -> Self {
-        Self { binding: None }
+        Self {
+            binding: None,
+            share: ShareAdmission::default(),
+        }
     }
 
     pub(crate) fn new(binding: SpecBinding) -> Self {
         Self {
             binding: Some(binding),
+            share: ShareAdmission::default(),
         }
+    }
+
+    /// Use these share settings for later append and read calls.
+    ///
+    /// Pass [`ShareAdmission::default`] when the database has no settings.
+    /// That is `absent_share_settings` in `cloud_backup_protocol`: members and
+    /// proposals. Map `ShareRead` and `ShareWrite` by variant name.
+    #[must_use]
+    pub fn with_share(mut self, share: ShareAdmission) -> Self {
+        self.share = share;
+        self
+    }
+
+    /// Share settings supplied for this call. The default is members and proposals.
+    #[must_use]
+    pub fn share(&self) -> ShareAdmission {
+        self.share
     }
 
     /// Build the policy from the stored `{ "name", "version" }` object.

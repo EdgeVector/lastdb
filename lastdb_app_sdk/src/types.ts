@@ -80,13 +80,6 @@ export interface FileMarker {
   sha256: string;
 }
 
-/** The one metadata block a proposal can name. */
-export interface RecordMetadata {
-  source_file_name: string | null;
-  metadata?: Record<string, string>;
-  file?: FileMarker;
-}
-
 interface ProposalTarget {
   key: KeyValue;
   /** Exactly every declared name. Null requires allow_absent in the schema. */
@@ -97,8 +90,6 @@ interface ProposalTarget {
 
 interface CompleteRecord {
   record: RowFields;
-  /** Absence clears metadata. Copy from a full read when retaining metadata. */
-  metadata?: RecordMetadata | null;
 }
 
 export type CreateMutationOp = ProposalTarget &
@@ -117,7 +108,6 @@ export type DeleteMutationOp = ProposalTarget & {
   mutationType: 'delete' | 'purge';
   expected: { type: 'revision'; revision: string };
   record?: never;
-  metadata?: never;
 };
 
 /**

@@ -7,11 +7,9 @@ use crate::storage::{error::StorageResult, StorageError};
 use lastdb_model::hex::{hex_lower, sha256_hex};
 use lastdb_model::kind_partition::exact_prefix_bounds;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 use std::sync::Arc;
 
 const MAX_DEFERRED_BYTES: usize = 450 * 1024;
-const LEGACY_PENDING: &str = "legacy:";
 const DEFERRED_MSG: &str = "invalid deferred replay envelope length";
 
 type Res<T = ()> = Result<T, SchemaError>;
@@ -190,43 +188,7 @@ impl Metadata {
             .map_err(read_err)?
             .map(|bytes| String::from_utf8(bytes).map_err(read_err))
             .transpose()?;
-        Ok(saved.map(|id| match id.strip_prefix(LEGACY_PENDING) {
-            Some(stripped) => stripped.to_owned(),
-            None => id,
-        }))
-    }
-
-    /// Add old spool items in order without replacing a newer local write's marker.
-    pub(crate) async fn stage_legacy_replay_targets<'a>(
-        &self,
-        targets: impl IntoIterator<Item = (ReplayTarget<'a>, &'a str)>,
-    ) -> Res {
-        self.require_scope().map_err(read_err)?;
-        let map: BTreeMap<_, _> = targets
-            .into_iter()
-            .map(|(target, id)| (target.key("pending"), id))
-            .collect();
-        if map.is_empty() {
-            return Ok(());
-        }
-        let existing = self
-            .store
-            .get_many(map.keys().map(|key| key.as_bytes().to_vec()).collect())
-            .await
-            .map_err(read_err)?;
-        if existing.len() != map.len() {
-            return Err(SchemaError::InvalidData(
-                "incomplete pending replay lookup".into(),
-            ));
-        }
-        let prefix = LEGACY_PENDING.as_bytes();
-        let writes = map
-            .into_iter()
-            .zip(existing)
-            .filter(|(_, cur)| cur.as_deref().is_none_or(|val| val.starts_with(prefix)))
-            .map(|((key, id), _)| (key, Some(format!("{LEGACY_PENDING}{id}").into_bytes())))
-            .collect();
-        self.stage(writes).await.map_err(read_err)
+        Ok(saved)
     }
 
     pub(crate) async fn clear_pending_replay(&self, target: ReplayTarget<'_>, id: &str) -> Res {

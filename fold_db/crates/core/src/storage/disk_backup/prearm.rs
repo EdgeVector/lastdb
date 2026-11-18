@@ -8,12 +8,13 @@ use crate::storage::disk_pack::{
 use crate::storage::error::{StorageError, StorageResult};
 use laststore::disk_run::home::{RunHome, LOCK, RUNS};
 use std::fs::{self, File};
-use std::io;
+use std::io::{self, Write};
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
 const READY: &str = ".signed-initial-snapshot";
 const STAGING: &str = ".signed-initial-snapshot-staging";
+const SOURCE_FRONTIER: &str = "source-frontier";
 // Match the native cloud snapshot service's signed inventory bounds.
 const MAX_FILES: usize = 2048;
 const MAX_FILE_BYTES: u64 = 5 * 1024 * 1024 * 1024;
@@ -51,12 +52,8 @@ fn stage_and_pin(physical: &V2Home, log: &Log, key: &[u8; 32]) -> StorageResult<
         return Err(unavailable());
     }
     cas_delete::require_clear(physical)?;
-    if crate::storage::local_file_ref::has_stopped_references(data_root)? {
-        return Err(StorageError::invalid(
-            "snapshot cannot include files referenced outside the database",
-        ));
-    }
-    let cut = DatabaseSnapshot::from_roots(physical, true, false)?;
+    let cut =
+        DatabaseSnapshot::from_roots(physical, true, false)?.with_local_files(physical, key)?;
     stage(data_root, &ready, &cut)?;
     log.pin_initial_frontier(frontier)
         .map_err(accepted::storage)
@@ -80,7 +77,13 @@ pub(super) fn open(physical: &V2Home, key: &[u8; 32]) -> StorageResult<Option<Da
         return Err(unavailable());
     }
     let pinned = V2Home::new(std::sync::Arc::new(main), std::sync::Arc::new(files));
-    DatabaseSnapshot::from_roots(&pinned, true, false).map(Some)
+    let mut cut = DatabaseSnapshot::from_roots(&pinned, true, false)?;
+    match fs::read_to_string(ready.join(SOURCE_FRONTIER)) {
+        Ok(value) => cut.native_frontier = value.trim().parse().map_err(|_| unavailable())?,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
+    Ok(Some(cut))
 }
 
 pub(super) fn release(physical: &V2Home) -> StorageResult<()> {
@@ -154,7 +157,7 @@ fn stage_files(
         }
         if is_run_file(&relative) {
             // The manifest pins these immutable runs while each hard link is made.
-            fs::hard_link(data.join(&relative), &target)?;
+            fs::hard_link(cut.source_path(data, &relative), &target)?;
             let target_info = fs::symlink_metadata(&target)?;
             if !target_info.is_file()
                 || source_info.dev() != target_info.dev()
@@ -170,6 +173,9 @@ fn stage_files(
             destination.sync_all()?;
         }
     }
+    let mut frontier = admit::open_private_write(&staging.join(SOURCE_FRONTIER), true)?;
+    writeln!(frontier, "{}", cut.native_frontier)?;
+    frontier.sync_all()?;
     for root in [RUN_DIR, CAS_DIR] {
         let root = staging.join(root);
         File::open(root.join(RUNS))?.sync_all()?;

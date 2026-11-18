@@ -123,7 +123,12 @@ fn read_line<R: BufRead>(r: &mut R) -> Result<Option<Vec<u8>>, HttpErr> {
     }
 }
 
-fn read_request<R: BufRead>(mut reader: R, policy: &ReadPolicy) -> Result<UdsRequest, HttpErr> {
+enum ReadKind {
+    Ready(UdsRequest),
+    Oversize(UdsRequest),
+}
+
+fn read_request<R: BufRead>(mut reader: R, policy: &ReadPolicy) -> Result<ReadKind, HttpErr> {
     let line = read_line(&mut reader)?.ok_or(HttpErr::Silent)?;
     let s = std::str::from_utf8(&line).map_err(|_| HttpErr::Bad)?;
     let [method, target, version] = s.split(' ').collect::<Vec<_>>()[..] else {
@@ -162,13 +167,21 @@ fn read_request<R: BufRead>(mut reader: R, policy: &ReadPolicy) -> Result<UdsReq
     {
         return Err(HttpErr::Bad);
     }
-    let body = read_body(&mut reader, &headers, policy)?;
-    Ok(UdsRequest {
-        method,
-        target,
-        headers,
-        body,
-    })
+    match read_body(&mut reader, &headers, policy) {
+        Ok(body) => Ok(ReadKind::Ready(UdsRequest {
+            method,
+            target,
+            headers,
+            body,
+        })),
+        Err(HttpErr::BodyLarge) => Ok(ReadKind::Oversize(UdsRequest {
+            method,
+            target,
+            headers,
+            body: Vec::new(),
+        })),
+        Err(err) => Err(err),
+    }
 }
 
 fn discard_exact(r: &mut impl Read, mut left: usize) -> Result<(), HttpErr> {
@@ -219,9 +232,15 @@ fn read_body(
     Ok(body)
 }
 
-pub(super) fn write_busy_and_close(stream: &mut UnixStream) -> io::Result<()> {
-    let body = br#"{"status":"busy","error":"uds_worker_queue_full"}"#.to_vec();
-    let resp = UdsResponse::new(503, "Service Unavailable", body)
+/// Owner socket. Other tools read this body. The app socket uses [`APP_QUEUE_FULL_BODY`].
+pub(super) const OWNER_QUEUE_FULL_BODY: &[u8] =
+    br#"{"status":"busy","error":"uds_worker_queue_full"}"#;
+/// App API error shape: a whole-request `busy`. Kept with `Retry-After: 1`.
+pub(super) const APP_QUEUE_FULL_BODY: &[u8] =
+    br#"{"error":{"code":"busy","message":"the app socket is busy"}}"#;
+
+pub(super) fn write_busy_and_close(stream: &mut UnixStream, body: &[u8]) -> io::Result<()> {
+    let resp = UdsResponse::new(503, "Service Unavailable", body.to_vec())
         .with_header("Content-Type", "application/json")
         .with_header("Retry-After", "1");
     write_with_budget(stream, &resp, Duration::from_secs(2))
@@ -287,7 +306,7 @@ fn write_with_budget(
 pub enum Received {
     Ready(UdsRequest, AccessContext),
     Finished,
-    BodyTooLarge,
+    BodyTooLarge(UdsRequest),
 }
 
 fn http_refusal(err: &HttpErr) -> Option<(u16, &'static str)> {
@@ -318,8 +337,9 @@ pub fn receive_connection(
         io::BufReader::new(DeadlineStream(&r, Instant::now() + UDS_CONN_BUDGET)),
         policy,
     ) {
-        Ok(req) => Ok(Received::Ready(req, AccessContext::owner(owner))),
-        Err(HttpErr::BodyLarge) if policy.defer_oversize => Ok(Received::BodyTooLarge),
+        Ok(ReadKind::Ready(req)) => Ok(Received::Ready(req, AccessContext::owner(owner))),
+        Ok(ReadKind::Oversize(req)) if policy.defer_oversize => Ok(Received::BodyTooLarge(req)),
+        Ok(ReadKind::Oversize(_)) => refuse_http(stream, &HttpErr::BodyLarge),
         Err(err) => refuse_http(stream, &err),
     }
 }

@@ -239,7 +239,9 @@ impl RecordReplay<'_> {
             } else {
                 // Old queue entries can have no marker. Apply the accepted value
                 // even for this writer, since a peer may already have changed it.
-                manager.apply_replay_record(mutation.clone()).await?;
+                manager
+                    .apply_replay_record(mutation.clone(), &self.stamp.writer_key)
+                    .await?;
             }
             manager
                 .accept_replay_record(schema, key, &self.stamp)

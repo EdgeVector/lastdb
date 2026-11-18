@@ -105,7 +105,7 @@ the proposal document to `POST /api/databases/{id}/submissions` on the owner
 socket, with the proposal id in the `Idempotency-Key` header. The document
 is the mutation document a received database used to accept. It is not a
 `/v1/write` item, and the call does not write a record on this node. A
-`202` receipt means the publisher's pending log accepted the append. The
+`202` receipt means the proposal log accepted the append. The
 publisher still checks the proposal. Reuse the same id and the same body
 when the outcome is uncertain: `submitProposal` throws
 `ShareSubmissionUncertainError` with `.mutationId`.
@@ -148,8 +148,8 @@ this node already sent.
 
 An app started by the LastDB launcher runs on the app socket. The launcher sets
 `LASTDB_SOCKET_PATH` to that socket and `LASTDB_APP` to the app id.
-`read`, `write`, and `changes` send that value as `X-LastDB-App` with every
-request. The app socket serves only these three methods.
+`read`, `write`, `changes`, and `databases` send that value as `X-LastDB-App`
+with every request. The app socket serves only these methods.
 
 Pass `database` on a read, a mutation, or `changes` to name a database. These
 methods do not copy the database chosen by `select`. An omitted `database`
@@ -176,14 +176,19 @@ addresses the personal database.
 - `changes({ after?, limit?, schemas?, database? })` posts that object to
   `POST /v1/x/changes` and returns `{ id, head, through, gap, changes }`.
   Omit `after` and the read starts at 0.
+- `databases(body, timeoutMs?)` posts one action to `POST /v1/x/databases`.
+  The reply type follows `body.action`. The body is the owner route's JSON.
+  `submit` answers 202. `submitProposal` uses this call when `LASTDB_APP` is
+  set. Without that variable, `submitProposal` stays on the owner path.
 
-Version 0.19.0 takes the app API types from `lastdb_node/app-api.json`.
+Version 0.19.0 adds `databases()` and takes the app API types from `lastdb_node/app-api.json`.
 Regenerate them with `python3 scripts/lints/app_api_types.py --write`.
 CI runs the same script with `--check` and fails when the committed file differs.
 Use the schema names: `ReadItem`, `WriteItem`, `ChangesRequest`, `ChangesReply`,
 `ChangeEntry`, `ReadResult`, `WriteResult`, `Record`, `FileInfo`, `FileLink`,
-`Range`, `ErrorEnvelope`, `WriteCreate`, `WriteReplace`, and `WriteDelete`.
-`AppApiError` is the class for a non-200 reply.
+`Range`, `ErrorEnvelope`, `WriteCreate`, `WriteReplace`, `WriteDelete`,
+`DatabasesRequest`, and `DatabasesReplyFor`.
+`AppApiError` is the class for a refused reply. `databases` accepts 200 and 202.
 
 A read list holds at most 64 items. A read page defaults to 100 and is capped
 at 1000. A changes page defaults to 500 and is capped at 500. The node keeps

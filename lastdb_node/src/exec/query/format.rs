@@ -70,12 +70,19 @@ fn format_row(key: &KeyValue, record: Record, compact: bool) -> Value {
     let mut row = serde_json::Map::from_iter([
         ("key".into(), json!(key)),
         ("revision".into(), Value::String(record.revision)),
-        ("alternates".into(), json!(record.alternates)),
-        (
-            "fields".into(),
-            Value::Object(record.fields.into_iter().collect()),
-        ),
     ]);
+    // Omit the key when the record has no value. Do not send null.
+    if let Some(created_by) = record.created_by {
+        row.insert("created_by".into(), Value::String(created_by));
+    }
+    if let Some(updated_by) = record.updated_by {
+        row.insert("updated_by".into(), Value::String(updated_by));
+    }
+    row.insert("alternates".into(), json!(record.alternates));
+    row.insert(
+        "fields".into(),
+        Value::Object(record.fields.into_iter().collect()),
+    );
     if !compact {
         row.insert("metadata".into(), json!(record.metadata));
     }

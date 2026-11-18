@@ -225,7 +225,9 @@ pub struct MemberSetResponse {
 /// Ask for the stored entry of one member.
 ///
 /// The request is signed with the `LastDBNode` scheme. The publisher may name
-/// any member. Any other caller may name only its own key.
+/// any member. Any other caller may name only its own key. When the database
+/// settings are `write: direct`, an active member may name another member.
+/// [`super::authorize_member_get`] is that rule.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MemberGetRequest {

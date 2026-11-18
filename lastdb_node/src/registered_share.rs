@@ -1,4 +1,5 @@
-//! Stable database handles, node-owned Share bindings, and receiver `FoldDB` stores.
+//! Stable database handles, node-owned Share bindings, and receiver stores that follow the mutation log.
+//! Decided state: docs/designs/shared-database-mutation-logs.md (mutation log, proposal log, share settings).
 
 use crate::cloud_backup_client::ShareEnvironment;
 use crate::host::Host;
@@ -309,7 +310,8 @@ async fn open_receiver(host: &Host, id: &Id, whole_database: bool) -> Result<Arc
             offline_maintenance: false,
             capture_accepted: false,
             capture_initial_snapshot: false,
-            track_shared_record_revisions: whole_database,
+            record_log: whole_database
+                .then(|| crate::host::share_identity::record_log(&host.home, id.as_str())),
         },
     )
     .await

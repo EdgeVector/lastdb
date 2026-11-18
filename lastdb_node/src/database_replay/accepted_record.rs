@@ -218,6 +218,8 @@ fn mutation_from(
         mutation_type,
         source_file_name: None,
         metadata: None,
+        writer: None,
+        copied_authorship: None,
         imported_written_at: None,
         expected: fold_db::schema::types::CasExpectation::Absent,
         erase_caller: None,

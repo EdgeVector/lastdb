@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Exercise a fresh CI record-model home across warm reads, TTL sweep, restarts, and refusals."""
 import argparse
+import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 import time
 
@@ -13,6 +15,7 @@ from benchmarks.node import Node  # noqa: E402
 from harness import HOME_FORMAT, marker_format, poll_until  # noqa: E402
 import v1_records as v1  # noqa: E402
 import record_app_api, record_inline_files, record_named_databases, record_runs  # noqa: E401,E402
+import record_app_api_databases  # noqa: E402
 from record_runs import (  # noqa: E402
     FIELDS, RANGED, definition, held, ids, ledger, listed_hashes, refused, require, system_seed,
 )
@@ -90,11 +93,41 @@ def one(node, key):
     return held(rows[0]["record"])
 
 
-def hash_records(node):
+def node_key(node, cli):
+    """Lowercase hex of this node's public key. The contact command reads the key file."""
+    out = node.root / "node-contact.txt"
+    result = subprocess.run(
+        [str(cli), "--data-dir", str(node.home), "share", "contact", "--out", str(out)],
+        capture_output=True, text=True, timeout=60, check=False,
+        env={**os.environ, "LASTDB_HOME": str(node.home)},
+    )
+    require(result.returncode == 0, "lastdb share contact failed: " + result.stderr)
+    key = json.loads(result.stdout)["recipient_public_key"]
+    require(isinstance(key, str) and len(key) == 64 and set(key) <= set("0123456789abcdef"),
+            "the node key is not lowercase hex")
+    return key
+
+
+def authorship(node, key, created_by, updated_by):
+    # A fresh home cannot omit the keys. A create sets both, and a replace keeps
+    # created_by. A record that omits them was written by an older build.
+    row = query(node, "RecordById", {"HashKey": key})[0]
+    found = (row.get("created_by"), row.get("updated_by"))
+    require(found == (created_by, updated_by), f"{key} authorship differs: " + repr(found))
+
+
+def hash_records(node, cli):
+    author = node_key(node, cli)
     mutate(node, "RecordById", {"hash": "one"}, {"id": "one", "bucket": "b1", "value": "v1"}, "create")
     require(one(node, "one") == {"id": "one", "bucket": "b1", "value": "v1"}, "the created record differs")
+    authorship(node, "one", author, author)
     mutate(node, "RecordById", {"hash": "one"}, {"id": "one", "bucket": "b1", "value": "v2"})
     require(one(node, "one") == {"id": "one", "bucket": "b1", "value": "v2"}, "the full replacement differs")
+    authorship(node, "one", author, author)
+    refused(lambda: mutate(node, "RecordById", {"hash": "one"},
+                           {"id": "one", "bucket": "b1", "value": "v2", "created_by": author}),
+            ("HTTP 400", "unknown_fields", "created_by"))
+    require(one(node, "one")["value"] == "v2", "a refused created_by write changed the record")
     mutate(node, "RecordById", {"hash": "one"}, {"id": "one", "bucket": "b1"})
     require("value" not in one(node, "one"), "an omitted field survived replacement")
     mutate(node, "RecordById", {"hash": "one"}, {"id": "one", "bucket": "b1", "value": "v2"})
@@ -111,7 +144,8 @@ def hash_records(node):
     require(row["key"]["hash"] == "external-key" and held(row["record"]) == {"value": "standalone"},
             "independent primary/alternate addresses required payload key fields")
     external_boundaries(node, external)
-    print("Hash records: create, full replacement, omitted-field removal, batch read by key passed", flush=True)
+    print("Hash records: create, full replacement, omitted-field removal, batch read by key, authorship passed", flush=True)
+    print("Authorship omission is not produced here. A fresh home sets both values on create, and a replace keeps created_by.", flush=True)
 
 
 def external_boundaries(node, external):
@@ -303,7 +337,7 @@ def main():
         marker = (node.home / "data" / "laststore-pack-node-v1").read_text()
         require(marker_format(marker) == HOME_FORMAT, f"the new home is not format {HOME_FORMAT}: " + repr(marker))
         install(node)
-        hash_records(node)
+        hash_records(node, args.cli.resolve(strict=True))
         wide_empty_record_erasure(node)
         alternate_keys(node)
         range_records(node)
@@ -340,6 +374,8 @@ def main():
         require(query(node, "RecordTtl", {"HashKey": "old"}) == [], "an expired record came back")
         print("Records survived a daemon restart and expired records stayed absent", flush=True)
         record_named_databases.check(node, args.cli.resolve(strict=True), output)
+        # The created database stays. The named-database list requires its own six rows.
+        record_app_api_databases.exercise(node)
     finally:
         node.close()
 

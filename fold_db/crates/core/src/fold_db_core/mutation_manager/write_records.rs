@@ -1,30 +1,18 @@
-//! Batch resolution, per-schema record staging, and shared record revisions.
+//! Batch resolution and per-schema record staging.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use lastdb_model::STANDARD_COMMENT_SCHEMA;
-
+use super::record_log;
 use super::replace::{
     check_expectation, read_write_preimages, replace_record, require_contribution_definition,
 };
 use super::{AuthoredMutation, ChangedRecord, MutationManager, ResidentCommitStages};
 use crate::db_operations::record_store::RecordChange;
 use crate::schema::types::schema::DeclarativeSchemaType;
-use crate::schema::types::{KeyValue, Mutation, MutationType, Schema};
+use crate::schema::types::{KeyValue, Mutation, Schema};
 use crate::schema::{SchemaError, SchemaState};
-use crate::storage::disk_pack::PackRuntime;
-use crate::storage::format::metadata::SharedCommentWrite;
-
-/// The same record version expressed in local and publisher terms.
-pub struct SharedRecordRevision {
-    /// Conditional-write token in this store.
-    pub local_revision: String,
-    /// Mutation ID carried in the publisher's accepted record.
-    pub mutation_id: String,
-    /// Verified original receiver that created a standard shared comment.
-    pub comment_creator: Option<String>,
-}
+use crate::storage::disk_pack::{transaction, PackRuntime};
 
 impl MutationManager {
     pub(super) fn prepare_mutation_batch(
@@ -217,9 +205,18 @@ impl MutationManager {
             });
             changed.push(ChangedRecord { mutation, key });
         }
-        if self.track_shared_record_revisions {
-            self.stage_shared_revisions(&schema.name, &changes, &changed)
-                .await?;
+        if let Some(log) = &self.record_log {
+            let notes = record_log::record_notes(&schema.name, &changes, &changed);
+            if !notes.is_empty() {
+                let commit = log.prepare(&notes)?;
+                transaction::after_commit(runtime, async move {
+                    commit().map_err(|detail| {
+                        crate::storage::StorageError::InvalidOperation(format!(
+                            "record identity was not stored: {detail}"
+                        ))
+                    })
+                })?;
+            }
         }
         self.stage_records_with_effects(&schema, &changed, changes, &keep)
             .await?;
@@ -228,93 +225,6 @@ impl MutationManager {
                 .schemas()
                 .record_schema_retention_hash_partitions(schema_name, &keys)
                 .await?;
-        }
-        Ok(())
-    }
-
-    /// Look up the durable receipt before re-evaluating a proposal on inbox retry.
-    pub async fn shared_contribution_committed(&self, id: &[u8; 32]) -> Result<bool, SchemaError> {
-        self.db_ops
-            .read_scope()
-            .await?
-            .run_result(self.db_ops.metadata().contribution_committed(id))
-            .await
-    }
-
-    /// Read the native record and its publisher mutation ID from one committed view.
-    pub async fn shared_record_revision(
-        &self,
-        schema: &str,
-        key: &KeyValue,
-    ) -> Result<Option<SharedRecordRevision>, SchemaError> {
-        let address = self.replay_record_address(schema, key)?;
-        self.db_ops
-            .read_scope()
-            .await?
-            .run_result(async {
-                let preimage = self.replay_preimage(address.clone()).await?;
-                let Some(record) = preimage.filter(|row| row.is_live()) else {
-                    return Ok(None);
-                };
-                let local_revision = record.stamp.revision();
-                let meta = self.db_ops.metadata();
-                let Some(mutation_id) = meta
-                    .shared_record_mutation(&address, &local_revision)
-                    .await?
-                else {
-                    return Ok(None);
-                };
-                let comment_creator = if schema == STANDARD_COMMENT_SCHEMA {
-                    meta.shared_comment_creator(&address, &local_revision)
-                        .await?
-                } else {
-                    None
-                };
-                Ok(Some(SharedRecordRevision {
-                    local_revision,
-                    mutation_id,
-                    comment_creator,
-                }))
-            })
-            .await
-    }
-
-    async fn stage_shared_revisions(
-        &self,
-        schema: &str,
-        records: &[RecordChange],
-        changes: &[ChangedRecord<'_>],
-    ) -> Result<(), SchemaError> {
-        let meta = self.db_ops.metadata();
-        meta.stage_shared_record_mutations(records.iter().zip(changes).map(|(row, change)| {
-            (
-                row.key.as_str(),
-                row.after
-                    .is_live()
-                    .then_some((&row.after.stamp, change.mutation.uuid.as_str())),
-            )
-        }))
-        .await?;
-        if schema == STANDARD_COMMENT_SCHEMA {
-            meta.stage_shared_comment_creators(records.iter().zip(changes).map(|(row, change)| {
-                let mutation = &change.mutation;
-                let creator = mutation.contribution.as_ref().filter(|admission| {
-                    mutation.mutation_type == MutationType::Create
-                        && admission.schema_scope
-                        && admission.creates_record
-                });
-                SharedCommentWrite {
-                    address: row.key.as_str(),
-                    before: row
-                        .before
-                        .as_ref()
-                        .filter(|r| r.is_live())
-                        .map(|r| &r.stamp),
-                    after: row.after.is_live().then_some(&row.after.stamp),
-                    creator: creator.map(|admission| admission.writer.as_str()),
-                }
-            }))
-            .await?;
         }
         Ok(())
     }

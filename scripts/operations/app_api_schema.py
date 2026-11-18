@@ -15,7 +15,7 @@ from pathlib import Path
 
 SPEC = Path(__file__).resolve().parents[2] / "lastdb_node" / "app-api.json"
 ALLOWED = {
-    "$ref", "type", "enum", "minimum", "maximum", "minItems", "maxItems",
+    "$ref", "type", "enum", "const", "minimum", "maximum", "minItems", "maxItems",
     "items", "required", "properties", "additionalProperties", "oneOf",
     "description", "title", "default",
 }
@@ -73,6 +73,8 @@ def mismatch(document, schema, value, path="$", stack=()):
         return mismatch(document, _resolve(document, ref), value, path, stack + (ref,))
     if "oneOf" in schema:
         return _one_of(document, schema["oneOf"], value, path, stack)
+    if "const" in schema and not _const_ok(value, schema["const"]):
+        return f"{path}: {value!r} is not {schema['const']!r}"
     if "type" in schema and not _type_ok(schema["type"], value):
         return f"{path}: expected {_type_label(schema['type'])}, got {_kind(value)}"
     if "enum" in schema and not _enum_ok(value, schema["enum"]):
@@ -288,6 +290,10 @@ def _kind_is(name, value):
 
 def _enum_ok(value, options):
     return any(value == option and type(value) is type(option) for option in options)
+
+
+def _const_ok(value, expected):
+    return value == expected and type(value) is type(expected)
 
 
 def _kind(value):
