@@ -18,8 +18,9 @@ from record_app_api_calls import create
 from record_runs import definition, require
 
 APP = "databasesproof"
-SCHEMA = "databases/Note"
-OTHER = "databases/Other"
+# The owner handler requires schema.name to be "{app_id}/{local}".
+SCHEMA = "databasesproof/Note"
+OTHER = "databasesproof/Other"
 NAME = "dbext"
 NOTE = "kept"
 ACTIONS = (
