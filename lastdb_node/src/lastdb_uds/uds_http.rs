@@ -219,9 +219,15 @@ fn read_body(
     Ok(body)
 }
 
-pub(super) fn write_busy_and_close(stream: &mut UnixStream) -> io::Result<()> {
-    let body = br#"{"status":"busy","error":"uds_worker_queue_full"}"#.to_vec();
-    let resp = UdsResponse::new(503, "Service Unavailable", body)
+/// Owner socket. Other tools read this body. The app socket uses [`APP_QUEUE_FULL_BODY`].
+pub(super) const OWNER_QUEUE_FULL_BODY: &[u8] =
+    br#"{"status":"busy","error":"uds_worker_queue_full"}"#;
+/// App API error shape: a whole-request `busy`. Kept with `Retry-After: 1`.
+pub(super) const APP_QUEUE_FULL_BODY: &[u8] =
+    br#"{"error":{"code":"busy","message":"the app socket is busy"}}"#;
+
+pub(super) fn write_busy_and_close(stream: &mut UnixStream, body: &[u8]) -> io::Result<()> {
+    let resp = UdsResponse::new(503, "Service Unavailable", body.to_vec())
         .with_header("Content-Type", "application/json")
         .with_header("Retry-After", "1");
     write_with_budget(stream, &resp, Duration::from_secs(2))
