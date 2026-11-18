@@ -9,8 +9,7 @@ use super::{
     NativeDatabase, NodeReadToken, ShareEnvironment, ShareHttpMethod, ShareMemberRole, ShareRead,
     ShareSettings, ShareWrite, MUTATION_LOG_DELIVERY_OBJECT_PATH, MUTATION_LOG_INBOX_LIST_PATH,
     MUTATION_LOG_INBOX_SETTLE_PATH, MUTATION_LOG_SNAPSHOT_BYTES_PATH, SHARE_MEMBER_GET_PATH,
-    SHARE_MEMBER_LIST_READ_PATH, SHARE_MEMBER_SET_PATH, SHARE_SETTINGS_GET_PATH,
-    SHARE_SETTINGS_SET_PATH,
+    SHARE_MEMBER_LIST_READ_PATH, SHARE_SETTINGS_GET_PATH, SHARE_SETTINGS_SET_PATH,
 };
 use crate::{Digest, ErrorCode, ProtocolError};
 
@@ -222,7 +221,7 @@ pub fn member_list_read_view(
 
 /// Authorize `POST` [`SHARE_SETTINGS_SET_PATH`].
 ///
-/// This sits beside member set ([`SHARE_MEMBER_SET_PATH`]): the statement's
+/// This sits beside member set ([`super::SHARE_MEMBER_SET_PATH`]): the statement's
 /// publisher signature is the authorization, and this crate does not verify
 /// it. Verify the signature over the digest hex before this call. There is
 /// no [`NodeReadToken`] grant. A member signature is not this check.
