@@ -222,7 +222,7 @@ fn host_error(error: ConfigError) -> HostError {
     };
     let mut body = body;
     body["ok"] = json!(false);
-    body["error"] = json!(code.clone());
+    body["error"] = json!(code);
     HostError::structured(status, code, body)
 }
 
