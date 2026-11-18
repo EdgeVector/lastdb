@@ -16,6 +16,7 @@ calling app.
 
 invite, accept, submit, and submission_status need two nodes that share one
 database. No operation in this tree does that, so this proof does not call them.
+share_link is not called: it needs a connected publisher.
 """
 import json
 import uuid
@@ -41,7 +42,7 @@ NOTE = "kept"
 FOREIGN_NOTE = "kept-social"
 ACTIONS = (
     "list", "create", "accept", "schemas", "declare_schema", "share_config",
-    "set_share_config", "invite", "submit", "submission_status",
+    "set_share_config", "invite", "share_link", "submit", "submission_status",
 )
 REQUEST_ID = "11111111-1111-4111-8111-111111111111"
 SHARE = {

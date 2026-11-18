@@ -143,9 +143,11 @@ The list wire is unchanged. `lastdb_node/src/log_sync/wire.rs` `EntryBody` still
 These are not built:
 
 - ExeMem enforcement. The service does not yet choose the mutation log or the proposal log from `write`, and it does not yet persist or restore `direct_write`. It must not refuse a change to `direct` or `anyone` because unsettled proposals exist, because the mutation log holds entries the publisher did not write, or because `read` is `anyone`. Members append to the proposal log only while `write` is `proposals`. An `anyone` database is not a database without a proposal log.
-- The open-link read (the Deliver example). A reader with no member entry cannot yet read by holding the read key from a link.
 - Direct member writes (the Org example). The node does not send a Submit member's write to the mutation log, and ExeMem does not assign that append order or store the mark. The log model accepts a Submit append on a shareable log and records the mark when `write` is `direct`.
-- Receiver snapshot fetch. A member or an open-link reader does not yet fetch the publisher's snapshot and replay the mutation log on top.
+
+A receiver with no local data fetches the current snapshot and replays the mutation log from that snapshot's position. Snapshot files are sealed with the content key an invitation already carries, so a receiver opens them with that key. The seal is unchanged, and a snapshot already published stays valid. A database with no published snapshot still replays from position 0. HTTP 409 with the field `snapshot.current` means the caller reads the current snapshot again with no id and restarts.
+
+`POST /api/databases/{id}/share/link` returns one opaque token. It is not a URL, so the content key does not land in a query string, a browser history, or a proxy log. The token carries the environment, the publisher account scope, the database id, the publisher key, and the content key. It carries no member identity and it is not sealed to a recipient. `POST /api/databases/accept` takes `link` in place of an invitation. The registration stores the content key and has no sealed invitation. That reader does not poll a member entry and does not submit. The node does not read `read` when it makes the token. The token is useful when the service setting is `read: anyone`.
 
 The node does not yet pass a stored statement into the log model. A page the node applies still has to be written by the publisher; that check is unchanged.
 

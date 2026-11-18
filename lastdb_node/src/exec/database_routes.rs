@@ -35,7 +35,7 @@ pub(in crate::exec) async fn execute_database_request(
         ("POST", DATABASES_PATH) => return database_owned::create(req, ctx, host).await,
         ("POST", database_owned::SPEC_PATH) => return database_owned::bind(req, ctx, host),
         ("POST", database_owned::ACCEPT_PATH) => {
-            return database_owned::accept(req, ctx, host).await
+            return database_owned::accept(req, ctx, host);
         }
         _ => {}
     }

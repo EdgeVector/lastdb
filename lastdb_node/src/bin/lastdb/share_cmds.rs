@@ -1,9 +1,9 @@
 //! Share contacts, invitations, and named-database member management over the owner socket.
 
 use super::{
-    parse_json_or_error, parse_json_response, post_json_with_timeout, require_reachable,
-    resolve_client_home_and_socket, write_new_private_file, DatabaseTarget, ShareCommand,
-    ShareContributorCommand,
+    build_post_request, parse_json_or_error, parse_json_response, post_json_with_timeout,
+    request_with_timeout, require_reachable, resolve_client_home_and_socket,
+    write_new_private_file, DatabaseTarget, ShareCommand, ShareContributorCommand,
 };
 use base64::Engine as _;
 use cloud_backup_protocol::Digest;
@@ -38,8 +38,17 @@ pub(super) fn run(
         ShareCommand::Accept {
             invitation,
             publisher,
+            link,
             name,
-        } => accept(data_dir, db, &invitation, &publisher, name.as_deref()),
+        } => accept(
+            data_dir,
+            db,
+            invitation.as_deref(),
+            publisher.as_deref(),
+            link.as_deref(),
+            name.as_deref(),
+        ),
+        ShareCommand::Link { database } => mint_link(data_dir, &database),
         ShareCommand::Invite {
             recipient,
             recipient_key,
@@ -63,10 +72,19 @@ pub(super) fn run(
 fn accept(
     data_dir: Option<PathBuf>,
     database_id: Option<&str>,
-    invitation: &Path,
-    publisher: &str,
+    invitation: Option<&Path>,
+    publisher: Option<&str>,
+    link: Option<&str>,
     name: Option<&str>,
 ) -> Result<(), String> {
+    if let Some(link) = link {
+        if database_id.is_some() {
+            return Err("--db does not apply to an open read link".into());
+        }
+        return post_accept(data_dir, json!({ "link": link, "name": name }));
+    }
+    let invitation = invitation.ok_or("invitation file is required")?;
+    let publisher = publisher.ok_or("publisher key is required")?;
     let sealed = read_file(invitation, MAX_SEALED_INVITATION_BYTES)?;
     let mut body = json!({
         "invitation": base64::engine::general_purpose::STANDARD.encode(sealed),
@@ -76,6 +94,10 @@ fn accept(
     if let Some(database_id) = database_id {
         body["database_id"] = json!(database_id);
     }
+    post_accept(data_dir, body)
+}
+
+fn post_accept(data_dir: Option<PathBuf>, body: Value) -> Result<(), String> {
     let target = DatabaseTarget::open(data_dir, None)?;
     let raw = post_json_with_timeout(
         &target.socket,
@@ -84,6 +106,21 @@ fn accept(
         Duration::from_secs(10),
     )?;
     println!("{}", parse_json_response(&raw, "database registration")?);
+    Ok(())
+}
+
+fn mint_link(data_dir: Option<PathBuf>, database: &str) -> Result<(), String> {
+    if !valid_selector(database) {
+        return Err("invalid database ID or name".into());
+    }
+    let target = DatabaseTarget::open(data_dir, Some(database))?;
+    let path = target.path("/api/share/link");
+    let raw = request_with_timeout(
+        &target.socket,
+        &build_post_request(path.as_ref(), "", &[]),
+        handler_timeout(),
+    )?;
+    println!("{}", parse_json_response(&raw, "open read link")?);
     Ok(())
 }
 

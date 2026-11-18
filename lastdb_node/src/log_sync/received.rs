@@ -103,9 +103,18 @@ async fn one(host: &Arc<Host>, share: &RegisteredShare) -> Pause {
             return Pause::Retry;
         }
     };
-    let Some(log) = refresh(host, share, log).await else {
-        return Pause::Retry;
+    let log = if share.link {
+        log
+    } else {
+        match refresh(host, share, log).await {
+            Some(log) => log,
+            None => return Pause::Retry,
+        }
     };
+    if let Err(error) = super::snapshot::receive::ensure_base(host.as_ref(), share, &log).await {
+        tracing::warn!(target: "lastdbd::log_sync", error = %error, "received snapshot is unavailable");
+        return Pause::Retry;
+    }
     let Some(state) = receiver_state(share, &log, &device, &host.home) else {
         return Pause::Retry;
     };

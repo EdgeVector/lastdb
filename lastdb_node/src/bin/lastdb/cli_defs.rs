@@ -279,16 +279,25 @@ pub(crate) enum ShareCommand {
         #[arg(long)]
         regrant: bool,
     },
-    /// Register an invitation as a database on this node and start recovery.
+    /// Register an invitation, or an open read link, as a database on this node.
     Accept {
         /// Encrypted invitation file.
-        invitation: PathBuf,
+        #[arg(required_unless_present = "link", conflicts_with = "link")]
+        invitation: Option<PathBuf>,
         /// Publisher's Ed25519 public key in lowercase hex from a trusted channel.
+        #[arg(long, required_unless_present = "link", conflicts_with = "link")]
+        publisher: Option<String>,
+        /// Open read link. It replaces the invitation and the publisher key.
         #[arg(long)]
-        publisher: String,
+        link: Option<String>,
         /// Optional local database name.
         #[arg(long)]
         name: Option<String>,
+    },
+    /// Make an open read link for one shareable database.
+    Link {
+        /// Database id or name.
+        database: String,
     },
     /// Manage contributor grants for ordinary database mutations.
     #[command(subcommand)]

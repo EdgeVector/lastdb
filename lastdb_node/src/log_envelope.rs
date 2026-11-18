@@ -149,6 +149,17 @@ impl DatabaseContentKey {
         })
     }
 
+    /// Receiver key stored for a link, or copied out of an opened invitation.
+    pub(crate) fn from_stored(database_id: &str, key: &[u8; 32]) -> Result<Self, LogEnvelopeError> {
+        if is_zero(key) {
+            return Err(LogEnvelopeError::Key);
+        }
+        Ok(Self {
+            bytes: Zeroizing::new(*key),
+            database_id: canonical_id(database_id)?,
+        })
+    }
+
     /// Database this key opens.
     #[must_use]
     pub(crate) fn database_id(&self) -> &str {

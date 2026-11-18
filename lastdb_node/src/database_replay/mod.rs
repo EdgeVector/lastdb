@@ -11,7 +11,7 @@
 //! the marker, and seals it with `seal_record_file`. A marker that requires
 //! bytes and has no object is refused. Schema put and drop use the opened
 //! store's schema manager and keep the captured schema id. The content key
-//! comes from the selected local store or its verified share invitation.
+//! comes from the selected local store or the stored registration.
 
 mod accepted_record;
 mod apply;
@@ -129,10 +129,11 @@ fn require_id(database_id: &str) -> Result<(), RestoreError> {
     }
 }
 
-/// Check the stored invitation before opening the receiver store.
+/// Load the content key stored for this received database.
 ///
-/// A publication registration has no signed log, so it does not get this
-/// store. The personal store and `databases/<id>/data` are not substitutes.
+/// An invitation registration opens the sealed invitation. A link registration
+/// uses the stored key. A publication registration has no signed log, so it
+/// does not get this store.
 fn received_key(host: &Host, database_id: &str) -> Result<DatabaseContentKey, RestoreError> {
     let id =
         Id::try_from(database_id.to_owned()).map_err(|_| RestoreError::Scope("database id"))?;
@@ -145,9 +146,9 @@ fn received_key(host: &Host, database_id: &str) -> Result<DatabaseContentKey, Re
     if !share.signed_log {
         return Err(RestoreError::Scope("database store"));
     }
-    let opened = crate::registered_share::verified_invitation(&host.home, &id)
+    let material = crate::registered_share::content_material(&host.home, &id)
         .map_err(|_| RestoreError::Scope("named database"))?;
-    let key = DatabaseContentKey::from_invitation(&opened)
+    let key = DatabaseContentKey::from_stored(database_id, &material)
         .map_err(|_| RestoreError::Scope("database store"))?;
     if key.database_id() != database_id {
         return Err(RestoreError::Scope("database id"));
