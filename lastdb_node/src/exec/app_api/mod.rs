@@ -1,7 +1,5 @@
 //! App API: `POST /v1/read` and `POST /v1/write`, list bodies, and one error shape.
 
-use std::future::Future;
-
 use fold_db::schema::types::field::HashRangeFilter;
 use fold_db::schema::types::KeyValue;
 use serde_json::{json, Value};
@@ -9,13 +7,13 @@ use serde_json::{json, Value};
 use super::calling_app::active_app;
 use super::reply::{content_free, json_ok, status_reason, HostError};
 use super::schema_routes::resolve_schema_name;
-use crate::host::owned::ResolvedStore;
 use crate::host::Host;
 use crate::lastdb_uds::uds_http::UdsResponse;
-use crate::lastdb_uds::uds_router::valid_selector;
 
 mod changes;
+mod database;
 mod file_place;
+mod owner_file;
 mod read;
 mod refusal;
 mod write;
@@ -127,8 +125,8 @@ fn require_read(schema: &str) -> Result<(), HostError> {
 }
 
 /// On the app socket a schema name is the exact name of a schema on the node.
-/// Call it after `require_read` or `require_write`, and inside `in_database`
-/// when the item names a database. The owner socket keeps loose matching.
+/// Call it after `require_read` or `require_write`, and inside the database
+/// the item names. The owner socket keeps loose matching.
 fn require_exact_name(host: &Host, name: &str) -> Result<(), HostError> {
     if active_app().is_none() {
         return Ok(());
@@ -174,27 +172,4 @@ fn declared_reads() -> Option<Vec<String>> {
             .names()
             .map(|names| names.iter().cloned().collect())
     })
-}
-
-/// Run `future` against the database an item names. Without an identifier the
-/// personal database serves it. A received database is not served here yet.
-async fn in_database<T>(
-    selector: Option<&str>,
-    host: &Host,
-    future: impl Future<Output = Result<T, HostError>>,
-) -> Result<T, HostError> {
-    let Some(selector) = selector else {
-        return future.await;
-    };
-    if !valid_selector(selector) {
-        return Err(bad("invalid database identifier"));
-    }
-    match host.owned.resolve(selector)? {
-        ResolvedStore::Owner => future.await,
-        ResolvedStore::Owned(store) => host.with_records(store, future).await,
-        ResolvedStore::Absent => Err(HostError::new(
-            404,
-            "database is not on this node; /v1 does not serve a received database yet",
-        )),
-    }
 }

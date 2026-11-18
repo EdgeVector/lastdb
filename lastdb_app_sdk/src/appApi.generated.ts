@@ -50,7 +50,7 @@ export const APP_API_ERROR_REASONS = [
 /** One value of `APP_API_ERROR_REASONS`. */
 export type ErrorReason = (typeof APP_API_ERROR_REASONS)[number];
 
-/** 1 to 64 bytes: ASCII letters, digits, hyphen, and underscore. Omit the field to use the personal database. An unknown identifier is not_found. /v1 does not serve a received database. */
+/** 1 to 64 bytes: ASCII letters, digits, hyphen, and underscore. Omit the field to use the personal database. An unknown identifier is not_found and its message is "database is not registered on this node". A received database can be read. A write to one is permission_denied because a received database is read only. /v1/x/changes does not serve a received database. */
 export type DatabaseName = string;
 
 /** Schema name. On the app socket the name must be exact. On the owner socket a loose form can resolve. An empty name is refused on changes. */
@@ -108,8 +108,10 @@ export interface ReadByKey {
   cursor?: string;
   /** Return keys instead of records. Omit it for false. */
   keys_only?: boolean;
-  /** When true, each record file includes path. Omit it for false. */
+  /** When true, each record file includes path. Omit it for false. On the owner socket, file_dir names the folder that path is written into. */
   file?: boolean;
+  /** Owner socket only. Absolute path of a directory that exists, is owned by the calling user, and is not group or world writable. Requires file. The node writes a held file there as the content hash, mode 0600, and returns that path. Refused on the app socket. */
+  file_dir?: string;
   range?: never;
 }
 
@@ -126,12 +128,14 @@ export interface ReadByRange {
   cursor?: string;
   /** Return keys instead of records. Omit it for false. */
   keys_only?: boolean;
-  /** When true, each record file includes path. Omit it for false. */
+  /** When true, each record file includes path. Omit it for false. On the owner socket, file_dir names the folder that path is written into. */
   file?: boolean;
+  /** Owner socket only. Absolute path of a directory that exists, is owned by the calling user, and is not group or world writable. Requires file. The node writes a held file there as the content hash, mode 0600, and returns that path. Refused on the app socket. */
+  file_dir?: string;
   key?: never;
 }
 
-/** Lists the primary keys of the schema. The node returns invalid_request on that item inside HTTP 200 when limit is 0. The page default is 100. A limit above 1000 is capped at 1000 and is not rejected. The cursor is a storage key. via and file are not properties of this form. The node also returns that item error when a key list sets them. */
+/** Lists the primary keys of the schema. The node returns invalid_request on that item inside HTTP 200 when limit is 0. The page default is 100. A limit above 1000 is capped at 1000 and is not rejected. The cursor is a storage key. via, file, and file_dir are not properties of this form. The node also returns that item error when a key list sets them. */
 export interface ReadKeyList {
   database?: DatabaseName;
   schema: SchemaName;
@@ -144,6 +148,7 @@ export interface ReadKeyList {
   key?: never;
   via?: never;
   file?: never;
+  file_dir?: never;
   range?: never;
 }
 
@@ -161,11 +166,13 @@ export interface ReadWithoutKey {
   keys_only?: false;
   /** When set with no key and no range, the node returns invalid_request on this item. */
   file?: boolean;
+  /** When set with no key and no range, the node returns invalid_request on this item. On a keyed read it is owner-socket only and requires file. */
+  file_dir?: string;
   key?: never;
   range?: never;
 }
 
-/** One read. A key and a range together match none of these forms. The node still parses that combination and returns invalid_request on that item inside HTTP 200. A key list that also sets via or file does the same and also matches none of these forms. A keyed cursor is URL-safe base64 with no padding. A key-list cursor is a storage key. Both are opaque strings. */
+/** One read. A key and a range together match none of these forms. The node still parses that combination and returns invalid_request on that item inside HTTP 200. A key list that also sets via, file, or file_dir does the same and also matches none of these forms. A keyed cursor is URL-safe base64 with no padding. A key-list cursor is a storage key. Both are opaque strings. */
 export type ReadItem = ReadByKey | ReadByRange | ReadKeyList | ReadWithoutKey;
 
 export interface ReadRequest {
@@ -178,7 +185,7 @@ export interface FieldValues {
   [key: string]: unknown;
 }
 
-/** Present when the record has a file. name and media_type are null when the marker has none. size is the byte length. local is the path on this device, or null when this device does not have the bytes. path is present only when the read set file to true: a string when this device has the file, null when LastDB holds the bytes and this app has no data folder to place them. Other properties are allowed. */
+/** Present when the record has a file. name and media_type are null when the marker has none. size is the byte length. local is the path on this device, or null when this device does not have the bytes. path is present only when the read set file to true: a string when this device has the file, null when LastDB holds the bytes and there is no folder to place them. On the app socket that folder is the grant's data folder. On the owner socket it is file_dir. Other properties are allowed. */
 export interface FileInfo {
   name: string | null;
   media_type: string | null;
