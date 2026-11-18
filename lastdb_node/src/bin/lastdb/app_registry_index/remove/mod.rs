@@ -63,7 +63,7 @@ pub(crate) fn remove(app: &str, home: &Path, delete_data: bool) -> Result<Value,
     let grant = drop_grant(app, home)?;
     let removed = files::unlink_commands(app, &root, &commands)?;
     files::delete_tree(&root, data)?;
-    Ok(report(app, grant, data, removed))
+    Ok(report(app, grant, data, &removed))
 }
 
 fn installed(root: &Path) -> bool {
@@ -73,7 +73,7 @@ fn installed(root: &Path) -> bool {
 fn finish_grant(app: &str, home: &Path, root: &Path) -> Result<Value, String> {
     // The files are already gone. `--delete-data` applied on the first run.
     match drop_grant(app, home)? {
-        Grant::Removed => Ok(report(app, Grant::Removed, data_word(root), Vec::new())),
+        Grant::Removed => Ok(report(app, Grant::Removed, data_word(root), &[])),
         Grant::Absent => Err(format!("app '{app}' is not installed")),
         Grant::NotRemoved(_) => Err(format!(
             "app '{app}' is not installed. The node is not running, so a leftover grant was not removed. Run `lastdb app remove {app}` again when the node is up."
@@ -90,7 +90,7 @@ fn drop_grant(app: &str, home: &Path) -> Result<Grant, String> {
     }
 }
 
-fn report(app: &str, grant: Grant, data: &str, commands: Vec<String>) -> Value {
+fn report(app: &str, grant: Grant, data: &str, commands: &[String]) -> Value {
     let grant_text = match &grant {
         Grant::Removed => "removed",
         Grant::Absent => "absent",
@@ -289,8 +289,7 @@ fn block_services(app: &str, held: &[Held]) -> Result<(), String> {
         let sha = item
             .receipt
             .as_ref()
-            .map(|receipt| receipt.sha.as_str())
-            .unwrap_or("unreceipted");
+            .map_or("unreceipted", |receipt| receipt.sha.as_str());
         let steps = item
             .plan
             .post_install
