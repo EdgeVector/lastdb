@@ -82,7 +82,7 @@ Every write carries a condition, so two writers cannot overwrite each other with
 - A write that names a received database is refused. The status is 403 and the code is `permission_denied`. The message is `a received database is read only`. An unknown identifier is `not_found` with the message `database is not registered on this node`. A receiver does not use this route for a proposal. The proposal route is on the owner socket. See Sharing.
 - The reply comes after the write is on disk. `revisions` holds the new revision of each record, in order.
 
-A read returns each record's `revision`, `created_by`, and `updated_by` beside its key. The database sets both. Each is the lowercase hex node key of a writer, or null on a record written before they existed. A write that names `created_by` or `updated_by`, on the write item or inside `record`, is refused.
+A read returns each record's `revision` beside its key. It also returns `created_by` and `updated_by` when the record has them. Each value is the lowercase hex node key of a writer. The node omits a key when the record has no value for it. It does not send null. A record written before the values existed omits both keys, and so does a node on an older build at this API version. `created_by` is set only when the write creates the record. A replace keeps the previous `created_by`, including when that value is absent. `updated_by` is the writer of this revision. A write that names `created_by` or `updated_by`, on the write item or inside `record`, is refused.
 
 ## Files
 
@@ -496,7 +496,7 @@ Idempotency-Key: <uuid>
   "file": null }
 ```
 
-- The body is one proposal document. It is the mutation document a received database accepted. It is not a record API and it is not a `/v1/write` item. It does not carry a source file name or a metadata map. The database sets `created_by` and `updated_by` from the authenticated writer. For `social/Comment`, the creator is the live record's `created_by`.
+- The body is one proposal document. It is the mutation document a received database accepted. It is not a record API and it is not a `/v1/write` item. It does not carry a source file name or a metadata map. The database sets `created_by` only when the write creates the record, and sets `updated_by` from the authenticated writer. A replace keeps the previous `created_by`, including when it is absent. For `social/Comment`, the creator is the live record's `created_by`. A comment with no `created_by` stays editable only by the publisher.
 - The proposal id is the `Idempotency-Key` header. It is one non-nil UUID. The body has no separate id field. The same id and the same body are idempotent.
 - The route answers only for a received whole-database share. It never writes a record on this node. It seals the proposal and appends it to the proposal log.
 - The node replaces `definition_id` with the installed schema definition before it seals the proposal. `convergence` and `durability` are optional. A proposal that carries a file is refused.

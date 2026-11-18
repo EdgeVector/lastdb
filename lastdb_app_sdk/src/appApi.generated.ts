@@ -197,12 +197,14 @@ export interface FileInfo {
   [key: string]: unknown;
 }
 
-/** One record. created_by and updated_by are lowercase hex node keys set by the database, or null on a record written before they existed. file is null when the record has no file. */
+/** One record. created_by and updated_by are lowercase hex node keys set by the database. The node omits each key when the record has no value for it. It does not send null. file is null when the record has no file. */
 export interface Record {
   key: Key;
   revision: string;
-  created_by: string | null;
-  updated_by: string | null;
+  /** Lowercase hex node key of the creator. Omitted when the record has none. */
+  created_by?: string;
+  /** Lowercase hex node key of the writer of this revision. Omitted when the record has none. */
+  updated_by?: string;
   record: FieldValues;
   file: null | FileInfo;
 }

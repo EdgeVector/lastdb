@@ -256,14 +256,12 @@ fn query_row(record: &Value) -> Value {
     let mut row = Map::new();
     row.insert("key".into(), record["key"].clone());
     row.insert("revision".into(), record["revision"].clone());
-    row.insert(
-        "created_by".into(),
-        record.get("created_by").cloned().unwrap_or(Value::Null),
-    );
-    row.insert(
-        "updated_by".into(),
-        record.get("updated_by").cloned().unwrap_or(Value::Null),
-    );
+    // The read reply omits an author key when the record has none. Do not invent null.
+    for name in ["created_by", "updated_by"] {
+        if let Some(value) = record.get(name).filter(|value| value.is_string()) {
+            row.insert(name.into(), value.clone());
+        }
+    }
     row.insert("fields".into(), record["record"].clone());
     if let Some(file) = record.get("file").filter(|file| !file.is_null()) {
         row.insert("metadata".into(), json!({ "file": file_marker(file) }));

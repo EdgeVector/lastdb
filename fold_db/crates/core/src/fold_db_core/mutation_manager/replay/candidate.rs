@@ -41,6 +41,12 @@ impl MutationManager {
             None if mutation.file_write.is_some() && mutation.inline_write.is_some() => None,
             None => return Ok(false),
         };
+        // A complete file payload has no content base. Authorship still follows the live record.
+        let authorship = if confirmed.is_none() && before.is_none() && !deleted {
+            live
+        } else {
+            before
+        };
         prepare_candidate(self, &schema, &mut mutation, deleted)?;
         let context = AttachmentContext {
             address: &address,
@@ -67,6 +73,7 @@ impl MutationManager {
             };
             let mut record =
                 super::super::replace::replace_record(&schema, &mutation, stamp, before)?;
+            super::super::replace::stamp_authors(&mut record, &mutation, authorship);
             if schema.file_required && record.file.is_none() {
                 return Err(invalid("this record requires a file"));
             }

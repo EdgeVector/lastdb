@@ -160,9 +160,14 @@ pub(super) fn replace_record(
     Ok(stored)
 }
 
-/// `created_by` stays with the previous live record when that record has one.
-/// A create, including one on a deleted key, starts a new `created_by`.
-fn stamp_authors(record: &mut StoredRecord, mutation: &Mutation, before: Option<&StoredRecord>) {
+/// `created_by` is set only when no live record is at the key.
+/// A replace keeps the previous live record's `created_by`, including when it is absent.
+/// `updated_by` is the writer. A saved record copies both values, including when absent.
+pub(super) fn stamp_authors(
+    record: &mut StoredRecord,
+    mutation: &Mutation,
+    before: Option<&StoredRecord>,
+) {
     if let Some((created_by, updated_by)) = &mutation.copied_authorship {
         record.created_by.clone_from(created_by);
         record.updated_by.clone_from(updated_by);
@@ -171,10 +176,10 @@ fn stamp_authors(record: &mut StoredRecord, mutation: &Mutation, before: Option<
     let Some(writer) = mutation.writer.clone() else {
         return;
     };
-    let previous = before
-        .filter(|existing| existing.is_live())
-        .and_then(|existing| existing.created_by.clone());
-    record.created_by = Some(previous.unwrap_or_else(|| writer.clone()));
+    record.created_by = match before.filter(|existing| existing.is_live()) {
+        Some(existing) => existing.created_by.clone(),
+        None => Some(writer.clone()),
+    };
     record.updated_by = Some(writer);
 }
 

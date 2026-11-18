@@ -252,6 +252,13 @@ fn file_info(marker: &Value) -> Value {
     })
 }
 
+/// Copy one author key when the row has a string. Omit it otherwise. Never send null.
+fn copy_author(record: &mut Map<String, Value>, row: &Value, name: &str) {
+    if let Some(value) = row.get(name).filter(|value| value.is_string()) {
+        record.insert(name.to_owned(), value.clone());
+    }
+}
+
 fn shape(page: &Value, keys_only: bool) -> Result<Value, HostError> {
     let rows = page["results"]
         .as_array()
@@ -264,14 +271,15 @@ fn shape(page: &Value, keys_only: bool) -> Result<Value, HostError> {
         let records: Vec<Value> = rows
             .iter()
             .map(|row| {
-                json!({
-                    "key": row["key"],
-                    "revision": row["revision"],
-                    "created_by": row["created_by"],
-                    "updated_by": row["updated_by"],
-                    "record": row["fields"],
-                    "file": file_info(&row["metadata"]["file"]),
-                })
+                let mut record = Map::new();
+                record.insert("key".into(), row["key"].clone());
+                record.insert("revision".into(), row["revision"].clone());
+                // A missing key stays omitted. Indexing a missing key would yield null.
+                copy_author(&mut record, row, "created_by");
+                copy_author(&mut record, row, "updated_by");
+                record.insert("record".into(), row["fields"].clone());
+                record.insert("file".into(), file_info(&row["metadata"]["file"]));
+                Value::Object(record)
             })
             .collect();
         out.insert("records".into(), Value::Array(records));

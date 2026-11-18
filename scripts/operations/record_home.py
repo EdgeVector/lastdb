@@ -109,9 +109,11 @@ def node_key(node, cli):
 
 
 def authorship(node, key, created_by, updated_by):
+    # A fresh home cannot omit the keys. A create sets both, and a replace keeps
+    # created_by. A record that omits them was written by an older build.
     row = query(node, "RecordById", {"HashKey": key})[0]
-    require(row["created_by"] == created_by and row["updated_by"] == updated_by,
-            f"{key} authorship differs: " + repr((row.get("created_by"), row.get("updated_by"))))
+    found = (row.get("created_by"), row.get("updated_by"))
+    require(found == (created_by, updated_by), f"{key} authorship differs: " + repr(found))
 
 
 def hash_records(node, cli):
@@ -143,6 +145,7 @@ def hash_records(node, cli):
             "independent primary/alternate addresses required payload key fields")
     external_boundaries(node, external)
     print("Hash records: create, full replacement, omitted-field removal, batch read by key, authorship passed", flush=True)
+    print("Authorship omission is not produced here. A fresh home sets both values on create, and a replace keeps created_by.", flush=True)
 
 
 def external_boundaries(node, external):
