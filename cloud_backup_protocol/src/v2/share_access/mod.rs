@@ -9,6 +9,10 @@
 //! keys. These types do no I/O, do not verify signatures, and do not cap the
 //! member count.
 //!
+//! [`ShareSettings`] is the one statement per database for who may read and
+//! who may write the publisher's log. No statement means
+//! [`absent_share_settings`]: members read, and members append proposals.
+//!
 //! A signed request uses the `LastDBNode` authorization scheme. The token is
 //! `NodeReadToken` JSON. The second segment is the raw 64-byte Ed25519
 //! signature over `NodeReadToken::digest` of the exact HTTP body. The signing
@@ -22,6 +26,8 @@
 mod entries;
 mod grant;
 mod members;
+mod settings;
+mod succession;
 
 pub use entries::{
     MemberEntry, MemberGetRequest, MemberGetResponse, MemberListRequest, MemberListResponse,
@@ -29,13 +35,18 @@ pub use entries::{
     SHARE_MEMBER_GET_PATH, SHARE_MEMBER_LIST_PATH, SHARE_MEMBER_SET_PATH,
 };
 pub use grant::{
-    authorize, authorize_access_read, authorize_native_create, authorize_request,
-    member_list_read_view, member_list_revision, MemberListReadView, ShareAccess,
-    SignedRequestTarget,
+    authorize, authorize_access_read, authorize_member_get, authorize_native_create,
+    authorize_request, authorize_settings_get, authorize_settings_set, member_list_read_view,
+    member_list_revision, MemberListReadView, ShareAccess, SignedRequestTarget,
 };
 pub use members::{
     Ed25519Signature, MemberListReadRequest, MemberListReadResponse, MemberListRevision,
     MemberListUpdate, ShareMember, ShareMemberRole, ShareMemberState, ShareWriteScope,
+};
+pub use settings::{
+    absent_share_settings, ShareRead, ShareSettings, ShareSettingsGetRequest,
+    ShareSettingsGetResponse, ShareSettingsSetRequest, ShareSettingsSetResponse, ShareWrite,
+    SHARE_SETTINGS_GET_PATH, SHARE_SETTINGS_SET_PATH,
 };
 
 use crate::primitives::exact_lower_hex;
