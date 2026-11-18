@@ -59,7 +59,7 @@ def prepare(node, cli, output):
     require(read_value(node, alpha["id"]) == "alpha", "alpha did not keep its value")
     require(read_value(node, work["id"]) == "work", "work did not keep its value")
     require(read_value(node, graph["id"]) == "graph", "graph did not keep its value")
-    refused(lambda: read_value(node, MISSING_DATABASE), "not on this node")
+    refused(lambda: read_value(node, MISSING_DATABASE), "database is not registered on this node")
     saved = {
         "personal_id": personal_id,
         "notes_id": notes["id"],
