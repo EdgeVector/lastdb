@@ -159,9 +159,8 @@ fn accept_link(value: &Value, ctx: &AccessContext, host: &Host) -> UdsResponse {
     let Ok(body) = serde_json::from_value::<LinkAccept>(value.clone()) else {
         return error_response(400, "invalid link", ctx);
     };
-    let opened = match crate::share_link::open(&body.link) {
-        Ok(opened) => opened,
-        Err(_) => return error_response(400, "invalid link", ctx),
+    let Ok(opened) = crate::share_link::open(&body.link) else {
+        return error_response(400, "invalid link", ctx);
     };
     registration_reply(
         crate::share_link::register(&host.home, &opened, body.name.as_deref()),

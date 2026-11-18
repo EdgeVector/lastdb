@@ -17,7 +17,6 @@ use fold_db::fold_db_core::FoldDB;
 use zeroize::Zeroizing;
 
 use crate::host::{owned::ResolvedStore, Host};
-use crate::share_invitation::OpenedShareInvitation;
 
 /// Domain mixed into the associated data. It is not stored in the ciphertext.
 const MUTATION_LOG_AAD_DOMAIN: &[u8] = b"lastdb:named-database:mutation-log:v1";
@@ -134,19 +133,6 @@ impl DatabaseContentKey {
             .map_err(|_| LogEnvelopeError::Key)?;
         refuse_owner_material(node_seed, material(&bytes))?;
         Ok(Self { bytes, database_id })
-    }
-
-    /// Receiver key from an opened invitation. It cannot be sealed again.
-    pub(crate) fn from_invitation(
-        opened: &OpenedShareInvitation,
-    ) -> Result<Self, LogEnvelopeError> {
-        if is_zero(opened.publication_key.deref()) {
-            return Err(LogEnvelopeError::Key);
-        }
-        Ok(Self {
-            bytes: Zeroizing::new(*opened.publication_key.deref()),
-            database_id: opened.permission.stream().stream_id.as_str().to_owned(),
-        })
     }
 
     /// Receiver key stored for a link, or copied out of an opened invitation.

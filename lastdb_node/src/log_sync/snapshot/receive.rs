@@ -51,13 +51,12 @@ pub(in crate::log_sync) async fn ensure_base(
         return finish(host, &share.id, &dir).await;
     }
     remove_tree(&dir.join(INCOMING))?;
-    match stage(log, &dir.join(INCOMING)).await? {
-        None => private_fs::write_private(&dir.join(registered_share::SNAPSHOT_ABSENT), b"1")
-            .map_err(|error| error.to_string()),
-        Some(_) => {
-            promote(&dir)?;
-            finish(host, &share.id, &dir).await
-        }
+    if stage(log, &dir.join(INCOMING)).await?.is_some() {
+        promote(&dir)?;
+        finish(host, &share.id, &dir).await
+    } else {
+        private_fs::write_private(&dir.join(registered_share::SNAPSHOT_ABSENT), b"1")
+            .map_err(|error| error.to_string())
     }
 }
 
