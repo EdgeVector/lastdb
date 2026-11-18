@@ -168,6 +168,7 @@ pub struct UdsWorkerPool {
 struct PoolInner {
     workers: usize,
     queue_capacity: usize,
+    queue_full_body: &'static [u8],
     submitted: AtomicU64,
     queue_full_rejects: AtomicU64,
     state: Mutex<PoolState>,
@@ -273,6 +274,9 @@ impl PoolInner {
 }
 
 impl UdsWorkerPool {
+    /// Worker-name prefix of the app-socket pool. That pool's full queue uses the app API body.
+    const APP_POOL_NAME: &str = "lastdb-uds-app";
+
     #[must_use]
     pub fn from_env() -> Self {
         let cpus = thread::available_parallelism().map_or(4, std::num::NonZeroUsize::get);
@@ -287,13 +291,19 @@ impl UdsWorkerPool {
     /// connections cannot take the workers that serve the owner.
     #[must_use]
     pub fn fixed(workers: usize, queue_capacity: usize) -> Self {
-        Self::start(workers.max(1), queue_capacity.max(1), "lastdb-uds-app")
+        Self::start(workers.max(1), queue_capacity.max(1), Self::APP_POOL_NAME)
     }
 
     fn start(workers: usize, queue_capacity: usize, name: &str) -> Self {
+        let queue_full_body = if name == Self::APP_POOL_NAME {
+            uds_http::APP_QUEUE_FULL_BODY
+        } else {
+            uds_http::OWNER_QUEUE_FULL_BODY
+        };
         let inner = Arc::new(PoolInner {
             workers,
             queue_capacity,
+            queue_full_body,
             submitted: AtomicU64::new(0),
             queue_full_rejects: AtomicU64::new(0),
             state: Mutex::new(PoolState::default()),
@@ -350,7 +360,7 @@ impl UdsWorkerPool {
                 .queue_full_rejects
                 .fetch_add(1, Ordering::Relaxed);
         }
-        let _ = uds_http::write_busy_and_close(&mut stream);
+        let _ = uds_http::write_busy_and_close(&mut stream, self.inner.queue_full_body);
         Err(err)
     }
 
