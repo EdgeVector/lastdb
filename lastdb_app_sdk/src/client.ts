@@ -10,10 +10,12 @@
 import { existsSync } from 'node:fs';
 
 import { LASTDB_SDK_API_VERSION } from './apiVersion.generated.js';
-import { executeAppChanges, executeAppRead, executeAppWrite } from './appApi.js';
+import { executeAppChanges, executeAppDatabases, executeAppRead, executeAppWrite } from './appApi.js';
+import type { DatabasesReplyFor } from './appApi.js';
 import type {
   ChangesReply,
   ChangesRequest,
+  DatabasesRequest,
   ReadItem,
   ReadResult,
   WriteItem,
@@ -183,6 +185,18 @@ export class LastDbClient<DatabaseId extends string | undefined = undefined> {
   /** `POST /v1/x/changes` — changed record keys after a saved position. */
   changes(options: ChangesRequest = {}): Promise<ChangesReply> {
     return executeAppChanges(this.context, options);
+  }
+
+  /**
+   * `POST /v1/x/databases` — one databases action.
+   * The reply is the owner route's JSON. `submit` answers 202.
+   * On the app socket the launcher sets LASTDB_APP, and this call sends that header.
+   */
+  databases<T extends DatabasesRequest>(
+    body: T,
+    timeoutMs?: number,
+  ): Promise<DatabasesReplyFor<T>> {
+    return executeAppDatabases(this.context, body, timeoutMs);
   }
 
   /** `GET /api/schemas` — list schemas loaded on the selected database. */

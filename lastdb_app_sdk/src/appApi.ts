@@ -1,6 +1,6 @@
 /**
- * App API: `POST /v1/read`, `POST /v1/write`, and `POST /v1/x/changes`.
- * A non-200 reply throws {@link AppApiError}. A failed read in a list is a result.
+ * App API: `POST /v1/read`, `POST /v1/write`, `POST /v1/x/changes`, and `POST /v1/x/databases`.
+ * A refused reply throws {@link AppApiError}. A failed read in a list is a result.
  * Request and reply types live in `appApi.generated.ts`.
  */
 
@@ -25,6 +25,20 @@ export interface AppRegistration {
 const READ_PATH = '/v1/read';
 const WRITE_PATH = '/v1/write';
 const CHANGES_PATH = '/v1/x/changes';
+const DATABASES_PATH = '/v1/x/databases';
+
+/** Owner JSON for one `databases` action. `submit` is the 202 reply. */
+export type DatabasesReplyFor<T extends Api.DatabasesRequest> =
+  T extends { action: 'list' } ? Api.DatabasesListReply
+  : T extends { action: 'create' | 'accept' } ? Api.DatabasesDatabaseReply
+  : T extends { action: 'schemas' } ? Api.DatabasesSchemasReply
+  : T extends { action: 'declare_schema' } ? Api.DatabasesDeclareReply
+  : T extends { action: 'share_config' } ? Api.DatabasesShareConfigReply
+  : T extends { action: 'set_share_config' } ? Api.DatabasesShareUpdateReply
+  : T extends { action: 'invite' } ? Api.DatabasesInviteReply
+  : T extends { action: 'submit' } ? Api.DatabasesSubmitReply
+  : T extends { action: 'submission_status' } ? Api.DatabasesStatusReply
+  : never;
 
 function invalid(message: string, body: unknown): UnexpectedResponseError {
   return new UnexpectedResponseError(message, 200, body);
@@ -317,4 +331,24 @@ export async function executeAppChanges(
 ): Promise<Api.ChangesReply> {
   const body = await postAppApi(ctx, CHANGES_PATH, changesBody(options));
   return parseChanges(body);
+}
+
+/** `POST /v1/x/databases`. Accepts 200 and 202. The body is the owner JSON. */
+export async function executeAppDatabases<T extends Api.DatabasesRequest>(
+  ctx: ClientContext,
+  body: T,
+  timeoutMs?: number,
+): Promise<DatabasesReplyFor<T>> {
+  const app = process.env.LASTDB_APP; // the app id, set by the launcher
+  const headers = app ? { 'X-LastDB-App': app } : undefined;
+  const res = await ctx.transport.send('POST', DATABASES_PATH, { body, headers, timeoutMs });
+  if (res.status !== 200 && res.status !== 202) throw appApiFailure(res.status, res.body);
+  if (!isObject(res.body)) {
+    throw new UnexpectedResponseError(
+      'app API databases returned a reply that is not an object',
+      res.status,
+      res.body,
+    );
+  }
+  return res.body as DatabasesReplyFor<T>;
 }

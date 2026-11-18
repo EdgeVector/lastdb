@@ -24,7 +24,7 @@ pub const CLOUD_WAKE_PATH: &str = "/api/cloud/wake";
 const SOCKET_TMP_SUFFIX: &str = ".tmp";
 const MAX_SOCKET_PATH_LEN: usize = 103;
 const CAPABILITIES_JSON: &str = r#"{"owned_app_schemas_v1":true,"atomic_owned_mutations_v1":true,"compound_alternate_keys_v1":true,"independent_hash_range_v1":true,"database_sessions_v1":true,"named_schema_write_grants_v1":true,"whole_database_create_retry_v1":true}"#;
-const EXTENSIONS_JSON: &str = r#"["changes"]"#;
+const EXTENSIONS_JSON: &str = r#"["changes","databases"]"#;
 
 pub fn socket_path(data_dir: &Path) -> PathBuf {
     data_dir.join(SOCKET_FILE_NAME)
@@ -149,6 +149,7 @@ pub enum DataRoute {
     V1Read,
     V1Write,
     V1Changes,
+    V1Databases,
     AppRegister,
 }
 
@@ -209,6 +210,7 @@ pub fn route(req: &UdsRequest) -> ControlRoute {
         "/v1/read" => Some(("POST", V1Read)),
         "/v1/write" => Some(("POST", V1Write)),
         "/v1/x/changes" => Some(("POST", V1Changes)),
+        "/v1/x/databases" => Some(("POST", V1Databases)),
         "/api/apps/register" => Some(("POST", AppRegister)),
         "/api/system/auto-identity" => Some(("GET", AutoIdentity)),
         "/api/system/boot-identity" => Some(("GET", BootIdentity)),

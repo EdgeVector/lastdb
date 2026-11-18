@@ -223,9 +223,9 @@ def changes(node, database=None):
 def extension_names(node):
     """GET /api/version lists the app API extensions this node serves."""
     extensions = node.call("/api/version")[0]["extensions"]
-    require(extensions == ["changes"],
-            "GET /api/version did not report extensions [changes]: " + repr(extensions))
-    print("App API extensions: GET /api/version reports [changes]", flush=True)
+    require(extensions == ["changes", "databases"],
+            "GET /api/version did not report extensions [changes, databases]: " + repr(extensions))
+    print("App API extensions: GET /api/version reports [changes, databases]", flush=True)
 
 
 def app_socket(node):

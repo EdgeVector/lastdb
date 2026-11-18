@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 /// The app API extensions this build can grant to a listed app.
-pub const KNOWN_EXTENSIONS: &[&str] = &["changes"];
+pub const KNOWN_EXTENSIONS: &[&str] = &["changes", "databases"];
 
 /// The access value that means every schema, in place of a name list or a map.
 pub const ALL_SCHEMAS: &str = "*";
