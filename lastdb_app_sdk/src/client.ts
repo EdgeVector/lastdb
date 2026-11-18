@@ -1,9 +1,10 @@
 /**
  * The LastDB runtime app client facade.
  *
- * Wraps the node's Unix-socket data plane and delegates handshake, schema,
- * keyed read, mutation, blob, and database-session operations to focused
- * domain modules. `read`, `write`, and `changes` call the app API (`/v1`).
+ * Wraps the node's Unix-socket data plane. `read`, `write`, and `changes`
+ * call the app API (`/v1`). The other methods are owner-socket operations
+ * that are not record calls: version, identity, schemas, databases, and
+ * share-submission status.
  */
 
 import { existsSync } from 'node:fs';
@@ -19,16 +20,6 @@ import type {
   WriteResult,
 } from './appApi.generated.js';
 import {
-  executeDeleteBlob,
-  executeFetchBlob,
-  executePutBlob,
-  type DeleteBlobOptions,
-  type FetchBlobOptions,
-  type FetchedBlob,
-  type PutBlobRequest,
-  type PutBlobResult,
-} from './blobOps.js';
-import {
   bindNodeDatabaseSpec,
   createNodeDatabase,
   databaseScope,
@@ -41,23 +32,18 @@ import {
   type ListedDatabase,
 } from './databases.js';
 import { RequestRejectedError, TransportError } from './errors.js';
-import { executeMutate, executeMutateBatch, executeShareSubmissionStatus } from './mutationOps.js';
-import { executeGet, executeList, executeQuery, executeQueryAll, executeQueryBatch } from './readOps.js';
 import {
   executeAutoIdentity,
-  executeDeclareSchema,
   executeGetSchema,
   executeListSchemas,
   executeRequireApiVersion,
   executeResolveSchema,
   executeVersion,
-  rememberSchemaDefinition,
   type AutoIdentityResult,
-  type DeclareSchemaRequest,
-  type DeclareSchemaResult,
   type LoadedSchema,
   type SchemaDescriptor,
 } from './schemaOps.js';
+import { executeShareSubmissionStatus } from './shareStatus.js';
 import { openDiscoveredSocket, udsTransport, withDefaultHeaders, type Transport } from './transport.js';
 import type * as Types from './types.js';
 
@@ -139,7 +125,6 @@ export class LastDbClient<DatabaseId extends string | undefined = undefined> {
       appId,
       transport: withDefaultHeaders(baseTransport, sessionHeaders),
       databasePath,
-      definitionIds: new Map<string, string>(),
     };
   }
 
@@ -163,57 +148,6 @@ export class LastDbClient<DatabaseId extends string | undefined = undefined> {
     return executeAutoIdentity(this.context);
   }
 
-  /** `GET /api/list` — return one page of live primary or alternate keys. */
-  list(schemaName: string, opts: Types.ListOptions = {}): Promise<Types.ListResult> {
-    return executeList(this.context, schemaName, opts);
-  }
-
-  /** Point lookup of a single record by primary `HashKey` or `HashRangeKey`. */
-  get(schemaName: string, key: Types.RecordKeyInput): Promise<Types.QueryRow | null> {
-    return executeGet(this.context, schemaName, key);
-  }
-
-  /** `POST /api/query` — keyed point, multi-get, or range read under one hash. */
-  query(schemaName: string, filter: Types.QueryFilter = {}): Promise<Types.QueryResult> {
-    return executeQuery(this.context, schemaName, filter);
-  }
-
-  /** `POST /api/queries/batch` — read up to 64 keyed queries per request. */
-  queryBatch(items: readonly Types.QueryBatchItem[]): Promise<Types.QueryBatchOutcome[]> {
-    return executeQueryBatch(this.context, items);
-  }
-
-  /** Auto-paginate a keyed query across pages until `hasMore` is false or `maxRows` is reached. */
-  queryAll(
-    schemaName: string,
-    filter: Omit<Types.QueryFilter, 'limit' | 'offset' | 'cursor'> = {},
-    opts: Types.QueryAllOptions = {},
-  ): Promise<Types.QueryResult> {
-    return executeQueryAll(this.context, schemaName, filter, opts);
-  }
-
-  /** `POST /api/mutation` — write one complete conditional record into `schemaName`. */
-  mutate(
-    schemaName: string,
-    op: Types.MutationOp,
-    options?: DatabaseId extends string ? Types.MutationOptions : never,
-  ): Promise<Types.MutationResult | (DatabaseId extends string ? Types.ShareSubmissionResult : never)>;
-  mutate(
-    schemaName: string,
-    op: Types.MutationOp,
-    options: Types.MutationOptions = {},
-  ): Promise<Types.MutationResult | Types.ShareSubmissionResult> {
-    return executeMutate(this.context, schemaName, op, options);
-  }
-
-  /** `POST /api/mutations/batch` — commit an atomic batch of conditional record mutations. */
-  mutateBatch(
-    items: readonly Types.MutationBatchItem[],
-    options: Types.MutationBatchOptions = {},
-  ): Promise<Types.MutationBatchResult> {
-    return executeMutateBatch(this.context, items, options);
-  }
-
   /** Read the outcome of one submission made by this receiving LastDB node. */
   getShareSubmissionStatus(mutationId: string): Promise<Types.ShareSubmissionStatus> {
     return executeShareSubmissionStatus(this.context, mutationId);
@@ -235,39 +169,6 @@ export class LastDbClient<DatabaseId extends string | undefined = undefined> {
   /** `POST /v1/x/changes` — changed record keys after a saved position. */
   changes(options: ChangesRequest = {}): Promise<ChangesReply> {
     return executeAppChanges(this.context, options);
-  }
-
-  /** `POST /api/db/put-blob` — attach or replace a record's blob, inline, or local-path file. */
-  putBlob(schemaName: string, request: PutBlobRequest): Promise<PutBlobResult> {
-    return executePutBlob(this.context, schemaName, request);
-  }
-
-  /** `POST /api/db/fetch-blob` — read a record's blob or inline file bytes. */
-  fetchBlob(
-    schemaName: string,
-    key: Types.RecordKeyInput,
-    options: FetchBlobOptions = {},
-  ): Promise<FetchedBlob> {
-    return executeFetchBlob(this.context, schemaName, key, options);
-  }
-
-  /** `POST /api/db/delete-blob` — clear a record's blob or inline file via complete replacement. */
-  deleteBlob(
-    schemaName: string,
-    op: Types.ReplaceMutationOp,
-    options: DeleteBlobOptions = {},
-  ): Promise<Types.MutationResult> {
-    return executeDeleteBlob(this.context, schemaName, op, options);
-  }
-
-  /** Remember the 64-hex `definition_id` returned by `declareSchema` for `schemaName`. */
-  rememberDefinition(schemaName: string, definitionId: string): void {
-    rememberSchemaDefinition(this.context.definitionIds, schemaName, definitionId);
-  }
-
-  /** `POST /api/schemas/declare` — declare an app-owned schema. */
-  declareSchema(request: DeclareSchemaRequest): Promise<DeclareSchemaResult> {
-    return executeDeclareSchema(this.context, request);
   }
 
   /** `GET /api/schemas` — list schemas loaded on the selected database. */

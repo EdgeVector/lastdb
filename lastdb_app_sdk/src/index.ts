@@ -1,8 +1,9 @@
 /**
  * @lastdb/app-sdk — the runtime SDK for LastDB apps.
  *
- * Wraps a node's Unix-socket data plane: the `/api/*` methods and the app API
- * (`read`, `write`, `changes`).
+ * Wraps a node's Unix-socket data plane. Record calls are the app API
+ * (`read`, `write`, `changes`). The owner socket still serves databases,
+ * sharing status, version, and the schema list.
  */
 
 export { connect, LastDbClient, ownerClient } from './client.js';
@@ -66,8 +67,6 @@ export {
   APP_API_READS_PER_REQUEST,
 } from './appApi.generated.js';
 
-export { parseQueryResponse } from './responseParsers.js';
-
 export { LASTDB_API_ROUTES } from './databases.js';
 export type {
   CreateDatabaseRequest,
@@ -95,64 +94,18 @@ export type {
 } from './transport.js';
 
 export type {
-  BlobThumbnailInput,
-  DeleteBlobOptions,
-  FetchBlobOptions,
-  FetchedBlob,
-  PutBlobBytesRequest,
-  PutBlobLocalPathRequest,
-  PutBlobMutationOp,
-  PutBlobRequest,
-  PutBlobResult,
-} from './blobOps.js';
-
-export type {
   AutoIdentityResult,
-  DeclareSchemaRequest,
-  DeclareSchemaResult,
   LoadedSchema,
   SchemaDescriptor,
 } from './schemaOps.js';
 
 export type {
-  CasExpectation,
   ConnectOptions,
-  CreateMutationOp,
   DatabaseSession,
   DatabaseSessionIntent,
-  DeleteMutationOp,
-  FileMarker,
-  FilePlacement,
   JsonValue,
-  KeyValue,
-  ListOptions,
-  ListRecordKey,
-  ListResult,
-  MutationBatchItem,
-  MutationBatchOperations,
-  MutationBatchOptions,
-  MutationBatchResult,
-  MutationConvergence,
-  MutationDurability,
-  MutationOp,
-  MutationOptions,
-  MutationResult,
   NodeVersion,
-  QueryAllOptions,
-  QueryBatchItem,
-  QueryBatchOutcome,
-  QueryCursor,
-  QueryFilter,
-  QueryPage,
-  QueryResult,
-  QueryRow,
-  RecordKeyInput,
-  RecordMetadata,
-  ReplaceMutationOp,
-  Row,
-  RowFields,
   SelectDatabaseOptions,
-  ShareSubmissionResult,
   ShareSubmissionStatus,
 } from './types.js';
 
@@ -164,9 +117,7 @@ export {
   NodeTooOldError,
   nodeTooOldMessage,
   PermissionDeniedError,
-  QueryPaginationError,
   RequestRejectedError,
-  ShareSubmissionUncertainError,
   TransportError,
   UnexpectedResponseError,
 } from './errors.js';

@@ -45,45 +45,6 @@ export class UnexpectedResponseError extends LastDbError {
   }
 }
 
-/** Retry the same body with this UUID when the Share upload outcome is uncertain. */
-export class ShareSubmissionUncertainError extends LastDbError {
-  constructor(readonly mutationId: string, override readonly cause: unknown) {
-    super('Share submission outcome is unavailable. Retry with the same mutation ID and body.');
-  }
-}
-
-/** The node's paginated `/api/query` stopped making progress or mismatched `total_count`. */
-export class QueryPaginationError extends LastDbError {
-  constructor(
-    readonly reason: 'stalled_page' | 'total_count_mismatch',
-    readonly detail: {
-      totalCount?: number;
-      collectedCount: number;
-      returnedCount?: number;
-      pageSize?: number;
-      offset?: number;
-    },
-  ) {
-    super(queryPaginationMessage(reason, detail));
-  }
-}
-
-function queryPaginationMessage(
-  reason: 'stalled_page' | 'total_count_mismatch',
-  detail: { totalCount?: number; collectedCount: number },
-): string {
-  if (reason === 'stalled_page') {
-    return (
-      'queryAll pagination stalled: the node reported more rows but returned ' +
-      'no new record keys on the next page'
-    );
-  }
-  return (
-    `queryAll collected ${detail.collectedCount} unique rows` +
-    (detail.totalCount === undefined ? '' : ` but the node reported total_count=${detail.totalCount}`)
-  );
-}
-
 /** Posture/namespace/session denial category (`403`). */
 export type PermissionCategory =
   | 'namespace_denied'

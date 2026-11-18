@@ -1,19 +1,21 @@
 # @lastdb/app-sdk
 
 The runtime SDK for LastDB apps. A dependency-free TypeScript client over a
-node's Unix socket. The `/api/*` methods connect, verify protocol `API_VERSION`
-compatibility (`LASTDB_SDK_API_VERSION` and `LASTDB_MIN_SUPPORTED_API_VERSION`,
-generated from the node source), and run keyed reads, single and batch
-conditional mutations, record file/blob operations, membership lists, named
-databases, and short-lived scoped database sessions. `read`, `write`, and
-`changes` call the app API. The older methods still work.
-Those shapes are defined in `lastdb_node/app-api.json`. The TypeScript types
-are generated from that file.
+node's Unix socket.
+
+Record calls are the app API: `read`, `write`, and `changes`. Those shapes
+are defined in `lastdb_node/app-api.json`. The TypeScript types are generated
+from that file.
+
+The owner socket still serves version, identity, the schema list, named
+databases, short-lived database sessions, and the status of a share
+submission. `LASTDB_SDK_API_VERSION` and `LASTDB_MIN_SUPPORTED_API_VERSION`
+are generated from the node source.
 
 ## Install a build of the SDK
 
 ```bash
-npm install /path/to/lastdb-app-sdk-0.17.0.tgz
+npm install /path/to/lastdb-app-sdk-0.18.0.tgz
 ```
 
 Build a tarball from this directory with `npm ci`, `npm run build`, and
@@ -28,22 +30,20 @@ import { connect } from '@lastdb/app-sdk';
 // FOLDDB_SOCKET_PATH -> <LASTDB_HOME or ~/.lastdb>/data/folddb.sock.
 const db = await connect({ appId: 'my-app' });
 
-await db.mutate('my-app/Concept', {
-  mutationType: 'create',
-  alternates: {},
-  expected: { type: 'absent' },
-  record: { id: 'c1', title: 'hello' },
-  key: { hash: 'c1', range: null },
-});
+await db.write([
+  {
+    schema: 'my-app/Concept',
+    op: 'create',
+    key: { hash: 'c1' },
+    record: { id: 'c1', title: 'hello' },
+  },
+]);
 
-const single = await db.get('my-app/Concept', 'c1');
-console.log(single?.key, single?.fields, single?.metadata);
-
-const { rows } = await db.query('my-app/Concept', {
-  filter: { HashKey: 'c1' },
-});
-for (const row of rows) {
-  console.log(row.key, row.fields, row.metadata);
+const [page] = await db.read([
+  { schema: 'my-app/Concept', key: { hash: 'c1' } },
+]);
+if (page !== undefined && 'records' in page) {
+  console.log(page.records[0]);
 }
 ```
 
@@ -60,14 +60,13 @@ const db = ownerClient({
 await db.requireApiVersion(LASTDB_SDK_API_VERSION);
 ```
 
-## Named Databases & Scoped Sessions
+## Named databases and sessions
 
 `listDatabases` reads `GET /api/databases`. The personal database and received
 shares stay in that list. `createDatabase` calls `POST /api/databases` to create
-an owned shareable or personal database, and `bindDatabaseSpec` calls
-`POST /api/databases/spec` to bind or clear an owned database's spec. `select`
-returns a new client bound to one database ID or alias without mutating the
-existing client.
+an owned database, and `bindDatabaseSpec` calls `POST /api/databases/spec` to
+bind or clear an owned database's spec. `select` returns a new client bound to
+one database ID or alias without mutating the existing client.
 
 ```ts
 const root = await connect({ appId: 'photos' });
@@ -82,9 +81,10 @@ and attach `X-LastDB-Database-Session` to every scoped request, call
 
 ```ts
 const { session, client: draftReader } = await root.openDatabaseSession(created.id, 'read');
-const rows = await draftReader.query('photos/Album', { filter: { HashKey: 'vacation' } });
+const [album] = await draftReader.read([
+  { schema: 'photos/Album', key: { hash: 'vacation' } },
+]);
 
-// Or hand `session.session` to an isolated client process:
 const delegated = await connect({
   appId: 'photos-viewer',
   databaseId: session.databaseId,
@@ -92,227 +92,41 @@ const delegated = await connect({
 });
 ```
 
-Keep `session.session` tokens out of logs. Every scoped client method (`get`,
-`list`, `query`, `queryBatch`, `queryAll`, `mutate`, `mutateBatch`, `putBlob`,
-`fetchBlob`, `deleteBlob`, `listSchemas`, `getSchema`, `declareSchema`) routes
-uniformly through `/api/databases/<selector>/...`.
-
-## Record Files & Blobs
-
-Attach, read, or clear a record's external `blob` or `inline` file over the
-Unix-socket binary fast path:
-
-```ts
-const uploaded = await drafts.putBlob('photos/Photo', {
-  op: {
-    mutationType: 'create',
-    expected: { type: 'absent' },
-    alternates: {},
-    key: { hash: 'photo-7', range: null },
-    record: { caption: 'Sunset' },
-  },
-  bytes: jpegBytes,
-  name: 'sunset.jpg',
-  mediaType: 'image/jpeg',
-  thumbnail: { bytes: thumbBytes, name: 'sunset-thumb.jpg', mediaType: 'image/jpeg' },
-});
-
-const blob = await drafts.fetchBlob('photos/Photo', 'photo-7');
-const thumb = await drafts.fetchBlob('photos/Photo', 'photo-7', { placement: 'inline' });
-
-await drafts.deleteBlob('photos/Photo', {
-  mutationType: 'replace',
-  expected: { type: 'revision', revision: uploaded.recordRevision },
-  alternates: {},
-  key: { hash: 'photo-7', range: null },
-  record: { caption: 'Sunset' },
-});
-```
-
-## Atomic Batch Mutations
-
-Commit multiple complete conditional record mutations atomically via
-`POST /api/mutations/batch`:
-
-```ts
-const batch = await db.mutateBatch([
-  {
-    schemaName: 'my-app/Concept',
-    op: {
-      mutationType: 'create',
-      expected: { type: 'absent' },
-      alternates: {},
-      key: { hash: 'c2', range: null },
-      record: { id: 'c2', title: 'first' },
-    },
-  },
-  {
-    schemaName: 'my-app/Concept',
-    op: {
-      mutationType: 'create',
-      expected: { type: 'absent' },
-      alternates: {},
-      key: { hash: 'c3', range: null },
-      record: { id: 'c3', title: 'second' },
-    },
-  },
-]);
-console.log(batch.count, batch.operations, batch.recordRevisions);
-```
+Keep `session.session` tokens out of logs. Schema list and schema get on a
+selected database use `/api/databases/<selector>/...`. `read`, `write`, and
+`changes` do not. Pass `database` on the item.
 
 ## Set up sharing with Social
 
 Sharing setup is done with Social's own client, `@lastdb/social-client`. It
 ships with the Social app at
 [EdgeVector/social `client/`](https://github.com/EdgeVector/social/tree/main/client)
-and calls the installed `social` command: create a named share or a
-`shared-albums` setup, list circles, propose a sharing change for the owner
-to approve, seal and accept invitations, and revoke access. Before 0.14.0
-this package exported those helpers as `socialClient`.
+and calls the installed `social` command. This package is the data client.
+Point both at the same LastDB home. The Social client returns the stable
+database ID.
 
-This package is the data client. Point both at the same LastDB home. The
-Social client returns the stable database ID. Select that ID here for
-schemas, records, and files.
+A received database is read with `read` and `database` set to that ID. A
+write to a received database is refused. `getShareSubmissionStatus(mutationId)`
+on a client selected to that database reports `submitted`, `published`,
+`discarded`, or `unknown` for a submission this node already sent.
 
-```ts
-import { join } from 'node:path';
-import { connect } from '@lastdb/app-sdk';
-import { socialClient } from '@lastdb/social-client';
+## Owner operations
 
-const social = socialClient({ dataDir: publisherHome });
-const root = await connect({
-  appId: 'photo-journal',
-  socketPath: join(publisherHome, 'data', 'folddb.sock'),
-});
-const database = await social.createSharedDatabase('family-trips');
-const trips = root.select(database.id);
-await trips.declareSchema(tripSchema);
-```
-
-On a recipient's device, accept the sealed invitation with the Social client,
-save the returned database ID, and open it with this package.
-
-```ts
-const recipient = await connect({
-  appId: 'photo-journal',
-  socketPath: join(recipientHome, 'data', 'folddb.sock'),
-});
-
-// Wait for this ID to be ready in listDatabases() before reading its content.
-const { client: sharedTrips } = await recipient.openDatabaseSession(receivedDatabaseId, 'read');
-const trip = await sharedTrips.get('photo-journal/Trip', tripKey);
-```
-
-Use the same ID when another app opens this share on that device.
-`listDatabases` exposes the receiving node's `selfAccess` when available. An
-initial response can be unknown while access is confirmed. An active grant
-with `stale: false` can guide which write actions the app displays. The
-publisher still checks each proposal.
-
-## Registered Shares
-
-Every active receiver can read the whole database. Social supplies the
-current schema grants for the app to show available edit actions. A receiver
-with a `social/Comment` grant can create comments and edit comments they
-originally created. The publisher handles moderation and deletion.
-
-Any active receiver can submit an encrypted mutation. A `submitted` receipt
-confirms delivery to the publisher's private pending log. The publisher's
-LastDB checks the current schema grant and record rules, then publishes
-accepted changes under the publisher's key. Use the normal query API to
-read the result after sync. The receiver follows the separate published log.
-[Sharing and write approval](../docs/designs/shared-database-mutation-logs.md)
-
-After accepting and syncing a shared-albums database, verify the setup on the
-receiver's node with the Social client's `setupDatabase`. Use the returned
-definition and a write session for the selected album database.
-
-```ts
-import { randomUUID } from 'node:crypto';
-
-// recipientSocial is socialClient({ dataDir: recipientHome }) from @lastdb/social-client.
-const verified = await recipientSocial.setupDatabase({
-  setupName: 'shared-albums', requiredVersion: 1, databaseId: albumDatabaseId,
-});
-const { client: share } = await recipient.openDatabaseSession(albumDatabaseId, 'write');
-share.rememberDefinition('social/Comment', verified.definitions['social/Comment']!);
-const mutationId = randomUUID();
-const proposal = await share.mutate('social/Comment', {
-  mutationType: 'create',
-  expected: { type: 'absent' },
-  alternates: {},
-  key: { hash: 'photo-7', range: mutationId },
-  record: {
-    target: { database: albumDatabaseId, schema: 'social/Photo', key: 'photo-7' },
-    social_comment_text: 'Great photo',
-    created_at: new Date().toISOString(),
-  },
-}, { mutationId });
-if ('status' in proposal && proposal.status === 'submitted') {
-  console.log(`Queued ${proposal.mutationId}`);
-}
-```
-
-The publisher derives `author_id` from the verified sender. To edit a comment,
-read its current version, carry forward every field you are leaving as is,
-and send the full record with its primary key and revision.
-
-When a Share submission outcome is uncertain, `mutate` throws
-`ShareSubmissionUncertainError` with `.mutationId` so the caller can retry with
-the same body and UUID.
-`submissionSequence` is the writer sequence within this submission. Use
-`mutationId` to correlate it with an app action.
-
-Call `share.getShareSubmissionStatus(mutationId)` on the receiving database.
-It reports `submitted`, `published`, `discarded`, or `unknown`. Published
-means the publisher has uploaded the change. The receiver may still need to
-sync before a query returns it. Unknown also covers older settlements without
-a recorded outcome. Keep using normal record queries to render shared data.
-
-## Access Model & Operations
-
-LastDB is a keyed store: every `query`, `queryAll`, and `queryBatch` item names
-a primary or alternate key (`HashKey`, `HashRangeKey`, `HashRangePrefix`,
-`HashRangeBetween`, `HashRangeKeys`, etc.). Unfiltered scans and server-side
-`where` field filters are not supported.
-
-- `get(schemaName, key)` — single-record point lookup by `HashKey` or `HashRangeKey`.
-- `list(schemaName, { keyName?, hash?, limit?, cursor? })` — keys-only cursor
-  pages over `GET /api/list`.
-- `query(schemaName, { keyName?, filter?, limit?, offset?, cursor? })` — one
-  keyed page over `POST /api/query`.
-- `queryAll(schemaName, filter?, { pageSize?, maxRows? })` — drains a keyed
-  query across pages up to `maxRows` (default 100,000).
-- `queryBatch(items)` — up to 64 independent keyed queries per request over
-  `POST /api/queries/batch`.
-- `mutate(schemaName, op, options?)` — complete conditional record `create` /
-  `replace` / `delete` / `purge` over `POST /api/mutation`.
-- `mutateBatch(items, options?)` — atomic batch of conditional mutations over
-  `POST /api/mutations/batch`.
-- `putBlob(schemaName, request)`, `fetchBlob(schemaName, key, options?)`,
-  `deleteBlob(schemaName, op, options?)` — record file and blob operations over
-  `POST /api/db/{put-blob,fetch-blob,delete-blob}`.
-- `declareSchema(request)` / `rememberDefinition(schemaName, definitionId)` —
-  declare a schema on `POST /api/schemas/declare` and attach `definition_id` on
-  subsequent mutations.
-- `listSchemas()`, `getSchema(schemaName)`, `resolveSchema(descriptor)`,
-  `autoIdentity()` — schema lookup and owner identity helpers.
+- `version()`, `requireApiVersion(required)` — `GET /api/version`.
+- `autoIdentity()` — `GET /api/system/auto-identity`.
+- `listSchemas()`, `getSchema(schemaName)`, `resolveSchema(descriptor)` —
+  schema catalog.
 - `listDatabases()`, `createDatabase(req)`, `bindDatabaseSpec(id, spec)`,
   `issueDatabaseSession(id, intent)`, `openDatabaseSession(id, intent)`,
-  `select(id, { databaseSession? })` — named database and scoped session helpers.
+  `select(id, { databaseSession? })` — named databases and sessions.
+- `getShareSubmissionStatus(mutationId)` — status of one share submission.
 
 ## App API
 
-`read`, `write`, and `changes` call the app API. The older methods still work.
-
 An app started by the LastDB launcher runs on the app socket. The launcher sets
 `LASTDB_SOCKET_PATH` to that socket and `LASTDB_APP` to the app id.
-These three methods send that value as `X-LastDB-App` with every
-request. `POST /api/apps/register` answers `{ app }` where `app` is the
-app id. The reply has no `expires_in_seconds`. The node keeps one grant per
-app id, with no expiry, and replaces it when the same app is registered again.
-The app socket serves only these three methods, so a restricted app uses no
-older one.
+`read`, `write`, and `changes` send that value as `X-LastDB-App` with every
+request. The app socket serves only these three methods.
 
 Pass `database` on a read, a mutation, or `changes` to name a database. These
 methods do not copy the database chosen by `select`. A database-session header
@@ -327,26 +141,27 @@ the JSON body.
   `file: true`, and `keys_only: true`. A read with `keys_only: true` and
   neither `key` nor `range` lists the primary keys of the schema; follow
   `next_cursor` for the next page. `range` is one of three forms: hash alone,
-  hash plus `prefix`, or hash plus `start` and `end`.
+  hash plus `prefix`, or hash plus `start` and `end`. On the owner socket,
+  `file: true` with `file_dir` set to an existing directory asks the node to
+  name the file. `file_dir` is refused on the app socket.
 - `write(mutations)` posts `{ mutations }` to `POST /v1/write` and returns
   `{ written, revisions }` after the write is on disk. `create` carries
   `record` and optional `alternates` and `file`, and no `revision`. `replace`
-  adds `revision`. `delete` carries `revision`, and may carry an empty
-  `alternates` object. It carries no `record` and no `file`. `file` is
-  `{ path, name?, media_type? }`, a path on disk, not bytes. Every mutation
-  in one list names the same database.
+  adds `revision`. `delete` carries `revision` and no `record` and no `file`.
+  `file` is `{ path, name?, media_type? }`, a path on disk. On `replace`,
+  JSON `null` clears the record's file. Omitting `file` keeps it. Every
+  mutation in one list names the same database.
 - `changes({ after?, limit?, schemas?, database? })` posts that object to
   `POST /v1/x/changes` and returns `{ id, head, through, gap, changes }`.
   Omit `after` and the read starts at 0.
 
-Version 0.17.0 takes the app API types from `lastdb_node/app-api.json`.
+Version 0.18.0 takes the app API types from `lastdb_node/app-api.json`.
 Regenerate them with `python3 scripts/lints/app_api_types.py --write`.
 CI runs the same script with `--check` and fails when the committed file differs.
-The hand-written `AppApi*` names are removed. Use the schema names:
-`ReadItem`, `WriteItem`, `ChangesRequest`, `ChangesReply`, `ChangeEntry`,
-`ReadResult`, `WriteResult`, `Record`, `FileInfo`, `FileLink`, `Range`,
-`ErrorEnvelope`, `WriteCreate`, `WriteReplace`, and `WriteDelete`.
-`AppApiError` is still the class for a non-200 reply.
+Use the schema names: `ReadItem`, `WriteItem`, `ChangesRequest`, `ChangesReply`,
+`ChangeEntry`, `ReadResult`, `WriteResult`, `Record`, `FileInfo`, `FileLink`,
+`Range`, `ErrorEnvelope`, `WriteCreate`, `WriteReplace`, and `WriteDelete`.
+`AppApiError` is the class for a non-200 reply.
 
 A read list holds at most 64 items. A read page defaults to 100 and is capped
 at 1000. A changes page defaults to 500 and is capped at 500. The node keeps
@@ -360,8 +175,7 @@ are `APP_API_READS_PER_REQUEST`, `APP_API_READ_PAGE_DEFAULT`,
 A non-200 reply throws `AppApiError` with `status`, `code`, and `message`
 from `{ "error": { "code", "message" } }`. A refusal that names one mutation
 also sets `index`. A write whose condition failed also sets `reason`:
-`exists`, `absent`, or `revision`. Callers that read only `code` and
-`message` are unchanged.
+`exists`, `absent`, or `revision`.
 
 ```ts
 const [page] = await db.read([
@@ -386,27 +200,23 @@ const feed = await db.changes({ after: 1200, schemas: ['notes/Note'] });
 console.log(feed.head, feed.gap, feed.changes);
 ```
 
-## Typed Errors
+## Typed errors
 
 - `NodeTooOldError` — `GET /api/version` reported a lower `api_version` than
-  required, or a route answered `400 {kind: "unknown_key"}` (subclasses
-  `RequestRejectedError`).
+  required.
 - `CasConflictError` — `409 {error: "cas_conflict"}` with `.schema`, `.key`,
   `.expected`, `.actual`, and `.body`.
 - `RequestRejectedError` — `400` / `404` / non-CAS `409` / `413` request or
   target rejection with `.kind`, `.status`, and `.body`.
-- `PermissionDeniedError` — `403` posture/namespace/session denial with
-  `.category` (`'namespace_denied' | 'unverified_identity' | 'write_denied' | 'session_denied' | 'unknown'`).
+- `PermissionDeniedError` — `403` posture, namespace, or session denial with
+  `.category`.
 - `AuthenticationRequiredError` — `401` credential failure.
-- `QueryPaginationError` — `queryAll` detected stalled pagination or a count
-  mismatch.
-- `ShareSubmissionUncertainError` — uncertain Share submission upload outcome.
 - `AppApiError` — non-200 reply from `read`, `write`, or `changes`, with
   `.status`, `.code`, and `.message`. A refusal that names one mutation also
   sets `.index`. A failed write condition also sets `.reason` (`exists`,
   `absent`, or `revision`). A per-item read error is a result, not this class.
-- `TransportError` / `UnexpectedResponseError` — socket/timeout failure or
-  unmodeled HTTP status.
+- `TransportError` / `UnexpectedResponseError` — socket or timeout failure, or
+  an HTTP status this client does not model.
 
 ## Development
 
