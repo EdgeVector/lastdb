@@ -12,6 +12,8 @@ use crate::lastdb_uds::uds_http::UdsResponse;
 
 mod changes;
 mod database;
+mod databases;
+mod databases_reply;
 mod file_place;
 mod owner_file;
 mod read;
@@ -19,6 +21,7 @@ mod refusal;
 mod write;
 
 pub(in crate::exec) use changes::changes_route;
+pub(in crate::exec) use databases::databases_route;
 pub(in crate::exec) use read::read_route;
 pub(in crate::exec) use write::write_route;
 

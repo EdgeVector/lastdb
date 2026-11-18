@@ -2,9 +2,12 @@
 
 import { randomUUID } from 'node:crypto';
 
+import { executeAppDatabases } from './appApi.js';
+import { AppApiError } from './appApiError.js';
 import {
   LASTDB_API_ROUTES,
   scopedApiPath,
+  validateDatabaseSelector,
   type ClientContext,
 } from './databases.js';
 import {
@@ -69,6 +72,9 @@ export async function executeSubmitProposal(
     throw new RequestRejectedError('mutation_id', 'Mutation ID must be a non-nil lowercase UUID');
   }
   const body = buildProposalDocument(schemaName, op, options.definitionId);
+  if (process.env.LASTDB_APP) {
+    return submitThroughExtension(ctx, body, mutationId, options.timeoutMs);
+  }
   const path = scopedApiPath(ctx.databasePath, LASTDB_API_ROUTES.shareSubmission);
   const res = await ctx.transport
     .send('POST', path, {
@@ -92,6 +98,43 @@ export async function executeSubmitProposal(
   const error = mapDataError('proposal', res.status, res.body, ctx.appId);
   if (res.status >= 500) throw new ShareSubmissionUncertainError(mutationId, error);
   throw error;
+}
+
+/**
+ * App-socket submit. The owner socket keeps the `/api/databases/{id}/submissions` path.
+ * A client on the app socket without LASTDB_APP stays on that path, and the app socket answers 404.
+ */
+async function submitThroughExtension(
+  ctx: ClientContext,
+  document: Record<string, unknown>,
+  mutationId: string,
+  timeoutMs: number | undefined,
+): Promise<ShareSubmissionResult> {
+  const prefix = `${LASTDB_API_ROUTES.databases}/`;
+  const scope = ctx.databasePath;
+  if (scope === null || !scope.startsWith(prefix)) {
+    throw new RequestRejectedError('invalid_request', 'a proposal needs a received database');
+  }
+  const database = validateDatabaseSelector(scope.slice(prefix.length));
+  try {
+    const reply = await executeAppDatabases(ctx, {
+      action: 'submit',
+      database,
+      mutation: document,
+      idempotency_key: mutationId,
+    }, timeoutMs);
+    return parseSubmitted(reply, mutationId);
+  } catch (error: unknown) {
+    if (error instanceof ShareSubmissionUncertainError) throw error;
+    if (error instanceof AppApiError && error.status < 500) throw error;
+    const refused =
+      error instanceof TransportError &&
+      error.status !== undefined &&
+      error.status >= 400 &&
+      error.status < 500;
+    if (refused) throw error;
+    throw new ShareSubmissionUncertainError(mutationId, error);
+  }
 }
 
 function parseSubmitted(raw: unknown, mutationId: string): ShareSubmissionResult {

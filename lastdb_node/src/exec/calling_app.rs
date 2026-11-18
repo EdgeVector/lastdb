@@ -140,8 +140,12 @@ pub(in crate::exec) fn serve(
     else {
         return app_api::refuse(403, "the app socket needs a registered app");
     };
-    let ControlRoute::Data(route @ (DataRoute::V1Read | DataRoute::V1Write | DataRoute::V1Changes)) =
-        uds_router::route(req)
+    let ControlRoute::Data(
+        route @ (DataRoute::V1Read
+        | DataRoute::V1Write
+        | DataRoute::V1Changes
+        | DataRoute::V1Databases),
+    ) = uds_router::route(req)
     else {
         return app_api::refuse(404, "the app socket serves only the app API");
     };

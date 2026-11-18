@@ -164,6 +164,7 @@ pub(in crate::exec) async fn execute_data_route_with_timeout(
             DataRoute::V1Read => heap_route!(app_api::read_route, req, ctx, host),
             DataRoute::V1Write => heap_route!(app_api::write_route, req, ctx, host),
             DataRoute::V1Changes => heap_route!(app_api::changes_route, req, ctx, host),
+            DataRoute::V1Databases => heap_route!(app_api::databases_route, req, ctx, host),
             DataRoute::AppRegister => return calling_app::register_route(req, ctx, host),
         };
         fut.await
@@ -183,6 +184,9 @@ pub(in crate::exec) fn data_route_budget(route: DataRoute) -> Duration {
         DataRoute::Status | DataRoute::Ops => Duration::from_secs(2),
         DataRoute::AdminShed => Duration::from_secs(60),
         DataRoute::BootIdentity => Duration::from_secs(1),
+        // The handler applies the real deadline and maps a timeout into the app
+        // API error shape. This budget only keeps that reply from becoming plain text.
+        DataRoute::V1Databases => admin_handler_timeout().saturating_add(handler_timeout()),
         _ => handler_timeout(),
     }
 }

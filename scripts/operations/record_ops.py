@@ -39,20 +39,27 @@ def check(node):
     status, reply = app_call(apps, "GET", "/api/query", None)
     require(status == 404 and reply.get("error", {}).get("code") == "not_found",
             f"ops proof deleted route was not not_found: {status} {reply!r}")
+    status, reply = app_call(apps, "POST", "/v1/x/databases", {"action": "list"})
+    require(status == 403 and reply.get("error", {}).get("code") == "permission_denied",
+            f"ops proof databases extension was not permission_denied: {status} {reply!r}")
     payload = node.call("/api/ops")[0]
     calls = [row for row in payload.get("calls") or [] if row.get("caller") == APP]
     schemas = [row for row in payload.get("schemas") or [] if row.get("caller") == APP]
-    require(len(calls) == 3, f"ops proof call rows: {calls!r}")
+    require(len(calls) == 4, f"ops proof call rows: {calls!r}")
     require(len(schemas) == 4, f"ops proof schema rows: {schemas!r}")
     read = one(calls, call="/v1/read")
     write = one(calls, call="/v1/write")
     query = one(calls, call="/api/query")
+    databases = one(calls, call="/v1/x/databases")
     require(read["count"] == 1 and read["items"] == 3 and read["client"] is None
             and read["refused"] == {}, f"read counts: {read!r}")
     require(write["count"] == 2 and write["items"] == 3 and write["client"] is None
             and write["refused"] == {"permission_denied": 1}, f"write counts: {write!r}")
     require(query["count"] == 1 and query["items"] == 1 and query["client"] is None
             and query["refused"] == {"not_found": 1}, f"deleted route: {query!r}")
+    require(databases["count"] == 1 and databases["items"] == 1 and databases["client"] is None
+            and databases["refused"] == {"permission_denied": 1},
+            f"databases extension: {databases!r}")
     schema(schemas, "read", BY_ID, 2)
     schema(schemas, "read", BY_BUCKET, 1)
     schema(schemas, "write", BY_ID, 2)
@@ -63,7 +70,8 @@ def check(node):
     require(status == 404 and reply.get("error", {}).get("code") == "not_found",
             f"the app socket served request counts: {status} {reply!r}")
     print("Request counts: the registered app's reads and writes, a refused write, "
-          "and a deleted route are on the owner route, and the app socket does not serve it",
+          "a deleted route, and a refused databases extension are on the owner route, "
+          "and the app socket does not serve the counts",
           flush=True)
 
 

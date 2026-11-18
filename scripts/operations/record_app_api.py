@@ -23,6 +23,7 @@ import record_app_api_all  # noqa: E402
 import record_app_api_calls  # noqa: E402
 import record_app_api_owner_file  # noqa: E402
 import record_app_api_queue  # noqa: E402
+import record_app_api_databases  # noqa: E402
 import record_ops  # noqa: E402
 
 app_api_schema.install(sys.modules[__name__], _bench_node, record_app_api_calls)
@@ -223,9 +224,9 @@ def changes(node, database=None):
 def extension_names(node):
     """GET /api/version lists the app API extensions this node serves."""
     extensions = node.call("/api/version")[0]["extensions"]
-    require(extensions == ["changes"],
-            "GET /api/version did not report extensions [changes]: " + repr(extensions))
-    print("App API extensions: GET /api/version reports [changes]", flush=True)
+    require(extensions == ["changes", "databases"],
+            "GET /api/version did not report extensions [changes, databases]: " + repr(extensions))
+    print("App API extensions: GET /api/version reports [changes, databases]", flush=True)
 
 
 def app_socket(node):
@@ -385,6 +386,7 @@ def exercise(node):
     record_app_api_queue.parallel_reads(node)
     record_app_api_owner_file.exercise(node)
     record_ops.check(node)
+    record_app_api_databases.exercise(node)
 
 
 def named_database(node, database):

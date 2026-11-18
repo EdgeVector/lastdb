@@ -110,6 +110,7 @@ fn exact(path: &str) -> Option<&'static str> {
         "/v1/read" => "/v1/read",
         "/v1/write" => "/v1/write",
         "/v1/x/changes" => "/v1/x/changes",
+        "/v1/x/databases" => "/v1/x/databases",
         _ => return None,
     })
 }
@@ -137,6 +138,7 @@ fn placeholder(path: &str) -> Option<&'static str> {
         "share/config" => "/api/databases/{database}/share/config",
         "share/members" => "/api/databases/{database}/share/members",
         "invitations" => "/api/databases/{database}/invitations",
+        "apps/declare-schema" => "/api/databases/{database}/apps/declare-schema",
         _ => schema_suffix(suffix)?,
     })
 }
