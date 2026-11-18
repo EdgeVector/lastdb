@@ -83,8 +83,14 @@ pub fn install(
     if let Some(c) = prior.as_ref().filter(|r| {
         r.sha == entry.sha && r.inactive == inactive && r.publisher == entry.publisher_key
     }) {
-        // Reinstall registers again, so a lost grant can be restored.
-        super::register_grant::register(home, c)?;
+        // A person's `lastdb app install <app>` or `lastdb app upgrade <app>`
+        // registers again, so a lost grant can be restored. The registry poll
+        // is that same upgrade with LASTDB_APP_REGISTRY_POLL=1, and it walks
+        // every app. An app already at the listed release is not registered
+        // again. Activation and rollback register on their own path.
+        if std::env::var("LASTDB_APP_REGISTRY_POLL").as_deref() != Ok("1") {
+            super::register_grant::register(home, c)?;
+        }
         verify_or_restore(&root, home, c)?;
         return Ok(c.clone());
     }

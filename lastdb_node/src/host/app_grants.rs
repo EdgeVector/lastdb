@@ -129,11 +129,23 @@ impl AppGrants {
     }
 
     /// Replace the grant for this app. The same app id keeps one grant.
+    ///
+    /// A grant equal to the one already held answers success and does not
+    /// write the file. Equal compares the read side, the write side, the
+    /// extensions, and the data folder. A side is equal when both are `"*"`
+    /// or both are the same set of schema names.
     pub(crate) fn register(&self, grant: AppGrant) -> Result<(), RegisterError> {
         if !grant_ok(&grant) {
             return Err(RegisterError::Invalid);
         }
         let mut store = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        if store
+            .grants
+            .get(&grant.app)
+            .is_some_and(|held| same_grant(held, &grant))
+        {
+            return Ok(());
+        }
         let new_app = !store.grants.contains_key(&grant.app);
         if new_app && store.grants.len() >= MAX_APPS {
             return Err(RegisterError::Limit);
@@ -163,6 +175,13 @@ impl AppGrants {
         let store = self.0.lock().unwrap_or_else(PoisonError::into_inner);
         store.grants.get(app_id).cloned()
     }
+}
+
+fn same_grant(held: &AppGrant, grant: &AppGrant) -> bool {
+    held.read == grant.read
+        && held.write == grant.write
+        && held.extensions == grant.extensions
+        && held.data_dir == grant.data_dir
 }
 
 fn grant_ok(grant: &AppGrant) -> bool {
