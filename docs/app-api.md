@@ -287,7 +287,7 @@ A node serves two sockets in its data directory.
 
 | Socket | File | Serves |
 |---|---|---|
-| Owner socket | `folddb.sock` | The app API, plus databases, sharing, status, the schema catalog, backup, and admin |
+| Owner socket | `folddb.sock` | The app API, plus databases, sharing, status, request counts, the schema catalog, backup, and admin |
 | App socket | `apps.sock` | Only `/v1/read`, `/v1/write` and `/v1/x/<name>`, to a registered app |
 
 - The owner registers one app: `POST /api/apps/register` on the owner socket
@@ -336,9 +336,10 @@ A node serves two sockets in its data directory.
   `schemas` filter, a named grant returns all of those names, and `"*"` returns
   entries for every schema. A `schemas` filter still limits the entries. An
   app whose read grant names nothing gets `permission_denied`.
-- The owner socket also serves databases, sharing, status, the schema list and
-  schema get, `POST /api/apps/declare-schema` (the installer), schema seed and
-  drop, backup, and admin. It does not serve a separate record query, mutation,
+- The owner socket also serves databases, sharing, status, request counts
+  (`GET /api/ops`), the schema list and schema get,
+  `POST /api/apps/declare-schema` (the installer), schema seed and drop,
+  backup, and admin. It does not serve a separate record query, mutation,
   key list, file-byte upload, or `GET /api/changes`. Those calls are unknown
   paths. Record reads and writes use `/v1/read` and `/v1/write`. A receiver's
   proposal is `POST /api/databases/{id}/submissions`. That call is not a record write.
@@ -391,6 +392,42 @@ only when the request declared one and the retention step finished.
   and the message `the app socket serves only the app API`.
 - `POST /api/schemas/declare` and `POST /api/databases/{id}/schemas/declare`
   are not routes.
+
+### Request counts
+
+`GET /api/ops` on the owner socket returns the requests completed since the
+node started. The app socket answers `not_found` for this route. The counts
+are in memory only. They start at zero when the node starts. They are not
+written to disk, and a backup does not include them.
+
+`lastdb ops` prints the same counts as aligned text, sorted by total time.
+`--by-count` sorts by request count. `--json` prints the route's JSON on
+stdout and nothing else.
+
+One call row is one caller and one route. On the app socket the caller is
+the app id from `X-LastDB-App`. On the owner socket the caller is `owner`,
+and the row includes `X-LastDB-Client` when the request sent one. A served
+route is its path. A database id in that path is `{database}` and a schema
+name is `{schema}`. A path the node does not serve is kept as sent, cut at
+64 bytes on a character boundary. The row holds the request count, total
+time, slowest request, item count, and refused requests by error code. A
+read counts the reads in the list, a write counts the mutations, and any
+other request counts as one item.
+
+The schema table counts `/v1/read` and `/v1/write` only, by caller, schema,
+and read or write. Each schema named in the request receives that request's
+whole time, once. The item count is the number of list entries for that schema.
+
+The call table holds at most 256 rows. The next new key counts on caller
+`{overflow}`, an empty client, and route `other`. The schema table holds at
+most 256 rows. The next new key counts on caller `{overflow}`, an empty
+client, schema `{overflow}`, and op `read`. One request contributes at most
+8 schema names; further names in that request count on schema `{overflow}`
+for that caller and that read or write. At most 32 distinct unknown paths
+are kept. A further unknown path keeps its caller and uses route `other`.
+A schema name longer than 128 bytes is omitted. The item still counts on
+the call. `{overflow}` and `other` are ordinary keys, so a real caller,
+schema, or path with that name shares the row.
 
 ## Sharing
 

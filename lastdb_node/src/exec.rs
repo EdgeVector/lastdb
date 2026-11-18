@@ -122,6 +122,10 @@ pub(in crate::exec) async fn execute_data_route_with_timeout(
                 });
                 return json_ok(&envelope(&json!({ "status": st }), &ctx.user_id));
             }
+            DataRoute::Ops => {
+                let up = fold_db::clock::unix_secs().saturating_sub(host.process_start_ts);
+                return json_ok(&envelope(&host.ops.snapshot(up), &ctx.user_id));
+            }
             DataRoute::AutoIdentity => {
                 let pk = host.public_key();
                 return json_ok(
@@ -176,7 +180,7 @@ pub(in crate::exec) fn data_route_budget(route: DataRoute) -> Duration {
         | DataRoute::DropSchema
         | DataRoute::BackupSnapshot
         | DataRoute::CloudWake => admin_handler_timeout(),
-        DataRoute::Status => Duration::from_secs(2),
+        DataRoute::Status | DataRoute::Ops => Duration::from_secs(2),
         DataRoute::AdminShed => Duration::from_secs(60),
         DataRoute::BootIdentity => Duration::from_secs(1),
         _ => handler_timeout(),

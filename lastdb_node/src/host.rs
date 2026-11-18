@@ -22,6 +22,7 @@ pub use crate::profile::{user_hash_from_pubkey, IDENTITY_KEY_FILE};
 pub(crate) mod app_grants;
 pub(crate) mod cloud_sync;
 mod logging;
+pub(crate) mod ops;
 pub(crate) mod owned;
 mod recovery;
 pub(crate) use cloud_sync::{BlockedDelivery, ReplayBlockReason};
@@ -113,6 +114,7 @@ pub struct Host {
     pub(crate) received: tokio::sync::Mutex<HashMap<String, Arc<FoldDB>>>,
     pub(crate) database_sessions: DatabaseSessions,
     pub(crate) app_grants: app_grants::AppGrants,
+    pub(crate) ops: ops::Ops,
 }
 
 impl Host {
@@ -207,6 +209,7 @@ impl Host {
             received: tokio::sync::Mutex::new(HashMap::new()),
             database_sessions: DatabaseSessions::default(),
             app_grants: app_grants::AppGrants::open(&home.join("data")),
+            ops: ops::Ops::default(),
         })
     }
 
