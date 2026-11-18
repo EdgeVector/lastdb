@@ -348,7 +348,27 @@ def app_socket(node):
             f"the latest extensions list was not served: {status} {reply!r}")
     print("App socket: the same app registered twice is served under the latest lists",
           flush=True)
+    same_grant_leaves_the_file(node)
     record_app_api_all.all_schemas(node)
+
+
+def same_grant_leaves_the_file(node):
+    """Registering the same grant does not rewrite app-grants.json. A different grant does."""
+    path = node.home / "data" / "app-grants.json"
+    access = {"read": [BY_ID], "write": [], "extensions": []}
+    node.call("/api/apps/register", {"app": "grantfile", "access": access})
+    before = (path.read_bytes(), path.stat().st_mtime_ns)
+    again = node.call("/api/apps/register", {"app": "grantfile", "access": access})[0]
+    require(again.get("app") == "grantfile", "the same grant was not accepted: " + repr(again))
+    require((path.read_bytes(), path.stat().st_mtime_ns) == before,
+            "the same grant rewrote app-grants.json")
+    changed = {"read": [BY_ID], "write": [BY_ID], "extensions": ["changes"]}
+    node.call("/api/apps/register", {"app": "grantfile", "access": changed})
+    after = (path.read_bytes(), path.stat().st_mtime_ns)
+    require(after[0] != before[0] and after[1] != before[1],
+            "a changed grant did not rewrite app-grants.json")
+    print("App grants: the same grant leaves app-grants.json byte for byte, with the same "
+          "modification time, and a changed grant rewrites it", flush=True)
 
 
 def exercise(node):

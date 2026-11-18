@@ -260,9 +260,12 @@ the key, or the alternate keys. That refusal fails the install, and the
 previous version stays active.
 
 The declaration is recorded with the install. The installer registers it when
-that version is activated, when a reinstall finds that version already active,
-and again when a failed activation or a rollback restores the previous version.
-Registering the same app again replaces its grant. The launcher does not
+that version is activated, and again when a failed activation or a rollback
+restores the previous version. A person who runs `lastdb app install <app>` or
+`lastdb app upgrade <app>` also registers when that version is already active,
+so a lost grant can be restored. The registry poll does not. The poll is
+`lastdb app upgrade --all` with `LASTDB_APP_REGISTRY_POLL=1`, and an app that
+is already at the listed release is left as it is. The launcher does not
 register. The app socket serves the app under the grant the node holds.
 
 ## Schemas at publish
@@ -299,7 +302,10 @@ A node serves two sockets in its data directory.
   does not substitute a different id. The reply does not hold
   `expires_in_seconds`. The node keeps one grant per app id: the `read` and
   `write` grants, the `extensions` list, and the data folder when `data` was
-  sent. The same app registered again replaces that grant. A grant has no lifetime.
+  sent. The same app registered again replaces that grant when the read side,
+  the write side, the extensions, or the data folder differ. A side is the same
+  when both are the same set of schema names, or both are `"*"`. The same grant
+  answers success and does not rewrite the file. A grant has no lifetime.
 - The grants are one file, `app-grants.json`, in the data directory beside the
   sockets. The file is mode 0600. The node writes a temporary file and renames
   it into place when a grant changes, and loads the file at start. A missing
@@ -316,8 +322,9 @@ A node serves two sockets in its data directory.
 - A request on the app socket carries the app id in the header
   `X-LastDB-App`. An app id the node has no grant for is refused with
   `permission_denied` and the message `the app socket needs a registered app`.
-  Reinstall the app, or roll back to a retained version, to register the grant
-  again. An app id is a plain app name, checked with the same rule the
+  Run `lastdb app install <app>` or `lastdb app upgrade <app>`, or roll back to
+  a retained version, to register the grant again. The registry poll does not.
+  An app id is a plain app name, checked with the same rule the
   launcher and the installer use.
 - Any route other than the app API answers `not_found` on the app socket.
 - A read names only a schema the app's `read` grant allows, a write only one
@@ -473,12 +480,14 @@ directly.
 - On activation, and on rollback, the installer registers that version's
   access, so a process that is already running is served under the new lists
   at once. If activation fails and the previous version is restored, the
-  previous access is registered again. Installing the version that is already
-  active registers that access again.
+  previous access is registered again. When a person runs `lastdb app install
+  <app>` or `lastdb app upgrade <app>` and that version is already active, the
+  installer registers that access again. The registry poll does not.
 - A node that holds no grant for the app refuses its calls with `the app
-  socket needs a registered app`. Reinstall the app, or roll back to a
-  retained version. That registers the grant again. There is no repair command
-  and no registration from the launcher.
+  socket needs a registered app`. Run `lastdb app install <app>` or `lastdb app
+  upgrade <app>`, or roll back to a retained version. That registers the grant
+  again. The registry poll does not. There is no repair command and no
+  registration from the launcher.
 - There is no command that removes an installed app. Pruning a version
   directory that is neither current nor previous does not drop the grant. The
   grant stays until a later registration of that app id replaces it.

@@ -352,6 +352,28 @@ jobs:
           # Check LastDB status after operations
           lastdb --data-dir "$LASTDB_HOME" status | tee "$PROOF_DIR/lastdb-status-after-lastsecrets.txt"
 
+      - name: Registry poll does not re-register a current app
+        if: matrix.app == 'lastsecrets' && env.INSTALLED == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Published LastSecrets declares LastDB access, and this job installed
+          # that release. The poll is the LaunchAgent command. An app already at
+          # the listed release must not add a POST /api/apps/register.
+          jq -e '.listing.access != null' "$PROOF_DIR/lastsecrets-install-receipt.json" >/dev/null
+          register_count() {
+            lastdb --data-dir "$LASTDB_HOME" ops --json | jq '[.calls[]? | select(.call == "/api/apps/register") | .count] | add // 0'
+          }
+          before="$(register_count)" || exit 1
+          LASTDB_APP_REGISTRY_POLL=1 lastdb --data-dir "$LASTDB_HOME" app upgrade --all --json > "$PROOF_DIR/poll-current.json"
+          after="$(register_count)" || exit 1
+          if [ "$before" = "0" ] || [ "$before" != "$after" ]; then
+            echo "registry poll changed /api/apps/register from $before to $after"
+            cat "$PROOF_DIR/poll-current.json"
+            exit 1
+          fi
+          echo "Registry poll left /api/apps/register at ${after}." >> "$GITHUB_STEP_SUMMARY"
+
       # === lastseek ===
       - name: Set up lastseek dependencies
         if: matrix.app == 'lastseek' && env.SKIP_APP != 'true'
