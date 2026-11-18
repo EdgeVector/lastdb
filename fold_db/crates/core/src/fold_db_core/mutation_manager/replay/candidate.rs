@@ -41,12 +41,7 @@ impl MutationManager {
             None if mutation.file_write.is_some() && mutation.inline_write.is_some() => None,
             None => return Ok(false),
         };
-        // A complete file payload has no content base. Authorship still follows the live record.
-        let authorship = if confirmed.is_none() && before.is_none() && !deleted {
-            live
-        } else {
-            before
-        };
+        let authorship = authorship_preimage(confirmed.is_none(), before, live, deleted);
         prepare_candidate(self, &schema, &mut mutation, deleted)?;
         let context = AttachmentContext {
             address: &address,
@@ -157,6 +152,20 @@ impl MutationManager {
                 .await?;
         }
         Ok(true)
+    }
+}
+
+/// A complete file payload has no content base. Authorship still follows the live record.
+fn authorship_preimage<'a>(
+    confirmed_absent: bool,
+    before: Option<&'a StoredRecord>,
+    live: Option<&'a StoredRecord>,
+    deleted: bool,
+) -> Option<&'a StoredRecord> {
+    if confirmed_absent && before.is_none() && !deleted {
+        live
+    } else {
+        before
     }
 }
 
