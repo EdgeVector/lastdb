@@ -1,4 +1,6 @@
-use cloud_backup_protocol::v2::share_access::ShareMemberRole;
+use std::collections::BTreeMap;
+
+use cloud_backup_protocol::v2::share_access::{MemberWriteBehaviour, ShareMemberRole};
 use cloud_backup_protocol::Digest;
 use fold_db::fold_db_core::FoldDB;
 use fold_db::record_replacement::RecordTarget;
@@ -21,7 +23,7 @@ use crate::host::share_identity::{self as identity, LocalIdentity};
 use crate::host::Host;
 use crate::log_envelope::DatabaseContentKey;
 use crate::named_grant::lock_member;
-use decide::{GrantView, SubmissionView};
+use decide::SubmissionView;
 
 pub(super) async fn receiver_base(
     host: &Host,
@@ -96,12 +98,19 @@ pub(super) fn resolve_schema(
     Ok((schema.name.clone(), definition))
 }
 
-/// Check a downloaded mutation against the publisher's confirmed sharing
-/// settings and record rules.
+/// Check a downloaded mutation against the confirmed member-write map and the
+/// record rules.
+///
+/// `member_writes` is the map for this proposal-log page. The first active
+/// submitter fills it from the settings statement the service returned and
+/// this publisher signed. Later proposals in the page reuse it. A failed
+/// confirmation returns an error. The caller must not settle the page, so
+/// the proposal stays for the next drain.
 pub(in crate::log_sync) async fn apply(
     host: &Host,
     log: &CloudLog,
     entry: &Entry,
+    member_writes: &mut Option<BTreeMap<String, MemberWriteBehaviour>>,
 ) -> Result<ProposalResult, String> {
     let Some(request) = submission_id(log, entry) else {
         return Ok(ProposalResult::Discarded);
@@ -119,22 +128,18 @@ pub(in crate::log_sync) async fn apply(
     let (lock, stored) = lock_member(&host.home, database, &node)
         .await
         .map_err(|_| "member configuration is unavailable")?;
-    // The member, role, and scope come from the entry stored now. The
-    // revision the submitter saw is not compared: a change to another
-    // member's row must not discard this member's write.
-    let grant = match stored.as_ref() {
-        Some(member) if member.is_active() && member.role == ShareMemberRole::Submit => GrantView {
-            active_submitter: true,
-            scope: member.write_schemas.as_ref(),
-        },
-        _ => GrantView {
-            active_submitter: false,
-            scope: None,
-        },
-    };
-    if !grant.active_submitter {
+    // The member and role come from the entry stored now. The revision the
+    // submitter saw is not compared: a change to another member's row must
+    // not discard this member's write. The per-member schema list is not read.
+    let active_submitter = matches!(
+        stored.as_ref(),
+        Some(member) if member.is_active() && member.role == ShareMemberRole::Submit
+    );
+    if !active_submitter {
+        drop(lock);
         return Ok(ProposalResult::Discarded);
     }
+    let writes = page_writes(host, database, member_writes).await?;
     let Some(opened) = open_submission(host, database, writer, &request, entry)? else {
         return Ok(ProposalResult::Discarded);
     };
@@ -151,7 +156,8 @@ pub(in crate::log_sync) async fn apply(
         None
     };
     let decision = decide::decide(
-        &grant,
+        true,
+        &writes,
         &SubmissionView {
             schema_name: &name,
             mutation: &opened.mutation,
@@ -176,6 +182,22 @@ pub(in crate::log_sync) async fn apply(
     .await?;
     drop(lock);
     Ok(result)
+}
+
+/// One confirmed map for the page. The first caller reads the service. The
+/// rest clone that map. The caller holds the member lock, and this read does
+/// not take it again.
+async fn page_writes(
+    host: &Host,
+    database: &str,
+    cached: &mut Option<BTreeMap<String, MemberWriteBehaviour>>,
+) -> Result<BTreeMap<String, MemberWriteBehaviour>, String> {
+    if let Some(map) = cached.as_ref() {
+        return Ok(map.clone());
+    }
+    let map = crate::named_grant::confirmed_member_writes(&host.home, database).await?;
+    *cached = Some(map.clone());
+    Ok(map)
 }
 
 fn submission_id(log: &CloudLog, entry: &Entry) -> Option<String> {

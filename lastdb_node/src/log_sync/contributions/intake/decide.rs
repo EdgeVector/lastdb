@@ -1,16 +1,15 @@
 //! Pure publish-or-discard decision for one decrypted share submission.
+//!
+//! The member-write map is the database setting. A schema that is not in the
+//! map is owner_only. The publisher's own writes do not come through here.
 
-use cloud_backup_protocol::v2::share_access::ShareWriteScope;
+use std::collections::BTreeMap;
+
+use cloud_backup_protocol::v2::share_access::{member_write_behaviour, MemberWriteBehaviour};
 use cloud_backup_protocol::Digest;
 use fold_db::schema::types::{cas::CasExpectation, Mutation, MutationType};
-use fold_db::STANDARD_COMMENT_SCHEMA;
 
 use crate::host::share_identity::LocalIdentity;
-
-pub(super) struct GrantView<'a> {
-    pub(super) active_submitter: bool,
-    pub(super) scope: Option<&'a ShareWriteScope>,
-}
 
 pub(super) struct SubmissionView<'a> {
     pub(super) schema_name: &'a str,
@@ -26,45 +25,53 @@ pub(super) enum IntakeDecision {
     Discard(&'static str),
 }
 
-pub(super) fn decide(grant: &GrantView<'_>, submission: &SubmissionView<'_>) -> IntakeDecision {
-    if !grant.active_submitter {
+pub(super) fn decide(
+    active_submitter: bool,
+    member_writes: &BTreeMap<String, MemberWriteBehaviour>,
+    submission: &SubmissionView<'_>,
+) -> IntakeDecision {
+    if !active_submitter {
         return discard("member is not an active submitter");
     }
-    let Some(scope) = grant.scope else {
-        return discard("member has no write scope");
-    };
     let mutation = submission.mutation;
-    if !scope.permits(submission.schema_name, submission.definition) {
-        return discard("write scope does not allow this schema");
-    }
     if mutation.definition_id.as_deref() != Some(submission.definition.as_str()) {
         return discard("schema definition does not match");
     }
-    let standard = submission.schema_name == STANDARD_COMMENT_SCHEMA;
-    let required_creator = if standard {
-        match mutation.mutation_type {
+    let behaviour = member_write_behaviour(member_writes, submission.schema_name);
+    let creator = match behaviour {
+        MemberWriteBehaviour::OwnerOnly => return discard("member cannot write this schema"),
+        MemberWriteBehaviour::Shared => None,
+        MemberWriteBehaviour::OwnRecords => match mutation.mutation_type {
             MutationType::Create => None,
-            MutationType::Replace => Some(submission.writer),
-            _ => return discard("comment change is not allowed"),
-        }
-    } else {
-        None
+            MutationType::Replace | MutationType::Delete => Some(submission.writer),
+            MutationType::Purge => return discard("member cannot write this schema"),
+        },
     };
+    publish_at_base(submission, creator)
+}
+
+/// A present base must be the live record. `own_records` replace and delete
+/// also require `created_by` at that revision to be the writer. No `created_by`
+/// means the record is the publisher's alone.
+fn publish_at_base(submission: &SubmissionView<'_>, creator: Option<&str>) -> IntakeDecision {
     let Some(base) = submission.base else {
-        return if required_creator.is_some() {
-            discard("comment edit has no base version")
+        return if creator.is_some() {
+            discard("record change has no base version")
         } else {
             IntakeDecision::Publish { revision: None }
         };
     };
-    if !matches!(mutation.expected, CasExpectation::Revision { .. }) {
+    if !matches!(
+        submission.mutation.expected,
+        CasExpectation::Revision { .. }
+    ) {
         return discard("conditional write has no revision");
     }
     let Some(local) = submission.local.filter(|row| row.mutation_id == base) else {
         return discard("record version is not the submitted base");
     };
-    if required_creator.is_some_and(|creator| local.created_by.as_deref() != Some(creator)) {
-        return discard("comment creator does not match the editor");
+    if creator.is_some_and(|creator| local.created_by.as_deref() != Some(creator)) {
+        return discard("record creator does not match the writer");
     }
     IntakeDecision::Publish {
         revision: Some(local.local_revision.clone()),

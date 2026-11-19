@@ -81,10 +81,12 @@ explicit direction.
   read even their own entries on that log.
 - Keep the publisher-signed, revisioned configuration per database. ExeMem
   uses the active roster and the settings for transport. The publisher's LastDB
-  uses the confirmed configuration on the publisher's machine to check the
-  sender's current schema grant and the record rules after downloading and
-  decrypting each proposal. An app's displayed permissions grant no write
-  authority.
+  uses the confirmed member-write map on the publisher's machine to check each
+  proposal after downloading and decrypting it. A schema that is not in the map
+  is `owner_only`. The first active proposal of a drain confirms that map with
+  the service and reuses it for the page. When that confirmation fails, the
+  proposal is not accepted and not discarded, so it stays for the next drain.
+  An app's displayed permissions grant no write authority.
 - Commit allowed changes locally and append them to the mutation log under the
   publisher's key before marking their proposal-log entries processed. Discard
   denied or invalid changes. A queue receipt confirms delivery to the proposal

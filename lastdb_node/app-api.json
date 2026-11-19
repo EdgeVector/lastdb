@@ -781,11 +781,19 @@
           "writeSchemas": {"$ref": "#/components/schemas/DatabasesWriteSchemas"}
         }
       },
+      "DatabasesMemberWrites": {
+        "type": "object",
+        "description": "Schema name to member write behaviour. A name that is absent is owner_only. An empty object means every schema is owner_only.",
+        "additionalProperties": {
+          "type": "string",
+          "enum": ["owner_only", "own_records", "shared"]
+        }
+      },
       "DatabasesShareConfig": {
         "type": "object",
         "additionalProperties": false,
         "required": ["expectedRevision", "requestId", "members"],
-        "description": "The body of PUT /api/databases/{id}/share/config. read and write are optional. Omit either one to keep the stored value. No stored statement is members and proposals. An unchanged pair sends no settings statement.",
+        "description": "The body of PUT /api/databases/{id}/share/config. read, write, and memberWrites are optional. Omit one to keep the stored value. An empty memberWrites clears the map. No stored statement is members, proposals, and an empty map. Unchanged read, write, and map send no settings statement.",
         "properties": {
           "expectedRevision": {"type": "string", "description": "Decimal revision the caller last read."},
           "requestId": {"type": "string", "description": "Non-nil lowercase UUID."},
@@ -794,7 +802,8 @@
             "items": {"$ref": "#/components/schemas/DatabasesShareMember"}
           },
           "read": {"type": "string", "enum": ["members", "anyone"], "description": "Who may read. Omit it to keep the stored value."},
-          "write": {"type": "string", "enum": ["proposals", "direct"], "description": "Where a submit append goes. Omit it to keep the stored value."}
+          "write": {"type": "string", "enum": ["proposals", "direct"], "description": "Where a submit append goes. Omit it to keep the stored value."},
+          "memberWrites": {"$ref": "#/components/schemas/DatabasesMemberWrites", "description": "Omit it to keep the stored map. An empty object clears it."}
         }
       },
       "DatabasesSchema": {
@@ -1009,8 +1018,8 @@
       "DatabasesShareConfigReply": {
         "type": "object",
         "additionalProperties": true,
-        "required": ["ok", "user_hash", "databaseId", "revision", "read", "write", "members"],
-        "description": "The owner share configuration envelope. read and write are the stored settings. No stored statement is members and proposals.",
+        "required": ["ok", "user_hash", "databaseId", "revision", "read", "write", "memberWrites", "members"],
+        "description": "The owner share configuration envelope. read, write, and memberWrites are the stored settings. No stored statement is members, proposals, and an empty memberWrites object.",
         "properties": {
           "ok": {"type": "boolean"},
           "user_hash": {"type": "string"},
@@ -1018,6 +1027,7 @@
           "revision": {"type": "string"},
           "read": {"type": "string", "enum": ["members", "anyone"]},
           "write": {"type": "string", "enum": ["proposals", "direct"]},
+          "memberWrites": {"$ref": "#/components/schemas/DatabasesMemberWrites"},
           "members": {"type": "array", "items": {"type": "object", "additionalProperties": true}}
         }
       },

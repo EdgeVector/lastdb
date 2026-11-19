@@ -33,10 +33,12 @@ use super::turn::{self, Pause};
 use super::SyncState;
 
 // Beside this file. log_sync/mod.rs is owned by another change.
+// self_access is visible in the crate so AccessView, the return type of view,
+// is reachable. Callers use received::view and do not name the type.
 #[path = "share_settings.rs"]
 mod share_settings;
 
-mod self_access;
+pub(crate) mod self_access;
 
 pub(crate) use self_access::view;
 
@@ -115,7 +117,7 @@ async fn refresh(host: &Arc<Host>, share: &RegisteredShare, mut log: CloudLog) -
         Some(value) => Some(value),
         None => None,
     };
-    self_access::record(&host.home, share.id.as_str(), confirm, settings);
+    self_access::record(&host.home, share.id.as_str(), confirm, settings.as_ref());
     let Some(ObservedAccess::Active {
         revision: fresh, ..
     }) = observed

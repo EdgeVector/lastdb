@@ -1,8 +1,9 @@
 //! Queue encrypted member proposals on the proposal log.
 //! Decided state: docs/designs/shared-database-mutation-logs.md (mutation log, proposal log, share settings).
 //!
-//! Receiver apps use schema grants to guide the UI. The publisher's intake
-//! checks those grants against the actual mutation before any shared write.
+//! Receiver apps use the database member-write map to guide the UI. The
+//! publisher's intake checks that map against the actual mutation before any
+//! shared write. A per-member schema list does not decide the write.
 
 mod intake;
 
@@ -106,9 +107,6 @@ pub(crate) fn validate_write_scopes(
     }
     if !entry.whole_database() {
         return Ok(());
-    }
-    if update.writer_missing_scope() {
-        return Err(invalid("every writer needs an explicit schema write scope"));
     }
     let ResolvedStore::Owned(store) = host
         .owned

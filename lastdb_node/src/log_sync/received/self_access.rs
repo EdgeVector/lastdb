@@ -1,34 +1,53 @@
-//! The stored view of this node's access to a received database.
+//! The member's cached view of its own access and the database settings.
 //!
-//! The pull loop records it after the member-list read and the settings get.
-//! A database list reads it back as `selfAccess`.
+//! The file is `log-sync/{id}/self-access.json`. A refresh writes it. The
+//! database list reads it. An older file with no `memberWrites` loads as an
+//! empty map. This view is what an app displays. It is not a second check.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use cloud_backup_protocol::v2::share_access::{
-    ShareMemberRole, ShareRead, ShareWrite, ShareWriteScope,
+    MemberWriteBehaviour, ShareMemberRole, ShareRead, ShareWrite, ShareWriteScope,
 };
 use cloud_backup_protocol::DecimalU64;
 use serde::{Deserialize, Serialize};
 
-use crate::profile::private_fs as disk;
+use super::super::disk;
+use super::{ObservedAccess, MEMBER_LIMIT};
 
-use super::ObservedAccess;
+pub(super) struct SettingsSnapshot {
+    pub(super) read: ShareRead,
+    pub(super) write: ShareWrite,
+    pub(super) member_writes: BTreeMap<String, MemberWriteBehaviour>,
+}
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct AccessView {
     state: AccessState,
     role: Option<ShareMemberRole>,
-    #[serde(default = "super::share_settings::default_read")]
+    #[serde(default = "default_read")]
     read: ShareRead,
-    #[serde(default = "super::share_settings::default_write")]
+    #[serde(default = "default_write")]
     write: ShareWrite,
+    /// Empty when the database has no member-write map. A missing field in an
+    /// older file is that same empty map.
+    #[serde(default)]
+    member_writes: BTreeMap<String, MemberWriteBehaviour>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     write_schemas: Option<ShareWriteScope>,
     revision: Option<DecimalU64>,
     confirmed_at_ms: Option<DecimalU64>,
     stale: bool,
+}
+
+fn default_read() -> ShareRead {
+    ShareRead::Members
+}
+
+fn default_write() -> ShareWrite {
+    ShareWrite::Proposals
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -47,6 +66,7 @@ impl AccessView {
             role: None,
             read: ShareRead::Members,
             write: ShareWrite::Proposals,
+            member_writes: BTreeMap::new(),
             write_schemas: None,
             revision: None,
             confirmed_at_ms: None,
@@ -69,7 +89,7 @@ impl AccessView {
 }
 
 pub(crate) fn view(home: &Path, id: &str) -> AccessView {
-    let mut result = disk::read_limited(&self_access_path(home, id), super::MEMBER_LIMIT)
+    let mut result = disk::read_limited(&self_access_path(home, id), MEMBER_LIMIT)
         .ok()
         .flatten()
         .and_then(|bytes| serde_json::from_slice::<AccessView>(&bytes).ok())
@@ -85,7 +105,7 @@ pub(super) fn record(
     home: &Path,
     id: &str,
     observed: Option<&ObservedAccess>,
-    settings: Option<(ShareRead, ShareWrite)>,
+    settings: Option<&SettingsSnapshot>,
 ) {
     let mut previous = view(home, id);
     let result = match observed {
@@ -97,10 +117,18 @@ pub(super) fn record(
             return;
         }
     };
-    if previous.state == result.state
+    if same_view(&previous, &result) {
+        return;
+    }
+    save_access(home, id, &result);
+}
+
+fn same_view(previous: &AccessView, result: &AccessView) -> bool {
+    previous.state == result.state
         && previous.role == result.role
         && previous.read == result.read
         && previous.write == result.write
+        && previous.member_writes == result.member_writes
         && previous.revision == result.revision
         && previous.write_schemas == result.write_schemas
         && previous.stale == result.stale
@@ -108,10 +136,6 @@ pub(super) fn record(
             .confirmed_at_ms
             .zip(result.confirmed_at_ms)
             .is_some_and(|(a, b)| b.get().checked_sub(a.get()).is_some_and(|age| age < 10_000))
-    {
-        return;
-    }
-    save_access(home, id, &result);
 }
 
 fn save_access(home: &Path, id: &str, result: &AccessView) {
@@ -122,10 +146,21 @@ fn save_access(home: &Path, id: &str, result: &AccessView) {
 
 fn confirmed(
     observed: &ObservedAccess,
-    settings: Option<(ShareRead, ShareWrite)>,
+    settings: Option<&SettingsSnapshot>,
     previous: &AccessView,
 ) -> AccessView {
-    let (read, write) = settings.unwrap_or((previous.read, previous.write));
+    let (read, write, member_writes) = match settings {
+        Some(settings) => (
+            settings.read,
+            settings.write,
+            settings.member_writes.clone(),
+        ),
+        None => (
+            previous.read,
+            previous.write,
+            previous.member_writes.clone(),
+        ),
+    };
     let (state, role, revision, write_schemas) = match observed {
         ObservedAccess::Active {
             revision,
@@ -145,6 +180,7 @@ fn confirmed(
         role,
         read,
         write,
+        member_writes,
         revision,
         write_schemas,
         confirmed_at_ms: Some(DecimalU64::new(fold_db::clock::unix_millis())),

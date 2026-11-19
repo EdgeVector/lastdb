@@ -5,8 +5,11 @@
 //! statement is the one this publisher signed.
 
 use super::{entries, PublisherSession};
+use std::collections::BTreeMap;
+
 use cloud_backup_protocol::v2::share_access::{
-    absent_share_settings, Ed25519Signature, ShareRead, ShareSettings, ShareWrite,
+    absent_share_settings, Ed25519Signature, MemberWriteBehaviour, ShareRead, ShareSettings,
+    ShareWrite,
 };
 use cloud_backup_protocol::v2::Version;
 use cloud_backup_protocol::DecimalU64;
@@ -17,30 +20,47 @@ pub(super) fn mode(current: Option<&ShareSettings>) -> (ShareRead, ShareWrite) {
     })
 }
 
-/// The next statement, or nothing when the caller left the stored pair as it is.
+/// The stored member-write map. No statement is an empty map.
+pub(super) fn writes(current: Option<&ShareSettings>) -> BTreeMap<String, MemberWriteBehaviour> {
+    current
+        .map(|settings| settings.member_writes.clone())
+        .unwrap_or_default()
+}
+
+/// The next statement, or nothing when `read`, `write`, and the map are unchanged.
 ///
-/// An omitted `read` or `write` keeps the stored value. No stored statement
-/// is members and proposals. The stored `member_writes` map is copied onto
-/// the next statement and is not a field of this request. The same pair is
-/// not signed: the service refuses it, and a repeat of a call whose answer
-/// was lost must not send it again.
+/// An omitted `read`, `write`, or `member_writes` keeps the stored value. No
+/// stored statement is members, proposals, and an empty map. The same three
+/// are not signed: the service refuses an unchanged statement, and a repeat
+/// of a call whose answer was lost must not send it again.
 pub(super) fn prepare(
     session: &PublisherSession,
     database_id: &str,
     current: Option<&ShareSettings>,
     read: Option<ShareRead>,
     write: Option<ShareWrite>,
+    member_writes: Option<&BTreeMap<String, MemberWriteBehaviour>>,
 ) -> Result<Option<ShareSettings>, String> {
-    if read.is_none() && write.is_none() {
+    if read.is_none() && write.is_none() && member_writes.is_none() {
         return Ok(None);
     }
     let (stored_read, stored_write) = mode(current);
+    let stored_writes = writes(current);
     let next_read = read.unwrap_or(stored_read);
     let next_write = write.unwrap_or(stored_write);
-    if next_read == stored_read && next_write == stored_write {
+    let next_writes = member_writes.unwrap_or(&stored_writes);
+    if next_read == stored_read && next_write == stored_write && next_writes == &stored_writes {
         return Ok(None);
     }
-    sign(session, database_id, current, next_read, next_write).map(Some)
+    sign(
+        session,
+        database_id,
+        current,
+        next_read,
+        next_write,
+        next_writes,
+    )
+    .map(Some)
 }
 
 /// Accept only a statement this publisher signed for this database.
@@ -71,6 +91,7 @@ fn sign(
     current: Option<&ShareSettings>,
     read: ShareRead,
     write: ShareWrite,
+    member_writes: &BTreeMap<String, MemberWriteBehaviour>,
 ) -> Result<ShareSettings, String> {
     let sequence = current
         .map_or(Some(1), |settings| settings.sequence.get().checked_add(1))
@@ -85,9 +106,7 @@ fn sign(
         stream: entries::stream(session, database_id)?,
         read,
         write,
-        member_writes: current
-            .map(|stored| stored.member_writes.clone())
-            .unwrap_or_default(),
+        member_writes: member_writes.clone(),
         sequence: DecimalU64::new(sequence),
         publisher_public_key: session.publisher.clone(),
         signed_at_ms: DecimalU64::new(now),
