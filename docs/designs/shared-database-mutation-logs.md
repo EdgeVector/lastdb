@@ -1,5 +1,38 @@
 # Shared databases: the mutation log, the proposal log, and the share settings
 
+## Decided change: direct write is per member
+
+Tom decided this on 2026-11-18, after the rest of this document. It replaces the database-wide `write` setting. It is not built. Until the code is reworked, the sections below describe the `write` setting as the code has it.
+
+Whether a member writes straight to the mutation log is set per member, in the one publisher-signed member list each shared database already has. There is no database-wide write switch and no separate list of direct writers.
+
+- A member's entry carries one capability: read, propose, or write.
+  - read: the member follows the mutation log.
+  - propose: the member appends to the proposal log. The publisher checks the proposal and publishes it.
+  - write: the member appends straight to the mutation log. ExeMem checks only that the member may write.
+- The `write` setting (`proposals` or `direct`) goes away. The `read` setting (`members` or `anyone`) stays, because a link reader is not a member.
+- ExeMem does not know whether a database is an org. It reads the signed configuration: who may read, and for each member, where that member's append goes.
+
+Tom, 2026-11-18: "we want Exemem to be kind of agnostic to whether it's an org or not, but from LastDB's configuration, you basically give these people the ability to write directly to the mutation log."
+
+Tom, 2026-11-18: "I think we already have per person, so that seems like the most simple and the most flexible."
+
+| Name | Configuration |
+| --- | --- |
+| Share (the default) | `read: members`. Some members may propose. |
+| Deliver | `read: anyone`. Nobody has propose or write. A link reader has no rights beyond reading. |
+| Org | `read: members`. Every member has write. |
+| Partially Org | Some members have write. The rest propose or read. |
+
+What has to change in the code: the settings statement and `ShareWrite` in `cloud_backup_protocol` and `mutation_log`, `LogState::append_log`, the share configuration route, and `selfAccess`. The member list already has `Capability::Receive` and `Capability::Submit`.
+
+Not decided:
+
+- Whether read is a real third value. Today every active member can propose, even with an empty write grant, and the publisher discards what the sender has no grant for.
+- The code names of the three values.
+
+A member with write skips the publisher's check, so the per-schema write grants and `member_writes` are not enforced for that member.
+
 ## Decided state
 
 Tom decided this on 2026-11-18, and corrected it the same day. Later the same day he decided that the mutation log is the database: a reader is served every entry in it, and ExeMem is the single place that decides who may append and what that reader is served.
