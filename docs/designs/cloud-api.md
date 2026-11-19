@@ -139,12 +139,17 @@ Attached only on the DEV storage stack.
 
 | Scheme | Wire | Used for |
 |---|---|---|
-| `em_` API key | Header `X-API-Key` | Native create; dual-auth on blob context/prepare/complete; developer key routes |
+| Account bearer | Header `Authorization: Bearer <account_key>` | Auth-service: developer key create/list/revoke, validate-key, payment status/checkout/portal. This is the saved enrollment credential (`CloudSession.api_key`), not an `em_` key. |
+| `em_` developer key | Header `X-API-Key` | Storage: native create (with `LastDBNode`); dual-auth on blob context/prepare/complete |
 | `LastDBNode` | Header `Authorization: LastDBNode <token>.<sig>` | Signed storage POSTs; token JSON is `NodeReadToken` |
-| GitHub OIDC JWT | Header `Authorization: Bearer …` | DEV snapshot-proof only |
+| GitHub OIDC JWT | Header `Authorization: Bearer …` | DEV snapshot-proof only (different bearer from the account credential) |
 
 `LastDBNode` binds method, path, raw body SHA-256, nonce, realm, and node key.
 Clock skew is ±60s. Replay uses the nonce.
+
+A node obtains its first `em_` developer key by calling `/api/developer/api-keys`
+with the **account bearer**. Modeling those routes as `X-API-Key` alone is wrong:
+the client would have no way to mint the first key.
 
 ### Errors today
 
@@ -326,14 +331,18 @@ convention). Do not invent a second payment shape.
 
 ## Auth (target)
 
-Unchanged schemes, documented in OpenAPI:
+Four schemes, documented in OpenAPI:
 
-1. **`apiKey`** — `X-API-Key` (`em_…`). Create-database and blob dual-auth;
-   developer key management.
-2. **`lastDbNode`** — `Authorization: LastDBNode <base64url(token)>.<base64url(sig)>`.
-3. **`githubOidc`** — DEV snapshot-proof only.
+1. **`accountBearer`** — `Authorization: Bearer <account_key>` (enrollment /
+   backup-connect credential). Auth-service developer-key and payment routes.
+2. **`apiKey`** — `X-API-Key` (`em_…` developer key). Storage create-database
+   and blob dual-auth only. Not used to manage developer keys.
+3. **`lastDbNode`** — `Authorization: LastDBNode <base64url(token)>.<base64url(sig)>`.
+4. **`githubOidc`** — DEV snapshot-proof only.
 
-Dual-auth routes list both `apiKey` and `lastDbNode` as required.
+Dual-auth storage routes list both `apiKey` and `lastDbNode` as required.
+`/api/auth/cli/register` and `/api/auth/payments/webhook` stay outside these
+schemes (registration bootstrap and Stripe webhook).
 
 ## CI plan (three checks)
 

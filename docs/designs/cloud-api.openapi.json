@@ -3,7 +3,7 @@
   "info": {
     "title": "ExeMem cloud API",
     "version": "3",
-    "description": "Target contract for the unified ExeMem cloud (storage + auth) HTTP API. info.version is the cloud protocol version. This file is the design machine spec; when it and docs/designs/cloud-api.md differ, this file wins for paths, auth, and errors. Cutover is a clean break from /api/cloud/backups/v2 — no dual paths."
+    "description": "Target contract for the unified ExeMem cloud (storage + auth) HTTP API. info.version is the cloud protocol version. This file is the design machine spec; when it and docs/designs/cloud-api.md differ, this file wins for paths, auth, and errors. Cutover is a clean break from /api/cloud/backups/v2 \u2014 no dual paths."
   },
   "x-lastdb-cloud-protocol-version": 3,
   "x-lastdb-cloud-protocol-min-version": 3,
@@ -20,35 +20,74 @@
     }
   ],
   "tags": [
-    { "name": "databases", "description": "Native database create and access." },
-    { "name": "mutation-log", "description": "Append, head, list, and settle-submissions." },
-    { "name": "proposals", "description": "Proposal log (renamed from inbox)." },
-    { "name": "blobs", "description": "Cold blob context, prepare, and complete." },
-    { "name": "snapshots", "description": "Native-file snapshot manifests and retention." },
-    { "name": "delivery", "description": "Bounded ciphertext range reads." },
-    { "name": "members", "description": "Publisher-signed member entries (config storage, not People Share)." },
-    { "name": "settings", "description": "Publisher-signed read/write/member_writes statement." },
-    { "name": "dev-snapshot-proof", "description": "DEV-only GitHub OIDC snapshot proof broker." },
-    { "name": "auth-service", "description": "Developer keys and payments (auth Lambda; not storage protocol)." }
+    {
+      "name": "databases",
+      "description": "Native database create and access."
+    },
+    {
+      "name": "mutation-log",
+      "description": "Append, head, list, and settle-submissions."
+    },
+    {
+      "name": "proposals",
+      "description": "Proposal log (renamed from inbox)."
+    },
+    {
+      "name": "blobs",
+      "description": "Cold blob context, prepare, and complete."
+    },
+    {
+      "name": "snapshots",
+      "description": "Native-file snapshot manifests and retention."
+    },
+    {
+      "name": "delivery",
+      "description": "Bounded ciphertext range reads."
+    },
+    {
+      "name": "members",
+      "description": "Publisher-signed member entries (config storage, not People Share)."
+    },
+    {
+      "name": "settings",
+      "description": "Publisher-signed read/write/member_writes statement."
+    },
+    {
+      "name": "dev-snapshot-proof",
+      "description": "DEV-only GitHub OIDC snapshot proof broker."
+    },
+    {
+      "name": "auth-service",
+      "description": "Developer keys and payments (auth Lambda; not storage protocol)."
+    }
   ],
   "security": [],
   "paths": {
     "/api/cloud/v3/databases": {
       "post": {
         "operationId": "databasesCreate",
-        "tags": ["databases"],
+        "tags": [
+          "databases"
+        ],
         "summary": "Create a native database (was mutation-log/create-database).",
         "parameters": [
-          { "$ref": "#/components/parameters/CloudProtocolHeader" }
+          {
+            "$ref": "#/components/parameters/CloudProtocolHeader"
+          }
         ],
         "security": [
-          { "apiKey": [], "lastDbNode": [] }
+          {
+            "apiKey": [],
+            "lastDbNode": []
+          }
         ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/CreateDatabaseRequest" }
+              "schema": {
+                "$ref": "#/components/schemas/CreateDatabaseRequest"
+              }
             }
           }
         },
@@ -57,34 +96,60 @@
             "description": "Native database created or equal retry.",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/NativeDatabase" }
+                "schema": {
+                  "$ref": "#/components/schemas/NativeDatabase"
+                }
               }
             }
           },
-          "400": { "$ref": "#/components/responses/ProtocolError" },
-          "403": { "$ref": "#/components/responses/ProtocolError" },
-          "404": { "$ref": "#/components/responses/ProtocolError" },
-          "409": { "$ref": "#/components/responses/ProtocolError" },
-          "413": { "$ref": "#/components/responses/ProtocolError" },
-          "426": { "$ref": "#/components/responses/UpgradeRequired" },
-          "503": { "$ref": "#/components/responses/ProtocolError" }
+          "400": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "413": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "426": {
+            "$ref": "#/components/responses/UpgradeRequired"
+          },
+          "503": {
+            "$ref": "#/components/responses/ProtocolError"
+          }
         }
       }
     },
     "/api/cloud/v3/databases/access": {
       "post": {
         "operationId": "databasesAccess",
-        "tags": ["databases"],
+        "tags": [
+          "databases"
+        ],
         "summary": "Access / enrollment view for one database (was mutation-log/access).",
         "parameters": [
-          { "$ref": "#/components/parameters/CloudProtocolHeader" }
+          {
+            "$ref": "#/components/parameters/CloudProtocolHeader"
+          }
         ],
-        "security": [{ "lastDbNode": [] }],
+        "security": [
+          {
+            "lastDbNode": []
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/DatabaseAccessRequest" }
+              "schema": {
+                "$ref": "#/components/schemas/DatabaseAccessRequest"
+              }
             }
           }
         },
@@ -93,32 +158,54 @@
             "description": "Access view.",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/JsonObject" }
+                "schema": {
+                  "$ref": "#/components/schemas/JsonObject"
+                }
               }
             }
           },
-          "400": { "$ref": "#/components/responses/ProtocolError" },
-          "403": { "$ref": "#/components/responses/ProtocolError" },
-          "404": { "$ref": "#/components/responses/ProtocolError" },
-          "426": { "$ref": "#/components/responses/UpgradeRequired" },
-          "503": { "$ref": "#/components/responses/ProtocolError" }
+          "400": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "426": {
+            "$ref": "#/components/responses/UpgradeRequired"
+          },
+          "503": {
+            "$ref": "#/components/responses/ProtocolError"
+          }
         }
       }
     },
     "/api/cloud/v3/mutation-log/append": {
       "post": {
         "operationId": "mutationLogAppend",
-        "tags": ["mutation-log"],
+        "tags": [
+          "mutation-log"
+        ],
         "summary": "Append entries to the mutation log or the proposal log.",
         "parameters": [
-          { "$ref": "#/components/parameters/CloudProtocolHeader" }
+          {
+            "$ref": "#/components/parameters/CloudProtocolHeader"
+          }
         ],
-        "security": [{ "lastDbNode": [] }],
+        "security": [
+          {
+            "lastDbNode": []
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/MutationLogAppendRequest" }
+              "schema": {
+                "$ref": "#/components/schemas/MutationLogAppendRequest"
+              }
             }
           }
         },
@@ -127,34 +214,60 @@
             "description": "Append accepted or duplicate.",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/JsonObject" }
+                "schema": {
+                  "$ref": "#/components/schemas/JsonObject"
+                }
               }
             }
           },
-          "400": { "$ref": "#/components/responses/ProtocolError" },
-          "403": { "$ref": "#/components/responses/ProtocolError" },
-          "404": { "$ref": "#/components/responses/ProtocolError" },
-          "409": { "$ref": "#/components/responses/ProtocolError" },
-          "413": { "$ref": "#/components/responses/ProtocolError" },
-          "426": { "$ref": "#/components/responses/UpgradeRequired" },
-          "503": { "$ref": "#/components/responses/ProtocolError" }
+          "400": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "413": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "426": {
+            "$ref": "#/components/responses/UpgradeRequired"
+          },
+          "503": {
+            "$ref": "#/components/responses/ProtocolError"
+          }
         }
       }
     },
     "/api/cloud/v3/mutation-log/head": {
       "post": {
         "operationId": "mutationLogHead",
-        "tags": ["mutation-log"],
+        "tags": [
+          "mutation-log"
+        ],
         "summary": "Read mutation-log head or writer tip.",
         "parameters": [
-          { "$ref": "#/components/parameters/CloudProtocolHeader" }
+          {
+            "$ref": "#/components/parameters/CloudProtocolHeader"
+          }
         ],
-        "security": [{ "lastDbNode": [] }],
+        "security": [
+          {
+            "lastDbNode": []
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/MutationLogHeadRequest" }
+              "schema": {
+                "$ref": "#/components/schemas/MutationLogHeadRequest"
+              }
             }
           }
         },
@@ -163,32 +276,54 @@
             "description": "Head or tip.",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/JsonObject" }
+                "schema": {
+                  "$ref": "#/components/schemas/JsonObject"
+                }
               }
             }
           },
-          "400": { "$ref": "#/components/responses/ProtocolError" },
-          "403": { "$ref": "#/components/responses/ProtocolError" },
-          "404": { "$ref": "#/components/responses/ProtocolError" },
-          "426": { "$ref": "#/components/responses/UpgradeRequired" },
-          "503": { "$ref": "#/components/responses/ProtocolError" }
+          "400": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "426": {
+            "$ref": "#/components/responses/UpgradeRequired"
+          },
+          "503": {
+            "$ref": "#/components/responses/ProtocolError"
+          }
         }
       }
     },
     "/api/cloud/v3/mutation-log/list": {
       "post": {
         "operationId": "mutationLogList",
-        "tags": ["mutation-log"],
+        "tags": [
+          "mutation-log"
+        ],
         "summary": "Page mutation-log entries after a cursor.",
         "parameters": [
-          { "$ref": "#/components/parameters/CloudProtocolHeader" }
+          {
+            "$ref": "#/components/parameters/CloudProtocolHeader"
+          }
         ],
-        "security": [{ "lastDbNode": [] }],
+        "security": [
+          {
+            "lastDbNode": []
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/MutationLogListRequest" }
+              "schema": {
+                "$ref": "#/components/schemas/MutationLogListRequest"
+              }
             }
           }
         },
@@ -197,33 +332,57 @@
             "description": "Page of entries.",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/JsonObject" }
+                "schema": {
+                  "$ref": "#/components/schemas/JsonObject"
+                }
               }
             }
           },
-          "400": { "$ref": "#/components/responses/ProtocolError" },
-          "403": { "$ref": "#/components/responses/ProtocolError" },
-          "404": { "$ref": "#/components/responses/ProtocolError" },
-          "409": { "$ref": "#/components/responses/ProtocolError" },
-          "426": { "$ref": "#/components/responses/UpgradeRequired" },
-          "503": { "$ref": "#/components/responses/ProtocolError" }
+          "400": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "426": {
+            "$ref": "#/components/responses/UpgradeRequired"
+          },
+          "503": {
+            "$ref": "#/components/responses/ProtocolError"
+          }
         }
       }
     },
     "/api/cloud/v3/mutation-log/settle-submissions": {
       "post": {
         "operationId": "mutationLogSettleSubmissions",
-        "tags": ["mutation-log"],
+        "tags": [
+          "mutation-log"
+        ],
         "summary": "Publisher settles older opaque submission position through N.",
         "parameters": [
-          { "$ref": "#/components/parameters/CloudProtocolHeader" }
+          {
+            "$ref": "#/components/parameters/CloudProtocolHeader"
+          }
         ],
-        "security": [{ "lastDbNode": [] }],
+        "security": [
+          {
+            "lastDbNode": []
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/SettleSubmissionsRequest" }
+              "schema": {
+                "$ref": "#/components/schemas/SettleSubmissionsRequest"
+              }
             }
           }
         },
@@ -235,36 +394,60 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["through"],
+                  "required": [
+                    "through"
+                  ],
                   "properties": {
-                    "through": { "$ref": "#/components/schemas/DecimalU64" }
+                    "through": {
+                      "$ref": "#/components/schemas/DecimalU64"
+                    }
                   }
                 }
               }
             }
           },
-          "400": { "$ref": "#/components/responses/ProtocolError" },
-          "403": { "$ref": "#/components/responses/ProtocolError" },
-          "404": { "$ref": "#/components/responses/ProtocolError" },
-          "426": { "$ref": "#/components/responses/UpgradeRequired" },
-          "503": { "$ref": "#/components/responses/ProtocolError" }
+          "400": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "426": {
+            "$ref": "#/components/responses/UpgradeRequired"
+          },
+          "503": {
+            "$ref": "#/components/responses/ProtocolError"
+          }
         }
       }
     },
     "/api/cloud/v3/proposals/list": {
       "post": {
         "operationId": "proposalsList",
-        "tags": ["proposals"],
+        "tags": [
+          "proposals"
+        ],
         "summary": "Publisher lists one proposal-log page (was mutation-log/inbox/list).",
         "parameters": [
-          { "$ref": "#/components/parameters/CloudProtocolHeader" }
+          {
+            "$ref": "#/components/parameters/CloudProtocolHeader"
+          }
         ],
-        "security": [{ "lastDbNode": [] }],
+        "security": [
+          {
+            "lastDbNode": []
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/ProposalsListRequest" }
+              "schema": {
+                "$ref": "#/components/schemas/ProposalsListRequest"
+              }
             }
           }
         },
@@ -273,32 +456,54 @@
             "description": "Proposal page.",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/JsonObject" }
+                "schema": {
+                  "$ref": "#/components/schemas/JsonObject"
+                }
               }
             }
           },
-          "400": { "$ref": "#/components/responses/ProtocolError" },
-          "403": { "$ref": "#/components/responses/ProtocolError" },
-          "404": { "$ref": "#/components/responses/ProtocolError" },
-          "426": { "$ref": "#/components/responses/UpgradeRequired" },
-          "503": { "$ref": "#/components/responses/ProtocolError" }
+          "400": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "426": {
+            "$ref": "#/components/responses/UpgradeRequired"
+          },
+          "503": {
+            "$ref": "#/components/responses/ProtocolError"
+          }
         }
       }
     },
     "/api/cloud/v3/proposals/settle": {
       "post": {
         "operationId": "proposalsSettle",
-        "tags": ["proposals"],
+        "tags": [
+          "proposals"
+        ],
         "summary": "Publisher settles one proposal-log page (was mutation-log/inbox/settle).",
         "parameters": [
-          { "$ref": "#/components/parameters/CloudProtocolHeader" }
+          {
+            "$ref": "#/components/parameters/CloudProtocolHeader"
+          }
         ],
-        "security": [{ "lastDbNode": [] }],
+        "security": [
+          {
+            "lastDbNode": []
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/ProposalsSettleRequest" }
+              "schema": {
+                "$ref": "#/components/schemas/ProposalsSettleRequest"
+              }
             }
           }
         },
@@ -307,34 +512,55 @@
             "description": "Settled.",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/JsonObject" }
+                "schema": {
+                  "$ref": "#/components/schemas/JsonObject"
+                }
               }
             }
           },
-          "400": { "$ref": "#/components/responses/ProtocolError" },
-          "403": { "$ref": "#/components/responses/ProtocolError" },
-          "404": { "$ref": "#/components/responses/ProtocolError" },
-          "426": { "$ref": "#/components/responses/UpgradeRequired" },
-          "503": { "$ref": "#/components/responses/ProtocolError" }
+          "400": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "426": {
+            "$ref": "#/components/responses/UpgradeRequired"
+          },
+          "503": {
+            "$ref": "#/components/responses/ProtocolError"
+          }
         }
       }
     },
     "/api/cloud/v3/blobs": {
       "post": {
         "operationId": "blobs",
-        "tags": ["blobs"],
+        "tags": [
+          "blobs"
+        ],
         "summary": "Cold blob context, prepare, or complete (was mutation-log/blob/bytes).",
         "parameters": [
-          { "$ref": "#/components/parameters/CloudProtocolHeader" }
+          {
+            "$ref": "#/components/parameters/CloudProtocolHeader"
+          }
         ],
         "security": [
-          { "apiKey": [], "lastDbNode": [] }
+          {
+            "apiKey": [],
+            "lastDbNode": []
+          }
         ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/BlobRequest" }
+              "schema": {
+                "$ref": "#/components/schemas/BlobRequest"
+              }
             }
           }
         },
@@ -343,33 +569,57 @@
             "description": "Context, upload grant, or complete ack.",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/JsonObject" }
+                "schema": {
+                  "$ref": "#/components/schemas/JsonObject"
+                }
               }
             }
           },
-          "400": { "$ref": "#/components/responses/ProtocolError" },
-          "403": { "$ref": "#/components/responses/ProtocolError" },
-          "404": { "$ref": "#/components/responses/ProtocolError" },
-          "413": { "$ref": "#/components/responses/ProtocolError" },
-          "426": { "$ref": "#/components/responses/UpgradeRequired" },
-          "503": { "$ref": "#/components/responses/ProtocolError" }
+          "400": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "413": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "426": {
+            "$ref": "#/components/responses/UpgradeRequired"
+          },
+          "503": {
+            "$ref": "#/components/responses/ProtocolError"
+          }
         }
       }
     },
     "/api/cloud/v3/snapshots": {
       "post": {
         "operationId": "snapshots",
-        "tags": ["snapshots"],
+        "tags": [
+          "snapshots"
+        ],
         "summary": "Native-file snapshot actions (was mutation-log/snapshot/bytes).",
         "parameters": [
-          { "$ref": "#/components/parameters/CloudProtocolHeader" }
+          {
+            "$ref": "#/components/parameters/CloudProtocolHeader"
+          }
         ],
-        "security": [{ "lastDbNode": [] }],
+        "security": [
+          {
+            "lastDbNode": []
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/SnapshotRequest" }
+              "schema": {
+                "$ref": "#/components/schemas/SnapshotRequest"
+              }
             }
           }
         },
@@ -378,34 +628,60 @@
             "description": "Snapshot action result.",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/JsonObject" }
+                "schema": {
+                  "$ref": "#/components/schemas/JsonObject"
+                }
               }
             }
           },
-          "400": { "$ref": "#/components/responses/ProtocolError" },
-          "403": { "$ref": "#/components/responses/ProtocolError" },
-          "404": { "$ref": "#/components/responses/ProtocolError" },
-          "409": { "$ref": "#/components/responses/ProtocolError" },
-          "413": { "$ref": "#/components/responses/ProtocolError" },
-          "426": { "$ref": "#/components/responses/UpgradeRequired" },
-          "503": { "$ref": "#/components/responses/ProtocolError" }
+          "400": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "409": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "413": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "426": {
+            "$ref": "#/components/responses/UpgradeRequired"
+          },
+          "503": {
+            "$ref": "#/components/responses/ProtocolError"
+          }
         }
       }
     },
     "/api/cloud/v3/delivery/object": {
       "post": {
         "operationId": "deliveryObject",
-        "tags": ["delivery"],
+        "tags": [
+          "delivery"
+        ],
         "summary": "Read one authorized ciphertext range (was mutation-log/delivery/object).",
         "parameters": [
-          { "$ref": "#/components/parameters/CloudProtocolHeader" }
+          {
+            "$ref": "#/components/parameters/CloudProtocolHeader"
+          }
         ],
-        "security": [{ "lastDbNode": [] }],
+        "security": [
+          {
+            "lastDbNode": []
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/DeliveryObjectRequest" }
+              "schema": {
+                "$ref": "#/components/schemas/DeliveryObjectRequest"
+              }
             }
           }
         },
@@ -414,33 +690,57 @@
             "description": "Bytes or absent.",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/DeliveryObjectResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/DeliveryObjectResponse"
+                }
               }
             }
           },
-          "400": { "$ref": "#/components/responses/ProtocolError" },
-          "403": { "$ref": "#/components/responses/ProtocolError" },
-          "404": { "$ref": "#/components/responses/ProtocolError" },
-          "413": { "$ref": "#/components/responses/ProtocolError" },
-          "426": { "$ref": "#/components/responses/UpgradeRequired" },
-          "503": { "$ref": "#/components/responses/ProtocolError" }
+          "400": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "413": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "426": {
+            "$ref": "#/components/responses/UpgradeRequired"
+          },
+          "503": {
+            "$ref": "#/components/responses/ProtocolError"
+          }
         }
       }
     },
     "/api/cloud/v3/members/set": {
       "post": {
         "operationId": "membersSet",
-        "tags": ["members"],
+        "tags": [
+          "members"
+        ],
         "summary": "Publisher writes signed member entries (was share/members/set).",
         "parameters": [
-          { "$ref": "#/components/parameters/CloudProtocolHeader" }
+          {
+            "$ref": "#/components/parameters/CloudProtocolHeader"
+          }
         ],
-        "security": [{ "lastDbNode": [] }],
+        "security": [
+          {
+            "lastDbNode": []
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/MemberSetRequest" }
+              "schema": {
+                "$ref": "#/components/schemas/MemberSetRequest"
+              }
             }
           }
         },
@@ -449,33 +749,57 @@
             "description": "New member-list revision.",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/MemberSetResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/MemberSetResponse"
+                }
               }
             }
           },
-          "400": { "$ref": "#/components/responses/ProtocolError" },
-          "403": { "$ref": "#/components/responses/ProtocolError" },
-          "404": { "$ref": "#/components/responses/ProtocolError" },
-          "413": { "$ref": "#/components/responses/ProtocolError" },
-          "426": { "$ref": "#/components/responses/UpgradeRequired" },
-          "503": { "$ref": "#/components/responses/ProtocolError" }
+          "400": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "413": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "426": {
+            "$ref": "#/components/responses/UpgradeRequired"
+          },
+          "503": {
+            "$ref": "#/components/responses/ProtocolError"
+          }
         }
       }
     },
     "/api/cloud/v3/members/get": {
       "post": {
         "operationId": "membersGet",
-        "tags": ["members"],
+        "tags": [
+          "members"
+        ],
         "summary": "Read one member entry (was share/members/get).",
         "parameters": [
-          { "$ref": "#/components/parameters/CloudProtocolHeader" }
+          {
+            "$ref": "#/components/parameters/CloudProtocolHeader"
+          }
         ],
-        "security": [{ "lastDbNode": [] }],
+        "security": [
+          {
+            "lastDbNode": []
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/MemberGetRequest" }
+              "schema": {
+                "$ref": "#/components/schemas/MemberGetRequest"
+              }
             }
           }
         },
@@ -484,32 +808,54 @@
             "description": "Entry or null.",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/MemberGetResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/MemberGetResponse"
+                }
               }
             }
           },
-          "400": { "$ref": "#/components/responses/ProtocolError" },
-          "403": { "$ref": "#/components/responses/ProtocolError" },
-          "404": { "$ref": "#/components/responses/ProtocolError" },
-          "426": { "$ref": "#/components/responses/UpgradeRequired" },
-          "503": { "$ref": "#/components/responses/ProtocolError" }
+          "400": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "426": {
+            "$ref": "#/components/responses/UpgradeRequired"
+          },
+          "503": {
+            "$ref": "#/components/responses/ProtocolError"
+          }
         }
       }
     },
     "/api/cloud/v3/members/list": {
       "post": {
         "operationId": "membersList",
-        "tags": ["members"],
+        "tags": [
+          "members"
+        ],
         "summary": "Publisher pages member entries (was share/members/list).",
         "parameters": [
-          { "$ref": "#/components/parameters/CloudProtocolHeader" }
+          {
+            "$ref": "#/components/parameters/CloudProtocolHeader"
+          }
         ],
-        "security": [{ "lastDbNode": [] }],
+        "security": [
+          {
+            "lastDbNode": []
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/MemberListRequest" }
+              "schema": {
+                "$ref": "#/components/schemas/MemberListRequest"
+              }
             }
           }
         },
@@ -518,39 +864,64 @@
             "description": "Page of entries.",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/MemberListResponse" }
+                "schema": {
+                  "$ref": "#/components/schemas/MemberListResponse"
+                }
               }
             }
           },
-          "400": { "$ref": "#/components/responses/ProtocolError" },
-          "403": { "$ref": "#/components/responses/ProtocolError" },
-          "404": { "$ref": "#/components/responses/ProtocolError" },
-          "426": { "$ref": "#/components/responses/UpgradeRequired" },
-          "503": { "$ref": "#/components/responses/ProtocolError" }
+          "400": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "426": {
+            "$ref": "#/components/responses/UpgradeRequired"
+          },
+          "503": {
+            "$ref": "#/components/responses/ProtocolError"
+          }
         }
       }
     },
     "/api/cloud/v3/members/read": {
       "post": {
         "operationId": "membersRead",
-        "tags": ["members"],
+        "tags": [
+          "members"
+        ],
         "summary": "Member-list revision; optional X-LastDB-Self-Access: 1 (was share/members/read).",
         "parameters": [
-          { "$ref": "#/components/parameters/CloudProtocolHeader" },
+          {
+            "$ref": "#/components/parameters/CloudProtocolHeader"
+          },
           {
             "name": "X-LastDB-Self-Access",
             "in": "header",
             "required": false,
-            "schema": { "type": "string", "const": "1" },
+            "schema": {
+              "type": "string",
+              "const": "1"
+            },
             "description": "When 1, return this member's role with the revision."
           }
         ],
-        "security": [{ "lastDbNode": [] }],
+        "security": [
+          {
+            "lastDbNode": []
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/MemberListReadRequest" }
+              "schema": {
+                "$ref": "#/components/schemas/MemberListReadRequest"
+              }
             }
           }
         },
@@ -559,32 +930,54 @@
             "description": "Revision, optionally with role.",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/JsonObject" }
+                "schema": {
+                  "$ref": "#/components/schemas/JsonObject"
+                }
               }
             }
           },
-          "400": { "$ref": "#/components/responses/ProtocolError" },
-          "403": { "$ref": "#/components/responses/ProtocolError" },
-          "404": { "$ref": "#/components/responses/ProtocolError" },
-          "426": { "$ref": "#/components/responses/UpgradeRequired" },
-          "503": { "$ref": "#/components/responses/ProtocolError" }
+          "400": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "426": {
+            "$ref": "#/components/responses/UpgradeRequired"
+          },
+          "503": {
+            "$ref": "#/components/responses/ProtocolError"
+          }
         }
       }
     },
     "/api/cloud/v3/settings/set": {
       "post": {
         "operationId": "settingsSet",
-        "tags": ["settings"],
+        "tags": [
+          "settings"
+        ],
         "summary": "Publisher writes signed settings (was share/members/settings/set).",
         "parameters": [
-          { "$ref": "#/components/parameters/CloudProtocolHeader" }
+          {
+            "$ref": "#/components/parameters/CloudProtocolHeader"
+          }
         ],
-        "security": [{ "lastDbNode": [] }],
+        "security": [
+          {
+            "lastDbNode": []
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/SettingsSetRequest" }
+              "schema": {
+                "$ref": "#/components/schemas/SettingsSetRequest"
+              }
             }
           }
         },
@@ -593,32 +986,54 @@
             "description": "Stored statement ack.",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/JsonObject" }
+                "schema": {
+                  "$ref": "#/components/schemas/JsonObject"
+                }
               }
             }
           },
-          "400": { "$ref": "#/components/responses/ProtocolError" },
-          "403": { "$ref": "#/components/responses/ProtocolError" },
-          "404": { "$ref": "#/components/responses/ProtocolError" },
-          "426": { "$ref": "#/components/responses/UpgradeRequired" },
-          "503": { "$ref": "#/components/responses/ProtocolError" }
+          "400": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "426": {
+            "$ref": "#/components/responses/UpgradeRequired"
+          },
+          "503": {
+            "$ref": "#/components/responses/ProtocolError"
+          }
         }
       }
     },
     "/api/cloud/v3/settings/get": {
       "post": {
         "operationId": "settingsGet",
-        "tags": ["settings"],
+        "tags": [
+          "settings"
+        ],
         "summary": "Read settings statement (was share/members/settings/get).",
         "parameters": [
-          { "$ref": "#/components/parameters/CloudProtocolHeader" }
+          {
+            "$ref": "#/components/parameters/CloudProtocolHeader"
+          }
         ],
-        "security": [{ "lastDbNode": [] }],
+        "security": [
+          {
+            "lastDbNode": []
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/SettingsGetRequest" }
+              "schema": {
+                "$ref": "#/components/schemas/SettingsGetRequest"
+              }
             }
           }
         },
@@ -627,33 +1042,55 @@
             "description": "Settings or absent defaults applied by the client.",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/JsonObject" }
+                "schema": {
+                  "$ref": "#/components/schemas/JsonObject"
+                }
               }
             }
           },
-          "400": { "$ref": "#/components/responses/ProtocolError" },
-          "403": { "$ref": "#/components/responses/ProtocolError" },
-          "404": { "$ref": "#/components/responses/ProtocolError" },
-          "426": { "$ref": "#/components/responses/UpgradeRequired" },
-          "503": { "$ref": "#/components/responses/ProtocolError" }
+          "400": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "426": {
+            "$ref": "#/components/responses/UpgradeRequired"
+          },
+          "503": {
+            "$ref": "#/components/responses/ProtocolError"
+          }
         }
       }
     },
     "/api/cloud/v3/dev-snapshot-proof/provision": {
       "post": {
         "operationId": "devSnapshotProofProvision",
-        "tags": ["dev-snapshot-proof"],
+        "tags": [
+          "dev-snapshot-proof"
+        ],
         "summary": "DEV-only: provision disposable proof account and database.",
         "x-lastdb-environment": "dev",
         "parameters": [
-          { "$ref": "#/components/parameters/CloudProtocolHeader" }
+          {
+            "$ref": "#/components/parameters/CloudProtocolHeader"
+          }
         ],
-        "security": [{ "githubOidc": [] }],
+        "security": [
+          {
+            "githubOidc": []
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/JsonObject" }
+              "schema": {
+                "$ref": "#/components/schemas/JsonObject"
+              }
             }
           }
         },
@@ -662,33 +1099,55 @@
             "description": "Provisioned.",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/JsonObject" }
+                "schema": {
+                  "$ref": "#/components/schemas/JsonObject"
+                }
               }
             }
           },
-          "400": { "$ref": "#/components/responses/ProtocolError" },
-          "401": { "$ref": "#/components/responses/ProtocolError" },
-          "403": { "$ref": "#/components/responses/ProtocolError" },
-          "426": { "$ref": "#/components/responses/UpgradeRequired" },
-          "503": { "$ref": "#/components/responses/ProtocolError" }
+          "400": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "426": {
+            "$ref": "#/components/responses/UpgradeRequired"
+          },
+          "503": {
+            "$ref": "#/components/responses/ProtocolError"
+          }
         }
       }
     },
     "/api/cloud/v3/dev-snapshot-proof/retire": {
       "post": {
         "operationId": "devSnapshotProofRetire",
-        "tags": ["dev-snapshot-proof"],
+        "tags": [
+          "dev-snapshot-proof"
+        ],
         "summary": "DEV-only: retire a proof attempt.",
         "x-lastdb-environment": "dev",
         "parameters": [
-          { "$ref": "#/components/parameters/CloudProtocolHeader" }
+          {
+            "$ref": "#/components/parameters/CloudProtocolHeader"
+          }
         ],
-        "security": [{ "githubOidc": [] }],
+        "security": [
+          {
+            "githubOidc": []
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/JsonObject" }
+              "schema": {
+                "$ref": "#/components/schemas/JsonObject"
+              }
             }
           }
         },
@@ -697,33 +1156,55 @@
             "description": "Retired.",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/JsonObject" }
+                "schema": {
+                  "$ref": "#/components/schemas/JsonObject"
+                }
               }
             }
           },
-          "400": { "$ref": "#/components/responses/ProtocolError" },
-          "401": { "$ref": "#/components/responses/ProtocolError" },
-          "403": { "$ref": "#/components/responses/ProtocolError" },
-          "426": { "$ref": "#/components/responses/UpgradeRequired" },
-          "503": { "$ref": "#/components/responses/ProtocolError" }
+          "400": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "426": {
+            "$ref": "#/components/responses/UpgradeRequired"
+          },
+          "503": {
+            "$ref": "#/components/responses/ProtocolError"
+          }
         }
       }
     },
     "/api/cloud/v3/dev-snapshot-proof/status": {
       "post": {
         "operationId": "devSnapshotProofStatus",
-        "tags": ["dev-snapshot-proof"],
+        "tags": [
+          "dev-snapshot-proof"
+        ],
         "summary": "DEV-only: observational status (404 never seals).",
         "x-lastdb-environment": "dev",
         "parameters": [
-          { "$ref": "#/components/parameters/CloudProtocolHeader" }
+          {
+            "$ref": "#/components/parameters/CloudProtocolHeader"
+          }
         ],
-        "security": [{ "githubOidc": [] }],
+        "security": [
+          {
+            "githubOidc": []
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/JsonObject" }
+              "schema": {
+                "$ref": "#/components/schemas/JsonObject"
+              }
             }
           }
         },
@@ -732,31 +1213,49 @@
             "description": "Status.",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/JsonObject" }
+                "schema": {
+                  "$ref": "#/components/schemas/JsonObject"
+                }
               }
             }
           },
-          "404": { "$ref": "#/components/responses/ProtocolError" },
-          "401": { "$ref": "#/components/responses/ProtocolError" },
-          "426": { "$ref": "#/components/responses/UpgradeRequired" }
+          "404": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "426": {
+            "$ref": "#/components/responses/UpgradeRequired"
+          }
         }
       }
     },
     "/api/cloud/v3/dev-snapshot-proof/inspect": {
       "post": {
         "operationId": "devSnapshotProofInspect",
-        "tags": ["dev-snapshot-proof"],
+        "tags": [
+          "dev-snapshot-proof"
+        ],
         "summary": "DEV-only: bounded log/index metadata for the active attempt.",
         "x-lastdb-environment": "dev",
         "parameters": [
-          { "$ref": "#/components/parameters/CloudProtocolHeader" }
+          {
+            "$ref": "#/components/parameters/CloudProtocolHeader"
+          }
         ],
-        "security": [{ "githubOidc": [] }],
+        "security": [
+          {
+            "githubOidc": []
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/JsonObject" }
+              "schema": {
+                "$ref": "#/components/schemas/JsonObject"
+              }
             }
           }
         },
@@ -765,47 +1264,79 @@
             "description": "Inspect payload.",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/JsonObject" }
+                "schema": {
+                  "$ref": "#/components/schemas/JsonObject"
+                }
               }
             }
           },
-          "400": { "$ref": "#/components/responses/ProtocolError" },
-          "401": { "$ref": "#/components/responses/ProtocolError" },
-          "403": { "$ref": "#/components/responses/ProtocolError" },
-          "426": { "$ref": "#/components/responses/UpgradeRequired" },
-          "503": { "$ref": "#/components/responses/ProtocolError" }
+          "400": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "401": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "426": {
+            "$ref": "#/components/responses/UpgradeRequired"
+          },
+          "503": {
+            "$ref": "#/components/responses/ProtocolError"
+          }
         }
       }
     },
     "/api/developer/api-keys": {
       "get": {
         "operationId": "developerApiKeysList",
-        "tags": ["auth-service"],
+        "tags": [
+          "auth-service"
+        ],
         "summary": "List developer API keys.",
-        "security": [{ "apiKey": [] }],
+        "security": [
+          {
+            "accountBearer": []
+          }
+        ],
         "responses": {
           "200": {
             "description": "Key list.",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/JsonObject" }
+                "schema": {
+                  "$ref": "#/components/schemas/JsonObject"
+                }
               }
             }
           },
-          "401": { "$ref": "#/components/responses/ProtocolError" },
-          "403": { "$ref": "#/components/responses/ProtocolError" }
+          "401": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ProtocolError"
+          }
         }
       },
       "post": {
         "operationId": "developerApiKeysCreate",
-        "tags": ["auth-service"],
-        "summary": "Create a developer API key (em_…).",
-        "security": [{ "apiKey": [] }],
+        "tags": [
+          "auth-service"
+        ],
+        "summary": "Create a developer API key (em_\u2026).",
+        "security": [
+          {
+            "accountBearer": []
+          }
+        ],
         "requestBody": {
           "required": false,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/JsonObject" }
+              "schema": {
+                "$ref": "#/components/schemas/JsonObject"
+              }
             }
           }
         },
@@ -814,24 +1345,38 @@
             "description": "Created key material.",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/JsonObject" }
+                "schema": {
+                  "$ref": "#/components/schemas/JsonObject"
+                }
               }
             }
           },
-          "401": { "$ref": "#/components/responses/ProtocolError" },
-          "403": { "$ref": "#/components/responses/ProtocolError" }
+          "401": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ProtocolError"
+          }
         }
       },
       "delete": {
         "operationId": "developerApiKeysDelete",
-        "tags": ["auth-service"],
+        "tags": [
+          "auth-service"
+        ],
         "summary": "Revoke a developer API key.",
-        "security": [{ "apiKey": [] }],
+        "security": [
+          {
+            "accountBearer": []
+          }
+        ],
         "requestBody": {
           "required": false,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/JsonObject" }
+              "schema": {
+                "$ref": "#/components/schemas/JsonObject"
+              }
             }
           }
         },
@@ -840,27 +1385,43 @@
             "description": "Revoked.",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/JsonObject" }
+                "schema": {
+                  "$ref": "#/components/schemas/JsonObject"
+                }
               }
             }
           },
-          "401": { "$ref": "#/components/responses/ProtocolError" },
-          "403": { "$ref": "#/components/responses/ProtocolError" },
-          "404": { "$ref": "#/components/responses/ProtocolError" }
+          "401": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "404": {
+            "$ref": "#/components/responses/ProtocolError"
+          }
         }
       }
     },
     "/api/developer/validate-key": {
       "post": {
         "operationId": "developerValidateKey",
-        "tags": ["auth-service"],
+        "tags": [
+          "auth-service"
+        ],
         "summary": "Validate a developer API key.",
-        "security": [{ "apiKey": [] }],
+        "security": [
+          {
+            "accountBearer": []
+          }
+        ],
         "requestBody": {
           "required": false,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/JsonObject" }
+              "schema": {
+                "$ref": "#/components/schemas/JsonObject"
+              }
             }
           }
         },
@@ -869,83 +1430,123 @@
             "description": "Validation result.",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/JsonObject" }
+                "schema": {
+                  "$ref": "#/components/schemas/JsonObject"
+                }
               }
             }
           },
-          "401": { "$ref": "#/components/responses/ProtocolError" },
-          "403": { "$ref": "#/components/responses/ProtocolError" }
+          "401": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ProtocolError"
+          }
         }
       }
     },
     "/api/auth/cli/register": {
       "post": {
         "operationId": "authCliRegister",
-        "tags": ["auth-service"],
+        "tags": [
+          "auth-service"
+        ],
         "summary": "CLI account registration.",
         "responses": {
           "200": {
             "description": "Registered.",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/JsonObject" }
+                "schema": {
+                  "$ref": "#/components/schemas/JsonObject"
+                }
               }
             }
           },
-          "400": { "$ref": "#/components/responses/ProtocolError" },
-          "403": { "$ref": "#/components/responses/ProtocolError" }
+          "400": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ProtocolError"
+          }
         }
       }
     },
     "/api/auth/payments/webhook": {
       "post": {
         "operationId": "authPaymentsWebhook",
-        "tags": ["auth-service"],
+        "tags": [
+          "auth-service"
+        ],
         "summary": "Stripe payment webhook.",
         "responses": {
           "200": {
             "description": "Accepted.",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/JsonObject" }
+                "schema": {
+                  "$ref": "#/components/schemas/JsonObject"
+                }
               }
             }
           },
-          "400": { "$ref": "#/components/responses/ProtocolError" }
+          "400": {
+            "$ref": "#/components/responses/ProtocolError"
+          }
         }
       }
     },
     "/api/auth/payments/status": {
       "get": {
         "operationId": "authPaymentsStatus",
-        "tags": ["auth-service"],
+        "tags": [
+          "auth-service"
+        ],
         "summary": "Payment subscription status.",
-        "security": [{ "apiKey": [] }],
+        "security": [
+          {
+            "accountBearer": []
+          }
+        ],
         "responses": {
           "200": {
             "description": "Status.",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/JsonObject" }
+                "schema": {
+                  "$ref": "#/components/schemas/JsonObject"
+                }
               }
             }
           },
-          "401": { "$ref": "#/components/responses/ProtocolError" },
-          "403": { "$ref": "#/components/responses/ProtocolError" }
+          "401": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ProtocolError"
+          }
         }
       }
     },
     "/api/auth/payments/checkout": {
       "post": {
         "operationId": "authPaymentsCheckout",
-        "tags": ["auth-service"],
+        "tags": [
+          "auth-service"
+        ],
         "summary": "Create a checkout session.",
-        "security": [{ "apiKey": [] }],
+        "security": [
+          {
+            "accountBearer": []
+          }
+        ],
         "requestBody": {
           "required": false,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/JsonObject" }
+              "schema": {
+                "$ref": "#/components/schemas/JsonObject"
+              }
             }
           }
         },
@@ -954,26 +1555,40 @@
             "description": "Checkout payload.",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/JsonObject" }
+                "schema": {
+                  "$ref": "#/components/schemas/JsonObject"
+                }
               }
             }
           },
-          "401": { "$ref": "#/components/responses/ProtocolError" },
-          "403": { "$ref": "#/components/responses/ProtocolError" }
+          "401": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ProtocolError"
+          }
         }
       }
     },
     "/api/auth/payments/portal": {
       "post": {
         "operationId": "authPaymentsPortal",
-        "tags": ["auth-service"],
+        "tags": [
+          "auth-service"
+        ],
         "summary": "Create a billing portal session.",
-        "security": [{ "apiKey": [] }],
+        "security": [
+          {
+            "accountBearer": []
+          }
+        ],
         "requestBody": {
           "required": false,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/JsonObject" }
+              "schema": {
+                "$ref": "#/components/schemas/JsonObject"
+              }
             }
           }
         },
@@ -982,12 +1597,18 @@
             "description": "Portal payload.",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/JsonObject" }
+                "schema": {
+                  "$ref": "#/components/schemas/JsonObject"
+                }
               }
             }
           },
-          "401": { "$ref": "#/components/responses/ProtocolError" },
-          "403": { "$ref": "#/components/responses/ProtocolError" }
+          "401": {
+            "$ref": "#/components/responses/ProtocolError"
+          },
+          "403": {
+            "$ref": "#/components/responses/ProtocolError"
+          }
         }
       }
     }
@@ -1010,7 +1631,7 @@
         "type": "apiKey",
         "in": "header",
         "name": "X-API-Key",
-        "description": "Developer key with em_ prefix. Used for native create (with LastDBNode), dual-auth blob routes, and auth-service key routes."
+        "description": "Developer key with em_ prefix in header X-API-Key. Used on storage routes (native create dual-auth, blob context/prepare/complete). Not used to manage developer keys \u2014 those auth-service routes use accountBearer."
       },
       "lastDbNode": {
         "type": "http",
@@ -1022,6 +1643,11 @@
         "scheme": "bearer",
         "bearerFormat": "JWT",
         "description": "DEV-only GitHub Actions OIDC JWT. Issuer https://token.actions.githubusercontent.com, audience lastdb-dev-snapshot."
+      },
+      "accountBearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Saved account credential from enrollment / backup connect. Authorization: Bearer <account_api_key>. Used by auth-service developer-key and payment routes. Distinct from the em_ developer key (X-API-Key) used on storage dual-auth routes. A client needs this bearer to create its first em_ key."
       }
     },
     "responses": {
@@ -1029,7 +1655,9 @@
         "description": "Stable protocol error. code is for programs; field is a static name.",
         "content": {
           "application/json": {
-            "schema": { "$ref": "#/components/schemas/ProtocolError" }
+            "schema": {
+              "$ref": "#/components/schemas/ProtocolError"
+            }
           }
         }
       },
@@ -1037,7 +1665,9 @@
         "description": "Caller protocol version is missing or below the service minimum.",
         "content": {
           "application/json": {
-            "schema": { "$ref": "#/components/schemas/UpgradeRequiredError" }
+            "schema": {
+              "$ref": "#/components/schemas/UpgradeRequiredError"
+            }
           }
         }
       }
@@ -1092,9 +1722,14 @@
       "ProtocolError": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["code", "field"],
+        "required": [
+          "code",
+          "field"
+        ],
         "properties": {
-          "code": { "$ref": "#/components/schemas/ErrorCode" },
+          "code": {
+            "$ref": "#/components/schemas/ErrorCode"
+          },
           "field": {
             "type": "string",
             "description": "Static protocol field name. Never a credential, URL, key, or record body."
@@ -1105,10 +1740,20 @@
       "UpgradeRequiredError": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["code", "field", "minimum_version"],
+        "required": [
+          "code",
+          "field",
+          "minimum_version"
+        ],
         "properties": {
-          "code": { "type": "string", "const": "upgrade_required" },
-          "field": { "type": "string", "const": "cloud.protocol" },
+          "code": {
+            "type": "string",
+            "const": "upgrade_required"
+          },
+          "field": {
+            "type": "string",
+            "const": "cloud.protocol"
+          },
           "minimum_version": {
             "type": "integer",
             "minimum": 1,
@@ -1119,24 +1764,41 @@
       "CloudScope": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["account_id", "generation"],
+        "required": [
+          "account_id",
+          "generation"
+        ],
         "properties": {
-          "account_id": { "$ref": "#/components/schemas/AccountId" },
-          "generation": { "$ref": "#/components/schemas/DecimalU64" }
+          "account_id": {
+            "$ref": "#/components/schemas/AccountId"
+          },
+          "generation": {
+            "$ref": "#/components/schemas/DecimalU64"
+          }
         }
       },
       "Stream": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["scope", "stream_id"],
+        "required": [
+          "scope",
+          "stream_id"
+        ],
         "properties": {
-          "scope": { "$ref": "#/components/schemas/CloudScope" },
-          "stream_id": { "$ref": "#/components/schemas/Id" }
+          "scope": {
+            "$ref": "#/components/schemas/CloudScope"
+          },
+          "stream_id": {
+            "$ref": "#/components/schemas/Id"
+          }
         }
       },
       "ShareEnvironment": {
         "type": "string",
-        "enum": ["dev", "prod"]
+        "enum": [
+          "dev",
+          "prod"
+        ]
       },
       "NodeReadToken": {
         "type": "object",
@@ -1158,31 +1820,59 @@
             "const": 3,
             "description": "Must equal X-LastDB-Cloud-Protocol."
           },
-          "environment": { "$ref": "#/components/schemas/ShareEnvironment" },
-          "database_id": { "$ref": "#/components/schemas/Id" },
-          "stream": { "$ref": "#/components/schemas/Stream" },
-          "method": { "type": "string", "const": "POST" },
+          "environment": {
+            "$ref": "#/components/schemas/ShareEnvironment"
+          },
+          "database_id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "stream": {
+            "$ref": "#/components/schemas/Stream"
+          },
+          "method": {
+            "type": "string",
+            "const": "POST"
+          },
           "path": {
             "type": "string",
             "description": "Exact request path including /api."
           },
-          "issued_at_ms": { "$ref": "#/components/schemas/DecimalU64" },
+          "issued_at_ms": {
+            "$ref": "#/components/schemas/DecimalU64"
+          },
           "nonce": {
             "type": "string",
             "pattern": "^[0-9a-f]{64}$"
           },
-          "node_public_key": { "$ref": "#/components/schemas/HexDigest" }
+          "node_public_key": {
+            "$ref": "#/components/schemas/HexDigest"
+          }
         }
       },
       "NativeDatabase": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["state", "version", "environment", "database_id"],
+        "required": [
+          "state",
+          "version",
+          "environment",
+          "database_id"
+        ],
         "properties": {
-          "state": { "type": "string", "const": "native" },
-          "version": { "type": "integer", "const": 3 },
-          "environment": { "$ref": "#/components/schemas/ShareEnvironment" },
-          "database_id": { "$ref": "#/components/schemas/Id" }
+          "state": {
+            "type": "string",
+            "const": "native"
+          },
+          "version": {
+            "type": "integer",
+            "const": 3
+          },
+          "environment": {
+            "$ref": "#/components/schemas/ShareEnvironment"
+          },
+          "database_id": {
+            "$ref": "#/components/schemas/Id"
+          }
         }
       },
       "CreateDatabaseRequest": {
@@ -1190,15 +1880,21 @@
         "additionalProperties": false,
         "description": "Exact fields follow cloud_backup_protocol / mutation_log create body at implementation. Inventory placeholder keeps deny-unknown.",
         "properties": {
-          "database_id": { "$ref": "#/components/schemas/Id" },
-          "scope": { "$ref": "#/components/schemas/CloudScope" }
+          "database_id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/CloudScope"
+          }
         }
       },
       "DatabaseAccessRequest": {
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "database_id": { "$ref": "#/components/schemas/Id" }
+          "database_id": {
+            "$ref": "#/components/schemas/Id"
+          }
         }
       },
       "MutationLogAppendRequest": {
@@ -1206,76 +1902,126 @@
         "additionalProperties": false,
         "description": "Append batch; exact Entry/Writer shapes come from mutation_log at codegen time.",
         "properties": {
-          "database_id": { "$ref": "#/components/schemas/Id" }
+          "database_id": {
+            "$ref": "#/components/schemas/Id"
+          }
         }
       },
       "MutationLogHeadRequest": {
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "database_id": { "$ref": "#/components/schemas/Id" }
+          "database_id": {
+            "$ref": "#/components/schemas/Id"
+          }
         }
       },
       "MutationLogListRequest": {
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "database_id": { "$ref": "#/components/schemas/Id" },
-          "after": { "$ref": "#/components/schemas/DecimalU64" },
-          "limit": { "type": "integer", "minimum": 1 },
-          "accept_native_reset": { "type": "boolean" }
+          "database_id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "after": {
+            "$ref": "#/components/schemas/DecimalU64"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "accept_native_reset": {
+            "type": "boolean"
+          }
         }
       },
       "SettleSubmissionsRequest": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["database_id", "through"],
+        "required": [
+          "database_id",
+          "through"
+        ],
         "properties": {
-          "database_id": { "type": "string" },
-          "through": { "$ref": "#/components/schemas/DecimalU64" }
+          "database_id": {
+            "type": "string"
+          },
+          "through": {
+            "$ref": "#/components/schemas/DecimalU64"
+          }
         }
       },
       "ProposalsListRequest": {
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "database_id": { "$ref": "#/components/schemas/Id" }
+          "database_id": {
+            "$ref": "#/components/schemas/Id"
+          }
         }
       },
       "ProposalsSettleRequest": {
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "database_id": { "$ref": "#/components/schemas/Id" }
+          "database_id": {
+            "$ref": "#/components/schemas/Id"
+          }
         }
       },
       "BlobPath": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["database", "space", "record", "write_id"],
+        "required": [
+          "database",
+          "space",
+          "record",
+          "write_id"
+        ],
         "properties": {
-          "database": { "$ref": "#/components/schemas/Id" },
-          "space": { "type": "string" },
-          "record": { "$ref": "#/components/schemas/HexDigest" },
-          "write_id": { "type": "string" }
+          "database": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "space": {
+            "type": "string"
+          },
+          "record": {
+            "$ref": "#/components/schemas/HexDigest"
+          },
+          "write_id": {
+            "type": "string"
+          }
         }
       },
       "Destination": {
         "type": "string",
-        "enum": ["r2", "b2"]
+        "enum": [
+          "r2",
+          "b2"
+        ]
       },
       "BlobRequest": {
         "oneOf": [
           {
             "type": "object",
             "additionalProperties": false,
-            "required": ["action", "account_id"],
+            "required": [
+              "action",
+              "account_id"
+            ],
             "properties": {
-              "action": { "type": "string", "const": "context" },
-              "account_id": { "$ref": "#/components/schemas/AccountId" },
+              "action": {
+                "type": "string",
+                "const": "context"
+              },
+              "account_id": {
+                "$ref": "#/components/schemas/AccountId"
+              },
               "required_destinations": {
                 "type": "array",
-                "items": { "$ref": "#/components/schemas/Destination" },
+                "items": {
+                  "$ref": "#/components/schemas/Destination"
+                },
                 "maxItems": 2
               }
             }
@@ -1283,14 +2029,37 @@
           {
             "type": "object",
             "additionalProperties": false,
-            "required": ["action", "database_id", "scope", "path", "bytes", "sha256"],
+            "required": [
+              "action",
+              "database_id",
+              "scope",
+              "path",
+              "bytes",
+              "sha256"
+            ],
             "properties": {
-              "action": { "type": "string", "enum": ["prepare", "complete"] },
-              "database_id": { "$ref": "#/components/schemas/Id" },
-              "scope": { "$ref": "#/components/schemas/CloudScope" },
-              "path": { "$ref": "#/components/schemas/BlobPath" },
-              "bytes": { "$ref": "#/components/schemas/DecimalU64" },
-              "sha256": { "$ref": "#/components/schemas/HexDigest" }
+              "action": {
+                "type": "string",
+                "enum": [
+                  "prepare",
+                  "complete"
+                ]
+              },
+              "database_id": {
+                "$ref": "#/components/schemas/Id"
+              },
+              "scope": {
+                "$ref": "#/components/schemas/CloudScope"
+              },
+              "path": {
+                "$ref": "#/components/schemas/BlobPath"
+              },
+              "bytes": {
+                "$ref": "#/components/schemas/DecimalU64"
+              },
+              "sha256": {
+                "$ref": "#/components/schemas/HexDigest"
+              }
             }
           }
         ]
@@ -1318,35 +2087,73 @@
       "SnapshotRequest": {
         "type": "object",
         "description": "Tagged by action. Exact per-action fields are filled at codegen from the service enum. additionalProperties false is enforced per action variant in generated types.",
-        "required": ["action", "database_id"],
+        "required": [
+          "action",
+          "database_id"
+        ],
         "properties": {
-          "action": { "$ref": "#/components/schemas/SnapshotAction" },
-          "database_id": { "$ref": "#/components/schemas/Id" }
+          "action": {
+            "$ref": "#/components/schemas/SnapshotAction"
+          },
+          "database_id": {
+            "$ref": "#/components/schemas/Id"
+          }
         },
         "additionalProperties": true
       },
       "DeliveryObjectRequest": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["database_id", "scope", "path"],
+        "required": [
+          "database_id",
+          "scope",
+          "path"
+        ],
         "properties": {
-          "database_id": { "type": "string" },
-          "scope": { "$ref": "#/components/schemas/CloudScope" },
-          "path": { "$ref": "#/components/schemas/BlobPath" },
-          "offset": { "$ref": "#/components/schemas/DecimalU64" },
-          "length": { "$ref": "#/components/schemas/DecimalU64" }
+          "database_id": {
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/CloudScope"
+          },
+          "path": {
+            "$ref": "#/components/schemas/BlobPath"
+          },
+          "offset": {
+            "$ref": "#/components/schemas/DecimalU64"
+          },
+          "length": {
+            "$ref": "#/components/schemas/DecimalU64"
+          }
         }
       },
       "DeliveryObjectResponse": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["database_id", "result"],
+        "required": [
+          "database_id",
+          "result"
+        ],
         "properties": {
-          "database_id": { "type": "string" },
-          "result": { "type": "string", "enum": ["bytes", "absent"] },
-          "bytes": { "$ref": "#/components/schemas/DecimalU64" },
-          "offset": { "$ref": "#/components/schemas/DecimalU64" },
-          "length": { "$ref": "#/components/schemas/DecimalU64" },
+          "database_id": {
+            "type": "string"
+          },
+          "result": {
+            "type": "string",
+            "enum": [
+              "bytes",
+              "absent"
+            ]
+          },
+          "bytes": {
+            "$ref": "#/components/schemas/DecimalU64"
+          },
+          "offset": {
+            "$ref": "#/components/schemas/DecimalU64"
+          },
+          "length": {
+            "$ref": "#/components/schemas/DecimalU64"
+          },
           "ciphertext": {
             "type": "string",
             "description": "Standard base64 ciphertext when result is bytes."
@@ -1358,41 +2165,69 @@
         "additionalProperties": false,
         "description": "Publisher-signed entries; exact MemberEntry schema from cloud_backup_protocol at codegen.",
         "properties": {
-          "stream": { "$ref": "#/components/schemas/Stream" },
+          "stream": {
+            "$ref": "#/components/schemas/Stream"
+          },
           "entries": {
             "type": "array",
-            "items": { "$ref": "#/components/schemas/JsonObject" }
+            "items": {
+              "$ref": "#/components/schemas/JsonObject"
+            }
           }
         }
       },
       "MemberSetResponse": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["version", "revision"],
+        "required": [
+          "version",
+          "revision"
+        ],
         "properties": {
-          "version": { "type": "integer", "const": 3 },
-          "revision": { "$ref": "#/components/schemas/DecimalU64" }
+          "version": {
+            "type": "integer",
+            "const": 3
+          },
+          "revision": {
+            "$ref": "#/components/schemas/DecimalU64"
+          }
         }
       },
       "MemberGetRequest": {
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "stream": { "$ref": "#/components/schemas/Stream" },
-          "node_public_key": { "$ref": "#/components/schemas/HexDigest" }
+          "stream": {
+            "$ref": "#/components/schemas/Stream"
+          },
+          "node_public_key": {
+            "$ref": "#/components/schemas/HexDigest"
+          }
         }
       },
       "MemberGetResponse": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["version", "revision"],
+        "required": [
+          "version",
+          "revision"
+        ],
         "properties": {
-          "version": { "type": "integer", "const": 3 },
-          "revision": { "$ref": "#/components/schemas/DecimalU64" },
+          "version": {
+            "type": "integer",
+            "const": 3
+          },
+          "revision": {
+            "$ref": "#/components/schemas/DecimalU64"
+          },
           "entry": {
             "oneOf": [
-              { "type": "null" },
-              { "$ref": "#/components/schemas/JsonObject" }
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JsonObject"
+              }
             ]
           }
         }
@@ -1401,25 +2236,44 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "stream": { "$ref": "#/components/schemas/Stream" },
-          "after": { "$ref": "#/components/schemas/HexDigest" }
+          "stream": {
+            "$ref": "#/components/schemas/Stream"
+          },
+          "after": {
+            "$ref": "#/components/schemas/HexDigest"
+          }
         }
       },
       "MemberListResponse": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["version", "revision", "entries"],
+        "required": [
+          "version",
+          "revision",
+          "entries"
+        ],
         "properties": {
-          "version": { "type": "integer", "const": 3 },
-          "revision": { "$ref": "#/components/schemas/DecimalU64" },
+          "version": {
+            "type": "integer",
+            "const": 3
+          },
+          "revision": {
+            "$ref": "#/components/schemas/DecimalU64"
+          },
           "entries": {
             "type": "array",
-            "items": { "$ref": "#/components/schemas/JsonObject" }
+            "items": {
+              "$ref": "#/components/schemas/JsonObject"
+            }
           },
           "next": {
             "oneOf": [
-              { "type": "null" },
-              { "$ref": "#/components/schemas/HexDigest" }
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/HexDigest"
+              }
             ]
           }
         }
@@ -1428,7 +2282,9 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "stream": { "$ref": "#/components/schemas/Stream" }
+          "stream": {
+            "$ref": "#/components/schemas/Stream"
+          }
         }
       },
       "SettingsSetRequest": {
@@ -1436,14 +2292,18 @@
         "additionalProperties": false,
         "description": "Publisher-signed ShareSettings statement. Cloud stores and returns it; does not interpret member_writes. People owns Share/Deliver/Org presets.",
         "properties": {
-          "settings": { "$ref": "#/components/schemas/JsonObject" }
+          "settings": {
+            "$ref": "#/components/schemas/JsonObject"
+          }
         }
       },
       "SettingsGetRequest": {
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "stream": { "$ref": "#/components/schemas/Stream" }
+          "stream": {
+            "$ref": "#/components/schemas/Stream"
+          }
         }
       }
     }
