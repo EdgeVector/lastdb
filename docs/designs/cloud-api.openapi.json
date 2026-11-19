@@ -3,7 +3,7 @@
   "info": {
     "title": "ExeMem Cloud API",
     "version": "3.0.0-design",
-    "description": "Design-only. Product calls use envelope {database_id, intent, args|result}. Eleven intents on fetch/push/manage. No ops endpoint. Live home: cloud_backup_protocol/cloud-api.openapi.json."
+    "description": "Design-only. Product calls use envelope {database_id, intent, args|result} or a JSON array of envelopes (max 90; request \u2264256KiB; response \u22648MiB). Eleven intents on fetch/push/manage. No ops endpoint. Live home: cloud_backup_protocol/cloud-api.openapi.json."
   },
   "servers": [
     {
@@ -1258,44 +1258,24 @@
       "FetchRequest": {
         "oneOf": [
           {
-            "$ref": "#/components/schemas/Fetch_mutations_since_Request"
+            "$ref": "#/components/schemas/FetchEnvelope"
           },
           {
-            "$ref": "#/components/schemas/Fetch_snapshot_Request"
-          },
-          {
-            "$ref": "#/components/schemas/Fetch_file_Request"
+            "$ref": "#/components/schemas/FetchBatchRequest"
           }
         ],
-        "discriminator": {
-          "propertyName": "intent",
-          "mapping": {
-            "mutations_since": "#/components/schemas/Fetch_mutations_since_Request",
-            "snapshot": "#/components/schemas/Fetch_snapshot_Request",
-            "file": "#/components/schemas/Fetch_file_Request"
-          }
-        }
+        "description": "Single envelope or array of envelopes (Decision 17)."
       },
       "FetchResponse": {
         "oneOf": [
           {
-            "$ref": "#/components/schemas/Fetch_mutations_since_Response"
+            "$ref": "#/components/schemas/FetchEnvelopeResult"
           },
           {
-            "$ref": "#/components/schemas/Fetch_snapshot_Response"
-          },
-          {
-            "$ref": "#/components/schemas/Fetch_file_Response"
+            "$ref": "#/components/schemas/FetchBatchResponse"
           }
         ],
-        "discriminator": {
-          "propertyName": "intent",
-          "mapping": {
-            "mutations_since": "#/components/schemas/Fetch_mutations_since_Response",
-            "snapshot": "#/components/schemas/Fetch_snapshot_Response",
-            "file": "#/components/schemas/Fetch_file_Response"
-          }
-        }
+        "description": "Single result envelope or array matching the request shape."
       },
       "PushMutationsArgs": {
         "type": "object",
@@ -1578,44 +1558,24 @@
       "PushRequest": {
         "oneOf": [
           {
-            "$ref": "#/components/schemas/Push_mutations_Request"
+            "$ref": "#/components/schemas/PushEnvelope"
           },
           {
-            "$ref": "#/components/schemas/Push_snapshot_Request"
-          },
-          {
-            "$ref": "#/components/schemas/Push_file_Request"
+            "$ref": "#/components/schemas/PushBatchRequest"
           }
         ],
-        "discriminator": {
-          "propertyName": "intent",
-          "mapping": {
-            "mutations": "#/components/schemas/Push_mutations_Request",
-            "snapshot": "#/components/schemas/Push_snapshot_Request",
-            "file": "#/components/schemas/Push_file_Request"
-          }
-        }
+        "description": "Single envelope or array of envelopes (Decision 17)."
       },
       "PushResponse": {
         "oneOf": [
           {
-            "$ref": "#/components/schemas/Push_mutations_Response"
+            "$ref": "#/components/schemas/PushEnvelopeResult"
           },
           {
-            "$ref": "#/components/schemas/Push_snapshot_Response"
-          },
-          {
-            "$ref": "#/components/schemas/Push_file_Response"
+            "$ref": "#/components/schemas/PushBatchResponse"
           }
         ],
-        "discriminator": {
-          "propertyName": "intent",
-          "mapping": {
-            "mutations": "#/components/schemas/Push_mutations_Response",
-            "snapshot": "#/components/schemas/Push_snapshot_Response",
-            "file": "#/components/schemas/Push_file_Response"
-          }
-        }
+        "description": "Single result envelope or array matching the request shape."
       },
       "ManageCreateArgs": {
         "type": "object",
@@ -1982,60 +1942,24 @@
       "ManageRequest": {
         "oneOf": [
           {
-            "$ref": "#/components/schemas/Manage_create_Request"
+            "$ref": "#/components/schemas/ManageEnvelope"
           },
           {
-            "$ref": "#/components/schemas/Manage_grant_Request"
-          },
-          {
-            "$ref": "#/components/schemas/Manage_revoke_Request"
-          },
-          {
-            "$ref": "#/components/schemas/Manage_access_Request"
-          },
-          {
-            "$ref": "#/components/schemas/Manage_delete_Request"
+            "$ref": "#/components/schemas/ManageBatchRequest"
           }
         ],
-        "discriminator": {
-          "propertyName": "intent",
-          "mapping": {
-            "create": "#/components/schemas/Manage_create_Request",
-            "grant": "#/components/schemas/Manage_grant_Request",
-            "revoke": "#/components/schemas/Manage_revoke_Request",
-            "access": "#/components/schemas/Manage_access_Request",
-            "delete": "#/components/schemas/Manage_delete_Request"
-          }
-        }
+        "description": "Single envelope or array of envelopes (Decision 17)."
       },
       "ManageResponse": {
         "oneOf": [
           {
-            "$ref": "#/components/schemas/Manage_create_Response"
+            "$ref": "#/components/schemas/ManageEnvelopeResult"
           },
           {
-            "$ref": "#/components/schemas/Manage_grant_Response"
-          },
-          {
-            "$ref": "#/components/schemas/Manage_revoke_Response"
-          },
-          {
-            "$ref": "#/components/schemas/Manage_access_Response"
-          },
-          {
-            "$ref": "#/components/schemas/Manage_delete_Response"
+            "$ref": "#/components/schemas/ManageBatchResponse"
           }
         ],
-        "discriminator": {
-          "propertyName": "intent",
-          "mapping": {
-            "create": "#/components/schemas/Manage_create_Response",
-            "grant": "#/components/schemas/Manage_grant_Response",
-            "revoke": "#/components/schemas/Manage_revoke_Response",
-            "access": "#/components/schemas/Manage_access_Response",
-            "delete": "#/components/schemas/Manage_delete_Response"
-          }
-        }
+        "description": "Single result envelope or array matching the request shape."
       },
       "CloudRequestEnvelope": {
         "type": "object",
@@ -2388,6 +2312,531 @@
         "additionalProperties": true,
         "description": "Auth-service. Out of scope for product schema strictness.",
         "x-lastdb-scope": "auth-service-out-of-scope"
+      },
+      "ItemError": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "field"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "field": {
+            "type": "string"
+          }
+        },
+        "description": "Per-item error inside a 200 batch response."
+      },
+      "Fetch_mutations_since_ErrorItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "database_id",
+          "intent",
+          "error"
+        ],
+        "properties": {
+          "database_id": {
+            "type": "string"
+          },
+          "intent": {
+            "type": "string",
+            "const": "mutations_since"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ItemError"
+          }
+        }
+      },
+      "Fetch_snapshot_ErrorItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "database_id",
+          "intent",
+          "error"
+        ],
+        "properties": {
+          "database_id": {
+            "type": "string"
+          },
+          "intent": {
+            "type": "string",
+            "const": "snapshot"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ItemError"
+          }
+        }
+      },
+      "Fetch_file_ErrorItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "database_id",
+          "intent",
+          "error"
+        ],
+        "properties": {
+          "database_id": {
+            "type": "string"
+          },
+          "intent": {
+            "type": "string",
+            "const": "file"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ItemError"
+          }
+        }
+      },
+      "FetchEnvelope": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Fetch_mutations_since_Request"
+          },
+          {
+            "$ref": "#/components/schemas/Fetch_snapshot_Request"
+          },
+          {
+            "$ref": "#/components/schemas/Fetch_file_Request"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "intent",
+          "mapping": {
+            "mutations_since": "#/components/schemas/Fetch_mutations_since_Request",
+            "snapshot": "#/components/schemas/Fetch_snapshot_Request",
+            "file": "#/components/schemas/Fetch_file_Request"
+          }
+        }
+      },
+      "FetchEnvelopeResult": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Fetch_mutations_since_Response"
+          },
+          {
+            "$ref": "#/components/schemas/Fetch_snapshot_Response"
+          },
+          {
+            "$ref": "#/components/schemas/Fetch_file_Response"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "intent",
+          "mapping": {
+            "mutations_since": "#/components/schemas/Fetch_mutations_since_Response",
+            "snapshot": "#/components/schemas/Fetch_snapshot_Response",
+            "file": "#/components/schemas/Fetch_file_Response"
+          }
+        }
+      },
+      "FetchBatchRequest": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 90,
+        "items": {
+          "$ref": "#/components/schemas/FetchEnvelope"
+        },
+        "description": "Up to 90 envelopes for this action (Decision 17)."
+      },
+      "FetchBatchItemResponse": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Fetch_mutations_since_Response"
+          },
+          {
+            "$ref": "#/components/schemas/Fetch_mutations_since_ErrorItem"
+          },
+          {
+            "$ref": "#/components/schemas/Fetch_snapshot_Response"
+          },
+          {
+            "$ref": "#/components/schemas/Fetch_snapshot_ErrorItem"
+          },
+          {
+            "$ref": "#/components/schemas/Fetch_file_Response"
+          },
+          {
+            "$ref": "#/components/schemas/Fetch_file_ErrorItem"
+          }
+        ],
+        "description": "Success envelope or {database_id, intent, error}."
+      },
+      "FetchBatchResponse": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 90,
+        "items": {
+          "$ref": "#/components/schemas/FetchBatchItemResponse"
+        },
+        "description": "Same order as the request. HTTP 200 for a processed batch."
+      },
+      "Push_mutations_ErrorItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "database_id",
+          "intent",
+          "error"
+        ],
+        "properties": {
+          "database_id": {
+            "type": "string"
+          },
+          "intent": {
+            "type": "string",
+            "const": "mutations"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ItemError"
+          }
+        }
+      },
+      "Push_snapshot_ErrorItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "database_id",
+          "intent",
+          "error"
+        ],
+        "properties": {
+          "database_id": {
+            "type": "string"
+          },
+          "intent": {
+            "type": "string",
+            "const": "snapshot"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ItemError"
+          }
+        }
+      },
+      "Push_file_ErrorItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "database_id",
+          "intent",
+          "error"
+        ],
+        "properties": {
+          "database_id": {
+            "type": "string"
+          },
+          "intent": {
+            "type": "string",
+            "const": "file"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ItemError"
+          }
+        }
+      },
+      "PushEnvelope": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Push_mutations_Request"
+          },
+          {
+            "$ref": "#/components/schemas/Push_snapshot_Request"
+          },
+          {
+            "$ref": "#/components/schemas/Push_file_Request"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "intent",
+          "mapping": {
+            "mutations": "#/components/schemas/Push_mutations_Request",
+            "snapshot": "#/components/schemas/Push_snapshot_Request",
+            "file": "#/components/schemas/Push_file_Request"
+          }
+        }
+      },
+      "PushEnvelopeResult": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Push_mutations_Response"
+          },
+          {
+            "$ref": "#/components/schemas/Push_snapshot_Response"
+          },
+          {
+            "$ref": "#/components/schemas/Push_file_Response"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "intent",
+          "mapping": {
+            "mutations": "#/components/schemas/Push_mutations_Response",
+            "snapshot": "#/components/schemas/Push_snapshot_Response",
+            "file": "#/components/schemas/Push_file_Response"
+          }
+        }
+      },
+      "PushBatchRequest": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 90,
+        "items": {
+          "$ref": "#/components/schemas/PushEnvelope"
+        },
+        "description": "Up to 90 envelopes for this action (Decision 17)."
+      },
+      "PushBatchItemResponse": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Push_mutations_Response"
+          },
+          {
+            "$ref": "#/components/schemas/Push_mutations_ErrorItem"
+          },
+          {
+            "$ref": "#/components/schemas/Push_snapshot_Response"
+          },
+          {
+            "$ref": "#/components/schemas/Push_snapshot_ErrorItem"
+          },
+          {
+            "$ref": "#/components/schemas/Push_file_Response"
+          },
+          {
+            "$ref": "#/components/schemas/Push_file_ErrorItem"
+          }
+        ],
+        "description": "Success envelope or {database_id, intent, error}."
+      },
+      "PushBatchResponse": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 90,
+        "items": {
+          "$ref": "#/components/schemas/PushBatchItemResponse"
+        },
+        "description": "Same order as the request. HTTP 200 for a processed batch."
+      },
+      "Manage_create_ErrorItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "database_id",
+          "intent",
+          "error"
+        ],
+        "properties": {
+          "database_id": {
+            "type": "string"
+          },
+          "intent": {
+            "type": "string",
+            "const": "create"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ItemError"
+          }
+        }
+      },
+      "Manage_grant_ErrorItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "database_id",
+          "intent",
+          "error"
+        ],
+        "properties": {
+          "database_id": {
+            "type": "string"
+          },
+          "intent": {
+            "type": "string",
+            "const": "grant"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ItemError"
+          }
+        }
+      },
+      "Manage_revoke_ErrorItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "database_id",
+          "intent",
+          "error"
+        ],
+        "properties": {
+          "database_id": {
+            "type": "string"
+          },
+          "intent": {
+            "type": "string",
+            "const": "revoke"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ItemError"
+          }
+        }
+      },
+      "Manage_access_ErrorItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "database_id",
+          "intent",
+          "error"
+        ],
+        "properties": {
+          "database_id": {
+            "type": "string"
+          },
+          "intent": {
+            "type": "string",
+            "const": "access"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ItemError"
+          }
+        }
+      },
+      "Manage_delete_ErrorItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "database_id",
+          "intent",
+          "error"
+        ],
+        "properties": {
+          "database_id": {
+            "type": "string"
+          },
+          "intent": {
+            "type": "string",
+            "const": "delete"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ItemError"
+          }
+        }
+      },
+      "ManageEnvelope": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Manage_create_Request"
+          },
+          {
+            "$ref": "#/components/schemas/Manage_grant_Request"
+          },
+          {
+            "$ref": "#/components/schemas/Manage_revoke_Request"
+          },
+          {
+            "$ref": "#/components/schemas/Manage_access_Request"
+          },
+          {
+            "$ref": "#/components/schemas/Manage_delete_Request"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "intent",
+          "mapping": {
+            "create": "#/components/schemas/Manage_create_Request",
+            "grant": "#/components/schemas/Manage_grant_Request",
+            "revoke": "#/components/schemas/Manage_revoke_Request",
+            "access": "#/components/schemas/Manage_access_Request",
+            "delete": "#/components/schemas/Manage_delete_Request"
+          }
+        }
+      },
+      "ManageEnvelopeResult": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Manage_create_Response"
+          },
+          {
+            "$ref": "#/components/schemas/Manage_grant_Response"
+          },
+          {
+            "$ref": "#/components/schemas/Manage_revoke_Response"
+          },
+          {
+            "$ref": "#/components/schemas/Manage_access_Response"
+          },
+          {
+            "$ref": "#/components/schemas/Manage_delete_Response"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "intent",
+          "mapping": {
+            "create": "#/components/schemas/Manage_create_Response",
+            "grant": "#/components/schemas/Manage_grant_Response",
+            "revoke": "#/components/schemas/Manage_revoke_Response",
+            "access": "#/components/schemas/Manage_access_Response",
+            "delete": "#/components/schemas/Manage_delete_Response"
+          }
+        }
+      },
+      "ManageBatchRequest": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 90,
+        "items": {
+          "$ref": "#/components/schemas/ManageEnvelope"
+        },
+        "description": "Up to 90 envelopes for this action (Decision 17)."
+      },
+      "ManageBatchItemResponse": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Manage_create_Response"
+          },
+          {
+            "$ref": "#/components/schemas/Manage_create_ErrorItem"
+          },
+          {
+            "$ref": "#/components/schemas/Manage_grant_Response"
+          },
+          {
+            "$ref": "#/components/schemas/Manage_grant_ErrorItem"
+          },
+          {
+            "$ref": "#/components/schemas/Manage_revoke_Response"
+          },
+          {
+            "$ref": "#/components/schemas/Manage_revoke_ErrorItem"
+          },
+          {
+            "$ref": "#/components/schemas/Manage_access_Response"
+          },
+          {
+            "$ref": "#/components/schemas/Manage_access_ErrorItem"
+          },
+          {
+            "$ref": "#/components/schemas/Manage_delete_Response"
+          },
+          {
+            "$ref": "#/components/schemas/Manage_delete_ErrorItem"
+          }
+        ],
+        "description": "Success envelope or {database_id, intent, error}."
+      },
+      "ManageBatchResponse": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 90,
+        "items": {
+          "$ref": "#/components/schemas/ManageBatchItemResponse"
+        },
+        "description": "Same order as the request. HTTP 200 for a processed batch."
       }
     },
     "responses": {
@@ -2411,6 +2860,12 @@
           }
         }
       }
+    },
+    "x-lastdb-batch": {
+      "max_items": 90,
+      "max_request_bytes": 262144,
+      "max_response_bytes": 8388608,
+      "overflow": "per-item batch_too_large on batch.response"
     }
   }
 }

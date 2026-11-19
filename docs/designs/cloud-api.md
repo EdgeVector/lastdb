@@ -70,7 +70,42 @@ token — not in the envelope.
 sends it; ExeMem does not allocate the id.
 
 OpenAPI: shared envelope fields plus per-intent `args` / `result` schemas,
-tagged by `intent` (`oneOf` + discriminator).
+tagged by `intent` (`oneOf` + discriminator). The request body is a further
+`oneOf` of a single envelope or an array of envelopes (Decision 17).
+
+### Batching (Decision 17)
+
+Each of `fetch`, `push`, and `manage` accepts **either** one envelope **or** a
+JSON **array** of envelopes for that same action. Actions never mix on one
+call.
+
+- Array response: same length and order. Each item is
+  `{database_id, intent, result}` **or**
+  `{database_id, intent, error: {code, field}}`.
+- Items are **independent**: one failure does not fail the others; nothing is
+  atomic across items.
+- HTTP **200** when the batch was processed. Whole-request failures (auth,
+  malformed body, 426 `upgrade_required`, over the request size cap, or over
+  the item-count cap) return the normal error body with **no** array.
+- Auth: same token for the call; each item is authorized against its own
+  `database_id`.
+- In-intent lists (`entries[]`, `grants[]`, `node_keys[]`) are unchanged.
+
+**Caps (from existing limits):**
+
+| Cap | Value | Why |
+|---|---|---|
+| Max items per batch | **90** | Same as `mutation_log::APPEND_BATCH_LIMIT` and `LIST_PAGE_LIMIT`. One batch of databases is the same cardinality as one append/list page of work. |
+| Request body | **256 KiB** (`CONTROL_JSON_MAX_BYTES`) | Same control-JSON ceiling the node already enforces before POST. Over → whole-request error. |
+| Response body | **8 MiB** (`lastdb_node` `http::JSON_LIMIT`) | Same bound used when reading list/append replies. |
+
+**Response overflow:** process items in order. When encoding the next success
+would exceed 8 MiB, that item and every remaining item get
+`error: { "code": "batch_too_large", "field": "batch.response" }` with no
+`result`. Earlier items keep their results. Prefer per-item errors over
+rejecting the whole batch so independence holds.
+
+Over **90** items → whole-request `{ "code": "batch_too_large", "field": "batch.items" }`.
 
 ### Intents
 
@@ -164,6 +199,48 @@ data to reclaim storage (Decision 15).
 }
 ```
 
+### batch fetch (three databases)
+
+```json
+[
+  {
+    "database_id": "11111111-1111-4111-8111-111111111111",
+    "intent": "mutations_since",
+    "args": { "cursor": "c-a", "limit": 50 }
+  },
+  {
+    "database_id": "22222222-2222-4222-8222-222222222222",
+    "intent": "mutations_since",
+    "args": { "cursor": "c-b", "limit": 50 }
+  },
+  {
+    "database_id": "33333333-3333-4333-8333-333333333333",
+    "intent": "mutations_since",
+    "args": {}
+  }
+]
+```
+
+```json
+[
+  {
+    "database_id": "11111111-1111-4111-8111-111111111111",
+    "intent": "mutations_since",
+    "result": { "cursor": "c-a-next", "mutations": [] }
+  },
+  {
+    "database_id": "22222222-2222-4222-8222-222222222222",
+    "intent": "mutations_since",
+    "error": { "code": "unauthorized", "field": "database.grant" }
+  },
+  {
+    "database_id": "33333333-3333-4333-8333-333333333333",
+    "intent": "mutations_since",
+    "result": { "cursor": "c-c", "mutations": [] }
+  }
+]
+```
+
 ## Decisions (Tom, 2026-11-19)
 
 1. Protocol **v3**.
@@ -192,6 +269,10 @@ data to reclaim storage (Decision 15).
     path; retention/cleanup jobs stay internal (Decision 13).
 16. **Standard envelope** — every fetch/push/manage call uses
     `{database_id, intent, args}` / `{database_id, intent, result}`.
+17. **Batching** — each action accepts one envelope or an array of envelopes
+    for that action only. Independent per-item results/errors; HTTP 200 for a
+    processed batch. Max **90** items; request ≤ 256 KiB; response ≤ 8 MiB with
+    per-item `batch_too_large` when the response budget is exhausted.
 
 ## Intent args and results
 
