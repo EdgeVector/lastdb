@@ -18,7 +18,10 @@ invite, accept, submit, and submission_status need two nodes that share one
 database. No operation in this tree does that, so this proof does not call them.
 This fresh home creates no received database. Every listed row omits publish.
 Only a DEV member node (People people-direct, two nodes) can show
-publish.pending and publish.lastAttempt.
+publish.pending and publish.lastAttempt. On a received row, pending is null
+until this process has seen the spool, and null again after a restart. A
+number is the count last recorded by a path that already had the store open.
+The list does not open a store.
 A service authorization refusal on submit is the cloud's decision. This
 fresh home has no cloud, so it cannot show the 403. The DEV two-node run
 (People people-circles, exercise_reader) is the proof.
@@ -124,7 +127,9 @@ def owned_rows_omit_publish(reply):
             "an owned database list row included publish")
     print("Received publish is only visible on a DEV member node "
           "(People people-direct, two nodes). This fresh home has no received "
-          "database, so it cannot show publish.pending or publish.lastAttempt.",
+          "database, so it cannot show publish.pending or publish.lastAttempt. "
+          "On a received row, pending is null until this process has seen the "
+          "spool, and null again after a restart. The list does not open a store.",
           flush=True)
 
 

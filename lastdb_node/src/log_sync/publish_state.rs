@@ -1,6 +1,10 @@
 //! In-memory publish report for one received database.
 //!
-//! `pending` is the accepted-write spool: head minus the confirmed prefix.
+//! This map is the only publish report. `pending` is the accepted-write spool:
+//! head minus the confirmed prefix. A path that already has the store open
+//! records it when the spool changes or when that path reads the cursor.
+//! The database list reads the record and does not open a store. `pending` is
+//! absent until this process has seen the spool, including after a restart.
 //! `lastAttempt` lives only in this process and is empty again after a restart.
 //! The warn token is the `category` value `PrivateFormat` keeps.
 
@@ -12,7 +16,6 @@ use mutation_log::{AppendBatch, AppendOutcome, LogError};
 use serde_json::{json, Value};
 
 use crate::host::Host;
-use crate::registered_share::RegisteredShare;
 
 use super::cloud::CloudLog;
 use super::wire;
@@ -43,6 +46,8 @@ struct Attempt {
 #[derive(Default)]
 struct Slot {
     attempt: Option<Attempt>,
+    /// `None` until a path that already has the store open records the cursor.
+    pending: Option<u64>,
     noted: bool,
     warned: Option<(Outcome, StatusKind)>,
 }
@@ -138,10 +143,18 @@ pub(super) fn classify(
     step
 }
 
-pub(crate) async fn row(host: &Host, share: &RegisteredShare) -> Value {
+/// Record the spool cursor. `pending` is head minus the confirmed prefix.
+pub(crate) fn note_spool(database_id: &str, head: u64, acked: u64) {
+    slots().entry(database_id.to_owned()).or_default().pending = Some(head.saturating_sub(acked));
+}
+
+/// Publish report for one received database. A registration that is not a
+/// signed log has no spool, so `pending` is 0. Otherwise `pending` is null
+/// until [`note_spool`] has run in this process.
+pub(crate) fn row(database_id: &str, signed_log: bool) -> Value {
     json!({
-        "pending": pending(host, share).await,
-        "lastAttempt": attempt_json(share.id.as_str()),
+        "pending": pending_json(database_id, signed_log),
+        "lastAttempt": attempt_json(database_id),
     })
 }
 
@@ -262,15 +275,14 @@ fn credentials_usable(home: &Path, environment: &str) -> bool {
     }
 }
 
-async fn pending(host: &Host, share: &RegisteredShare) -> u64 {
-    if !share.signed_log {
-        return 0;
+fn pending_json(database_id: &str, signed_log: bool) -> Value {
+    if !signed_log {
+        return Value::from(0);
     }
-    let Ok(store) = crate::registered_share::receiver_store(host, &share.id).await else {
-        return 0;
-    };
-    let status = crate::accepted_writes::status(&store.db_ops().native_runtime());
-    status.head.saturating_sub(status.acked)
+    slots()
+        .get(database_id)
+        .and_then(|slot| slot.pending)
+        .map_or(Value::Null, Value::from)
 }
 
 fn attempt_json(database_id: &str) -> Value {

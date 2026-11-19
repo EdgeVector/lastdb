@@ -29,17 +29,27 @@ pub(crate) async fn receiver_store(host: &Host, id: &Id) -> Result<Arc<FoldDB>> 
     if !share.signed_log || share.id.as_str() != id.as_str() {
         return Err(ShareCacheError::Invalid("database id"));
     }
-    let mut open = host.received.lock().await;
-    if let Some(store) = open.get(id.as_str()) {
-        return Ok(Arc::clone(store));
-    }
-    // A read must not create the node marker before sync installs the snapshot.
-    if !store_ready(&host.home, id)? {
-        return Err(ShareCacheError::Unavailable);
-    }
-    let store = open_receiver(host, id, share.whole_database()).await?;
-    open.insert(id.as_str().to_owned(), Arc::clone(&store));
+    let store = {
+        let mut open = host.received.lock().await;
+        if let Some(store) = open.get(id.as_str()) {
+            Arc::clone(store)
+        } else if !store_ready(&host.home, id)? {
+            // A read must not create the node marker before sync installs the snapshot.
+            return Err(ShareCacheError::Unavailable);
+        } else {
+            let store = open_receiver(host, id, share.whole_database()).await?;
+            open.insert(id.as_str().to_owned(), Arc::clone(&store));
+            store
+        }
+    };
+    // The list reads this cursor. Recording it here does not open a second store.
+    remember_spool(&store, id.as_str());
     Ok(store)
+}
+
+fn remember_spool(store: &FoldDB, id: &str) {
+    let status = crate::accepted_writes::status(&store.db_ops().native_runtime());
+    crate::log_sync::note_spool(id, status.head, status.acked);
 }
 
 async fn open_receiver(host: &Host, id: &Id, whole_database: bool) -> Result<Arc<FoldDB>> {

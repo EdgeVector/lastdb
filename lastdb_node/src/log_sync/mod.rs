@@ -16,7 +16,7 @@ pub(crate) use crate::named_grant::cloud_state::{database_cloud_state, CloudStat
 pub(crate) use cloud_state::wait_for_enrollment;
 mod direct;
 mod publish_state;
-pub(crate) use publish_state::row as publish_row;
+pub(crate) use publish_state::{note_spool, row as publish_row};
 mod http;
 mod native;
 mod native_reset;

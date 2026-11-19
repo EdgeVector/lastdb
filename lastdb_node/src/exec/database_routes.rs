@@ -28,11 +28,11 @@ pub(in crate::exec) async fn execute_database_request(
         return content_free(404, "Not Found");
     }
     match (req.method.as_str(), req.target.as_str()) {
-        ("GET", DATABASES_PATH) => return database_owned::list(ctx, host).await,
+        ("GET", DATABASES_PATH) => return database_owned::list(ctx, host),
         ("POST", DATABASES_PATH) => return database_owned::create(req, ctx, host).await,
         ("POST", database_owned::SPEC_PATH) => return database_owned::bind(req, ctx, host),
         ("POST", database_owned::ACCEPT_PATH) => {
-            return database_owned::accept(req, ctx, host).await;
+            return database_owned::accept(req, ctx, host);
         }
         _ => {}
     }

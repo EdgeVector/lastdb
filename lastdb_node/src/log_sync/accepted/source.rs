@@ -18,6 +18,7 @@ const PAGE_LIMIT: u32 = 64;
 pub(crate) struct LocalUpload {
     identity: Arc<UploadIdentity>,
     pub(crate) position: UploadPosition,
+    member: bool,
 }
 
 impl LocalUpload {
@@ -51,6 +52,7 @@ impl LocalUpload {
                     writer_seq,
                     spool_through: after,
                 },
+                member,
             };
             upload.confirm(runtime, upload.position).await?;
             return Ok(Some(upload));
@@ -62,7 +64,11 @@ impl LocalUpload {
             }
             return Ok(None);
         }
-        Ok(Some(Self { identity, position }))
+        Ok(Some(Self {
+            identity,
+            position,
+            member,
+        }))
     }
 
     pub(crate) async fn confirm(
@@ -70,15 +76,24 @@ impl LocalUpload {
         runtime: &Arc<PackRuntime>,
         saved: UploadPosition,
     ) -> Result<(), &'static str> {
-        let runtime = Arc::clone(runtime);
+        let writer = Arc::clone(runtime);
         let identity = Arc::clone(&self.identity);
         let after = self.position.spool_through;
         tokio::task::spawn_blocking(move || {
-            runtime.confirm_accepted_upload(&identity, after, saved)
+            writer.confirm_accepted_upload(&identity, after, saved)
         })
         .await
         .map_err(|_| "local upload writer stopped")?
-        .map_err(|_| "upload confirmation could not be recorded locally")
+        .map_err(|_| "upload confirmation could not be recorded locally")?;
+        if self.member {
+            let status = accepted_writes::status(runtime);
+            super::super::publish_state::note_spool(
+                &self.identity.database_id,
+                status.head,
+                status.acked,
+            );
+        }
+        Ok(())
     }
 }
 

@@ -99,6 +99,10 @@ pub(super) async fn publish_owned(host: &Host, log: &CloudLog) -> Result<(), &'s
     } else {
         None
     };
+    if received {
+        let status = accepted_writes::status(&runtime);
+        super::publish_state::note_spool(log.database_id(), status.head, status.acked);
+    }
     if failure == Some(crate::cloud::PAYMENT_REQUIRED_MESSAGE) {
         return Err(crate::cloud::PAYMENT_REQUIRED_MESSAGE);
     }

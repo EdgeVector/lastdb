@@ -115,7 +115,11 @@ async fn write_received<T>(
     let store = registered_share::receiver_store(host, &share.id)
         .await
         .map_err(|_| HostError::new(503, STORE_UNAVAILABLE))?;
-    host.with_records(store, future).await
+    let result = host.with_records(Arc::clone(&store), future).await;
+    // The open recorded the cursor before this write. Record it again after.
+    let status = crate::accepted_writes::status(&store.db_ops().native_runtime());
+    crate::log_sync::note_spool(share.id.as_str(), status.head, status.acked);
+    result
 }
 
 async fn read_received<T>(
