@@ -278,6 +278,17 @@ body (array or single).
     `{ "code":"rate_limited", "field":"fetch.any" }`. Push/manage still
     require a real membership grant and normal device registration / paid
     gates.
+33. **Upload is `begin` then `commit`.** `push`/`file` and `push`/`snapshot`
+    each have exactly two stages. **`begin`** returns presigned PUT URL(s)
+    (files may return `already_stored` instead; snapshot URLs page at 32).
+    The **node PUTs bytes directly to storage** between stages. **`commit`**
+    makes ExeMem verify size and hash — files return `verified`; snapshots
+    take the full Manifest and return `snapshot_id` / `restore_point_id`, and
+    **only then** is the restore point visible. **No** storage-event
+    confirmation. **No** inline-bytes upload path in this design (small
+    inline files are a possible later addition only). Downloads stay as
+    typed: `fetch`/`file` ranges ≤180 KiB; `fetch`/`snapshot` describe +
+    GET grants.
 
 ## Account
 
@@ -376,9 +387,11 @@ discriminators, staged snapshot/file).
 | `…/inbox/settle` (accept) | publisher `push`/`mutations` |
 | `…/inbox/settle` (discard) | **removed** (silent) |
 | `…/settle-submissions` | **removed** |
-| `…/blob/bytes` | `push`/`file` |
+| `…/blob/bytes` prepare | `push`/`file` `stage: begin` |
+| `…/blob/bytes` complete | `push`/`file` `stage: commit` |
 | `…/delivery/object` | `fetch`/`file` |
-| `…/snapshot/bytes` prepare/publish | `push`/`snapshot` |
+| `…/snapshot/bytes` prepare | `push`/`snapshot` `stage: begin` |
+| `…/snapshot/bytes` publish | `push`/`snapshot` `stage: commit` |
 | `…/snapshot/bytes` read*/download | `fetch`/`snapshot` |
 | `…/snapshot/bytes` retention/reclaim/`*_dev` | ExeMem-internal |
 | `…/share/members/set` | `manage`/`grant` / `revoke` |
@@ -549,23 +562,27 @@ Writer device = `X-LastDB-Device-Id`.
 | `next_writer_seq` | uint ≥1 | yes |
 | `duplicate` | bool | no |
 
-### `push` / `snapshot` (`stage: prepare`)
+### `push` / `snapshot` (`stage: begin`)
 
 Purpose: obtain PUT URLs for snapshot files (≤32 per call).
 Who: publisher.
-Source: `snapshot/bytes` action `prepare`. Client PUTs to `upload_url` (not this API).
+Source: `snapshot/bytes` action `prepare` → v3 `begin`. Node PUTs to
+`upload_url` (not this API). Decision 33.
 
-### `push` / `snapshot` (`stage: publish`)
+### `push` / `snapshot` (`stage: commit`)
 
-Purpose: commit Manifest; returns `restore_point_id` (= snapshot digest).
+Purpose: ExeMem verifies the Manifest; returns `restore_point_id`
+(= `snapshot_id`). Restore point visible only after this call.
 Who: publisher.
-Source: `snapshot/bytes` action `publish`.
+Source: `snapshot/bytes` action `publish` → v3 `commit`. Decision 33.
 
-### `push` / `file` (`stage: prepare` \| `complete`)
+### `push` / `file` (`stage: begin` \| `commit`)
 
-Purpose: prepare upload grant or verify completed upload.
+Purpose: `begin` returns a PUT URL (or `already_stored`); `commit` verifies
+size/hash → `verified`. Node PUTs between stages. No inline bytes.
 Who: member/publisher with write.
-Source: `mutation-log/blob/bytes` (`signed_blob.rs`). Binary PUT uses `upload_url`.
+Source: `mutation-log/blob/bytes` prepare/complete → v3 begin/commit
+(`signed_blob.rs`). Decision 33.
 
 ### `manage` / `create`
 
@@ -721,9 +738,9 @@ Source: `scripts/cloud_backup/snapshot_attempt_account.py`.
 4. **`expires_at_ms` on access:** optional; **not on wire today** — included only because Tom listed it.
 5. **Cursors:** opaque strings wrapping today’s decimal `delivery_seq` (not exposing decimal in the public schema).
 6. **`file_handle` / `part_handle` / `ticket`:** opaque; lengths 512/256/256 chosen from BlobPath / grant sizes.
-7. **Snapshot describe result:** flattened (`through`, `file_count`, `name`) instead of returning full `Manifest.files[]` (can be large); full file list still available via part/prepare flows.
-8. **Push snapshot stages:** only `prepare` + `publish` on this API; binary PUT stays off-API to presigned URLs (same as today).
-9. **Push file stages:** `prepare` + `complete` (today’s actions); no `upload` stage on this API.
+7. **Snapshot describe result:** flattened (`through`, `file_count`, `name`) instead of returning full `Manifest.files[]` (can be large); full file list still available via part/begin flows.
+8. **Push stages:** Tom approved Decision 33 — `begin`/`commit` only (no inline bytes; no storage-event confirm).
+9. *(superseded by Decision 33)*
 10. **Fetch ciphertext encoding:** kept **standard base64** to match `delivery/object` (not base64url).
 11. **Grant roles:** `writer` \| `submit` \| `reader` (maps today’s Submit/Read + direct-write).
 12. **`storage_used_bytes` / device `added_at_ms`:** required/optional fields for `status` even though ExeMem does not expose them yet (Decision 27).

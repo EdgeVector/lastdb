@@ -281,7 +281,7 @@
     "/api/cloud/v3/push": {
       "post": {
         "summary": "Push",
-        "description": "Intents: mutations, snapshot (prepare|publish), file (prepare|complete). landed from grant; publisher always direct.",
+        "description": "Intents: mutations, snapshot (begin|commit), file (begin|commit). Node PUTs to storage between stages; commit verifies size/hash (Decision 33). No inline bytes; no storage-event confirmation. landed from grant; publisher always direct.",
         "operationId": "cloudPush",
         "security": [
           {
@@ -1232,7 +1232,7 @@
       },
       "OpaqueTicket": {
         "type": "string",
-        "description": "Opaque upload/prepare ticket. Max 256.",
+        "description": "Opaque upload/begin ticket. Max 256.",
         "minLength": 1,
         "maxLength": 256,
         "title": "OpaqueTicket"
@@ -1751,7 +1751,7 @@
           }
         }
       },
-      "PushSnapshotPrepareArgs": {
+      "PushSnapshotBeginArgs": {
         "type": "object",
         "required": [
           "stage",
@@ -1761,7 +1761,7 @@
         "properties": {
           "stage": {
             "type": "string",
-            "const": "prepare"
+            "const": "begin"
           },
           "files": {
             "type": "array",
@@ -1778,7 +1778,7 @@
           }
         }
       },
-      "PushSnapshotPrepareResult": {
+      "PushSnapshotBeginResult": {
         "type": "object",
         "required": [
           "stage",
@@ -1789,7 +1789,7 @@
         "properties": {
           "stage": {
             "type": "string",
-            "const": "prepare"
+            "const": "begin"
           },
           "upload_id": {
             "type": "string",
@@ -1830,7 +1830,7 @@
         },
         "description": "Client PUTs each file to upload_url (not this API)."
       },
-      "PushSnapshotPublishArgs": {
+      "PushSnapshotCommitArgs": {
         "type": "object",
         "required": [
           "stage",
@@ -1842,7 +1842,7 @@
         "properties": {
           "stage": {
             "type": "string",
-            "const": "publish"
+            "const": "commit"
           },
           "upload_id": {
             "type": "string",
@@ -1880,7 +1880,7 @@
           }
         }
       },
-      "PushSnapshotPublishResult": {
+      "PushSnapshotCommitResult": {
         "type": "object",
         "required": [
           "stage",
@@ -1890,7 +1890,7 @@
         "properties": {
           "stage": {
             "type": "string",
-            "const": "publish"
+            "const": "commit"
           },
           "restore_point_id": {
             "type": "string",
@@ -1904,24 +1904,24 @@
       "PushSnapshotArgs": {
         "oneOf": [
           {
-            "$ref": "#/components/schemas/PushSnapshotPrepareArgs"
+            "$ref": "#/components/schemas/PushSnapshotBeginArgs"
           },
           {
-            "$ref": "#/components/schemas/PushSnapshotPublishArgs"
+            "$ref": "#/components/schemas/PushSnapshotCommitArgs"
           }
         ]
       },
       "PushSnapshotResult": {
         "oneOf": [
           {
-            "$ref": "#/components/schemas/PushSnapshotPrepareResult"
+            "$ref": "#/components/schemas/PushSnapshotBeginResult"
           },
           {
-            "$ref": "#/components/schemas/PushSnapshotPublishResult"
+            "$ref": "#/components/schemas/PushSnapshotCommitResult"
           }
         ]
       },
-      "PushFilePrepareArgs": {
+      "PushFileBeginArgs": {
         "type": "object",
         "required": [
           "stage",
@@ -1932,12 +1932,12 @@
         "properties": {
           "stage": {
             "type": "string",
-            "const": "prepare"
+            "const": "begin"
           },
           "bytes": {
             "type": "integer",
             "minimum": 1,
-            "description": "Exact object length (BlobBytes prepare)."
+            "description": "Exact object length (BlobBytes begin)."
           },
           "sha256": {
             "type": "string",
@@ -1952,7 +1952,7 @@
           }
         }
       },
-      "PushFilePrepareUploadResult": {
+      "PushFileBeginUploadResult": {
         "type": "object",
         "required": [
           "stage",
@@ -1966,7 +1966,7 @@
         "properties": {
           "stage": {
             "type": "string",
-            "const": "prepare"
+            "const": "begin"
           },
           "status": {
             "type": "string",
@@ -1988,7 +1988,7 @@
           }
         }
       },
-      "PushFilePrepareVerifiedResult": {
+      "PushFileBeginStoredResult": {
         "type": "object",
         "required": [
           "stage",
@@ -1999,28 +1999,28 @@
         "properties": {
           "stage": {
             "type": "string",
-            "const": "prepare"
+            "const": "begin"
           },
           "status": {
             "type": "string",
-            "const": "already_verified"
+            "const": "already_stored"
           },
           "file_handle": {
             "$ref": "#/components/schemas/OpaqueFileHandle"
           }
         }
       },
-      "PushFilePrepareResult": {
+      "PushFileBeginResult": {
         "oneOf": [
           {
-            "$ref": "#/components/schemas/PushFilePrepareUploadResult"
+            "$ref": "#/components/schemas/PushFileBeginUploadResult"
           },
           {
-            "$ref": "#/components/schemas/PushFilePrepareVerifiedResult"
+            "$ref": "#/components/schemas/PushFileBeginStoredResult"
           }
         ]
       },
-      "PushFileCompleteArgs": {
+      "PushFileCommitArgs": {
         "type": "object",
         "required": [
           "stage",
@@ -2032,7 +2032,7 @@
         "properties": {
           "stage": {
             "type": "string",
-            "const": "complete"
+            "const": "commit"
           },
           "file_handle": {
             "$ref": "#/components/schemas/OpaqueFileHandle"
@@ -2054,7 +2054,7 @@
           }
         }
       },
-      "PushFileCompleteResult": {
+      "PushFileCommitResult": {
         "type": "object",
         "required": [
           "stage",
@@ -2065,7 +2065,7 @@
         "properties": {
           "stage": {
             "type": "string",
-            "const": "complete"
+            "const": "commit"
           },
           "file_handle": {
             "$ref": "#/components/schemas/OpaqueFileHandle"
@@ -2073,27 +2073,27 @@
           "status": {
             "type": "string",
             "const": "verified",
-            "description": "complete response status verified."
+            "description": "commit response status verified."
           }
         }
       },
       "PushFileArgs": {
         "oneOf": [
           {
-            "$ref": "#/components/schemas/PushFilePrepareArgs"
+            "$ref": "#/components/schemas/PushFileBeginArgs"
           },
           {
-            "$ref": "#/components/schemas/PushFileCompleteArgs"
+            "$ref": "#/components/schemas/PushFileCommitArgs"
           }
         ]
       },
       "PushFileResult": {
         "oneOf": [
           {
-            "$ref": "#/components/schemas/PushFilePrepareResult"
+            "$ref": "#/components/schemas/PushFileBeginResult"
           },
           {
-            "$ref": "#/components/schemas/PushFileCompleteResult"
+            "$ref": "#/components/schemas/PushFileCommitResult"
           }
         ]
       },
