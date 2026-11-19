@@ -3,7 +3,7 @@
   "info": {
     "title": "ExeMem cloud API",
     "version": "3",
-    "description": "Target contract for the unified ExeMem cloud (storage + auth) HTTP API. info.version is the cloud protocol version. This file is the design machine spec; when it and docs/designs/cloud-api.md differ, this file wins for paths, auth, and errors. Cutover is a clean break from /api/cloud/backups/v2 \u2014 no dual paths."
+    "description": "Target contract for the unified ExeMem cloud (storage + auth) HTTP API. info.version is the cloud protocol version (v3). Design draft lives under docs/designs/; the live file after implementation is cloud_backup_protocol/cloud-api.openapi.json. Protocol version travels in X-LastDB-Cloud-Protocol and LastDBNode.token.version only \u2014 not in ordinary JSON bodies. Auth-service routes do not use the protocol header. Cutover is a clean break from /api/cloud/backups/v2 \u2014 no dual paths. Members are signed grant entries (grant#<node key>) only."
   },
   "x-lastdb-cloud-protocol-version": 3,
   "x-lastdb-cloud-protocol-min-version": 3,
@@ -46,7 +46,7 @@
     },
     {
       "name": "members",
-      "description": "Publisher-signed member entries (config storage, not People Share)."
+      "description": "Signed grant entries (one grant#<node key> per member). Not People Share."
     },
     {
       "name": "settings",
@@ -723,7 +723,7 @@
         "tags": [
           "members"
         ],
-        "summary": "Publisher writes signed member entries (was share/members/set).",
+        "summary": "Publisher writes signed grant entries (was share/members/set).",
         "parameters": [
           {
             "$ref": "#/components/parameters/CloudProtocolHeader"
@@ -739,18 +739,18 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/MemberSetRequest"
+                "$ref": "#/components/schemas/SetGrantsRequest"
               }
             }
           }
         },
         "responses": {
           "200": {
-            "description": "New member-list revision.",
+            "description": "Grants stored.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/MemberSetResponse"
+                  "$ref": "#/components/schemas/SetGrantsResponse"
                 }
               }
             }
@@ -782,7 +782,7 @@
         "tags": [
           "members"
         ],
-        "summary": "Read one member entry (was share/members/get).",
+        "summary": "Read one signed grant entry (was share/members/get).",
         "parameters": [
           {
             "$ref": "#/components/parameters/CloudProtocolHeader"
@@ -798,18 +798,18 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/MemberGetRequest"
+                "$ref": "#/components/schemas/GetGrantRequest"
               }
             }
           }
         },
         "responses": {
           "200": {
-            "description": "Entry or null.",
+            "description": "Grant entry or null.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/MemberGetResponse"
+                  "$ref": "#/components/schemas/GetGrantResponse"
                 }
               }
             }
@@ -834,11 +834,11 @@
     },
     "/api/cloud/v3/members/list": {
       "post": {
-        "operationId": "membersList",
+        "operationId": "membersListGrants",
         "tags": [
           "members"
         ],
-        "summary": "Publisher pages member entries (was share/members/list).",
+        "summary": "Publisher pages signed grant entries (was share/members/list).",
         "parameters": [
           {
             "$ref": "#/components/parameters/CloudProtocolHeader"
@@ -854,18 +854,18 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/MemberListRequest"
+                "$ref": "#/components/schemas/ListGrantsRequest"
               }
             }
           }
         },
         "responses": {
           "200": {
-            "description": "Page of entries.",
+            "description": "Page of GrantEntry values.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/MemberListResponse"
+                  "$ref": "#/components/schemas/ListGrantsResponse"
                 }
               }
             }
@@ -890,24 +890,14 @@
     },
     "/api/cloud/v3/members/read": {
       "post": {
-        "operationId": "membersRead",
+        "operationId": "membersSelfAccess",
         "tags": [
           "members"
         ],
-        "summary": "Member-list revision; optional X-LastDB-Self-Access: 1 (was share/members/read).",
+        "summary": "Caller's own grant / self-access (was share/members/read).",
         "parameters": [
           {
             "$ref": "#/components/parameters/CloudProtocolHeader"
-          },
-          {
-            "name": "X-LastDB-Self-Access",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "const": "1"
-            },
-            "description": "When 1, return this member's role with the revision."
           }
         ],
         "security": [
@@ -920,18 +910,18 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/MemberListReadRequest"
+                "$ref": "#/components/schemas/SelfAccessRequest"
               }
             }
           }
         },
         "responses": {
           "200": {
-            "description": "Revision, optionally with role.",
+            "description": "Self-access for the calling node key.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/JsonObject"
+                  "$ref": "#/components/schemas/SelfAccessResponse"
                 }
               }
             }
@@ -1619,7 +1609,7 @@
         "name": "X-LastDB-Cloud-Protocol",
         "in": "header",
         "required": true,
-        "description": "Cloud protocol version. Must equal info.version for storage routes. Checked before body decode. LastDBNode.token.version must match.",
+        "description": "Cloud protocol version. Required on storage routes only. Must equal info.version. Checked before body decode. LastDBNode.token.version must match. Auth-service routes omit this header.",
         "schema": {
           "type": "integer",
           "const": 3
@@ -1854,7 +1844,6 @@
         "additionalProperties": false,
         "required": [
           "state",
-          "version",
           "environment",
           "database_id"
         ],
@@ -1863,17 +1852,14 @@
             "type": "string",
             "const": "native"
           },
-          "version": {
-            "type": "integer",
-            "const": 3
-          },
           "environment": {
             "$ref": "#/components/schemas/ShareEnvironment"
           },
           "database_id": {
             "$ref": "#/components/schemas/Id"
           }
-        }
+        },
+        "description": "Native create reply. Protocol version is not repeated in the body (header + token carry it)."
       },
       "CreateDatabaseRequest": {
         "type": "object",
@@ -2160,133 +2146,6 @@
           }
         }
       },
-      "MemberSetRequest": {
-        "type": "object",
-        "additionalProperties": false,
-        "description": "Publisher-signed entries; exact MemberEntry schema from cloud_backup_protocol at codegen.",
-        "properties": {
-          "stream": {
-            "$ref": "#/components/schemas/Stream"
-          },
-          "entries": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/JsonObject"
-            }
-          }
-        }
-      },
-      "MemberSetResponse": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "version",
-          "revision"
-        ],
-        "properties": {
-          "version": {
-            "type": "integer",
-            "const": 3
-          },
-          "revision": {
-            "$ref": "#/components/schemas/DecimalU64"
-          }
-        }
-      },
-      "MemberGetRequest": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "stream": {
-            "$ref": "#/components/schemas/Stream"
-          },
-          "node_public_key": {
-            "$ref": "#/components/schemas/HexDigest"
-          }
-        }
-      },
-      "MemberGetResponse": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "version",
-          "revision"
-        ],
-        "properties": {
-          "version": {
-            "type": "integer",
-            "const": 3
-          },
-          "revision": {
-            "$ref": "#/components/schemas/DecimalU64"
-          },
-          "entry": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/JsonObject"
-              }
-            ]
-          }
-        }
-      },
-      "MemberListRequest": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "stream": {
-            "$ref": "#/components/schemas/Stream"
-          },
-          "after": {
-            "$ref": "#/components/schemas/HexDigest"
-          }
-        }
-      },
-      "MemberListResponse": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "version",
-          "revision",
-          "entries"
-        ],
-        "properties": {
-          "version": {
-            "type": "integer",
-            "const": 3
-          },
-          "revision": {
-            "$ref": "#/components/schemas/DecimalU64"
-          },
-          "entries": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/JsonObject"
-            }
-          },
-          "next": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/HexDigest"
-              }
-            ]
-          }
-        }
-      },
-      "MemberListReadRequest": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "stream": {
-            "$ref": "#/components/schemas/Stream"
-          }
-        }
-      },
       "SettingsSetRequest": {
         "type": "object",
         "additionalProperties": false,
@@ -2303,6 +2162,197 @@
         "properties": {
           "stream": {
             "$ref": "#/components/schemas/Stream"
+          }
+        }
+      },
+      "GrantEntry": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "One publisher-signed grant for one node key (stored as grant#<node key>). Exact fields follow cloud_backup_protocol at codegen (node_public_key, role, state, sequence, publisher signature, \u2026).",
+        "properties": {
+          "stream": {
+            "$ref": "#/components/schemas/Stream"
+          },
+          "node_public_key": {
+            "$ref": "#/components/schemas/HexDigest"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "read",
+              "submit"
+            ]
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "active",
+              "revoked"
+            ]
+          },
+          "sequence": {
+            "$ref": "#/components/schemas/DecimalU64"
+          },
+          "publisher_public_key": {
+            "$ref": "#/components/schemas/HexDigest"
+          },
+          "signed_at_ms": {
+            "$ref": "#/components/schemas/DecimalU64"
+          },
+          "signature": {
+            "type": "string"
+          },
+          "environment": {
+            "$ref": "#/components/schemas/ShareEnvironment"
+          }
+        }
+      },
+      "SetGrantsRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Publisher writes one or more signed GrantEntry values.",
+        "properties": {
+          "stream": {
+            "$ref": "#/components/schemas/Stream"
+          },
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GrantEntry"
+            }
+          }
+        }
+      },
+      "SetGrantsResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Ack only. No body protocol version.",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": [
+          "ok"
+        ]
+      },
+      "GetGrantRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "stream": {
+            "$ref": "#/components/schemas/Stream"
+          },
+          "node_public_key": {
+            "$ref": "#/components/schemas/HexDigest"
+          }
+        }
+      },
+      "GetGrantResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "entry"
+        ],
+        "description": "One grant entry or null.",
+        "properties": {
+          "entry": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/GrantEntry"
+              }
+            ]
+          }
+        }
+      },
+      "ListGrantsRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Publisher pages grant entries by node-key cursor.",
+        "properties": {
+          "stream": {
+            "$ref": "#/components/schemas/Stream"
+          },
+          "after": {
+            "$ref": "#/components/schemas/HexDigest"
+          }
+        }
+      },
+      "ListGrantsResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "entries"
+        ],
+        "description": "Page of GrantEntry values.",
+        "properties": {
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GrantEntry"
+            }
+          },
+          "next": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/HexDigest"
+              }
+            ]
+          }
+        }
+      },
+      "SelfAccessRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Ask for this caller's own grant / self-access view.",
+        "properties": {
+          "stream": {
+            "$ref": "#/components/schemas/Stream"
+          }
+        }
+      },
+      "SelfAccessResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "database_id",
+          "role"
+        ],
+        "description": "Caller's own grant view. role is read or submit when active. No write counter.",
+        "properties": {
+          "database_id": {
+            "$ref": "#/components/schemas/Id"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "read",
+              "submit"
+            ]
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "active",
+              "revoked"
+            ]
+          },
+          "grant": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/GrantEntry"
+              }
+            ]
           }
         }
       }

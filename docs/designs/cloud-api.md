@@ -46,11 +46,12 @@ a node talks to.
 
 ## Contract model (mirror the app API)
 
-After acceptance, the live contract is three committed artifacts (names can
-move out of `docs/designs/` when the work lands):
+After acceptance, the live contract is three committed artifacts:
 
 1. **Prose** — this document, later promoted beside `docs/app-api.md`.
-2. **OpenAPI 3.1** — `docs/designs/cloud-api.openapi.json` (this PR).
+2. **OpenAPI 3.1** — live file at
+   `cloud_backup_protocol/cloud-api.openapi.json` (Tom, 2026-11-19).
+   This PR keeps the design draft at `docs/designs/cloud-api.openapi.json`.
    `info.version` is the cloud protocol version as a decimal string.
 3. **Lint + generated types** — CI scripts modeled on `api_surface.py` and
    `app_api_types.py` (plan below; not written in this docs-only PR).
@@ -63,6 +64,8 @@ Rules:
 - Every stable error code appears under `components.schemas`.
 - Unknown JSON fields stay refused (`additionalProperties: false` on request
   bodies), matching today's `deny_unknown_fields`.
+- DEV-only routes stay in the same OpenAPI file, marked
+  `x-lastdb-environment: dev`.
 
 ## Hard rules (owner)
 
@@ -106,14 +109,17 @@ attaches two proxies plus optional DEV proof routes.
 **Blob `action` values** (body discriminator on `blob/bytes`):
 `context`, `prepare`, `complete`.
 
-### Members proxy — `POST …/share/members/{proxy+}`
+### Members proxy — `POST …/share/members/{proxy+}` (today)
+
+Access is one signed `grant#<node key>` row per member. lastdb #1799 already
+removed the whole-list counter from the token. v3 does not restore it.
 
 | Suffix | Purpose |
 |---|---|
-| `set` | Publisher writes signed member entries |
-| `get` | Read one member entry |
-| `list` | Publisher pages every member entry |
-| `read` | Member-list revision; optional self-access header |
+| `set` | Publisher writes signed grant entries |
+| `get` | Read one grant entry |
+| `list` | Publisher pages grant entries (cursor over node keys) |
+| `read` | Today: write-counter / optional self-access header — **wrong for Tom’s model**; v3 is self-access only |
 | `settings/set` | Publisher writes signed settings statement |
 | `settings/get` | Read settings statement |
 
@@ -202,16 +208,16 @@ Prefix: `/api/cloud/v3/`.
 | Blobs | `POST /api/cloud/v3/blobs` | body `action`: context/prepare/complete |
 | Snapshots | `POST /api/cloud/v3/snapshots` | body `action`: current snapshot actions |
 | Delivery | `POST /api/cloud/v3/delivery/object` | out from under mutation-log |
-| Members | `POST /api/cloud/v3/members/set` | was share/members |
-| | `POST /api/cloud/v3/members/get` | |
-| | `POST /api/cloud/v3/members/list` | |
-| | `POST /api/cloud/v3/members/read` | |
+| Members (grants) | `POST /api/cloud/v3/members/set` | write signed grant entries |
+| | `POST /api/cloud/v3/members/get` | one grant entry |
+| | `POST /api/cloud/v3/members/list` | page grant entries (publisher) |
+| | `POST /api/cloud/v3/members/read` | caller’s own grant / self-access |
 | Settings | `POST /api/cloud/v3/settings/set` | was share/members/settings |
 | | `POST /api/cloud/v3/settings/get` | |
-| DEV proof | `POST /api/cloud/v3/dev-snapshot-proof/{op}` | DEV only |
+| DEV proof | `POST /api/cloud/v3/dev-snapshot-proof/{op}` | DEV only; in the contract |
 
-Auth-service paths stay under `/api/developer` and `/api/auth` (no `/v3`
-rename in this design unless Tom wants one file version over everything).
+Auth-service paths stay under `/api/developer` and `/api/auth`. They do **not**
+use the cloud protocol header (Decision 5).
 
 ### Old → new route table
 
@@ -244,37 +250,38 @@ error on every storage Lambda entry).
 
 ### Single wire version
 
-One integer: **cloud protocol version**. First cutover value: **3**.
+One integer: **cloud protocol version**. Cutover value: **3** (Decision 1).
 `info.version` in the OpenAPI is `"3"`. Rust constant (proposed name)
 `CLOUD_PROTOCOL_VERSION: u32 = 3`.
 
-There is no separate “API version” and “token version”. Body fields that
-today hard-code JSON `2` become this same integer, or are removed when the
-header alone is enough (see open questions).
+There is no separate “API version” and “token version”.
 
 ### Where the version travels
 
-**Required request header:**
+**Required request header on every storage route:**
 
 ```
 X-LastDB-Cloud-Protocol: 3
 ```
 
-Checked first on every storage route, before body decode.
+Checked first, before body decode.
 
 **Also bound into `LastDBNode`:** the token JSON carries the same integer in
 `version`, and that value is covered by the signature digest. Header and token
 must match. A mismatch is `invalid_input` / `cloud.protocol.mismatch`.
 
-API-key-only auth-service routes that are not storage may omit the header until
-Tom decides they share the same number (recommended: omit; they are not the
-backup wire).
+**Drop redundant body `version` fields** where the path already implies the
+protocol (Decision 2). Do not put the protocol integer on grant, settings, or
+database response bodies.
+
+Auth-service routes (`/api/developer/*`, `/api/auth/*`) do **not** send or
+require this header (Decision 5).
 
 ### Out-of-date node
 
 If the header is missing, lower than the service’s minimum, or higher than the
 service supports, the reply is **one clear typed error** — never an opaque
-serde failure:
+serde failure (Decision 3):
 
 ```
 HTTP 426
@@ -396,40 +403,39 @@ against the new paths after cutover. No new unit test target.
 
 ## Cutover
 
-1. Land the OpenAPI + prose (this PR).
-2. Implement protocol 3 paths and version gate in `cloud_backup_protocol` +
+1. Land the design OpenAPI + prose (this PR).
+2. Move the live OpenAPI to `cloud_backup_protocol/cloud-api.openapi.json`
+   when implementation starts (Decision 6).
+3. Implement protocol 3 paths and version gate in `cloud_backup_protocol` +
    `exemem-infra` + `lastdb_node` in one coordinated release train.
-3. Deploy cloud that speaks only v3; ship a LastDB stable that speaks only v3.
-4. Remove v2 path constants. Do not leave aliases.
+4. Deploy cloud that speaks only v3; ship a LastDB stable that speaks only v3.
+5. Remove v2 path constants. Do not leave aliases.
 
-## Open questions for Tom
+## Decisions
 
-1. **Protocol number for the cutover — start at 3?**
-   Recommended: **yes** (current wire field is already `2`; a new tree should
-   not reuse it).
+Recorded 2026-11-19 (Tom, via LastDB Chief of Staff). These replace the earlier
+open questions.
 
-2. **Keep `version` inside every JSON body and token, or header-only plus token?**
-   Recommended: **header + token field**; drop redundant body `version` fields
-   where the path already implies the protocol, to shrink deny-unknown churn.
+1. **Protocol starts at v3.**
+2. **Version travels in the header and the `LastDBNode` token.** Drop redundant
+   body `version` fields.
+3. **Out-of-date clients get HTTP 426** with `code: upgrade_required` and
+   `minimum_version`.
+4. **Split `share/members` into `members` and `settings`.** Members means
+   signed grant entries (`grant#<node key>`), not a People Share preset and not
+   a whole-list document.
+5. **No protocol header on the auth service.**
+6. **Live OpenAPI lives under `cloud_backup_protocol/`**
+   (`cloud_backup_protocol/cloud-api.openapi.json`).
+7. **Keep DEV snapshot-proof in the contract**, marked
+   `x-lastdb-environment: dev`.
 
-3. **HTTP status for upgrade — 426?**
-   Recommended: **426** with `code: upgrade_required` and `minimum_version`.
+### Grants and self-access (Decision 4, clarified)
 
-4. **Rename `share/members` → `members` and `settings`?**
-   Recommended: **yes**, so the cloud URL does not look like the People Share
-   preset. Behavior stays config pass-through.
-
-5. **Should auth-service (`/api/developer`, `/api/auth`) share the cloud
-   protocol version header?**
-   Recommended: **no** — separate surface; document in the same OpenAPI file
-   under a distinct tag only.
-
-6. **Where should the live OpenAPI live after implementation —
-   `cloud_backup_protocol/` or `lastdb_node/`?**
-   Recommended: **`cloud_backup_protocol/cloud-api.openapi.json`**, because both
-   node and service consume that crate; prose can stay under `docs/`.
-
-7. **DEV snapshot-proof and DEV snapshot cleanup actions — keep inside the
-   public contract file?**
-   Recommended: **yes**, marked `x-lastdb-environment: dev`, so the dispatch
-   lint cannot forget them.
+- One signed **grant entry** per node key. Schema name: `GrantEntry`.
+- `POST …/members/set` writes grant entries. `get` reads one. `list` pages
+  grant entries for the publisher (a cursor over node keys).
+- `POST …/members/read` returns the caller’s **self-access** only
+  (`SelfAccessRequest` / `SelfAccessResponse`). It does not return a write
+  counter. `#1799` already removed the whole-list counter from the token; v3
+  does not bring it back.
