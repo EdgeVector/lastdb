@@ -10,7 +10,9 @@
 //! the log does not call it. The payload stays opaque there.
 //!
 //! A database name does not select a spec. The stored `{ "name", "version" }`
-//! binding does. `social-graph` stays in `personal`.
+//! binding does. App schemas (People, Hearth, …) are not a LastDB catalog:
+//! whole-database shares publish every schema, and member write behaviour
+//! comes from the publisher's settings statement.
 
 const WHOLE_DATABASE: &str = "whole-database";
 
@@ -25,48 +27,7 @@ struct ShareSpec {
     schemas: &'static [SchemaSpec],
 }
 
-const SOCIAL: ShareSpec = ShareSpec {
-    namespaces: &["social"],
-    schemas: &[
-        SchemaSpec {
-            namespace: "social",
-            name: "Card",
-            fields: &["person_id", "display_name", "avatar"],
-        },
-        SchemaSpec {
-            namespace: "social",
-            name: "Photo",
-            fields: &[
-                "photo_taken_at",
-                "photo_caption",
-                "image_width_pixels",
-                "image_height_pixels",
-                "file_media_type",
-                "file_size_bytes",
-                "camera_make",
-                "camera_model",
-                "geographic_latitude_degrees",
-                "geographic_longitude_degrees",
-            ],
-        },
-        SchemaSpec {
-            namespace: "social",
-            name: "Album",
-            fields: &["title", "description", "cover_photo_id", "created_at"],
-        },
-        SchemaSpec {
-            namespace: "social",
-            name: "AlbumItem",
-            fields: &["photo_id", "added_by", "position"],
-        },
-        SchemaSpec {
-            namespace: "social",
-            name: "Comment",
-            fields: &["target", "author_id", "social_comment_text", "created_at"],
-        },
-    ],
-};
-
+/// LastDB's own files product. Not an app catalog.
 const FILES: ShareSpec = ShareSpec {
     namespaces: &["lastdb-files"],
     schemas: &[
@@ -86,8 +47,7 @@ const FILES: ShareSpec = ShareSpec {
 fn share_spec(name: &str, version: u32) -> Result<&'static ShareSpec, PolicyError> {
     match (name, version) {
         ("lastdb-files", 1) => Ok(&FILES),
-        ("social", 1) => Ok(&SOCIAL),
-        ("lastdb-files" | "social", _) => Err(PolicyError::UnsupportedVersion),
+        ("lastdb-files", _) => Err(PolicyError::UnsupportedVersion),
         _ => Err(PolicyError::UnknownSpec),
     }
 }
@@ -214,9 +174,9 @@ pub fn admit_namespace(
 ///
 /// The schema and every named field must be listed. `file` is true only when
 /// the mutation carries the record's file bytes. Those bytes are eligible for
-/// social `Photo` and `lastdb-files` `FileChunk`. A private schema, an unlisted
-/// field, or any other file is `Ok(false)`. A bad binding is an error.
-/// A missing spec is not classified here.
+/// `lastdb-files` `FileChunk`. A private schema, an unlisted field, or any
+/// other file is `Ok(false)`. A bad binding is an error. A missing spec is
+/// not classified here. Whole-database shares do not call this path.
 pub fn record_is_shareable(
     binding: &SpecBinding,
     namespace: &str,
@@ -234,11 +194,7 @@ pub fn record_is_shareable(
     if fields.iter().any(|field| !found.fields.contains(field)) {
         return Ok(false);
     }
-    Ok(!file
-        || matches!(
-            (namespace, schema),
-            ("social", "Photo") | ("lastdb-files", "FileChunk")
-        ))
+    Ok(!file || (namespace == "lastdb-files" && schema == "FileChunk"))
 }
 
 /// Whether `value` is 1..=64 ASCII alphanumeric, `-`, or `_` bytes.

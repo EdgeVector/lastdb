@@ -24,15 +24,20 @@ pub(super) async fn create(req: &UdsRequest, ctx: &AccessContext, host: &Host) -
         Some("personal") => Kind::Personal,
         Some(_) => return error_response(400, "invalid database access policy", ctx),
     };
+    // Shareable databases are whole-database only. A filtered or app catalog
+    // `spec` on create is refused; People and other apps set memberWrites.
+    if body.spec.is_some() {
+        return error_response(400, "invalid database sharing mode", ctx);
+    }
     let spec = match body.sharing_mode.as_deref() {
-        Some("whole_database") if kind == Kind::Shareable && body.spec.is_none() => {
+        Some("whole_database") if kind == Kind::Shareable => {
             let binding = database_policy::SpecBinding::whole_database();
             Some(PublicationSpec {
                 name: binding.name().to_owned(),
                 version: binding.version(),
             })
         }
-        None if !body.spec.as_ref().is_some_and(reserved_binding) => body.spec,
+        None => None,
         _ => return error_response(400, "invalid database sharing mode", ctx),
     };
     if let Err(error) = owned::validate_create(&body.name, spec.as_ref()) {
@@ -81,8 +86,10 @@ pub(super) fn bind(req: &UdsRequest, ctx: &AccessContext, host: &Host) -> UdsRes
     let Some(body) = decode::<BindBody>(req, BODY_LIMIT) else {
         return error_response(400, "invalid spec binding", ctx);
     };
-    if body.spec.as_ref().is_some_and(reserved_binding) {
-        return error_response(400, "whole-database sharing requires a new database", ctx);
+    // Clearing a binding is still allowed. Attaching a filtered or app catalog
+    // is not: create with `sharingMode: whole_database` instead.
+    if body.spec.is_some() {
+        return error_response(400, "filtered share specs are not supported", ctx);
     }
     match host.owned.bind_spec(&host.home, &body.id, body.spec) {
         Ok(entry) => json_ok(&envelope(&json!({ "database": row(&entry) }), &ctx.user_id)),
@@ -264,10 +271,6 @@ fn fail(error: OwnedError, ctx: &AccessContext) -> UdsResponse {
     render(Err(error.into()), ctx)
 }
 
-fn reserved_binding(spec: &PublicationSpec) -> bool {
-    database_policy::SpecBinding::is_whole_database_name(&spec.name)
-}
-
 fn decode<T: serde::de::DeserializeOwned>(req: &UdsRequest, limit: usize) -> Option<T> {
     if req.body.len() > limit {
         return None;
@@ -280,7 +283,7 @@ fn create_decode_message(req: &UdsRequest) -> &'static str {
         return "invalid database name";
     };
     if value.get("spec").is_some_and(|spec| !spec.is_null()) {
-        "invalid spec binding"
+        "invalid database sharing mode"
     } else {
         "invalid database name"
     }
@@ -290,6 +293,7 @@ fn create_decode_message(req: &UdsRequest) -> &'static str {
 #[serde(deny_unknown_fields)]
 struct CreateBody {
     name: String,
+    /// Present only so a filtered create is refused with a clear message.
     #[serde(default)]
     spec: Option<PublicationSpec>,
     #[serde(default)]

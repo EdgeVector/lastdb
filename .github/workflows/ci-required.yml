@@ -80,6 +80,8 @@ jobs:
         run: cargo fmt --all -- --check
       - name: Record counter writer-boundary lint
         run: python3 scripts/lints/lint-store-writers.py
+      - name: App concept boundary (People presets stay in People)
+        run: python3 scripts/lints/lint-concept-boundary.py
       - name: Module layer check
         uses: EdgeVector/.github/layer-check@f250aa7f93f92e9d6876fbedbb097a7c5e145f95
         with:

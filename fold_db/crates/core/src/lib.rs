@@ -13,6 +13,4 @@ pub use crate::access::error;
 pub use crate::crypto::security;
 pub use crate::db_operations::alternate_keys;
 pub use crate::platform::{clock, env_flag};
-pub use lastdb_model::{
-    canonical, hex, record_replacement, record_value, storage_policy, STANDARD_COMMENT_SCHEMA,
-};
+pub use lastdb_model::{canonical, hex, record_replacement, record_value, storage_policy};

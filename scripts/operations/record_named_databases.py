@@ -7,7 +7,7 @@ the socket and the lastdb CLI.
 
 RecordById on each named database is still placed by
 POST /api/databases/{id}/schemas/seed-system, which requires an isolated copy.
-social/CircleNote is placed by POST /api/databases/{id}/apps/declare-schema,
+demo/CircleNote is placed by POST /api/databases/{id}/apps/declare-schema,
 written and read with the database field, and absent from the personal database.
 """
 import json
@@ -30,23 +30,27 @@ def prepare(node, cli, output):
     require(read_value(node, None) == "v3", "personal key one changed before named databases")
     refuse(node, {"name": "personal"}, "invalid database name")
     refuse(node, {"name": "notes", "kind": "personal",
-                  "spec": {"name": "notes", "version": 1}}, "invalid spec binding")
-    notes = create(node, "notes", None, kind="personal")
+                  "spec": {"name": "notes", "version": 1}}, "invalid database sharing mode")
+    refuse(node, {"name": "social", "spec": {"name": "social", "version": 1}},
+           "invalid database sharing mode")
+    notes = create(node, "notes", kind="personal")
     refused(lambda: node.call("/api/databases/spec", {
         "id": notes["id"], "spec": {"name": "notes", "version": 1},
-    }), "invalid spec binding")
-    refuse(node, {"name": "notes", "spec": {"name": "notes", "version": 0}}, "invalid spec binding")
-    family = create(node, "social-family", {"name": "social", "version": 1})
-    alpha = create(node, "alpha", None)
-    work = create(node, "work", {"name": "work", "version": 1})
-    graph = create(node, "graph", {"name": "social", "version": 1})
-    refuse(node, {"name": "social-family", "spec": {"name": "social", "version": 1}},
-           "already registered")
+    }), "filtered share specs are not supported")
+    refuse(node, {"name": "draft", "spec": {"name": "notes", "version": 0}},
+           "invalid database sharing mode")
+    family = create(node, "family", sharing_mode="whole_database")
+    alpha = create(node, "alpha")
+    work = create(node, "work", sharing_mode="whole_database")
+    graph = create(node, "graph", sharing_mode="whole_database")
+    refuse(node, {"name": "family", "sharingMode": "whole_database"}, "already registered")
     personal_id = owner_id(node)
     refused(lambda: node.call("/api/databases/spec", {
-        "id": personal_id, "spec": {"name": "social", "version": 1},
-    }), "HTTP 404")
-    alpha = bind(node, alpha["id"], {"name": "notes", "version": 1})
+        "id": personal_id, "spec": {"name": "family", "version": 1},
+    }), "filtered share specs are not supported")
+    refused(lambda: node.call("/api/databases/spec", {
+        "id": alpha["id"], "spec": {"name": "notes", "version": 1},
+    }), "filtered share specs are not supported")
     install(node, notes["id"])
     install(node, family["id"])
     install(node, alpha["id"])
@@ -60,8 +64,8 @@ def prepare(node, cli, output):
     write_value(node, graph["id"], "graph")
     require(read_value(node, None) == "v3", "a sibling write changed personal")
     require(read_value(node, "notes") == "owner-only", "notes did not keep its value")
-    require(read_value(node, family["id"]) == "family", "social-family did not keep its value")
-    require(read_value(node, "social-family") == "family", "the owned name did not select its store")
+    require(read_value(node, family["id"]) == "family", "family did not keep its value")
+    require(read_value(node, "family") == "family", "the owned name did not select its store")
     require(read_value(node, alpha["id"]) == "alpha", "alpha did not keep its value")
     require(read_value(node, work["id"]) == "work", "work did not keep its value")
     require(read_value(node, graph["id"]) == "graph", "graph did not keep its value")
@@ -75,7 +79,7 @@ def prepare(node, cli, output):
         "graph_id": graph["id"],
     }
     (output / "named-databases.json").write_text(json.dumps(saved))
-    check_list(node, saved, alpha_spec={"name": "notes", "version": 1})
+    check_list(node, saved)
     cli_read(node, cli, family["id"], "family")
     cli_read(node, cli, "alpha", "alpha")
     print("Named databases: create under ordinary names and keyed isolation passed", flush=True)
@@ -85,15 +89,15 @@ def check(node, cli, output):
     saved = json.loads((output / "named-databases.json").read_text())
     require(read_value(node, None) == "v3", "personal changed across restart")
     require(read_value(node, saved["notes_id"]) == "owner-only", "notes changed across restart")
-    require(read_value(node, saved["family_id"]) == "family", "social-family changed across restart")
+    require(read_value(node, saved["family_id"]) == "family", "family changed across restart")
     require(read_value(node, saved["alpha_id"]) == "alpha", "alpha changed across restart")
     require(read_value(node, saved["work_id"]) == "work", "work changed across restart")
     require(read_value(node, saved["graph_id"]) == "graph", "graph changed across restart")
     require(owner_id(node) == saved["personal_id"], "the personal database id changed across restart")
     check_placed_schema(node, saved["family_id"])
-    check_list(node, saved, alpha_spec={"name": "notes", "version": 1})
+    check_list(node, saved)
     cli_read(node, cli, saved["family_id"], "family")
-    cli_read(node, cli, "social-family", "family")
+    cli_read(node, cli, "family", "family")
     cli_read(node, cli, "personal", "v3")
     cli_read(node, cli, "notes", "owner-only")
     wrong = run_cli(node, cli, MISSING_DATABASE)
@@ -103,21 +107,21 @@ def check(node, cli, output):
     print("Named databases survived restart with the same ids and isolated values", flush=True)
 
 
-def create(node, name, spec, kind="shareable"):
+def create(node, name, kind="shareable", sharing_mode=None):
     body = {"name": name, "kind": kind}
-    if spec is not None:
-        body["spec"] = spec
+    if sharing_mode is not None:
+        body["sharingMode"] = sharing_mode
     database = node.call("/api/databases", body)[0]["database"]
     require(database["name"] == name and database["kind"] == kind, "create returned the wrong row")
     require(database["access"] == "owner" and database["state"] == "ready", "create was not ready")
-    require(database["spec"] == spec, "create did not store the spec binding")
+    if sharing_mode == "whole_database":
+        require(database.get("sharingMode") == "whole_database",
+                "create did not store whole-database sharing")
+        require(database["spec"] == {"name": "whole-database", "version": 1},
+                "create did not store the whole-database binding")
+    else:
+        require(database["spec"] is None, "create stored an unexpected spec binding")
     require(uuid.UUID(database["id"]).version == 4, "create did not return a stable id")
-    return database
-
-
-def bind(node, database_id, spec):
-    database = node.call("/api/databases/spec", {"id": database_id, "spec": spec})[0]["database"]
-    require(database["id"] == database_id and database["spec"] == spec, "spec binding did not stick")
     return database
 
 
@@ -127,7 +131,7 @@ def install(node, database_id):
     system_seed(node, schema, database_id)
 
 
-PLACED_SCHEMA = "social/CircleNote"
+PLACED_SCHEMA = "demo/CircleNote"
 PLACED_NOTE = "placed in the named database"
 
 
@@ -136,9 +140,9 @@ def place_named_schema(node, database_id):
     schema = definition(PLACED_SCHEMA, "Hash", ["id", "note"], description_prefix="Named database ")
     schema.pop("source", None)
     placed = node.call(f"/api/databases/{database_id}/apps/declare-schema", {
-        "app_id": "social", "schema": schema,
+        "app_id": "demo", "schema": schema,
     })[0]
-    require(placed.get("schema_name") == PLACED_SCHEMA and placed.get("namespace") == "social"
+    require(placed.get("schema_name") == PLACED_SCHEMA and placed.get("namespace") == "demo"
             and placed.get("resolution") == "register" and placed.get("schema") == PLACED_SCHEMA,
             "declare-schema did not place the schema in the named database: " + repr(placed))
     v1.write_items(node, [v1.create_item(
@@ -184,25 +188,26 @@ def owner_id(node):
     return owner["id"]
 
 
-def check_list(node, saved, alpha_spec):
+def check_list(node, saved):
     rows = node.call("/api/databases")[0]["databases"]
     by_name = {row["name"]: row for row in rows}
     require(by_name["personal"]["id"] == saved["personal_id"], "personal id changed")
     notes = by_name["notes"]
     require(notes["id"] == saved["notes_id"] and notes["kind"] == "personal"
             and notes["spec"] is None, "notes lost its owner-only registration")
-    require(by_name["social-family"]["id"] == saved["family_id"], "social-family id changed")
-    require(by_name["social-family"]["spec"] == {"name": "social", "version": 1},
-            "social-family lost its spec")
+    require(by_name["family"]["id"] == saved["family_id"], "family id changed")
+    require(by_name["family"].get("sharingMode") == "whole_database",
+            "family lost whole-database sharing")
     require(by_name["alpha"]["id"] == saved["alpha_id"], "alpha id changed")
-    require(by_name["alpha"]["spec"] == alpha_spec, "alpha lost its spec binding")
+    require(by_name["alpha"]["spec"] is None, "alpha gained an unexpected spec")
     require(by_name["work"]["id"] == saved["work_id"], "work id changed")
-    require(by_name["work"]["spec"] == {"name": "work", "version": 1}, "work lost its spec")
+    require(by_name["work"].get("sharingMode") == "whole_database", "work lost whole-database sharing")
     require(by_name["graph"]["id"] == saved["graph_id"], "graph id changed")
-    require(by_name["graph"]["spec"] == {"name": "social", "version": 1}, "graph lost its spec")
+    require(by_name["graph"].get("sharingMode") == "whole_database",
+            "graph lost whole-database sharing")
     require(len(rows) == 6, "the database list has an unexpected row")
     require([row["name"] for row in rows] ==
-            ["personal", "notes", "social-family", "alpha", "work", "graph"],
+            ["personal", "notes", "family", "alpha", "work", "graph"],
             "owned databases were not listed after personal")
 
 

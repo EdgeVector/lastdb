@@ -170,7 +170,7 @@ POST /v1/x/databases
 | `action` | Owner route | Other fields | Success |
 |---|---|---|---|
 | `list` | `GET /api/databases` | none | 200 `{ok, user_hash, databases}` |
-| `create` | `POST /api/databases` | `name`, `spec`, `kind`, `sharingMode` | 200 `{ok, user_hash, database}` |
+| `create` | `POST /api/databases` | `name`, `kind`, `sharingMode` | 200 `{ok, user_hash, database}` |
 | `accept` | `POST /api/databases/accept` | `invitation`, `publisher`, `name`, `database_id`, or `link` and `name` | 200 `{ok, user_hash, database}` |
 | `schemas` | `GET /api/databases/{id}/schemas` | `database`, `include_full`, `include_definition_ids` | 200 schema list |
 | `declare_schema` | `POST /api/databases/{id}/apps/declare-schema` | `database`, `schema`, `intent`, `retention`, `app_id` | 200 declare envelope |
@@ -184,7 +184,7 @@ POST /v1/x/databases
 - `database` is the id or the name. Omit it, or send JSON null, and the call uses the personal database. A bad value is `invalid_request` and the message is `invalid database identifier`. `list`, `create`, and `accept` reject the field as `unknown field database`. `accept` names its target `database_id`.
 - `accept` takes an invitation or a link. The invitation fields are `invitation`, `publisher`, optional `name`, and optional `database_id`. The link fields are `link` and optional `name`. A body with both is `invalid_request` and the message is `unknown field invitation` when `link` is present, because that shape allows only `link` and `name`. A malformed link is `invalid link`.
 - `share_link` sends an empty body to `POST /api/databases/{id}/share/link`. The reply field `link` is one opaque token: `lastdb-read-v1.` plus base64url of canonical JSON. It is not a URL, so the content key does not land in a query string, a browser history, or a proxy log. The token carries the environment, the publisher account scope, the database id, the publisher key, and the content key. It carries no member identity and it is not sealed to a recipient. The node does not read the share settings when it makes the token. The token is useful when the service setting is `read: anyone`. A cloud failure uses the three answers in Errors.
-- `kind` is `shareable` or `personal`. Omit it for `shareable`. `sharingMode` is `whole_database`, and then `spec` must be absent. `spec` is `{name, version}`.
+- `kind` is `shareable` or `personal`. Omit it for `shareable`. `sharingMode` is `whole_database` for a shareable shared database. A filtered or app catalog `spec` on create is refused.
 - A present `Idempotency-Key` header on `create` is forwarded. It is a v4 UUID, and the text must equal that UUID, only when `sharingMode` is `whole_database`. Any other present key is `invalid_request` and the message is `whole-database creation uses a v4 UUID idempotency key`. An absent header is allowed.
 - `include_full` and `include_definition_ids` are booleans. `true` is sent as that query flag. `false` and JSON null are omitted. Another type is `invalid_request`.
 - `declare_schema` is allowed by the `databases` extension. An app that declared the extension may place a schema. The read list and the write list are not consulted for `declare_schema`. Those lists govern `/v1/read` and `/v1/write`.

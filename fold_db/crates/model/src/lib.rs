@@ -9,4 +9,3 @@ pub mod schema;
 pub use crate::field_key_codec::{field_key_id, record_space};
 pub use crate::keys::{canonical, canonical::hex, kind_partition, storage_policy};
 pub use crate::portable_mutation::record_replacement;
-pub use crate::schema::STANDARD_COMMENT_SCHEMA;

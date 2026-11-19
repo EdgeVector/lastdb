@@ -11,8 +11,6 @@ pub use crate::keys::{QueryCursor, SortOrder};
 pub use logical_rules::{require_logical_filter, require_logical_layout};
 pub use types::Schema;
 
-pub const STANDARD_COMMENT_SCHEMA: &str = "social/Comment";
-
 #[derive(Debug, Clone, Serialize)]
 pub enum SchemaError {
     NotFound(String),

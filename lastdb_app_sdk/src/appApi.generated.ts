@@ -405,7 +405,6 @@ export interface DatabasesMutation {
 export interface DatabasesListRequest {
   action: 'list';
   name?: never;
-  spec?: never;
   kind?: never;
   sharingMode?: never;
   invitation?: never;
@@ -428,11 +427,10 @@ export interface DatabasesListRequest {
   mutationId?: never;
 }
 
-/** POST /api/databases. A present Idempotency-Key header is forwarded. It is a v4 UUID only when sharingMode is whole_database. Any other present key is invalid_request. */
+/** POST /api/databases. Shareable databases use sharingMode whole_database only. A filtered or app catalog spec is refused. A present Idempotency-Key header is forwarded. It is a v4 UUID only when sharingMode is whole_database. Any other present key is invalid_request. */
 export interface DatabasesCreateRequest {
   action: 'create';
   name: string;
-  spec?: DatabasesSpec;
   /** Omit it for shareable. */
   kind?: 'shareable' | 'personal';
   sharingMode?: 'whole_database';
@@ -465,7 +463,6 @@ export interface DatabasesAcceptRequest {
   publisher: string;
   name?: string;
   database_id?: string;
-  spec?: never;
   kind?: never;
   sharingMode?: never;
   link?: never;
@@ -491,7 +488,6 @@ export interface DatabasesAcceptLinkRequest {
   /** Opaque lastdb-read-v1 token. */
   link: string;
   name?: string;
-  spec?: never;
   kind?: never;
   sharingMode?: never;
   invitation?: never;
@@ -519,7 +515,6 @@ export interface DatabasesSchemasRequest {
   include_full?: boolean;
   include_definition_ids?: boolean;
   name?: never;
-  spec?: never;
   kind?: never;
   sharingMode?: never;
   invitation?: never;
@@ -549,7 +544,6 @@ export interface DatabasesDeclareRequest {
   /** Schema namespace. On the app socket, omit it to use the calling app id. On the owner socket it is required. */
   app_id?: string;
   name?: never;
-  spec?: never;
   kind?: never;
   sharingMode?: never;
   invitation?: never;
@@ -572,7 +566,6 @@ export interface DatabasesShareConfigRequest {
   action: 'share_config';
   database?: DatabaseSelector;
   name?: never;
-  spec?: never;
   kind?: never;
   sharingMode?: never;
   invitation?: never;
@@ -600,7 +593,6 @@ export interface DatabasesSetShareConfigRequest {
   database?: DatabaseSelector;
   config: DatabasesShareConfig;
   name?: never;
-  spec?: never;
   kind?: never;
   sharingMode?: never;
   invitation?: never;
@@ -631,7 +623,6 @@ export interface DatabasesInviteRequest {
   /** Integer. Minimum 0. */
   expiresInHours?: number;
   name?: never;
-  spec?: never;
   kind?: never;
   sharingMode?: never;
   invitation?: never;
@@ -655,7 +646,6 @@ export interface DatabasesShareLinkRequest {
   action: 'share_link';
   database?: DatabaseSelector;
   name?: never;
-  spec?: never;
   kind?: never;
   sharingMode?: never;
   invitation?: never;
@@ -685,7 +675,6 @@ export interface DatabasesSubmitRequest {
   /** Non-nil lowercase UUID. */
   idempotency_key: string;
   name?: never;
-  spec?: never;
   kind?: never;
   sharingMode?: never;
   invitation?: never;
@@ -710,7 +699,6 @@ export interface DatabasesStatusRequest {
   database?: DatabaseSelector;
   mutationId: string;
   name?: never;
-  spec?: never;
   kind?: never;
   sharingMode?: never;
   invitation?: never;

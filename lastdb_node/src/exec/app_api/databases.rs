@@ -122,10 +122,10 @@ fn list_request(body: &Map<String, Value>) -> Result<OwnerCall, HostError> {
 }
 
 fn create_request(body: &Map<String, Value>, req: &UdsRequest) -> Result<OwnerCall, HostError> {
-    allow(body, &["name", "spec", "kind", "sharingMode"])?;
+    allow(body, &["name", "kind", "sharingMode"])?;
     let mut owner = Map::new();
     copy_string(body, &mut owner, "name")?;
-    copy_present(body, &mut owner, &["spec", "kind", "sharingMode"]);
+    copy_present(body, &mut owner, &["kind", "sharingMode"]);
     let call = OwnerCall::json("POST", DATABASES_PATH.to_owned(), &Value::Object(owner))?;
     Ok(match req.header("Idempotency-Key") {
         Some(key) => call.header("Idempotency-Key", key),
