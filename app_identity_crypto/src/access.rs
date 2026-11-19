@@ -9,13 +9,9 @@ use serde_json::{json, Value};
 pub const KNOWN_EXTENSIONS: &[&str] = &["changes", "databases"];
 
 /// The access value that means every schema, in place of a name list or a map.
-pub const ALL_SCHEMAS: &str = "*";
-
-/// First API version whose registry lists may carry [`ALL_SCHEMAS`].
 ///
-/// An older build that cannot parse that value fails the whole list for that
-/// channel and API version. Lists below this version stay maps only.
-pub const ALL_SCHEMAS_API_VERSION: u32 = 38;
+/// Allowed on `read` and `write` at every app API version.
+pub const ALL_SCHEMAS: &str = "*";
 
 const MAX_ENTRIES: usize = 256;
 

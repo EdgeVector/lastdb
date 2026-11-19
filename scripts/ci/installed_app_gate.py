@@ -66,7 +66,7 @@ def main():
                 return 0
             print(f"installed-app-gate: FAIL {CHECK} concluded {check.get('conclusion')}: "
                   f"{check['html_url']}\nThe apps in a supported signed list do not work against this "
-                  "build. Keep the socket interface compatible, or raise MIN_SUPPORTED_API_VERSION.",
+                  "build. Keep the app API compatible, or raise MIN_SUPPORTED_APP_API_VERSION.",
                   file=sys.stderr)
             return 1
         if time.monotonic() >= deadline:

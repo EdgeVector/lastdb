@@ -306,14 +306,17 @@ fn restore_previous(root: &Path, home: &Path) -> Result<ManagedReceipt, String> 
             "previous source is held after rollback; explicit install consent is required".into(),
         );
     }
-    let (_, _, api, outbox, min_api) = super::running_node(home);
+    let (_, _, api, outbox, min_api) = super::running_node(home)?;
     if !(min_api..=api).contains(&prior.listing.api_version)
         || prior
             .listing
             .outbox_format_version
             .is_some_and(|v| v != outbox)
     {
-        return Err("previous app does not match the running node interface".into());
+        return Err(
+            "previous app does not match the running node app API; install the app again from the registry"
+                .into(),
+        );
     }
     let source = target.join("source");
     let plan = InstallPlan::load(&source, &prior.app_id)?;

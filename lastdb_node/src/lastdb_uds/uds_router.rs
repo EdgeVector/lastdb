@@ -255,12 +255,14 @@ pub fn health_response(requires_recovery: bool) -> UdsResponse {
 
 pub fn version_response() -> UdsResponse {
     let build = serde_json::Value::String(crate::version::build_version().into());
-    let (min_api, out, min_out) = (
+    let (min_api, app_api, min_app, out, min_out) = (
         crate::version::MIN_SUPPORTED_API_VERSION,
+        crate::version::APP_API_VERSION,
+        crate::version::MIN_SUPPORTED_APP_API_VERSION,
         crate::version::CURRENT_OUTBOX_FORMAT_VERSION,
         crate::version::MIN_SUPPORTED_OUTBOX_FORMAT_VERSION,
     );
-    json_200(format!("{{\"ok\":true,\"api_version\":{API_VERSION},\"build\":{build},\"capabilities\":{CAPABILITIES_JSON},\"extensions\":{EXTENSIONS_JSON},\"instance_id\":\"{}\",\"min_supported_api_version\":{min_api},\"current_outbox_format_version\":{out},\"min_supported_outbox_format_version\":{min_out}}}", instance_id()))
+    json_200(format!("{{\"ok\":true,\"api_version\":{API_VERSION},\"build\":{build},\"capabilities\":{CAPABILITIES_JSON},\"extensions\":{EXTENSIONS_JSON},\"instance_id\":\"{}\",\"min_supported_api_version\":{min_api},\"app_api_version\":{app_api},\"min_supported_app_api_version\":{min_app},\"current_outbox_format_version\":{out},\"min_supported_outbox_format_version\":{min_out}}}", instance_id()))
 }
 
 pub fn method_not_allowed_response(allow: &str) -> UdsResponse {

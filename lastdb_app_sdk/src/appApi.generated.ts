@@ -827,7 +827,7 @@ export type DatabasesReply = DatabasesListReply | DatabasesDatabaseReply | Datab
 /** Maximum items 256. */
 export type ManifestNameList = string[];
 
-/** Every schema on the node. It names none of them. A listing may carry it only at API version 38 or above, because an older build that cannot parse it fails the whole registry list for that channel and API version. */
+/** Every schema on the node. It names none of them. A listing may carry it at every app API version. */
 export type AllSchemas = '*';
 
 /** Schema names the app asks for, or * for every schema. */
@@ -849,10 +849,10 @@ export interface DefinitionMap {
   [key: string]: string;
 }
 
-/** Schema name to definition id, or * for every schema. The map form is the same JSON object as before API version 38. */
+/** Schema name to definition id, or * for every schema. */
 export type ListingSchemaSide = AllSchemas | DefinitionMap;
 
-/** The access block on the signed listing. Publish replaces each schema name with that name and its definition id. The string * stays * and means every schema. A listing may carry * only at API version 38 or above. Unknown keys are rejected. */
+/** The access block on the signed listing. Publish replaces each schema name with that name and its definition id. The string * stays * and means every schema. * is allowed at every app API version. Unknown keys are rejected. */
 export interface ListingAccess {
   /** Schemas the app reads, or * for every schema. */
   read: ListingSchemaSide;
