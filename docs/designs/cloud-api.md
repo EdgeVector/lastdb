@@ -137,15 +137,19 @@ rotation** (Decision 28). A compromised node key means a **new account**.
 
 ### Device registration vs request device
 
-- `register` — first device; header `X-LastDB-Device-Id` **is** that device.
-  Rate-limited (Decision 24).
-- `add_device` — header device is an **already registered** device (or recovery
-  proof authorizes); `args.device_id` is the **new** device; `args.proof` is the
-  connect-code or 24-word recovery binding (opaque, Social design). The new
-  device must already hold (or receive) the **same** node private key.
-- `remove_device` — header device authorizes; `args.device_id` is removed from
-  the bookkeeping list.
-- All other intents — header device must be registered for that node key.
+- `register` — first device of a **new** account; header `X-LastDB-Device-Id`
+  **is** that device. Rate-limited (Decision 24). Node key must not already
+  own an account.
+- `add_device` — enroll another device of an **existing** account. The caller
+  already holds the **same** node private key (from the recovery phrase or an
+  existing device). **No `proof` body field** — the Ed25519 signature over the
+  request is the proof. Header `X-LastDB-Device-Id` **is the new device**.
+  ExeMem accepts this when the node key is already registered, even if the
+  header device id is not yet registered (Decision 29 exception to the usual
+  unknown-device 401). Args are `{}`.
+- `remove_device` — header device must already be registered; `args.device_id`
+  is removed from the bookkeeping list.
+- All **other** intents — header device must be registered for that node key.
 
 ExeMem rejects:
 
@@ -154,8 +158,9 @@ ExeMem rejects:
 | Bad signature | 401 | `{ "code":"unauthorized", "field":"request.signature" }` |
 | Expired / skewed `Issued-At` | 401 | `{ "code":"unauthorized", "field":"request.issued_at" }` |
 | Reused nonce | 401 | `{ "code":"unauthorized", "field":"request.nonce" }` |
-| Unknown / never registered device | 401 | `{ "code":"unauthorized", "field":"device.id" }` |
+| Unknown / never registered device (except `add_device`) | 401 | `{ "code":"unauthorized", "field":"device.id" }` |
 | Removed device | 401 | `{ "code":"unauthorized", "field":"device.revoked" }` |
+| `add_device` when node key is not a known account | 401 | `{ "code":"unauthorized", "field":"account.node_key" }` |
 | `register` rate limit | 429 | `{ "code":"rate_limited", "field":"account.register" }` |
 
 Members/grants remain keyed by **node key** (not device).
@@ -239,10 +244,14 @@ body (array or single).
     role (`publisher`, or member `writer`/`reader`). Used by a new or recovered
     device to learn what to sync.
 27. **`account`/`status`**: payment/plan state (`paid`), cloud storage used,
-    and registered devices. No invite/claim slots. `deactivate` semantics
-    unchanged.
+    and registered devices. `deactivate` semantics unchanged.
 28. **No node-key rotation.** A compromised node key is remedied only by a
     **new account**.
+29. **Connect codes, invites, and joins are People-app only** for now. The
+    cloud API has **no** invite, claim-slot, connect-code, SPAKE2, or
+    rendezvous surface. `add_device` needs no body `proof`: a valid node-key
+    signature for an existing account is enough, and the header device id is
+    the new device (unknown-device 401 does not apply to this intent).
 
 ## Account
 
@@ -251,7 +260,7 @@ body (array or single).
 | `register` | `{}` (device = header) | `ok`, `account_id` |
 | `payment` | `{}` | `payment_url` (signed, single-use), `expires_at_ms` |
 | `deactivate` | `{}` | `ok`, `status` (`done`\|`accepted`) |
-| `add_device` | `device_id` (new), `proof` | `ok`, `device_id` |
+| `add_device` | `{}` (new device = header) | `ok`, `device_id` |
 | `remove_device` | `device_id` | `ok` |
 | `databases` | `cursor?`, `limit?` | `cursor`, `databases[]` (`database_id`, `role`) |
 | `status` | `{}` | `paid`, `storage_used_bytes`, `devices[]` |
@@ -295,10 +304,11 @@ or empty when done).
 | storage limit | — | **None exposed today** — omit from the result (do not invent a limit) |
 | `devices[]` | `{ device_id, added_at_ms? }` | Register exists (`POST /api/auth/cli/register`); **no device list** and **no `added_at`** on the wire today. ExeMem must list registered devices; include `added_at_ms` when stored |
 
-Second device: an existing device (or recovery phrase) produces `proof`; the
-new device calls `add_device` with that proof and must hold the **same** node
-private key. Connect codes and 24-word recovery stay as in the Social design —
-opaque `proof` here. After recovery, call `databases` (then sync) and `status`.
+Second / recovered device: derive the **same** node key from the 24-word
+recovery phrase (local identity; not a cloud API), sign `add_device` with it,
+and put the new device UUID in `X-LastDB-Device-Id`. Then call `databases`
+(sync) and `status`. Device-to-device pairing without the phrase is a People
+app concern (Decision 29), not this API.
 
 ## Maintenance
 
@@ -390,7 +400,10 @@ stable released node (#1799). No unit tests.
 
 ## Open questions for Tom
 
-None. Dual `em_` key auth is resolved by Decision 18/20. Per-device keys,
-payment browser handoff, register rate limit, paid registry publish,
-account-loss risk, `databases`/`status`, and no key rotation are Decisions
-21–28.
+1. Keep or remove optional `rules` on `manage`/`create` and `manage`/`grant`?
+   **Recommend keep.** `rules` maps to today’s `ShareSettings`
+   (`read` / `write` / `member_writes`) — share transport and proposal policy —
+   not invites or claim slots. ExeMem still enforces `read`/`write`; LastDB
+   still uses `member_writes` on proposal settle. Removing People-side
+   connect/invite does not remove that need. (OpenAPI still types `rules` as a
+   loose object; tighten to ShareSettings fields in a follow-up if wanted.)

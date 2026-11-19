@@ -602,7 +602,7 @@
     "/api/cloud/v3/account": {
       "post": {
         "summary": "Account",
-        "description": "Body is one envelope or an array of envelopes (max 90). Request ≤ 256 KiB; response ≤ 8 MiB (per-item batch_too_large). One Ed25519 signature covers the whole body. No Cloud-Protocol header. Intents: register, payment, deactivate, add_device, remove_device, databases, status. No login; no API keys; no per-device keys; no node-key rotation. register rate-limited → 429 rate_limited / account.register. payment → signed payment_url. databases: paginated owned/granted DBs for sync discovery. status: paid, storage_used_bytes, devices. App registry publish requires a paid ExeMem account.",
+        "description": "Body is one envelope or an array of envelopes (max 90). Request ≤ 256 KiB; response ≤ 8 MiB (per-item batch_too_large). One Ed25519 signature covers the whole body. No Cloud-Protocol header. Intents: register, payment, deactivate, add_device, remove_device, databases, status. No login; no API keys; no per-device keys; no node-key rotation; no invite/claim/connect-code surface (People app). add_device: empty args; header device is new; existing account node-key signature suffices. register rate-limited → 429 rate_limited / account.register. payment → signed payment_url. databases: paginated owned/granted DBs. status: paid, storage_used_bytes, devices. App registry publish requires a paid ExeMem account.",
         "operationId": "cloudAccount",
         "security": [
           {
@@ -642,13 +642,10 @@
                   }
                 },
                 "add_device": {
-                  "summary": "Header device authorizes; args.device_id is new",
+                  "summary": "Existing account node-key signature; header device id is the new device; args empty",
                   "value": {
                     "intent": "add_device",
-                    "args": {
-                      "device_id": "33333333-3333-4333-8333-333333333333",
-                      "proof": "opaque-connect-or-recovery"
-                    }
+                    "args": {}
                   }
                 },
                 "payment": {
@@ -1658,20 +1655,9 @@
           },
           {
             "type": "object",
-            "required": [
-              "device_id",
-              "proof"
-            ],
             "additionalProperties": false,
-            "properties": {
-              "device_id": {
-                "$ref": "#/components/schemas/Uuid"
-              },
-              "proof": {
-                "type": "string"
-              }
-            },
-            "description": "add_device — new device; header device authorizes"
+            "properties": {},
+            "description": "add_device — new device is X-LastDB-Device-Id; node-key signature for an existing account is enough (no body proof; unknown-device 401 waived for this intent)"
           },
           {
             "type": "object",
