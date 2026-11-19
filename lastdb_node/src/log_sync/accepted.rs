@@ -22,7 +22,9 @@ use crate::host::owned::registered_databases;
 use crate::host::Host;
 use crate::log_envelope::{self, DatabaseContentKey, LogBinding};
 
-use source::{capture_block, read_page, LocalUpload, PublishPolicy};
+use source::capture_block;
+
+pub(super) use source::{read_page, LocalUpload, PublishPolicy};
 
 use super::cloud::CloudLog;
 use super::http::paths;
@@ -46,13 +48,19 @@ fn payment_holds() -> std::sync::MutexGuard<'static, HashSet<String>> {
 }
 
 pub(super) async fn publish_owned(host: &Host, log: &CloudLog) -> Result<(), &'static str> {
-    let Ok(Some((store, key))) = DatabaseContentKey::local_store(host, log.database_id()) else {
-        return Err("local database or content key unavailable");
+    let (store, key, policy) = match DatabaseContentKey::local_store(host, log.database_id()) {
+        Ok(Some((store, key))) => {
+            let Some(policy) = publication(host, log.database_id()) else {
+                return Err("unknown database publication policy");
+            };
+            (store, key, policy)
+        }
+        Ok(None) => super::direct::received_store(host, log.database_id())
+            .await
+            .ok_or("local database or content key unavailable")?,
+        Err(_) => return Err("local database or content key unavailable"),
     };
     let runtime = store.db_ops().native_runtime();
-    let Some(policy) = publication(host, log.database_id()) else {
-        return Err("unknown database publication policy");
-    };
     let private = matches!(&policy, PublishPolicy::Private);
     if private && !runtime.captures_accepted() {
         return Err("local capture disabled until the enrolled node restarts");
@@ -147,7 +155,25 @@ async fn send_page(
     if through == after {
         return Err("the next local write could not be prepared for upload");
     }
-    append_entries(&host.home, log, entries, &blobs).await?;
+    let received = matches!(
+        DatabaseContentKey::local_store(host, log.database_id()),
+        Ok(None)
+    );
+    if let Err(reason) = append_entries(&host.home, log, entries, &blobs, received).await {
+        if reason == super::direct::REFUSED {
+            super::direct::undo_page(host, log.database_id(), &page.items, through).await?;
+            return upload
+                .confirm(
+                    runtime,
+                    UploadPosition {
+                        writer_seq: upload.position.writer_seq,
+                        spool_through: through,
+                    },
+                )
+                .await;
+        }
+        return Err(reason);
+    }
     upload
         .confirm(
             runtime,
@@ -260,12 +286,14 @@ async fn append_entries(
     log: &CloudLog,
     entries: Vec<Entry>,
     blobs: &HashMap<u64, BlobPath>,
+    received: bool,
 ) -> Result<(), &'static str> {
     if entries.is_empty() {
         return Ok(());
     }
     // A byte-limited retry must keep its original ciphertext and sequence.
     let mut pending = vec![entries];
+    let mut committed = false;
     while let Some(mut entries) = pending.pop() {
         let Some(through) = entries.last().map(|entry| entry.writer_seq) else {
             continue;
@@ -299,6 +327,7 @@ async fn append_entries(
         if (200..300).contains(&status) {
             match wire::append_outcome(&reply, &batch) {
                 Ok(AppendOutcome::Accepted { delivery_seqs }) if !delivery_seqs.is_empty() => {
+                    committed = true;
                     if !blobs.is_empty() {
                         let start = batch.entries.len() - delivery_seqs.len();
                         let committed: Vec<_> = batch.entries[start..]
@@ -314,7 +343,9 @@ async fn append_entries(
                             .map_err(|_| "local blob retention ledger could not be stored")?;
                     }
                 }
-                Ok(AppendOutcome::Duplicate { next_seq }) if next_seq > through => {}
+                Ok(AppendOutcome::Duplicate { next_seq }) if next_seq > through => {
+                    committed = true;
+                }
                 _ => return Err("cloud did not confirm the upload"),
             }
             continue;
@@ -325,6 +356,14 @@ async fn append_entries(
         }
         if wire::service_error(&reply) == Some(LogError::Conflict) {
             return Err("cloud already has a different edit at this local writer sequence");
+        }
+        if received
+            && !committed
+            && (status == 401
+                || status == 403
+                || wire::service_error(&reply) == Some(LogError::Unauthorized))
+        {
+            return Err(super::direct::REFUSED);
         }
         return Err("cloud did not confirm the upload");
     }

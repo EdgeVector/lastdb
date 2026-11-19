@@ -48,12 +48,13 @@ pub(super) async fn replay(
     let target = super::resolve_target(host, database_id)?;
     match &target.place {
         super::Place::Received => authorize(host, database_id, publisher)?,
+        // The publisher's whole-database store replays member entries too.
+        super::Place::Owned(_) if !target.private => {}
         super::Place::Owned(_)
-            if target.private
-                && publisher == fold_db::hex::hex_lower(host.keypair.public_key_bytes()) => {}
+            if publisher == fold_db::hex::hex_lower(host.keypair.public_key_bytes()) => {}
         super::Place::Owned(_) => return Err(RestoreError::Scope("database store")),
     }
-    check_page(database_id, publisher, delivered)?;
+    check_page(database_id, delivered)?;
     let store = super::open_store(host, database_id, &target).await?;
     let decoder = target.decoder(database_id);
     let replay = async {
@@ -88,16 +89,12 @@ fn authorize(host: &Host, database_id: &str, publisher: &str) -> Result<(), Rest
 
 pub(super) fn check_page(
     database_id: &str,
-    publisher: &str,
     delivered: &[DeliveredEntry],
 ) -> Result<(), RestoreError> {
     let mut previous = 0u64;
     for item in delivered {
         if item.delivery_seq <= previous || item.database_id != database_id {
             return Err(RestoreError::Entry("snapshot entry"));
-        }
-        if item.entry.writer_key != publisher {
-            return Err(RestoreError::Scope("database store"));
         }
         previous = item.delivery_seq;
     }
@@ -112,27 +109,33 @@ async fn apply_item(
     files: &mut crate::log_sync::SnapshotFiles,
 ) -> Result<(), RestoreError> {
     let database_id = decoder.database_id;
-    let prepared = decoder.open(&item.entry)?;
+    let prepared = match decoder.open(&item.entry) {
+        Ok(prepared) => prepared,
+        Err(RestoreError::Entry(_) | RestoreError::Scope(_)) => {
+            tracing::warn!(
+                target: "lastdbd::log_sync",
+                delivery_seq = item.delivery_seq,
+                "served log entry was skipped"
+            );
+            return Ok(());
+        }
+        Err(error) => return Err(error),
+    };
     if let journal::Marker::Applied =
         journal::read_marker(home, database_id, &prepared.id, &prepared.hash)?
     {
         return release_applied(home, database_id, item.delivery_seq, &prepared.hash);
     }
-    let resumed = begin_attempt(home, database_id, item.delivery_seq, &prepared.hash)?;
-    if apply_change(
+    begin_attempt(home, database_id, item.delivery_seq, &prepared.hash)?;
+    apply_change(
         store,
         decoder.key,
         database_id,
         &item.entry,
         files,
         prepared.change,
-        resumed,
     )
-    .await?
-    {
-        clear_attempt(home, database_id)?;
-        return Err(RestoreError::Conflict(DETAIL));
-    }
+    .await?;
     journal::write_marker(home, database_id, &prepared.id, &prepared.hash)?;
     clear_attempt(home, database_id)
 }
@@ -144,34 +147,12 @@ async fn apply_change(
     entry: &SnapshotEntry,
     files: &mut crate::log_sync::SnapshotFiles,
     change: payload::Change,
-    resumed: bool,
-) -> Result<bool, RestoreError> {
+) -> Result<(), RestoreError> {
     match change {
-        payload::Change::Schema(change) => {
-            apply::apply_schema(store, *change).await?;
-            Ok(false)
+        payload::Change::Schema(change) => apply::apply_schema(store, *change).await,
+        payload::Change::Record(change) => {
+            apply::apply_served_record(store, key, database_id, entry, files, *change).await
         }
-        payload::Change::Record(mut change) => {
-            apply::stage_file(store, key, database_id, entry, change.as_mut(), files).await?;
-            // A contribution names its member. Otherwise the entry names the publisher.
-            let writer = match change.mutation.contribution.as_ref() {
-                Some(admission) => admission.writer.clone(),
-                None => entry.writer_key.clone(),
-            };
-            change.mutation.writer = Some(writer);
-            if apply::bind_expected(store, &mut change.mutation, resumed).await? {
-                return first_conflict(apply::write_record(store, change.mutation, resumed).await);
-            }
-            Ok(false)
-        }
-    }
-}
-
-fn first_conflict(result: Result<(), RestoreError>) -> Result<bool, RestoreError> {
-    match result {
-        Ok(()) => Ok(false),
-        Err(RestoreError::Conflict(_)) => Ok(true),
-        Err(error) => Err(error),
     }
 }
 

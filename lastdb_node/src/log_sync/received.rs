@@ -1,6 +1,8 @@
 //! Pull a registered signed log into the receiver store and track member-list access.
 //!
-//! This does not publish and does not call `accept_signed_log`. The member
+//! This does not call `accept_signed_log`. A direct Submit member publishes
+//! through the same path as an owned database. A link registration has no
+//! member entry: it does not poll one and it does not publish. The member
 //! revision comes from the standard member-list read, with no API key.
 //! The stored view of that access is `self_access`.
 
@@ -132,7 +134,7 @@ async fn refresh(host: &Arc<Host>, share: &RegisteredShare, mut log: CloudLog) -
     Some(log)
 }
 
-/// Open the publisher stream from the verified invitation. No account context and no API key.
+/// Open the publisher stream from the registration. No account context and no API key.
 fn connect_received(
     host: &Arc<Host>,
     share: &RegisteredShare,

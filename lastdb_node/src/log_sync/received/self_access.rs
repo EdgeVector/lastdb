@@ -73,6 +73,19 @@ impl AccessView {
             stale: true,
         }
     }
+
+    /// `Some(true)` when this view is current, the member is active Submit,
+    /// and `write` is `direct`. `None` when the view is missing or stale.
+    pub(crate) fn direct_submit(&self) -> Option<bool> {
+        if self.stale || self.state == AccessState::Unknown {
+            return None;
+        }
+        Some(
+            self.state == AccessState::Active
+                && self.role == Some(ShareMemberRole::Submit)
+                && self.write == ShareWrite::Direct,
+        )
+    }
 }
 
 pub(crate) fn view(home: &Path, id: &str) -> AccessView {

@@ -26,7 +26,7 @@ pub(crate) async fn replay_owned(
         return Err(RestoreError::Scope("owner database store"));
     }
     let owner = fold_db::hex::hex_lower(host.keypair.public_key_bytes());
-    super::page::check_page(database_id, &owner, delivered)?;
+    super::page::check_page(database_id, delivered)?;
     let store = super::open_store(host, database_id, &target).await?;
     let mut replay = OwnerReplay {
         store: &store,

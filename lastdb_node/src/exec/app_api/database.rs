@@ -1,7 +1,9 @@
 //! Which store a `/v1` item names.
 //!
 //! An owned database and the personal database behave as before. A received
-//! database is readable. A write to one is refused. `changes` does not open it.
+//! database is readable. A write commits only when `write` is `direct` and this
+//! node is an active Submit member. Otherwise the write is refused. `changes`
+//! does not open a received database.
 
 use std::future::Future;
 use std::sync::Arc;
@@ -70,7 +72,7 @@ async fn dispatch<T>(
         Place::Owned(store) => host.with_records(store, future).await,
         Place::Received(share) => match received {
             OnReceived::Read => read_received(host, &share, future).await,
-            OnReceived::RefuseWrite => Err(HostError::new(403, READ_ONLY)),
+            OnReceived::RefuseWrite => write_received(host, &share, future).await,
             OnReceived::RefuseChanges => Err(HostError::new(404, CHANGES_UNSERVED)),
         },
     }
@@ -97,6 +99,23 @@ fn received(host: &Host, selector: &str) -> Result<Place, HostError> {
         Err(ShareCacheError::Invalid("database name")) => Err(bad("invalid database identifier")),
         Err(_) => Err(HostError::new(503, REGISTRY_UNAVAILABLE)),
     }
+}
+
+async fn write_received<T>(
+    host: &Host,
+    share: &RegisteredShare,
+    future: impl Future<Output = Result<T, HostError>>,
+) -> Result<T, HostError> {
+    if !crate::log_sync::direct_write_allowed(host, share) {
+        return Err(HostError::new(403, READ_ONLY));
+    }
+    if !durable(host, share) {
+        return Err(HostError::new(503, NOT_DURABLE));
+    }
+    let store = registered_share::receiver_store(host, &share.id)
+        .await
+        .map_err(|_| HostError::new(503, STORE_UNAVAILABLE))?;
+    host.with_records(store, future).await
 }
 
 async fn read_received<T>(

@@ -154,7 +154,7 @@ impl MutationManager {
     }
 }
 
-pub(super) fn as_mutation(schema: &str, key: KeyValue, record: Option<StoredRecord>) -> Mutation {
+pub(crate) fn as_mutation(schema: &str, key: KeyValue, record: Option<StoredRecord>) -> Mutation {
     let mut target = RecordTarget {
         schema: schema.to_owned(),
         key,

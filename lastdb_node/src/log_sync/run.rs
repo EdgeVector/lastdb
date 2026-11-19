@@ -66,6 +66,10 @@ pub(super) async fn run_ready(host: &Host, ready: Ready) -> Pause {
                 %reason, "owned pull awaits safe local capture");
             return Pause::Retry;
         }
+    } else if let Err(reason) = super::direct::publish_or_retract(host, &ready.log).await {
+        tracing::warn!(target: "lastdbd::log_sync", database_id = %ready.database_id,
+            %reason, "received append awaits retry");
+        return Pause::Retry;
     }
     let pause = pull_and_checkpoint(host, &ready).await;
     if ready.publisher.is_none()
