@@ -2,9 +2,9 @@
 
 ## Decided change: direct write is per member
 
-Tom decided this on 2026-11-18, after the rest of this document. It replaces the database-wide `write` setting. It is not built. Until the code is reworked, the sections below describe the `write` setting as the code has it.
+Tom decided this on 2026-11-18, after the rest of this document. It replaces the database-wide `write` setting. It is not built. Until the code is reworked, the sections below describe the `write` setting as the code has it. A member list, a `share/members/update` route, or a list-revision check named in those sections is that code, not this decision.
 
-Whether a member writes straight to the mutation log is set per member, in the one publisher-signed member list each shared database already has. There is no database-wide write switch and no separate list of direct writers.
+Whether a member writes straight to the mutation log is set per member. The capability is carried on each member's own publisher-signed entry: the `grant#<node key>` row in ExeMem. There is no member list document, no `share/members/update` route, and no list-revision check (Tom, 2026-11-17). There is no database-wide write switch and no separate list of direct writers.
 
 - A member's entry carries one capability: read, propose, or write.
   - read: the member follows the mutation log.
@@ -24,7 +24,7 @@ Tom, 2026-11-18: "I think we already have per person, so that seems like the mos
 | Org | `read: members`. Every member has write. |
 | Partially Org | Some members have write. The rest propose or read. |
 
-What has to change in the code: the settings statement and `ShareWrite` in `cloud_backup_protocol` and `mutation_log`, `LogState::append_log`, the share configuration route, and `selfAccess`. The member list already has `Capability::Receive` and `Capability::Submit`.
+What has to change in the code: the settings statement and `ShareWrite` in `cloud_backup_protocol` and `mutation_log`, `LogState::append_log`, the share configuration route, and `selfAccess`. Each member's own publisher-signed entry, the `grant#<node key>` row, already carries `Capability::Receive` and `Capability::Submit`.
 
 Not decided:
 
