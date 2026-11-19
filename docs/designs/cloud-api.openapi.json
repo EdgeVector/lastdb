@@ -1,0 +1,4303 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "LastDB ExeMem Cloud API",
+    "version": "3.0.0-design",
+    "description": "Cloud API v3 redesign 2026-11-19. database_id is a 64-hex Ed25519 db public key. nodeSignature auth. See docs/designs/cloud-api.md."
+  },
+  "servers": [
+    {
+      "url": "https://{host}",
+      "variables": {
+        "host": {
+          "default": "api.example"
+        }
+      }
+    }
+  ],
+  "tags": [
+    {
+      "name": "fetch"
+    },
+    {
+      "name": "push"
+    },
+    {
+      "name": "manage"
+    },
+    {
+      "name": "account"
+    },
+    {
+      "name": "maintenance",
+      "description": "DEV-only; no batching"
+    }
+  ],
+  "paths": {
+    "/api/cloud/v3/fetch": {
+      "post": {
+        "tags": [
+          "fetch"
+        ],
+        "summary": "Fetch",
+        "description": "mutations_since | snapshot | file. Presigned GET for files. Anyone under grant#any (rate-limited read.public).",
+        "operationId": "cloudFetch",
+        "security": [
+          {
+            "nodeSignature": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CloudProtocol"
+          },
+          {
+            "$ref": "#/components/parameters/NodeKey"
+          },
+          {
+            "$ref": "#/components/parameters/DeviceId"
+          },
+          {
+            "$ref": "#/components/parameters/IssuedAt"
+          },
+          {
+            "$ref": "#/components/parameters/Nonce"
+          },
+          {
+            "$ref": "#/components/parameters/Signature"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FetchRequestBody"
+              },
+              "examples": {
+                "mutations_since": {
+                  "value": {
+                    "database_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "intent": "mutations_since",
+                    "args": {
+                      "limit": 50
+                    }
+                  }
+                },
+                "file": {
+                  "value": {
+                    "database_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "intent": "file",
+                    "args": {
+                      "file_handle": "fh-1"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FetchResponseBody"
+                },
+                "examples": {
+                  "file": {
+                    "value": {
+                      "database_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                      "intent": "file",
+                      "result": {
+                        "url": "https://store.example/o",
+                        "headers": {},
+                        "expires_at_ms": 1730000300000,
+                        "bytes": 100,
+                        "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "signature / issued_at / nonce / device.unknown|removed / account.retired",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "unauthorized": {
+                    "value": {
+                      "code": "unauthorized",
+                      "field": "example"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "grant.* / payment.subscription",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "forbidden": {
+                    "value": {
+                      "code": "forbidden",
+                      "field": "example"
+                    }
+                  },
+                  "payment_required": {
+                    "value": {
+                      "code": "payment_required",
+                      "field": "example"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "arg paths / grants.any.role / batch.response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "invalid_request": {
+                    "value": {
+                      "code": "invalid_request",
+                      "field": "example"
+                    }
+                  },
+                  "batch_too_large": {
+                    "value": {
+                      "code": "batch_too_large",
+                      "field": "example"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "database.id|deleted / file_handle / restore_point_id / snapshot_upload",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "code": "not_found",
+                      "field": "example"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "database.id / account.exists / device.* / entries.writer_seq / file.unverified / cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "conflict": {
+                    "value": {
+                      "code": "conflict",
+                      "field": "example"
+                    }
+                  },
+                  "cursor_expired": {
+                    "value": {
+                      "code": "cursor_expired",
+                      "field": "example"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "request.protocol",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "upgrade_required": {
+                    "value": {
+                      "code": "upgrade_required",
+                      "field": "example"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "account.register / read.public",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "rate_limited": {
+                    "value": {
+                      "code": "rate_limited",
+                      "field": "example"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cloud/v3/push": {
+      "post": {
+        "tags": [
+          "push"
+        ],
+        "summary": "Push",
+        "description": "mutations | file begin/commit | snapshot begin/commit. Node PUTs between begin and commit.",
+        "operationId": "cloudPush",
+        "security": [
+          {
+            "nodeSignature": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CloudProtocol"
+          },
+          {
+            "$ref": "#/components/parameters/NodeKey"
+          },
+          {
+            "$ref": "#/components/parameters/DeviceId"
+          },
+          {
+            "$ref": "#/components/parameters/IssuedAt"
+          },
+          {
+            "$ref": "#/components/parameters/Nonce"
+          },
+          {
+            "$ref": "#/components/parameters/Signature"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PushRequestBody"
+              },
+              "examples": {
+                "mutations": {
+                  "value": {
+                    "database_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "intent": "mutations",
+                    "args": {
+                      "entries": [
+                        {
+                          "writer_seq": 1,
+                          "authored_at_ms": 1730000000000,
+                          "namespace": "default",
+                          "payload_b64": "AQID"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PushResponseBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "signature / issued_at / nonce / device.unknown|removed / account.retired",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "unauthorized": {
+                    "value": {
+                      "code": "unauthorized",
+                      "field": "example"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "grant.* / payment.subscription",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "forbidden": {
+                    "value": {
+                      "code": "forbidden",
+                      "field": "example"
+                    }
+                  },
+                  "payment_required": {
+                    "value": {
+                      "code": "payment_required",
+                      "field": "example"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "arg paths / grants.any.role / batch.response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "invalid_request": {
+                    "value": {
+                      "code": "invalid_request",
+                      "field": "example"
+                    }
+                  },
+                  "batch_too_large": {
+                    "value": {
+                      "code": "batch_too_large",
+                      "field": "example"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "database.id|deleted / file_handle / restore_point_id / snapshot_upload",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "code": "not_found",
+                      "field": "example"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "database.id / account.exists / device.* / entries.writer_seq / file.unverified / cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "conflict": {
+                    "value": {
+                      "code": "conflict",
+                      "field": "example"
+                    }
+                  },
+                  "cursor_expired": {
+                    "value": {
+                      "code": "cursor_expired",
+                      "field": "example"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "request.protocol",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "upgrade_required": {
+                    "value": {
+                      "code": "upgrade_required",
+                      "field": "example"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "account.register / read.public",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "rate_limited": {
+                    "value": {
+                      "code": "rate_limited",
+                      "field": "example"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cloud/v3/manage": {
+      "post": {
+        "tags": [
+          "manage"
+        ],
+        "summary": "Manage",
+        "description": "create (db_salt+birth_signature) | grant | revoke | access | delete. Public read via grantee any / role read.",
+        "operationId": "cloudManage",
+        "security": [
+          {
+            "nodeSignature": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CloudProtocol"
+          },
+          {
+            "$ref": "#/components/parameters/NodeKey"
+          },
+          {
+            "$ref": "#/components/parameters/DeviceId"
+          },
+          {
+            "$ref": "#/components/parameters/IssuedAt"
+          },
+          {
+            "$ref": "#/components/parameters/Nonce"
+          },
+          {
+            "$ref": "#/components/parameters/Signature"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ManageRequestBody"
+              },
+              "examples": {
+                "create": {
+                  "value": {
+                    "database_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "intent": "create",
+                    "args": {
+                      "db_salt": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+                      "birth_signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+                    }
+                  }
+                },
+                "access": {
+                  "value": {
+                    "database_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "intent": "access",
+                    "args": {}
+                  }
+                },
+                "grant_any": {
+                  "value": {
+                    "database_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "intent": "grant",
+                    "args": {
+                      "grants": [
+                        {
+                          "grantee": "any",
+                          "role": "read"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManageResponseBody"
+                },
+                "examples": {
+                  "access": {
+                    "value": {
+                      "database_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                      "intent": "access",
+                      "result": {
+                        "role": "publisher",
+                        "level": "write",
+                        "public_read": true,
+                        "owner": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                        "db_salt": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+                        "birth_signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "signature / issued_at / nonce / device.unknown|removed / account.retired",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "unauthorized": {
+                    "value": {
+                      "code": "unauthorized",
+                      "field": "example"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "grant.* / payment.subscription",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "forbidden": {
+                    "value": {
+                      "code": "forbidden",
+                      "field": "example"
+                    }
+                  },
+                  "payment_required": {
+                    "value": {
+                      "code": "payment_required",
+                      "field": "example"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "arg paths / grants.any.role / batch.response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "invalid_request": {
+                    "value": {
+                      "code": "invalid_request",
+                      "field": "example"
+                    }
+                  },
+                  "batch_too_large": {
+                    "value": {
+                      "code": "batch_too_large",
+                      "field": "example"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "database.id|deleted / file_handle / restore_point_id / snapshot_upload",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "code": "not_found",
+                      "field": "example"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "database.id / account.exists / device.* / entries.writer_seq / file.unverified / cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "conflict": {
+                    "value": {
+                      "code": "conflict",
+                      "field": "example"
+                    }
+                  },
+                  "cursor_expired": {
+                    "value": {
+                      "code": "cursor_expired",
+                      "field": "example"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "request.protocol",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "upgrade_required": {
+                    "value": {
+                      "code": "upgrade_required",
+                      "field": "example"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "account.register / read.public",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "rate_limited": {
+                    "value": {
+                      "code": "rate_limited",
+                      "field": "example"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cloud/v3/account": {
+      "post": {
+        "tags": [
+          "account"
+        ],
+        "summary": "Account",
+        "description": "No protocol header. register/payment/deactivate/add_device/remove_device/databases/status.",
+        "operationId": "cloudAccount",
+        "security": [
+          {
+            "nodeSignature": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/NodeKey"
+          },
+          {
+            "$ref": "#/components/parameters/DeviceId"
+          },
+          {
+            "$ref": "#/components/parameters/IssuedAt"
+          },
+          {
+            "$ref": "#/components/parameters/Nonce"
+          },
+          {
+            "$ref": "#/components/parameters/Signature"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccountRequestBody"
+              },
+              "examples": {
+                "register": {
+                  "value": {
+                    "intent": "register",
+                    "args": {}
+                  }
+                },
+                "databases": {
+                  "value": {
+                    "intent": "databases",
+                    "args": {
+                      "limit": 50
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountResponseBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "signature / issued_at / nonce / device.unknown|removed / account.retired",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "unauthorized": {
+                    "value": {
+                      "code": "unauthorized",
+                      "field": "example"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "grant.* / payment.subscription",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "forbidden": {
+                    "value": {
+                      "code": "forbidden",
+                      "field": "example"
+                    }
+                  },
+                  "payment_required": {
+                    "value": {
+                      "code": "payment_required",
+                      "field": "example"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "arg paths / grants.any.role / batch.response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "invalid_request": {
+                    "value": {
+                      "code": "invalid_request",
+                      "field": "example"
+                    }
+                  },
+                  "batch_too_large": {
+                    "value": {
+                      "code": "batch_too_large",
+                      "field": "example"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "database.id|deleted / file_handle / restore_point_id / snapshot_upload",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "code": "not_found",
+                      "field": "example"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "database.id / account.exists / device.* / entries.writer_seq / file.unverified / cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "conflict": {
+                    "value": {
+                      "code": "conflict",
+                      "field": "example"
+                    }
+                  },
+                  "cursor_expired": {
+                    "value": {
+                      "code": "cursor_expired",
+                      "field": "example"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "account.register / read.public",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "rate_limited": {
+                    "value": {
+                      "code": "rate_limited",
+                      "field": "example"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cloud/v3/maintenance": {
+      "post": {
+        "tags": [
+          "maintenance"
+        ],
+        "summary": "Maintenance (DEV)",
+        "description": "Single envelope only. githubOidc.",
+        "operationId": "cloudMaintenance",
+        "security": [
+          {
+            "githubOidc": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CloudProtocol"
+          }
+        ],
+        "x-lastdb-environment": "dev",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MaintenanceRequestBody"
+              },
+              "examples": {
+                "status": {
+                  "value": {
+                    "intent": "snapshot_proof_status",
+                    "args": {
+                      "run_id": "1",
+                      "run_attempt": 1
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MaintenanceResponseBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not DEV / bad OIDC",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "forbidden": {
+                    "value": {
+                      "code": "forbidden",
+                      "field": "example"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "request.protocol",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "upgrade_required": {
+                    "value": {
+                      "code": "upgrade_required",
+                      "field": "example"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "nodeSignature": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-LastDB-Signature",
+        "description": "Ed25519 over POST\\n<path>\\n<protocol|->\\n<node key>\\n<device id>\\n<issued-at>\\n<nonce>\\n<body sha256 hex>. Skew ±60s. Companion headers required."
+      },
+      "githubOidc": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "GitHub Actions OIDC for DEV maintenance."
+      }
+    },
+    "parameters": {
+      "CloudProtocol": {
+        "name": "X-LastDB-Cloud-Protocol",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "enum": [
+            3
+          ]
+        }
+      },
+      "NodeKey": {
+        "name": "X-LastDB-Node-Key",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "description": "Signing node public key",
+          "pattern": "^[0-9a-f]{64}$",
+          "minLength": 64,
+          "maxLength": 64
+        }
+      },
+      "DeviceId": {
+        "name": "X-LastDB-Device-Id",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid",
+          "description": "UUID"
+        }
+      },
+      "IssuedAt": {
+        "name": "X-LastDB-Issued-At",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "description": "Unix ms",
+          "pattern": "^[0-9]+$",
+          "maxLength": 20
+        }
+      },
+      "Nonce": {
+        "name": "X-LastDB-Nonce",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "description": "Single-use nonce",
+          "pattern": "^[0-9a-f]{64}$",
+          "minLength": 64,
+          "maxLength": 64
+        }
+      },
+      "Signature": {
+        "name": "X-LastDB-Signature",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "description": "base64url signature",
+          "minLength": 86,
+          "maxLength": 88
+        }
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "required": [
+          "code",
+          "field"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": "string",
+            "enum": [
+              "unauthorized",
+              "forbidden",
+              "invalid_request",
+              "not_found",
+              "conflict",
+              "rate_limited",
+              "upgrade_required",
+              "cursor_expired",
+              "batch_too_large",
+              "payment_required"
+            ]
+          },
+          "field": {
+            "type": "string",
+            "description": "Dot-path field",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "minimum_version": {
+            "type": "integer",
+            "minimum": 3,
+            "description": "On upgrade_required"
+          }
+        }
+      },
+      "DatabaseId": {
+        "type": "string",
+        "description": "Database Ed25519 public key",
+        "pattern": "^[0-9a-f]{64}$",
+        "minLength": 64,
+        "maxLength": 64
+      },
+      "NodeKey": {
+        "type": "string",
+        "description": "Node Ed25519 public key",
+        "pattern": "^[0-9a-f]{64}$",
+        "minLength": 64,
+        "maxLength": 64
+      },
+      "OpaqueCursor": {
+        "type": "string",
+        "description": "Opaque forward-only cursor",
+        "minLength": 1,
+        "maxLength": 256
+      },
+      "OpaqueFileHandle": {
+        "type": "string",
+        "description": "Opaque file handle",
+        "minLength": 1,
+        "maxLength": 256
+      },
+      "OpaqueSnapshotUpload": {
+        "type": "string",
+        "description": "Opaque snapshot upload session",
+        "minLength": 1,
+        "maxLength": 256
+      },
+      "GrantGrantee": {
+        "oneOf": [
+          {
+            "type": "string",
+            "description": "Member node public key",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          {
+            "type": "string",
+            "const": "any",
+            "description": "Public-read grantee"
+          }
+        ]
+      },
+      "AccessLevel": {
+        "type": "string",
+        "enum": [
+          "read",
+          "submit",
+          "write"
+        ]
+      },
+      "StreamKind": {
+        "type": "string",
+        "enum": [
+          "direct",
+          "proposal"
+        ]
+      },
+      "IncorporatedFrom": {
+        "type": "object",
+        "required": [
+          "node_key",
+          "device_id",
+          "writer_seq"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "node_key": {
+            "type": "string",
+            "description": "64 lowercase hex",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "device_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "UUID"
+          },
+          "writer_seq": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Source writer_seq"
+          }
+        }
+      },
+      "Upload": {
+        "type": "object",
+        "required": [
+          "url",
+          "headers",
+          "expires_at_ms"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "Presigned URL",
+            "format": "uri",
+            "maxLength": 8192
+          },
+          "headers": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "maxLength": 1024
+            },
+            "maxProperties": 32,
+            "description": "Header map for presigned transfer (≤32 entries)."
+          },
+          "expires_at_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Unix ms expiry"
+          }
+        }
+      },
+      "FetchMutationsSinceArgs": {
+        "type": "object",
+        "required": [],
+        "additionalProperties": false,
+        "properties": {
+          "cursor": {
+            "$ref": "#/components/schemas/OpaqueCursor"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Page size",
+            "maximum": 90
+          }
+        }
+      },
+      "MutationOut": {
+        "type": "object",
+        "required": [
+          "stream",
+          "node_key",
+          "device_id",
+          "writer_seq",
+          "authored_at_ms",
+          "namespace",
+          "payload_b64"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "stream": {
+            "$ref": "#/components/schemas/StreamKind"
+          },
+          "node_key": {
+            "type": "string",
+            "description": "64 lowercase hex",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "device_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "UUID"
+          },
+          "writer_seq": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Writer sequence"
+          },
+          "authored_at_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Unix ms"
+          },
+          "namespace": {
+            "type": "string",
+            "description": "Namespace",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "payload_b64": {
+            "type": "string",
+            "description": "base64url payload ≤96 KiB decoded",
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "minLength": 1,
+            "maxLength": 131072
+          },
+          "file": {
+            "$ref": "#/components/schemas/OpaqueFileHandle"
+          },
+          "incorporated_from": {
+            "$ref": "#/components/schemas/IncorporatedFrom"
+          }
+        }
+      },
+      "FetchMutationsSinceResult": {
+        "type": "object",
+        "required": [
+          "cursor",
+          "mutations"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "cursor": {
+            "$ref": "#/components/schemas/OpaqueCursor"
+          },
+          "mutations": {
+            "type": "array",
+            "maxItems": 90,
+            "items": {
+              "$ref": "#/components/schemas/MutationOut"
+            }
+          }
+        }
+      },
+      "FetchSnapshotArgs": {
+        "type": "object",
+        "required": [],
+        "additionalProperties": false,
+        "properties": {
+          "restore_point_id": {
+            "type": "string",
+            "description": "Omit for latest",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          }
+        }
+      },
+      "FetchSnapshotResult": {
+        "type": "object",
+        "required": [
+          "restore_point_id",
+          "manifest",
+          "cursor",
+          "held_until_ms"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "restore_point_id": {
+            "type": "string",
+            "description": "64 lowercase hex",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "manifest": {
+            "$ref": "#/components/schemas/OpaqueFileHandle"
+          },
+          "cursor": {
+            "$ref": "#/components/schemas/OpaqueCursor"
+          },
+          "held_until_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Hold deadline (1 h from call)"
+          }
+        }
+      },
+      "FetchFileArgs": {
+        "type": "object",
+        "required": [
+          "file_handle"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "file_handle": {
+            "$ref": "#/components/schemas/OpaqueFileHandle"
+          }
+        }
+      },
+      "FetchFileResult": {
+        "type": "object",
+        "required": [
+          "url",
+          "headers",
+          "expires_at_ms",
+          "bytes",
+          "sha256"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "Presigned GET",
+            "format": "uri",
+            "maxLength": 8192
+          },
+          "headers": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "maxLength": 1024
+            },
+            "maxProperties": 32,
+            "description": "Header map for presigned transfer (≤32 entries)."
+          },
+          "expires_at_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "description": ""
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Object size"
+          },
+          "sha256": {
+            "type": "string",
+            "description": "Object digest",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          }
+        }
+      },
+      "MutationIn": {
+        "type": "object",
+        "required": [
+          "writer_seq",
+          "authored_at_ms",
+          "namespace",
+          "payload_b64"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "writer_seq": {
+            "type": "integer",
+            "minimum": 1,
+            "description": ""
+          },
+          "authored_at_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "description": ""
+          },
+          "namespace": {
+            "type": "string",
+            "description": "",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "payload_b64": {
+            "type": "string",
+            "description": "≤96 KiB decoded",
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "minLength": 1,
+            "maxLength": 131072
+          },
+          "file": {
+            "$ref": "#/components/schemas/OpaqueFileHandle"
+          },
+          "incorporated_from": {
+            "$ref": "#/components/schemas/IncorporatedFrom"
+          }
+        }
+      },
+      "PushMutationsArgs": {
+        "type": "object",
+        "required": [
+          "entries"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "entries": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 90,
+            "items": {
+              "$ref": "#/components/schemas/MutationIn"
+            }
+          }
+        }
+      },
+      "PushMutationsResult": {
+        "type": "object",
+        "required": [
+          "landed",
+          "next_writer_seq"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "landed": {
+            "$ref": "#/components/schemas/StreamKind"
+          },
+          "next_writer_seq": {
+            "type": "integer",
+            "minimum": 1,
+            "description": ""
+          },
+          "duplicate": {
+            "type": "boolean",
+            "description": "Replay of same writer_seq"
+          }
+        }
+      },
+      "PushFileBeginArgs": {
+        "type": "object",
+        "required": [
+          "stage",
+          "bytes",
+          "sha256"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "stage": {
+            "type": "string",
+            "const": "begin"
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Exact size"
+          },
+          "sha256": {
+            "type": "string",
+            "description": "64 lowercase hex",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          }
+        }
+      },
+      "PushFileBeginResult": {
+        "type": "object",
+        "required": [
+          "stage",
+          "file_handle"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "stage": {
+            "type": "string",
+            "const": "begin"
+          },
+          "file_handle": {
+            "$ref": "#/components/schemas/OpaqueFileHandle"
+          },
+          "upload": {
+            "$ref": "#/components/schemas/Upload",
+            "description": "Absent when already stored in this database"
+          }
+        }
+      },
+      "PushFileCommitArgs": {
+        "type": "object",
+        "required": [
+          "stage",
+          "file_handle"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "stage": {
+            "type": "string",
+            "const": "commit"
+          },
+          "file_handle": {
+            "$ref": "#/components/schemas/OpaqueFileHandle"
+          }
+        }
+      },
+      "PushFileCommitResult": {
+        "type": "object",
+        "required": [],
+        "additionalProperties": false,
+        "properties": {},
+        "description": "Empty object"
+      },
+      "PushFileArgs": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/PushFileBeginArgs"
+          },
+          {
+            "$ref": "#/components/schemas/PushFileCommitArgs"
+          }
+        ]
+      },
+      "PushFileResult": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/PushFileBeginResult"
+          },
+          {
+            "$ref": "#/components/schemas/PushFileCommitResult"
+          }
+        ]
+      },
+      "SnapshotFileSpec": {
+        "type": "object",
+        "required": [
+          "bytes",
+          "sha256"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "bytes": {
+            "type": "integer",
+            "minimum": 1,
+            "description": ""
+          },
+          "sha256": {
+            "type": "string",
+            "description": "64 lowercase hex",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          }
+        }
+      },
+      "SnapshotFileBegun": {
+        "type": "object",
+        "required": [
+          "file_handle"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "file_handle": {
+            "$ref": "#/components/schemas/OpaqueFileHandle"
+          },
+          "upload": {
+            "$ref": "#/components/schemas/Upload"
+          }
+        }
+      },
+      "PushSnapshotBeginArgs": {
+        "type": "object",
+        "required": [
+          "stage",
+          "files"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "stage": {
+            "type": "string",
+            "const": "begin"
+          },
+          "snapshot_upload": {
+            "$ref": "#/components/schemas/OpaqueSnapshotUpload"
+          },
+          "files": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 32,
+            "items": {
+              "$ref": "#/components/schemas/SnapshotFileSpec"
+            }
+          }
+        }
+      },
+      "PushSnapshotBeginResult": {
+        "type": "object",
+        "required": [
+          "stage",
+          "snapshot_upload",
+          "files"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "stage": {
+            "type": "string",
+            "const": "begin"
+          },
+          "snapshot_upload": {
+            "$ref": "#/components/schemas/OpaqueSnapshotUpload"
+          },
+          "files": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 32,
+            "items": {
+              "$ref": "#/components/schemas/SnapshotFileBegun"
+            }
+          }
+        }
+      },
+      "PushSnapshotCommitArgs": {
+        "type": "object",
+        "required": [
+          "stage",
+          "snapshot_upload",
+          "manifest",
+          "cursor"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "stage": {
+            "type": "string",
+            "const": "commit"
+          },
+          "snapshot_upload": {
+            "$ref": "#/components/schemas/OpaqueSnapshotUpload"
+          },
+          "manifest": {
+            "$ref": "#/components/schemas/OpaqueFileHandle"
+          },
+          "cursor": {
+            "$ref": "#/components/schemas/OpaqueCursor"
+          }
+        }
+      },
+      "PushSnapshotCommitResult": {
+        "type": "object",
+        "required": [
+          "stage",
+          "restore_point_id"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "stage": {
+            "type": "string",
+            "const": "commit"
+          },
+          "restore_point_id": {
+            "type": "string",
+            "description": "sha256 of manifest file",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          }
+        }
+      },
+      "PushSnapshotArgs": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/PushSnapshotBeginArgs"
+          },
+          {
+            "$ref": "#/components/schemas/PushSnapshotCommitArgs"
+          }
+        ]
+      },
+      "PushSnapshotResult": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/PushSnapshotBeginResult"
+          },
+          {
+            "$ref": "#/components/schemas/PushSnapshotCommitResult"
+          }
+        ]
+      },
+      "ManageCreateArgs": {
+        "type": "object",
+        "required": [
+          "db_salt",
+          "birth_signature"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "db_salt": {
+            "type": "string",
+            "description": "32-byte salt as 64 hex",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "birth_signature": {
+            "type": "string",
+            "description": "Db-key Ed25519 over lastdb-db-birth-v1\\n… (64 bytes)",
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "minLength": 1,
+            "maxLength": 88
+          }
+        }
+      },
+      "ManageCreateResult": {
+        "type": "object",
+        "required": [],
+        "additionalProperties": false,
+        "properties": {},
+        "description": "Empty object"
+      },
+      "ManageGrantEntry": {
+        "type": "object",
+        "required": [
+          "grantee",
+          "role"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "grantee": {
+            "$ref": "#/components/schemas/GrantGrantee"
+          },
+          "role": {
+            "$ref": "#/components/schemas/AccessLevel"
+          }
+        }
+      },
+      "ManageGrantArgs": {
+        "type": "object",
+        "required": [
+          "grants"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "grants": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 90,
+            "items": {
+              "$ref": "#/components/schemas/ManageGrantEntry"
+            }
+          }
+        }
+      },
+      "ManageGrantResult": {
+        "type": "object",
+        "required": [],
+        "additionalProperties": false,
+        "properties": {},
+        "description": "Empty object"
+      },
+      "ManageRevokeArgs": {
+        "type": "object",
+        "required": [
+          "grantees"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "grantees": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 90,
+            "items": {
+              "$ref": "#/components/schemas/GrantGrantee"
+            }
+          }
+        }
+      },
+      "ManageRevokeResult": {
+        "type": "object",
+        "required": [],
+        "additionalProperties": false,
+        "properties": {},
+        "description": "Empty object"
+      },
+      "ManageAccessArgs": {
+        "type": "object",
+        "required": [],
+        "additionalProperties": false,
+        "properties": {},
+        "description": "Empty object"
+      },
+      "ManageAccessResult": {
+        "type": "object",
+        "required": [
+          "role",
+          "owner",
+          "db_salt",
+          "birth_signature"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "role": {
+            "type": "string",
+            "enum": [
+              "publisher",
+              "member",
+              "public",
+              "none"
+            ]
+          },
+          "level": {
+            "$ref": "#/components/schemas/AccessLevel",
+            "description": "Omitted when role is none"
+          },
+          "public_read": {
+            "type": "boolean",
+            "description": "Publisher only: grant#any active"
+          },
+          "owner": {
+            "type": "string",
+            "description": "Owner node public key",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "db_salt": {
+            "type": "string",
+            "description": "64 lowercase hex",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "birth_signature": {
+            "type": "string",
+            "description": "Birth certificate",
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "minLength": 1,
+            "maxLength": 88
+          }
+        }
+      },
+      "ManageDeleteArgs": {
+        "type": "object",
+        "required": [],
+        "additionalProperties": false,
+        "properties": {},
+        "description": "Empty object"
+      },
+      "ManageDeleteResult": {
+        "type": "object",
+        "required": [],
+        "additionalProperties": false,
+        "properties": {},
+        "description": "Empty object"
+      },
+      "AccountRegisterArgs": {
+        "type": "object",
+        "required": [],
+        "additionalProperties": false,
+        "properties": {},
+        "description": "Empty object"
+      },
+      "AccountRegisterResult": {
+        "type": "object",
+        "required": [],
+        "additionalProperties": false,
+        "properties": {},
+        "description": "Empty object"
+      },
+      "AccountPaymentArgs": {
+        "type": "object",
+        "required": [],
+        "additionalProperties": false,
+        "properties": {},
+        "description": "Empty object"
+      },
+      "AccountPaymentResult": {
+        "type": "object",
+        "required": [
+          "payment_url",
+          "expires_at_ms"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "payment_url": {
+            "type": "string",
+            "description": "Signed single-use payment URL",
+            "format": "uri",
+            "maxLength": 8192
+          },
+          "expires_at_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "description": ""
+          }
+        }
+      },
+      "AccountDeactivateArgs": {
+        "type": "object",
+        "required": [],
+        "additionalProperties": false,
+        "properties": {},
+        "description": "Empty object"
+      },
+      "AccountDeactivateResult": {
+        "type": "object",
+        "required": [],
+        "additionalProperties": false,
+        "properties": {},
+        "description": "Empty object"
+      },
+      "AccountAddDeviceArgs": {
+        "type": "object",
+        "required": [],
+        "additionalProperties": false,
+        "properties": {},
+        "description": "Empty object"
+      },
+      "AccountAddDeviceResult": {
+        "type": "object",
+        "required": [],
+        "additionalProperties": false,
+        "properties": {},
+        "description": "Empty object"
+      },
+      "AccountRemoveDeviceArgs": {
+        "type": "object",
+        "required": [
+          "device_id"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "device_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Device to remove"
+          }
+        }
+      },
+      "AccountRemoveDeviceResult": {
+        "type": "object",
+        "required": [],
+        "additionalProperties": false,
+        "properties": {},
+        "description": "Empty object"
+      },
+      "AccountDatabasesArgs": {
+        "type": "object",
+        "required": [],
+        "additionalProperties": false,
+        "properties": {
+          "cursor": {
+            "$ref": "#/components/schemas/OpaqueCursor"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "",
+            "maximum": 90
+          }
+        }
+      },
+      "AccountDatabaseRow": {
+        "type": "object",
+        "required": [
+          "database_id",
+          "role"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "description": "64 lowercase hex",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "publisher",
+              "read",
+              "submit",
+              "write"
+            ]
+          },
+          "db_salt": {
+            "type": "string",
+            "description": "Present on owned rows",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          }
+        }
+      },
+      "AccountDatabasesResult": {
+        "type": "object",
+        "required": [
+          "databases"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "cursor": {
+            "$ref": "#/components/schemas/OpaqueCursor"
+          },
+          "databases": {
+            "type": "array",
+            "maxItems": 90,
+            "items": {
+              "$ref": "#/components/schemas/AccountDatabaseRow"
+            }
+          }
+        }
+      },
+      "AccountDeviceRow": {
+        "type": "object",
+        "required": [
+          "device_id",
+          "added_at_ms"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "device_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "UUID"
+          },
+          "added_at_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "description": ""
+          }
+        }
+      },
+      "AccountStatusArgs": {
+        "type": "object",
+        "required": [],
+        "additionalProperties": false,
+        "properties": {},
+        "description": "Empty object"
+      },
+      "AccountStatusResult": {
+        "type": "object",
+        "required": [
+          "paid",
+          "storage_used_bytes",
+          "transfer_used_bytes",
+          "devices"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "paid": {
+            "type": "boolean",
+            "description": "Active paid plan"
+          },
+          "storage_used_bytes": {
+            "type": "integer",
+            "minimum": 0,
+            "description": ""
+          },
+          "transfer_used_bytes": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Bytes served / transferred (publisher pays)"
+          },
+          "devices": {
+            "type": "array",
+            "maxItems": 256,
+            "items": {
+              "$ref": "#/components/schemas/AccountDeviceRow"
+            }
+          }
+        }
+      },
+      "MaintProvisionArgs": {
+        "type": "object",
+        "required": [
+          "node_key",
+          "device_id",
+          "database_id",
+          "db_salt",
+          "birth_signature"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "node_key": {
+            "type": "string",
+            "description": "64 lowercase hex",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "device_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "UUID"
+          },
+          "database_id": {
+            "type": "string",
+            "description": "64 lowercase hex",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "db_salt": {
+            "type": "string",
+            "description": "64 lowercase hex",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "birth_signature": {
+            "type": "string",
+            "description": "",
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "minLength": 1,
+            "maxLength": 88
+          }
+        }
+      },
+      "MaintProvisionResult": {
+        "type": "object",
+        "required": [],
+        "additionalProperties": false,
+        "properties": {},
+        "description": "Empty object"
+      },
+      "MaintRunArgs": {
+        "type": "object",
+        "required": [
+          "run_id",
+          "run_attempt"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "description": "",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "run_attempt": {
+            "type": "integer",
+            "minimum": 1,
+            "description": ""
+          }
+        }
+      },
+      "MaintStatusResult": {
+        "type": "object",
+        "required": [
+          "phase",
+          "database_id"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "phase": {
+            "type": "string",
+            "enum": [
+              "open",
+              "retiring",
+              "complete"
+            ]
+          },
+          "database_id": {
+            "type": "string",
+            "description": "64 lowercase hex",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "retry_after_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "",
+            "maximum": 900000
+          },
+          "released_bytes": {
+            "type": "string",
+            "description": "Decimal string",
+            "pattern": "^[0-9]+$",
+            "maxLength": 32
+          }
+        }
+      },
+      "MaintInspectArgs": {
+        "type": "object",
+        "required": [
+          "through"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "through": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "",
+            "maximum": 32
+          }
+        }
+      },
+      "MaintInspectResult": {
+        "type": "object",
+        "required": [
+          "database_id",
+          "entries",
+          "facts"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "description": "64 lowercase hex",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "entries": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "maxLength": 4096
+            },
+            "maxProperties": 32
+          },
+          "facts": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "maxLength": 4096
+            },
+            "maxProperties": 256
+          }
+        }
+      },
+      "Fetch_mutations_since_Ok": {
+        "type": "object",
+        "required": [
+          "database_id",
+          "intent",
+          "result"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "description": "Database Ed25519 public key",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "intent": {
+            "type": "string",
+            "const": "mutations_since"
+          },
+          "result": {
+            "$ref": "#/components/schemas/FetchMutationsSinceResult"
+          }
+        }
+      },
+      "Fetch_mutations_since_Req": {
+        "type": "object",
+        "required": [
+          "database_id",
+          "intent",
+          "args"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "description": "Database Ed25519 public key",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "intent": {
+            "type": "string",
+            "const": "mutations_since"
+          },
+          "args": {
+            "$ref": "#/components/schemas/FetchMutationsSinceArgs"
+          }
+        }
+      },
+      "Fetch_mutations_since_Err": {
+        "type": "object",
+        "required": [
+          "intent",
+          "error"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "description": "Database id when known",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "intent": {
+            "type": "string",
+            "const": "mutations_since"
+          },
+          "error": {
+            "$ref": "#/components/schemas/Error"
+          }
+        },
+        "description": "Per-item batch error"
+      },
+      "Fetch_mutations_since_Item": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Fetch_mutations_since_Ok"
+          },
+          {
+            "$ref": "#/components/schemas/Fetch_mutations_since_Err"
+          }
+        ]
+      },
+      "Fetch_snapshot_Ok": {
+        "type": "object",
+        "required": [
+          "database_id",
+          "intent",
+          "result"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "description": "Database Ed25519 public key",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "intent": {
+            "type": "string",
+            "const": "snapshot"
+          },
+          "result": {
+            "$ref": "#/components/schemas/FetchSnapshotResult"
+          }
+        }
+      },
+      "Fetch_snapshot_Req": {
+        "type": "object",
+        "required": [
+          "database_id",
+          "intent",
+          "args"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "description": "Database Ed25519 public key",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "intent": {
+            "type": "string",
+            "const": "snapshot"
+          },
+          "args": {
+            "$ref": "#/components/schemas/FetchSnapshotArgs"
+          }
+        }
+      },
+      "Fetch_snapshot_Err": {
+        "type": "object",
+        "required": [
+          "intent",
+          "error"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "description": "Database id when known",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "intent": {
+            "type": "string",
+            "const": "snapshot"
+          },
+          "error": {
+            "$ref": "#/components/schemas/Error"
+          }
+        },
+        "description": "Per-item batch error"
+      },
+      "Fetch_snapshot_Item": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Fetch_snapshot_Ok"
+          },
+          {
+            "$ref": "#/components/schemas/Fetch_snapshot_Err"
+          }
+        ]
+      },
+      "Fetch_file_Ok": {
+        "type": "object",
+        "required": [
+          "database_id",
+          "intent",
+          "result"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "description": "Database Ed25519 public key",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "intent": {
+            "type": "string",
+            "const": "file"
+          },
+          "result": {
+            "$ref": "#/components/schemas/FetchFileResult"
+          }
+        }
+      },
+      "Fetch_file_Req": {
+        "type": "object",
+        "required": [
+          "database_id",
+          "intent",
+          "args"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "description": "Database Ed25519 public key",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "intent": {
+            "type": "string",
+            "const": "file"
+          },
+          "args": {
+            "$ref": "#/components/schemas/FetchFileArgs"
+          }
+        }
+      },
+      "Fetch_file_Err": {
+        "type": "object",
+        "required": [
+          "intent",
+          "error"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "description": "Database id when known",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "intent": {
+            "type": "string",
+            "const": "file"
+          },
+          "error": {
+            "$ref": "#/components/schemas/Error"
+          }
+        },
+        "description": "Per-item batch error"
+      },
+      "Fetch_file_Item": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Fetch_file_Ok"
+          },
+          {
+            "$ref": "#/components/schemas/Fetch_file_Err"
+          }
+        ]
+      },
+      "FetchEnvelope": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Fetch_mutations_since_Req"
+          },
+          {
+            "$ref": "#/components/schemas/Fetch_snapshot_Req"
+          },
+          {
+            "$ref": "#/components/schemas/Fetch_file_Req"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "intent",
+          "mapping": {
+            "mutations_since": "#/components/schemas/Fetch_mutations_since_Req",
+            "snapshot": "#/components/schemas/Fetch_snapshot_Req",
+            "file": "#/components/schemas/Fetch_file_Req"
+          }
+        }
+      },
+      "FetchResultItem": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Fetch_mutations_since_Item"
+          },
+          {
+            "$ref": "#/components/schemas/Fetch_snapshot_Item"
+          },
+          {
+            "$ref": "#/components/schemas/Fetch_file_Item"
+          }
+        ]
+      },
+      "FetchRequestBody": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/FetchEnvelope"
+          },
+          {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 90,
+            "items": {
+              "$ref": "#/components/schemas/FetchEnvelope"
+            }
+          }
+        ]
+      },
+      "FetchResponseBody": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/FetchResultItem"
+          },
+          {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 90,
+            "items": {
+              "$ref": "#/components/schemas/FetchResultItem"
+            }
+          }
+        ]
+      },
+      "Push_mutations_Ok": {
+        "type": "object",
+        "required": [
+          "database_id",
+          "intent",
+          "result"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "description": "Database Ed25519 public key",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "intent": {
+            "type": "string",
+            "const": "mutations"
+          },
+          "result": {
+            "$ref": "#/components/schemas/PushMutationsResult"
+          }
+        }
+      },
+      "Push_mutations_Req": {
+        "type": "object",
+        "required": [
+          "database_id",
+          "intent",
+          "args"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "description": "Database Ed25519 public key",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "intent": {
+            "type": "string",
+            "const": "mutations"
+          },
+          "args": {
+            "$ref": "#/components/schemas/PushMutationsArgs"
+          }
+        }
+      },
+      "Push_mutations_Err": {
+        "type": "object",
+        "required": [
+          "intent",
+          "error"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "description": "Database id when known",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "intent": {
+            "type": "string",
+            "const": "mutations"
+          },
+          "error": {
+            "$ref": "#/components/schemas/Error"
+          }
+        },
+        "description": "Per-item batch error"
+      },
+      "Push_mutations_Item": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Push_mutations_Ok"
+          },
+          {
+            "$ref": "#/components/schemas/Push_mutations_Err"
+          }
+        ]
+      },
+      "Push_file_Ok": {
+        "type": "object",
+        "required": [
+          "database_id",
+          "intent",
+          "result"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "description": "Database Ed25519 public key",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "intent": {
+            "type": "string",
+            "const": "file"
+          },
+          "result": {
+            "$ref": "#/components/schemas/PushFileResult"
+          }
+        }
+      },
+      "Push_file_Req": {
+        "type": "object",
+        "required": [
+          "database_id",
+          "intent",
+          "args"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "description": "Database Ed25519 public key",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "intent": {
+            "type": "string",
+            "const": "file"
+          },
+          "args": {
+            "$ref": "#/components/schemas/PushFileArgs"
+          }
+        }
+      },
+      "Push_file_Err": {
+        "type": "object",
+        "required": [
+          "intent",
+          "error"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "description": "Database id when known",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "intent": {
+            "type": "string",
+            "const": "file"
+          },
+          "error": {
+            "$ref": "#/components/schemas/Error"
+          }
+        },
+        "description": "Per-item batch error"
+      },
+      "Push_file_Item": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Push_file_Ok"
+          },
+          {
+            "$ref": "#/components/schemas/Push_file_Err"
+          }
+        ]
+      },
+      "Push_snapshot_Ok": {
+        "type": "object",
+        "required": [
+          "database_id",
+          "intent",
+          "result"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "description": "Database Ed25519 public key",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "intent": {
+            "type": "string",
+            "const": "snapshot"
+          },
+          "result": {
+            "$ref": "#/components/schemas/PushSnapshotResult"
+          }
+        }
+      },
+      "Push_snapshot_Req": {
+        "type": "object",
+        "required": [
+          "database_id",
+          "intent",
+          "args"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "description": "Database Ed25519 public key",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "intent": {
+            "type": "string",
+            "const": "snapshot"
+          },
+          "args": {
+            "$ref": "#/components/schemas/PushSnapshotArgs"
+          }
+        }
+      },
+      "Push_snapshot_Err": {
+        "type": "object",
+        "required": [
+          "intent",
+          "error"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "description": "Database id when known",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "intent": {
+            "type": "string",
+            "const": "snapshot"
+          },
+          "error": {
+            "$ref": "#/components/schemas/Error"
+          }
+        },
+        "description": "Per-item batch error"
+      },
+      "Push_snapshot_Item": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Push_snapshot_Ok"
+          },
+          {
+            "$ref": "#/components/schemas/Push_snapshot_Err"
+          }
+        ]
+      },
+      "PushEnvelope": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Push_mutations_Req"
+          },
+          {
+            "$ref": "#/components/schemas/Push_file_Req"
+          },
+          {
+            "$ref": "#/components/schemas/Push_snapshot_Req"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "intent",
+          "mapping": {
+            "mutations": "#/components/schemas/Push_mutations_Req",
+            "file": "#/components/schemas/Push_file_Req",
+            "snapshot": "#/components/schemas/Push_snapshot_Req"
+          }
+        }
+      },
+      "PushResultItem": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Push_mutations_Item"
+          },
+          {
+            "$ref": "#/components/schemas/Push_file_Item"
+          },
+          {
+            "$ref": "#/components/schemas/Push_snapshot_Item"
+          }
+        ]
+      },
+      "PushRequestBody": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/PushEnvelope"
+          },
+          {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 90,
+            "items": {
+              "$ref": "#/components/schemas/PushEnvelope"
+            }
+          }
+        ]
+      },
+      "PushResponseBody": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/PushResultItem"
+          },
+          {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 90,
+            "items": {
+              "$ref": "#/components/schemas/PushResultItem"
+            }
+          }
+        ]
+      },
+      "Manage_create_Ok": {
+        "type": "object",
+        "required": [
+          "database_id",
+          "intent",
+          "result"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "description": "Database Ed25519 public key",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "intent": {
+            "type": "string",
+            "const": "create"
+          },
+          "result": {
+            "$ref": "#/components/schemas/ManageCreateResult"
+          }
+        }
+      },
+      "Manage_create_Req": {
+        "type": "object",
+        "required": [
+          "database_id",
+          "intent",
+          "args"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "description": "Database Ed25519 public key",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "intent": {
+            "type": "string",
+            "const": "create"
+          },
+          "args": {
+            "$ref": "#/components/schemas/ManageCreateArgs"
+          }
+        }
+      },
+      "Manage_create_Err": {
+        "type": "object",
+        "required": [
+          "intent",
+          "error"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "description": "Database id when known",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "intent": {
+            "type": "string",
+            "const": "create"
+          },
+          "error": {
+            "$ref": "#/components/schemas/Error"
+          }
+        },
+        "description": "Per-item batch error"
+      },
+      "Manage_create_Item": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Manage_create_Ok"
+          },
+          {
+            "$ref": "#/components/schemas/Manage_create_Err"
+          }
+        ]
+      },
+      "Manage_grant_Ok": {
+        "type": "object",
+        "required": [
+          "database_id",
+          "intent",
+          "result"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "description": "Database Ed25519 public key",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "intent": {
+            "type": "string",
+            "const": "grant"
+          },
+          "result": {
+            "$ref": "#/components/schemas/ManageGrantResult"
+          }
+        }
+      },
+      "Manage_grant_Req": {
+        "type": "object",
+        "required": [
+          "database_id",
+          "intent",
+          "args"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "description": "Database Ed25519 public key",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "intent": {
+            "type": "string",
+            "const": "grant"
+          },
+          "args": {
+            "$ref": "#/components/schemas/ManageGrantArgs"
+          }
+        }
+      },
+      "Manage_grant_Err": {
+        "type": "object",
+        "required": [
+          "intent",
+          "error"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "description": "Database id when known",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "intent": {
+            "type": "string",
+            "const": "grant"
+          },
+          "error": {
+            "$ref": "#/components/schemas/Error"
+          }
+        },
+        "description": "Per-item batch error"
+      },
+      "Manage_grant_Item": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Manage_grant_Ok"
+          },
+          {
+            "$ref": "#/components/schemas/Manage_grant_Err"
+          }
+        ]
+      },
+      "Manage_revoke_Ok": {
+        "type": "object",
+        "required": [
+          "database_id",
+          "intent",
+          "result"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "description": "Database Ed25519 public key",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "intent": {
+            "type": "string",
+            "const": "revoke"
+          },
+          "result": {
+            "$ref": "#/components/schemas/ManageRevokeResult"
+          }
+        }
+      },
+      "Manage_revoke_Req": {
+        "type": "object",
+        "required": [
+          "database_id",
+          "intent",
+          "args"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "description": "Database Ed25519 public key",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "intent": {
+            "type": "string",
+            "const": "revoke"
+          },
+          "args": {
+            "$ref": "#/components/schemas/ManageRevokeArgs"
+          }
+        }
+      },
+      "Manage_revoke_Err": {
+        "type": "object",
+        "required": [
+          "intent",
+          "error"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "description": "Database id when known",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "intent": {
+            "type": "string",
+            "const": "revoke"
+          },
+          "error": {
+            "$ref": "#/components/schemas/Error"
+          }
+        },
+        "description": "Per-item batch error"
+      },
+      "Manage_revoke_Item": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Manage_revoke_Ok"
+          },
+          {
+            "$ref": "#/components/schemas/Manage_revoke_Err"
+          }
+        ]
+      },
+      "Manage_access_Ok": {
+        "type": "object",
+        "required": [
+          "database_id",
+          "intent",
+          "result"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "description": "Database Ed25519 public key",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "intent": {
+            "type": "string",
+            "const": "access"
+          },
+          "result": {
+            "$ref": "#/components/schemas/ManageAccessResult"
+          }
+        }
+      },
+      "Manage_access_Req": {
+        "type": "object",
+        "required": [
+          "database_id",
+          "intent",
+          "args"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "description": "Database Ed25519 public key",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "intent": {
+            "type": "string",
+            "const": "access"
+          },
+          "args": {
+            "$ref": "#/components/schemas/ManageAccessArgs"
+          }
+        }
+      },
+      "Manage_access_Err": {
+        "type": "object",
+        "required": [
+          "intent",
+          "error"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "description": "Database id when known",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "intent": {
+            "type": "string",
+            "const": "access"
+          },
+          "error": {
+            "$ref": "#/components/schemas/Error"
+          }
+        },
+        "description": "Per-item batch error"
+      },
+      "Manage_access_Item": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Manage_access_Ok"
+          },
+          {
+            "$ref": "#/components/schemas/Manage_access_Err"
+          }
+        ]
+      },
+      "Manage_delete_Ok": {
+        "type": "object",
+        "required": [
+          "database_id",
+          "intent",
+          "result"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "description": "Database Ed25519 public key",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "intent": {
+            "type": "string",
+            "const": "delete"
+          },
+          "result": {
+            "$ref": "#/components/schemas/ManageDeleteResult"
+          }
+        }
+      },
+      "Manage_delete_Req": {
+        "type": "object",
+        "required": [
+          "database_id",
+          "intent",
+          "args"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "description": "Database Ed25519 public key",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "intent": {
+            "type": "string",
+            "const": "delete"
+          },
+          "args": {
+            "$ref": "#/components/schemas/ManageDeleteArgs"
+          }
+        }
+      },
+      "Manage_delete_Err": {
+        "type": "object",
+        "required": [
+          "intent",
+          "error"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "description": "Database id when known",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "intent": {
+            "type": "string",
+            "const": "delete"
+          },
+          "error": {
+            "$ref": "#/components/schemas/Error"
+          }
+        },
+        "description": "Per-item batch error"
+      },
+      "Manage_delete_Item": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Manage_delete_Ok"
+          },
+          {
+            "$ref": "#/components/schemas/Manage_delete_Err"
+          }
+        ]
+      },
+      "ManageEnvelope": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Manage_create_Req"
+          },
+          {
+            "$ref": "#/components/schemas/Manage_grant_Req"
+          },
+          {
+            "$ref": "#/components/schemas/Manage_revoke_Req"
+          },
+          {
+            "$ref": "#/components/schemas/Manage_access_Req"
+          },
+          {
+            "$ref": "#/components/schemas/Manage_delete_Req"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "intent",
+          "mapping": {
+            "create": "#/components/schemas/Manage_create_Req",
+            "grant": "#/components/schemas/Manage_grant_Req",
+            "revoke": "#/components/schemas/Manage_revoke_Req",
+            "access": "#/components/schemas/Manage_access_Req",
+            "delete": "#/components/schemas/Manage_delete_Req"
+          }
+        }
+      },
+      "ManageResultItem": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Manage_create_Item"
+          },
+          {
+            "$ref": "#/components/schemas/Manage_grant_Item"
+          },
+          {
+            "$ref": "#/components/schemas/Manage_revoke_Item"
+          },
+          {
+            "$ref": "#/components/schemas/Manage_access_Item"
+          },
+          {
+            "$ref": "#/components/schemas/Manage_delete_Item"
+          }
+        ]
+      },
+      "ManageRequestBody": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/ManageEnvelope"
+          },
+          {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 90,
+            "items": {
+              "$ref": "#/components/schemas/ManageEnvelope"
+            }
+          }
+        ]
+      },
+      "ManageResponseBody": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/ManageResultItem"
+          },
+          {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 90,
+            "items": {
+              "$ref": "#/components/schemas/ManageResultItem"
+            }
+          }
+        ]
+      },
+      "Account_register_Ok": {
+        "type": "object",
+        "required": [
+          "intent",
+          "result"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "register"
+          },
+          "result": {
+            "$ref": "#/components/schemas/AccountRegisterResult"
+          }
+        }
+      },
+      "Account_register_Req": {
+        "type": "object",
+        "required": [
+          "intent",
+          "args"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "register"
+          },
+          "args": {
+            "$ref": "#/components/schemas/AccountRegisterArgs"
+          }
+        }
+      },
+      "Account_register_Err": {
+        "type": "object",
+        "required": [
+          "intent",
+          "error"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "register"
+          },
+          "error": {
+            "$ref": "#/components/schemas/Error"
+          }
+        },
+        "description": "Per-item batch error"
+      },
+      "Account_register_Item": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Account_register_Ok"
+          },
+          {
+            "$ref": "#/components/schemas/Account_register_Err"
+          }
+        ]
+      },
+      "Account_payment_Ok": {
+        "type": "object",
+        "required": [
+          "intent",
+          "result"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "payment"
+          },
+          "result": {
+            "$ref": "#/components/schemas/AccountPaymentResult"
+          }
+        }
+      },
+      "Account_payment_Req": {
+        "type": "object",
+        "required": [
+          "intent",
+          "args"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "payment"
+          },
+          "args": {
+            "$ref": "#/components/schemas/AccountPaymentArgs"
+          }
+        }
+      },
+      "Account_payment_Err": {
+        "type": "object",
+        "required": [
+          "intent",
+          "error"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "payment"
+          },
+          "error": {
+            "$ref": "#/components/schemas/Error"
+          }
+        },
+        "description": "Per-item batch error"
+      },
+      "Account_payment_Item": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Account_payment_Ok"
+          },
+          {
+            "$ref": "#/components/schemas/Account_payment_Err"
+          }
+        ]
+      },
+      "Account_deactivate_Ok": {
+        "type": "object",
+        "required": [
+          "intent",
+          "result"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "deactivate"
+          },
+          "result": {
+            "$ref": "#/components/schemas/AccountDeactivateResult"
+          }
+        }
+      },
+      "Account_deactivate_Req": {
+        "type": "object",
+        "required": [
+          "intent",
+          "args"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "deactivate"
+          },
+          "args": {
+            "$ref": "#/components/schemas/AccountDeactivateArgs"
+          }
+        }
+      },
+      "Account_deactivate_Err": {
+        "type": "object",
+        "required": [
+          "intent",
+          "error"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "deactivate"
+          },
+          "error": {
+            "$ref": "#/components/schemas/Error"
+          }
+        },
+        "description": "Per-item batch error"
+      },
+      "Account_deactivate_Item": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Account_deactivate_Ok"
+          },
+          {
+            "$ref": "#/components/schemas/Account_deactivate_Err"
+          }
+        ]
+      },
+      "Account_add_device_Ok": {
+        "type": "object",
+        "required": [
+          "intent",
+          "result"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "add_device"
+          },
+          "result": {
+            "$ref": "#/components/schemas/AccountAddDeviceResult"
+          }
+        }
+      },
+      "Account_add_device_Req": {
+        "type": "object",
+        "required": [
+          "intent",
+          "args"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "add_device"
+          },
+          "args": {
+            "$ref": "#/components/schemas/AccountAddDeviceArgs"
+          }
+        }
+      },
+      "Account_add_device_Err": {
+        "type": "object",
+        "required": [
+          "intent",
+          "error"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "add_device"
+          },
+          "error": {
+            "$ref": "#/components/schemas/Error"
+          }
+        },
+        "description": "Per-item batch error"
+      },
+      "Account_add_device_Item": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Account_add_device_Ok"
+          },
+          {
+            "$ref": "#/components/schemas/Account_add_device_Err"
+          }
+        ]
+      },
+      "Account_remove_device_Ok": {
+        "type": "object",
+        "required": [
+          "intent",
+          "result"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "remove_device"
+          },
+          "result": {
+            "$ref": "#/components/schemas/AccountRemoveDeviceResult"
+          }
+        }
+      },
+      "Account_remove_device_Req": {
+        "type": "object",
+        "required": [
+          "intent",
+          "args"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "remove_device"
+          },
+          "args": {
+            "$ref": "#/components/schemas/AccountRemoveDeviceArgs"
+          }
+        }
+      },
+      "Account_remove_device_Err": {
+        "type": "object",
+        "required": [
+          "intent",
+          "error"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "remove_device"
+          },
+          "error": {
+            "$ref": "#/components/schemas/Error"
+          }
+        },
+        "description": "Per-item batch error"
+      },
+      "Account_remove_device_Item": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Account_remove_device_Ok"
+          },
+          {
+            "$ref": "#/components/schemas/Account_remove_device_Err"
+          }
+        ]
+      },
+      "Account_databases_Ok": {
+        "type": "object",
+        "required": [
+          "intent",
+          "result"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "databases"
+          },
+          "result": {
+            "$ref": "#/components/schemas/AccountDatabasesResult"
+          }
+        }
+      },
+      "Account_databases_Req": {
+        "type": "object",
+        "required": [
+          "intent",
+          "args"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "databases"
+          },
+          "args": {
+            "$ref": "#/components/schemas/AccountDatabasesArgs"
+          }
+        }
+      },
+      "Account_databases_Err": {
+        "type": "object",
+        "required": [
+          "intent",
+          "error"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "databases"
+          },
+          "error": {
+            "$ref": "#/components/schemas/Error"
+          }
+        },
+        "description": "Per-item batch error"
+      },
+      "Account_databases_Item": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Account_databases_Ok"
+          },
+          {
+            "$ref": "#/components/schemas/Account_databases_Err"
+          }
+        ]
+      },
+      "Account_status_Ok": {
+        "type": "object",
+        "required": [
+          "intent",
+          "result"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "status"
+          },
+          "result": {
+            "$ref": "#/components/schemas/AccountStatusResult"
+          }
+        }
+      },
+      "Account_status_Req": {
+        "type": "object",
+        "required": [
+          "intent",
+          "args"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "status"
+          },
+          "args": {
+            "$ref": "#/components/schemas/AccountStatusArgs"
+          }
+        }
+      },
+      "Account_status_Err": {
+        "type": "object",
+        "required": [
+          "intent",
+          "error"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "status"
+          },
+          "error": {
+            "$ref": "#/components/schemas/Error"
+          }
+        },
+        "description": "Per-item batch error"
+      },
+      "Account_status_Item": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Account_status_Ok"
+          },
+          {
+            "$ref": "#/components/schemas/Account_status_Err"
+          }
+        ]
+      },
+      "AccountEnvelope": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Account_register_Req"
+          },
+          {
+            "$ref": "#/components/schemas/Account_payment_Req"
+          },
+          {
+            "$ref": "#/components/schemas/Account_deactivate_Req"
+          },
+          {
+            "$ref": "#/components/schemas/Account_add_device_Req"
+          },
+          {
+            "$ref": "#/components/schemas/Account_remove_device_Req"
+          },
+          {
+            "$ref": "#/components/schemas/Account_databases_Req"
+          },
+          {
+            "$ref": "#/components/schemas/Account_status_Req"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "intent",
+          "mapping": {
+            "register": "#/components/schemas/Account_register_Req",
+            "payment": "#/components/schemas/Account_payment_Req",
+            "deactivate": "#/components/schemas/Account_deactivate_Req",
+            "add_device": "#/components/schemas/Account_add_device_Req",
+            "remove_device": "#/components/schemas/Account_remove_device_Req",
+            "databases": "#/components/schemas/Account_databases_Req",
+            "status": "#/components/schemas/Account_status_Req"
+          }
+        }
+      },
+      "AccountResultItem": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Account_register_Item"
+          },
+          {
+            "$ref": "#/components/schemas/Account_payment_Item"
+          },
+          {
+            "$ref": "#/components/schemas/Account_deactivate_Item"
+          },
+          {
+            "$ref": "#/components/schemas/Account_add_device_Item"
+          },
+          {
+            "$ref": "#/components/schemas/Account_remove_device_Item"
+          },
+          {
+            "$ref": "#/components/schemas/Account_databases_Item"
+          },
+          {
+            "$ref": "#/components/schemas/Account_status_Item"
+          }
+        ]
+      },
+      "AccountRequestBody": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/AccountEnvelope"
+          },
+          {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 90,
+            "items": {
+              "$ref": "#/components/schemas/AccountEnvelope"
+            }
+          }
+        ]
+      },
+      "AccountResponseBody": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/AccountResultItem"
+          },
+          {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 90,
+            "items": {
+              "$ref": "#/components/schemas/AccountResultItem"
+            }
+          }
+        ]
+      },
+      "Maintenance_snapshot_proof_provision_Ok": {
+        "type": "object",
+        "required": [
+          "intent",
+          "result"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "snapshot_proof_provision"
+          },
+          "result": {
+            "$ref": "#/components/schemas/MaintProvisionResult"
+          }
+        }
+      },
+      "Maintenance_snapshot_proof_provision_Req": {
+        "type": "object",
+        "required": [
+          "intent",
+          "args"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "snapshot_proof_provision"
+          },
+          "args": {
+            "$ref": "#/components/schemas/MaintProvisionArgs"
+          }
+        }
+      },
+      "Maintenance_snapshot_proof_provision_Err": {
+        "type": "object",
+        "required": [
+          "intent",
+          "error"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "snapshot_proof_provision"
+          },
+          "error": {
+            "$ref": "#/components/schemas/Error"
+          }
+        },
+        "description": "Per-item batch error"
+      },
+      "Maintenance_snapshot_proof_provision_Item": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Maintenance_snapshot_proof_provision_Ok"
+          },
+          {
+            "$ref": "#/components/schemas/Maintenance_snapshot_proof_provision_Err"
+          }
+        ]
+      },
+      "Maintenance_snapshot_proof_status_Ok": {
+        "type": "object",
+        "required": [
+          "intent",
+          "result"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "snapshot_proof_status"
+          },
+          "result": {
+            "$ref": "#/components/schemas/MaintStatusResult"
+          }
+        }
+      },
+      "Maintenance_snapshot_proof_status_Req": {
+        "type": "object",
+        "required": [
+          "intent",
+          "args"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "snapshot_proof_status"
+          },
+          "args": {
+            "$ref": "#/components/schemas/MaintRunArgs"
+          }
+        }
+      },
+      "Maintenance_snapshot_proof_status_Err": {
+        "type": "object",
+        "required": [
+          "intent",
+          "error"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "snapshot_proof_status"
+          },
+          "error": {
+            "$ref": "#/components/schemas/Error"
+          }
+        },
+        "description": "Per-item batch error"
+      },
+      "Maintenance_snapshot_proof_status_Item": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Maintenance_snapshot_proof_status_Ok"
+          },
+          {
+            "$ref": "#/components/schemas/Maintenance_snapshot_proof_status_Err"
+          }
+        ]
+      },
+      "Maintenance_snapshot_proof_retire_Ok": {
+        "type": "object",
+        "required": [
+          "intent",
+          "result"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "snapshot_proof_retire"
+          },
+          "result": {
+            "$ref": "#/components/schemas/MaintStatusResult"
+          }
+        }
+      },
+      "Maintenance_snapshot_proof_retire_Req": {
+        "type": "object",
+        "required": [
+          "intent",
+          "args"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "snapshot_proof_retire"
+          },
+          "args": {
+            "$ref": "#/components/schemas/MaintRunArgs"
+          }
+        }
+      },
+      "Maintenance_snapshot_proof_retire_Err": {
+        "type": "object",
+        "required": [
+          "intent",
+          "error"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "snapshot_proof_retire"
+          },
+          "error": {
+            "$ref": "#/components/schemas/Error"
+          }
+        },
+        "description": "Per-item batch error"
+      },
+      "Maintenance_snapshot_proof_retire_Item": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Maintenance_snapshot_proof_retire_Ok"
+          },
+          {
+            "$ref": "#/components/schemas/Maintenance_snapshot_proof_retire_Err"
+          }
+        ]
+      },
+      "Maintenance_snapshot_proof_inspect_Ok": {
+        "type": "object",
+        "required": [
+          "intent",
+          "result"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "snapshot_proof_inspect"
+          },
+          "result": {
+            "$ref": "#/components/schemas/MaintInspectResult"
+          }
+        }
+      },
+      "Maintenance_snapshot_proof_inspect_Req": {
+        "type": "object",
+        "required": [
+          "intent",
+          "args"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "snapshot_proof_inspect"
+          },
+          "args": {
+            "$ref": "#/components/schemas/MaintInspectArgs"
+          }
+        }
+      },
+      "Maintenance_snapshot_proof_inspect_Err": {
+        "type": "object",
+        "required": [
+          "intent",
+          "error"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "snapshot_proof_inspect"
+          },
+          "error": {
+            "$ref": "#/components/schemas/Error"
+          }
+        },
+        "description": "Per-item batch error"
+      },
+      "Maintenance_snapshot_proof_inspect_Item": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Maintenance_snapshot_proof_inspect_Ok"
+          },
+          {
+            "$ref": "#/components/schemas/Maintenance_snapshot_proof_inspect_Err"
+          }
+        ]
+      },
+      "MaintenanceEnvelope": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Maintenance_snapshot_proof_provision_Req"
+          },
+          {
+            "$ref": "#/components/schemas/Maintenance_snapshot_proof_status_Req"
+          },
+          {
+            "$ref": "#/components/schemas/Maintenance_snapshot_proof_retire_Req"
+          },
+          {
+            "$ref": "#/components/schemas/Maintenance_snapshot_proof_inspect_Req"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "intent",
+          "mapping": {
+            "snapshot_proof_provision": "#/components/schemas/Maintenance_snapshot_proof_provision_Req",
+            "snapshot_proof_status": "#/components/schemas/Maintenance_snapshot_proof_status_Req",
+            "snapshot_proof_retire": "#/components/schemas/Maintenance_snapshot_proof_retire_Req",
+            "snapshot_proof_inspect": "#/components/schemas/Maintenance_snapshot_proof_inspect_Req"
+          }
+        }
+      },
+      "MaintenanceResultItem": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Maintenance_snapshot_proof_provision_Item"
+          },
+          {
+            "$ref": "#/components/schemas/Maintenance_snapshot_proof_status_Item"
+          },
+          {
+            "$ref": "#/components/schemas/Maintenance_snapshot_proof_retire_Item"
+          },
+          {
+            "$ref": "#/components/schemas/Maintenance_snapshot_proof_inspect_Item"
+          }
+        ]
+      },
+      "MaintenanceRequestBody": {
+        "$ref": "#/components/schemas/MaintenanceEnvelope"
+      },
+      "MaintenanceResponseBody": {
+        "$ref": "#/components/schemas/MaintenanceResultItem"
+      }
+    }
+  }
+}
