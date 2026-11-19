@@ -112,6 +112,17 @@ async fn pull_and_checkpoint(host: &Host, ready: &Ready) -> Pause {
     let outcome = match ready.log.drive_once(ready.state).await {
         Ok(pulled) => pulled,
         Err(error) => {
+            if ready.publisher.is_some() && matches!(error, LogError::CursorExpired { .. }) {
+                return match super::snapshot::receive::restart(host, &ready.database_id, &ready.log)
+                    .await
+                {
+                    Ok(()) => Pause::Retry,
+                    Err(reason) => {
+                        tracing::warn!(target: "lastdbd::log_sync", error = %reason, "received snapshot restart failed");
+                        ready.download_failed(host, reason)
+                    }
+                };
+            }
             if matches!(error, LogError::CursorExpired { .. }) {
                 turn::warn_once(
                     &SNAPSHOT_WARNED,

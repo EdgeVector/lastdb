@@ -171,16 +171,19 @@ POST /v1/x/databases
 |---|---|---|---|
 | `list` | `GET /api/databases` | none | 200 `{ok, user_hash, databases}` |
 | `create` | `POST /api/databases` | `name`, `spec`, `kind`, `sharingMode` | 200 `{ok, user_hash, database}` |
-| `accept` | `POST /api/databases/accept` | `invitation`, `publisher`, `name`, `database_id` | 200 `{ok, user_hash, database}` |
+| `accept` | `POST /api/databases/accept` | `invitation`, `publisher`, `name`, `database_id`, or `link` and `name` | 200 `{ok, user_hash, database}` |
 | `schemas` | `GET /api/databases/{id}/schemas` | `database`, `include_full`, `include_definition_ids` | 200 schema list |
 | `declare_schema` | `POST /api/databases/{id}/apps/declare-schema` | `database`, `schema`, `intent`, `retention`, `app_id` | 200 declare envelope |
 | `share_config` | `GET /api/databases/{id}/share/config` | `database` | 200 `{ok, user_hash, databaseId, revision, read, write, memberWrites, members}` |
 | `set_share_config` | `PUT /api/databases/{id}/share/config` | `database`, `config` | 200 `{ok, user_hash, databaseId, requestId, revision, committed}` |
 | `invite` | `POST /api/databases/{id}/invitations` | `database`, `contactCode`, `expectedNodeKey`, `expiresInHours` | 200 `{ok, user_hash, databaseId, invitation}` |
+| `share_link` | `POST /api/databases/{id}/share/link` | `database` | 200 `{ok, user_hash, databaseId, link}` |
 | `submit` | `POST /api/databases/{id}/submissions` | `database`, `mutation`, `idempotency_key` | 202 `{ok, status, mutation_id, submission_sequence}` |
 | `submission_status` | `POST /api/databases/{id}/submissions/status` | `database`, `mutationId` | 200 `{ok, mutation_id, status}` |
 
 - `database` is the id or the name. Omit it, or send JSON null, and the call uses the personal database. A bad value is `invalid_request` and the message is `invalid database identifier`. `list`, `create`, and `accept` reject the field as `unknown field database`. `accept` names its target `database_id`.
+- `accept` takes an invitation or a link. The invitation fields are `invitation`, `publisher`, optional `name`, and optional `database_id`. The link fields are `link` and optional `name`. A body with both is `invalid_request` and the message is `unknown field invitation` when `link` is present, because that shape allows only `link` and `name`. A malformed link is `invalid link`.
+- `share_link` sends an empty body to `POST /api/databases/{id}/share/link`. The reply field `link` is one opaque token: `lastdb-read-v1.` plus base64url of canonical JSON. It is not a URL, so the content key does not land in a query string, a browser history, or a proxy log. The token carries the environment, the publisher account scope, the database id, the publisher key, and the content key. It carries no member identity and it is not sealed to a recipient. The node does not read the share settings when it makes the token. The token is useful when the service setting is `read: anyone`. A cloud failure is HTTP 503 and the message is a static sentence, for example `cloud connection is unavailable`.
 - `kind` is `shareable` or `personal`. Omit it for `shareable`. `sharingMode` is `whole_database`, and then `spec` must be absent. `spec` is `{name, version}`.
 - A present `Idempotency-Key` header on `create` is forwarded. It is a v4 UUID, and the text must equal that UUID, only when `sharingMode` is `whole_database`. Any other present key is `invalid_request` and the message is `whole-database creation uses a v4 UUID idempotency key`. An absent header is allowed.
 - `include_full` and `include_definition_ids` are booleans. `true` is sent as that query flag. `false` and JSON null are omitted. Another type is `invalid_request`.

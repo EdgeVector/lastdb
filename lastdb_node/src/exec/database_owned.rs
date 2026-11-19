@@ -109,39 +109,64 @@ pub(super) fn list(ctx: &AccessContext, host: &Host) -> UdsResponse {
     render(result, ctx)
 }
 
-pub(super) async fn accept(req: &UdsRequest, ctx: &AccessContext, host: &Host) -> UdsResponse {
-    #[derive(Deserialize)]
-    #[serde(deny_unknown_fields)]
-    struct Request {
-        invitation: String,
-        publisher: Digest,
-        name: Option<String>,
-        #[serde(default)]
-        database_id: Option<String>,
+pub(super) fn accept(req: &UdsRequest, ctx: &AccessContext, host: &Host) -> UdsResponse {
+    let limit = MAX_SEALED_INVITATION_BYTES.div_ceil(3) * 4 + 512;
+    if req.body.len() > limit {
+        return error_response(400, "invalid database invitation request", ctx);
     }
-    let Some(body) = decode::<Request>(req, MAX_SEALED_INVITATION_BYTES.div_ceil(3) * 4 + 512)
-    else {
+    let Ok(value) = serde_json::from_slice::<Value>(&req.body) else {
+        return error_response(400, "invalid database invitation request", ctx);
+    };
+    let Some(object) = value.as_object() else {
+        return error_response(400, "invalid database invitation request", ctx);
+    };
+    let link = object.contains_key("link");
+    let invitation = object.contains_key("invitation")
+        || object.contains_key("publisher")
+        || object.contains_key("database_id");
+    if link && invitation {
+        return error_response(400, "accept takes an invitation or a link", ctx);
+    }
+    if link {
+        accept_link(&value, ctx, host)
+    } else {
+        accept_invitation(&value, ctx, host)
+    }
+}
+
+fn accept_invitation(value: &Value, ctx: &AccessContext, host: &Host) -> UdsResponse {
+    let Ok(body) = serde_json::from_value::<InvitationAccept>(value.clone()) else {
         return error_response(400, "invalid database invitation request", ctx);
     };
     let Ok(sealed) = decode_sealed(&body.invitation, MAX_SEALED_INVITATION_BYTES) else {
         return error_response(400, "invalid encoded invitation", ctx);
     };
-    let result = registered_share::accept_signed_log(
+    // Registration only. Opening the store writes a node marker and skips the snapshot.
+    registration_reply(
+        registered_share::accept_signed_log(
+            &host.home,
+            &sealed,
+            &body.publisher,
+            body.name.as_deref(),
+            body.database_id.as_deref(),
+        ),
+        ctx,
         &host.home,
-        &sealed,
-        &body.publisher,
-        body.name.as_deref(),
-        body.database_id.as_deref(),
-    );
-    if let Ok(share) = &result {
-        if registered_share::receiver_store(host, &share.id)
-            .await
-            .is_err()
-        {
-            return error_response(503, "database store is unavailable", ctx);
-        }
-    }
-    registration_reply(result, ctx, &host.home)
+    )
+}
+
+fn accept_link(value: &Value, ctx: &AccessContext, host: &Host) -> UdsResponse {
+    let Ok(body) = serde_json::from_value::<LinkAccept>(value.clone()) else {
+        return error_response(400, "invalid link", ctx);
+    };
+    let Ok(opened) = crate::share_link::open(&body.link) else {
+        return error_response(400, "invalid link", ctx);
+    };
+    registration_reply(
+        crate::share_link::register(&host.home, &opened, body.name.as_deref()),
+        ctx,
+        &host.home,
+    )
 }
 
 fn row(entry: &Entry) -> Value {
@@ -275,4 +300,21 @@ struct CreateBody {
 struct BindBody {
     id: String,
     spec: Option<PublicationSpec>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct InvitationAccept {
+    invitation: String,
+    publisher: Digest,
+    name: Option<String>,
+    #[serde(default)]
+    database_id: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LinkAccept {
+    link: String,
+    name: Option<String>,
 }

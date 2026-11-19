@@ -17,6 +17,7 @@ pub(super) enum Route {
     Config,
     Members,
     Invitation,
+    Link,
 }
 
 impl Route {
@@ -24,6 +25,7 @@ impl Route {
         match path {
             "share/config" => Some(Self::Config),
             "share/members" => Some(Self::Members),
+            "share/link" => Some(Self::Link),
             "invitations" => Some(Self::Invitation),
             _ => None,
         }
@@ -55,8 +57,11 @@ pub(super) async fn execute(
         (Route::Config, "PUT") => set(req, host, &entry).await,
         (Route::Members, "POST") => return members(req, ctx, host, &entry.id).await,
         (Route::Invitation, "POST") => invite(req, host, &entry.id).await,
+        (Route::Link, "POST") => return link(req, ctx, host, &entry).await,
         (Route::Config, _) => return method_not_allowed_response("GET, PUT"),
-        (Route::Members | Route::Invitation, _) => return method_not_allowed_response("POST"),
+        (Route::Members | Route::Invitation | Route::Link, _) => {
+            return method_not_allowed_response("POST")
+        }
     };
     render(result.map_err(host_error), ctx)
 }
@@ -165,6 +170,30 @@ struct Invitation {
     contact_code: String,
     expected_node_key: Digest,
     expires_in_hours: Option<u32>,
+}
+
+async fn link(
+    req: &UdsRequest,
+    ctx: &AccessContext,
+    host: &Host,
+    entry: &owned::Entry,
+) -> UdsResponse {
+    if !req.body.is_empty() {
+        return error_response(400, "invalid sharing request", ctx);
+    }
+    match crate::share_link::issue(host, entry).await {
+        Ok(token) => render(
+            Ok(json!({
+                "databaseId": entry.id,
+                "link": token,
+            })),
+            ctx,
+        ),
+        Err(error) => {
+            let (status, message) = error.status();
+            error_response(status, message, ctx)
+        }
+    }
 }
 
 async fn invite(req: &UdsRequest, host: &Host, id: &str) -> Result<Value, ConfigError> {

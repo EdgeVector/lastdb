@@ -1,6 +1,7 @@
 //! Publish a held database checkpoint through the signed cloud database.
 
 mod bootstrap;
+pub(super) mod receive;
 pub(super) mod transport;
 
 use bootstrap as files;

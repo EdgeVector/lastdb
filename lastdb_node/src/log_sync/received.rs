@@ -2,6 +2,7 @@
 //!
 //! This does not publish and does not call `accept_signed_log`. The member
 //! revision comes from the standard member-list read, with no API key.
+//! The stored view of that access is `self_access`.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -32,10 +33,10 @@ use super::SyncState;
 // Beside this file. log_sync/mod.rs is owned by another change.
 // self_access is visible in the crate so AccessView, the return type of view,
 // is reachable. Callers use received::view and do not name the type.
-#[path = "self_access.rs"]
-pub(crate) mod self_access;
 #[path = "share_settings.rs"]
 mod share_settings;
+
+pub(crate) mod self_access;
 
 pub(crate) use self_access::view;
 
@@ -75,9 +76,18 @@ async fn one(host: &Arc<Host>, share: &RegisteredShare) -> Pause {
             return Pause::Retry;
         }
     };
-    let Some(log) = refresh(host, share, log).await else {
-        return Pause::Retry;
+    let log = if share.link {
+        log
+    } else {
+        match refresh(host, share, log).await {
+            Some(log) => log,
+            None => return Pause::Retry,
+        }
     };
+    if let Err(error) = super::snapshot::receive::ensure_base(host.as_ref(), share, &log).await {
+        tracing::warn!(target: "lastdbd::log_sync", error = %error, "received snapshot is unavailable");
+        return Pause::Retry;
+    }
     let Some(state) = receiver_state(share, &log, &device, &host.home) else {
         return Pause::Retry;
     };
