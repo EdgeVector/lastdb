@@ -29,8 +29,7 @@ pub(super) async fn publish_or_retract(host: &Host, log: &CloudLog) -> Result<()
     let mode = registered_share::resolve(&host.home, log.database_id())
         .ok()
         .flatten()
-        .map(|share| share_mode::mode(host, &share))
-        .unwrap_or(WriteMode::Unknown);
+        .map_or(WriteMode::Unknown, |share| share_mode::mode(host, &share));
     match mode {
         WriteMode::Direct => accepted::publish_owned(host, log).await,
         WriteMode::Unknown => Ok(()),
