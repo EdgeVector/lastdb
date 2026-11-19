@@ -260,11 +260,8 @@ goes into the listing, under the publisher signature:
 - `read` and `write` are independent. A schema on `write` alone cannot be read.
   `"*"` on one side does not grant the other side.
 - An extension is a plain name with no version. `"*"` is not an extension value.
-- `"*"` may appear in a listing only at API version 38 or above. Publish refuses
-  it below that. An older build that cannot parse `"*"` fails to read the whole
-  registry list for that channel and API version, so every app in the list
-  becomes unresolvable to that build. Builds at 37 never read the 38 list.
-- For the map form, the signed access block is the same bytes as before API 38.
+- `"*"` in `read` or `write` is allowed at every app API version. Publish copies
+  it into the listing as `"*"`.
 - Declaring is the permission. Nobody approves the declaration: install does
   not show it for consent, and a listing that changes it does not ask the
   owner again. The owner still approves the install steps.
@@ -313,6 +310,29 @@ so a lost grant can be restored. The registry poll does not. The poll is
 `lastdb app upgrade --all` with `LASTDB_APP_REGISTRY_POLL=1`, and an app that
 is already at the listed release is left as it is. The launcher does not
 register. The app socket serves the app under the grant the node holds.
+
+## Listing version
+
+A registry listing is filed under the app API version. The app API is version 1.
+
+`APP_API_VERSION` and `MIN_SUPPORTED_APP_API_VERSION` live in
+`lastdb_node/src/version.rs`. They change only when `/v1/read`, `/v1/write`, or
+the extension mechanism changes in a way that breaks an installed app. Adding
+an extension does not change them. An owner-side change does not change them.
+
+The listing's signed `api_version` member, the list member `api_version`, and
+the list path `<channel>/api/<n>.json` keep those names. The value is the app
+API version. `lastdb app publish` sends the running node's `app_api_version`.
+A node reads the lists from `min_supported_app_api_version` through
+`app_api_version` and merges them. Today that range is the single list
+`api/1.json`.
+
+`GET /api/version` reports `app_api_version` and `min_supported_app_api_version`
+beside `api_version` and `min_supported_api_version`. Those two existing members
+stay the socket version, for the CLI and the SDK.
+
+Listings already filed under a socket number stay unread by this build until
+the app is republished under app API version 1.
 
 ## Schemas at publish
 
