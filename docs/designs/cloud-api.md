@@ -9,24 +9,24 @@ spec, one version number, and CI that keeps them honest. See `docs/app-api.md`,
 `lastdb_node/app-api.json`, `scripts/lints/api_surface.py`, and
 `scripts/lints/app_api_types.py`.
 
-Tom (2026-11-19): **action-based** interface — three verbs, node intent,
-cloud chooses storage. Storage may change without LastDB knowing.
+Tom (2026-11-19): **action-based** interface — three verbs, nine intents,
+node nouns only. Cloud storage may change without LastDB knowing.
 
 ## Why
 
 Today the cloud surface is a hand-dispatched tree under
 `POST /api/cloud/backups/v2/…` with no route spec and no real wire version.
-Paths and bodies name cloud storage (`mutation-log`, `blob`, `delivery`,
-`snapshot/bytes`, `inbox`). The pin lint only checks a new node against the
+Paths name cloud storage. The pin lint only checks a new node against the
 pinned cloud, not the next cloud against the last stable node (#1799).
 
 ## Sources (verified)
 
 | Source | Role |
 |---|---|
-| `exemem-infra` `storage_service` `http.rs` + blobs/snapshots/logs/auth | Dispatch |
+| `exemem-infra` `storage_service` dispatch | Live route table |
 | `cloud_backup_protocol` | Wire types and path constants |
 | `lastdb_node` `log_sync/`, `named_grant/`, `cloud_backup_client/` | Product call sites |
+| `docs/designs/shared-database-mutation-logs.md` | Mutation vs proposal log rules |
 | CI scripts under `scripts/cloud_backup/` | DEV/ops-only callers |
 
 ## Hard rules
@@ -34,10 +34,10 @@ pinned cloud, not the next cloud against the last stable node (#1799).
 - No dual paths, aliases, fallback, or migration. Clean cutover via protocol v3.
 - No unit tests. E2E DEV checks in CI are fine.
 - Share, Deliver, and Org exist only in People. The cloud stores generic config.
-- Plain language. One concept in one system.
-- **No route segments or request fields that name cloud storage resources.**
+- **No route segments or request fields that name cloud storage resources**
+  (log, blob, inbox, bucket, B2/R2 key, delivery).
 
-## Shape: three actions (not resources)
+## Shape: three actions, nine intents
 
 ```
 POST /api/cloud/v3/fetch
@@ -45,195 +45,261 @@ POST /api/cloud/v3/push
 POST /api/cloud/v3/manage
 ```
 
-Each body is a **tagged union** on `intent` (closed enum). The node states
-**intent** in LastDB nouns. The cloud decides which store, key, or backend
-to touch.
+Each body and each 200 response is a **tagged union** on `intent`. The node
+states intent in LastDB nouns. The cloud chooses storage.
 
-### How this differs from resource routing
-
-| Resource-based (rejected) | Action-based (this design) |
+| Action | Intents (exact set) |
 |---|---|
-| `/v3/logs/list`, `/v3/blobs/read`, `/v3/snapshots/…` | `/v3/fetch` with `intent` |
-| Request names the store (`log`, `blob`, `inbox`) | Request names the job (`changes_since`, `file_range`) |
-| New store → new route family | New store → invisible; new job → new `intent` + version bump |
-| Node and cloud share a storage vocabulary | Node owns product nouns; cloud owns storage |
+| `fetch` | `mutations_since`, `snapshot`, `file` |
+| `push` | `mutations`, `snapshot`, `file` |
+| `manage` | `create`, `grant`, `revoke` |
 
-**Why storage can change freely:** the node never asks for “the mutation
-log” or “B2 object X”. It asks for “changes since this cursor” or “this
-file range”. Cursors, upload tickets, and restore handles are **opaque
-cloud-issued strings** the node returns unchanged. The cloud may move from
-one log layout to another, swap object stores, or split proposal storage —
-the intents stay the same.
+**Why not resource routes:** a `/logs` or `/blobs` path freezes cloud storage
+into the node. With actions + opaque handles, the cloud may move backends
+without a new route family. Extensibility is a new `intent` (plus a version
+bump when old nodes must stop) — never a new path.
 
-### Node nouns (allowed in the request)
+## Decisions (Tom, 2026-11-19)
 
-database · change · proposal · file · backup / restore point · member grant ·
-settings · cursor · (opaque) handle / ticket
+1. Protocol starts at **v3**.
+2. Version in **header + token**; drop redundant body `version`.
+3. Upgrade → **426** `upgrade_required` + `minimum_version`.
+4. Members are signed `grant#<node key>` entries — **no list, no revision**.
+   Self-access is not a separate intent (see open questions).
+5. **No** protocol header on auth-service.
+6. Live OpenAPI under **`cloud_backup_protocol/`**.
+7. DEV snapshot-proof stays, marked **`x-lastdb-environment: dev`**.
+8. **Action-based** surface: only `fetch` / `push` / `manage`.
+9. **`push`/`mutations` has no `kind` field.** The cloud lands the append from
+   the caller’s grant: direct write (publisher, or grant with write) goes to
+   the database mutation stream; otherwise the entries land as proposals. The
+   response reports `landed: direct | proposal`. Proposals are not a separate
+   intent.
+10. **`fetch`/`mutations_since` visibility.** ExeMem returns **direct + proposal**
+    mutations to the **publisher**, and **only direct** to **receivers**
+    (members). ExeMem decides from the caller’s grant. The node sends **no**
+    kind or filter. Each returned entry is tagged `stream: direct | proposal`.
+    Accepting a proposal means the publisher pushes it via `push`/`mutations`
+    (it lands `direct`). Settle of accepted proposals folds into that push —
+    no separate settle intent.
 
-### Cloud storage nouns (forbidden in routes and request fields)
+## Final nine intents
 
-log · blob · snapshot object · inbox · bucket · B2/R2 key · delivery ·
-mutation-log path segments
+### `fetch` / `mutations_since`
+
+Always returns the **latest cursor** (folds former `head`). Visibility is
+Decision 10 (ExeMem-owned).
+
+| | Fields |
+|---|---|
+| **Request** | `intent`, `database_id`, `cursor?` (opaque; absent = from start), `limit?` |
+| **Response** | `intent`, `cursor` (latest), `mutations[]` |
+
+`Mutation` (response item): `stream` (`direct` \| `proposal`), `cursor`,
+`writer_node_key`, `device_id`, `writer_seq`, `authored_at_ms`, `namespace`,
+`payload_b64`, `incorporated_from?` (`node_key`, `device_id`, `writer_seq`).
+
+### `fetch` / `snapshot`
+
+Describe a restore point, or read one part via an opaque part handle.
+
+| | Fields |
+|---|---|
+| **Request** | `intent`, `database_id`, `restore_point_id?`, `part_handle?` |
+| **Response (describe)** | `intent`, `result: describe`, `restore_point_id`, `part_handles[]` |
+| **Response (part)** | `intent`, `result: part`, `part_handle`, `bytes_b64`, `length` |
+
+If `part_handle` is set, the cloud returns part bytes. Otherwise it describes
+the restore point (and may mint `part_handles`).
+
+### `fetch` / `file`
+
+Byte range of a record file (former `delivery/object` / file_range).
+
+| | Fields |
+|---|---|
+| **Request** | `intent`, `database_id`, `file_handle`, `offset`, `length` |
+| **Response** | `intent`, `file_handle`, `offset`, `length`, `bytes_b64` |
+
+### `push` / `mutations`
+
+Append sealed mutation entries. Cloud chooses direct vs proposal from grant
+(Decision 9). No `kind` field.
+
+| | Fields |
+|---|---|
+| **Request** | `intent`, `database_id`, `device_id`, `entries[]` |
+| **Response** | `intent`, `landed: direct \| proposal`, `cursor`, `accepted` |
+
+`MutationEntry` (request item): `writer_seq`, `authored_at_ms`, `namespace`,
+`payload_b64`, `incorporated_from?`.
+
+### `push` / `snapshot`
+
+Prepare and publish a backup restore point via an opaque ticket.
+
+| | Fields |
+|---|---|
+| **Request** | `intent`, `database_id`, `stage: prepare \| publish`, `ticket?`, `restore_point_id?` |
+| **Response** | `intent`, `stage`, `ticket`, `restore_point_id?`, `upload_url?` |
+
+### `push` / `file`
+
+Upload record-file bytes (former `blob/bytes`). Begin / complete with an
+opaque ticket; complete returns `file_handle`.
+
+| | Fields |
+|---|---|
+| **Request** | `intent`, `database_id`, `stage: begin \| complete`, `ticket?`, `size_bytes?`, `content_sha256?` |
+| **Response** | `intent`, `stage`, `ticket`, `file_handle?`, `upload_url?` |
+
+### `manage` / `create`
+
+Publish (create) a database.
+
+| | Fields |
+|---|---|
+| **Request** | `intent`, `database_id` |
+| **Response** | `intent`, `database_id` |
+
+### `manage` / `grant`
+
+Put one or more signed `grant#<node key>` entries. No list. No revision
+document.
+
+| | Fields |
+|---|---|
+| **Request** | `intent`, `database_id`, `grants[]` |
+| **Response** | `intent`, `ok` |
+
+`GrantEntry`: `node_key`, `signed_grant`.
+
+### `manage` / `revoke`
+
+Remove grant(s) for node key(s).
+
+| | Fields |
+|---|---|
+| **Request** | `intent`, `database_id`, `node_keys[]` |
+| **Response** | `intent`, `ok` |
 
 ## Use cases → intents
 
-| Use case | Node call site(s) | Action + intent |
+| Use case | Node call site(s) | Lands on |
 |---|---|---|
-| Publish (create) a database | CREATE | `manage` / `create_database` |
-| Enrollment / access view | ACCESS | `manage` / `database_access` |
-| Append mutation changes | APPEND (mutation) | `push` / `changes` |
-| Read mutation head | HEAD | `fetch` / `head` |
-| Read mutation changes | LIST | `fetch` / `changes_since` |
-| Propose | APPEND (proposal) | `push` / `proposal` |
-| List proposals | inbox/list | `fetch` / `proposals_since` |
-| Settle proposals | inbox/settle | `push` / `settle` |
-| Upload file bytes | blob context/prepare/complete | `push` / `file` (+ opaque tickets) |
-| Read file bytes | delivery/object | `fetch` / `file_range` |
-| Snapshot backup | snapshot prepare/publish | `push` / `backup` (+ opaque tickets) |
-| Snapshot restore | read / read-for-restore / download | `fetch` / `restore_point`, `restore_part` |
-| Grant members | members/set | `manage` / `grant` |
-| Revoke members | members/set (clear entry) | `manage` / `revoke` |
-| Read own access | members/read | `fetch` / `self_access` |
-| Set settings | settings/set | `manage` / `set_settings` |
-| Get settings | settings/get | `fetch` / `settings` |
-| Owner reclaim / retention | retention CLI | **ops** (off product surface) |
-| DEV snapshot proof | CI | **dev** (marked) |
+| Create database | `native.rs` CREATE | `manage`/`create` |
+| Append mutations | `accepted.rs` APPEND | `push`/`mutations` (`landed: direct`) |
+| Member propose | `contributions.rs` APPEND | `push`/`mutations` (`landed: proposal`) |
+| Read mutations / head | `cloud.rs` HEAD, LIST | `fetch`/`mutations_since` |
+| Publisher read proposals | `run.rs` inbox/list | `fetch`/`mutations_since` (`stream: proposal`) |
+| Accept proposal | APPEND after intake | `push`/`mutations` (`landed: direct`) |
+| Upload file | `signed_blob.rs` blob/bytes | `push`/`file` |
+| Read file bytes | `restore.rs` delivery/object | `fetch`/`file` |
+| Snapshot backup | `snapshot/transport.rs` prepare/publish | `push`/`snapshot` |
+| Snapshot restore | read / read-for-restore / download | `fetch`/`snapshot` |
+| Grant / revoke | `named_grant/exchange.rs` set | `manage`/`grant`, `manage`/`revoke` |
 
-Cut: `settle-submissions` (no node caller). Cut: grant **list** and any
-MemberList **revision** document (approved decision).
+## Where dropped v2 work lands
 
-## Final action + intent list
+Checked against `lastdb_node` and `shared-database-mutation-logs.md`.
 
-### `POST /api/cloud/v3/fetch`
-
-| intent | Meaning |
+| Dropped | Verdict |
 |---|---|
-| `head` | Latest change cursor for a database |
-| `changes_since` | Changes after a cursor |
-| `proposals_since` | Proposals after a cursor |
-| `file_range` | Byte range of a record file (via opaque `file_handle`) |
-| `restore_point` | Describe / open a backup restore point |
-| `restore_part` | Bytes for one restore part (via opaque `part_handle`) |
-| `self_access` | Caller’s own grant view |
-| `settings` | Current settings config |
+| `head` | **Folds** into `fetch`/`mutations_since` (always returns latest `cursor`). |
+| Proposal **append** | **Folds** into `push`/`mutations`. Cloud routes from grant (Decision 9). |
+| Proposal **list** (inbox/list) | **Folds** into `fetch`/`mutations_since` for the publisher (Decision 10). Entries tagged `stream: proposal`. |
+| Proposal **settle** (accepted) | **Folds** into publisher `push`/`mutations` of the accepted entries (Decision 10). No separate settle intent. |
+| Proposal **discard / reject** | **Open question** — see below. Today settle sends `Discarded` with **no** mutation push (`contributions/intake`). |
+| File **upload** (blob/bytes) | **Folds** into `push`/`file`. |
+| File **read** (delivery/object) | **Folds** into `fetch`/`file`. |
+| `self_access` / members/read | **Open question** — see below. |
+| `database_access` / ACCESS | **Open question** — see below. Also used for contribution status. |
+| Settings get/set | **Open question** — see below. Tom: settings do not belong under fetch. |
+| Members get-one | **Dropped.** Confirmed. No `get` intent. |
+| Members list / revision | **Dropped.** Decision 4. |
+| `settle-submissions` | **Dropped.** No node caller. |
 
-### `POST /api/cloud/v3/push`
+### Publisher proposal read / settle (code)
 
-| intent | Meaning |
-|---|---|
-| `changes` | Append mutation changes |
-| `proposal` | Append a proposal |
-| `settle` | Settle proposal ids |
-| `file` | Upload record-file bytes (ticket stages) |
-| `backup` | Publish a backup restore point (ticket stages) |
+`log_sync/run.rs` `drain_inbox` today: inbox **list** → apply → APPEND
+accepted (`incorporated_from`) → inbox **settle** with `Published` /
+`Discarded`.
 
-`file` and `backup` use opaque tickets: the first call returns a ticket (and
-optionally a short-lived upload URL); later calls pass the ticket back. The
-node does not name object keys or multipart layouts in the request schema.
+Under Decisions 9–10: list folds into `fetch`/`mutations_since` (publisher
+sees `stream: proposal`); accept folds into `push`/`mutations` (lands
+`direct`). ExeMem owns merging streams behind one opaque cursor.
 
-### `POST /api/cloud/v3/manage`
+**Discard** still has no home: intake returns `ProposalResult::Discarded`
+without a mutation append, and settle clears those entries. That remains an
+open question (below).
 
-| intent | Meaning |
-|---|---|
-| `create_database` | Create / publish a database |
-| `database_access` | Enrollment / access view for one database |
-| `grant` | Put one or more signed `grant#<node key>` entries |
-| `revoke` | Remove grant(s) for node key(s) |
-| `set_settings` | Replace settings config |
+## Ops and DEV (unchanged homes)
 
-No `list` grants. No revision counter on a member list document.
+### `POST /api/cloud/v3/ops` (off product surface)
 
-### Ops (off public product surface)
+Owner reclaim / retention (`retention.rs`, `blob_retention.rs`). Tag `ops`.
 
-`POST /api/cloud/v3/ops` — owner reclaim / retention. Same action style so the
-CLI stays consistent, but **not** part of the product fetch/push/manage
-surface. Tag: `ops`.
+Intents: `retention`, `automatic_retention`, `reclaim`, `reclaim_covered`,
+`cleanup_retired`, `reclaim_files`, plus DEV `track_dev`, `cleanup_dev`,
+`cleanup_receipt_dev` (`x-lastdb-environment: dev`).
 
-| intent | Was |
-|---|---|
-| `retention` | snapshot retention |
-| `automatic_retention` | automatic-retention |
-| `reclaim` | reclaim |
-| `reclaim_covered` | reclaim-covered |
-| `cleanup_retired` | cleanup-retired |
-| `reclaim_files` | reclaim-blobs (renamed to node noun) |
+### `POST /api/cloud/v3/dev/snapshot-proof` (dev-marked)
 
-### DEV-only (`x-lastdb-environment: dev`)
+`provision`, `retire`, `status`, `inspect`.
 
-| Path | intents |
-|---|---|
-| `POST /api/cloud/v3/dev/snapshot-proof` | `provision`, `retire`, `status`, `inspect` |
-| `POST /api/cloud/v3/ops` | `track_dev`, `cleanup_dev`, `cleanup_receipt_dev` |
+### Auth-service
 
-### Auth-service (unchanged; no protocol header)
-
-`/api/developer/*`, `/api/auth/*` — tag `auth-service`.
+`/api/developer/*`, `/api/auth/*` — **out of scope** for product schema
+strictness; included for surface inventory. **No** protocol header.
 
 ## Snapshot actions
 
-| Current action | Disposition |
+| Current | Disposition |
 |---|---|
-| `prepare`, `publish` | **Keep** as `push` / `backup` (ticket stages) |
-| `read`, `read-for-restore` | **Keep** as `fetch` / `restore_point` |
-| `download` | **Keep** as `fetch` / `restore_part` |
-| `retention`, `automatic-retention`, `reclaim`, `reclaim-covered`, `cleanup-retired`, `reclaim-blobs` | **Move** to `ops` |
-| `track_dev`, `cleanup_dev`, `cleanup_receipt_dev` | **DEV-only** on `ops` |
-| `index-status`, `index-history` | **Absent** |
+| prepare, publish | **Keep** → `push`/`snapshot` |
+| read, read-for-restore, download | **Keep** → `fetch`/`snapshot` |
+| retention, automatic-retention, reclaim, reclaim-covered, cleanup-retired, reclaim-blobs | **Move** → `ops` |
+| track_dev, cleanup_dev, cleanup_receipt_dev | **DEV-only** on `ops` |
+| index-status, index-history | **Absent** |
 
-## Old → new (every current route)
+## Old → new
 
 | Old (v2) | New (v3) |
 |---|---|
-| `…/mutation-log/create-database` | `manage` `create_database` |
-| `…/mutation-log/access` | `manage` `database_access` |
-| `…/mutation-log/append` (mutation) | `push` `changes` |
-| `…/mutation-log/append` (proposal) | `push` `proposal` |
-| `…/mutation-log/head` | `fetch` `head` |
-| `…/mutation-log/list` | `fetch` `changes_since` |
-| `…/mutation-log/inbox/list` | `fetch` `proposals_since` |
-| `…/mutation-log/inbox/settle` | `push` `settle` |
-| `…/mutation-log/settle-submissions` | **retired** |
-| `…/mutation-log/blob/bytes` | `push` `file` |
-| `…/mutation-log/delivery/object` | `fetch` `file_range` |
-| `…/mutation-log/snapshot/bytes` prepare/publish | `push` `backup` |
-| `…/mutation-log/snapshot/bytes` read / read-for-restore | `fetch` `restore_point` |
-| `…/mutation-log/snapshot/bytes` download | `fetch` `restore_part` |
-| `…/mutation-log/snapshot/bytes` retention / reclaim / cleanup-* | `ops` (see intents) |
+| `…/mutation-log/create-database` | `manage`/`create` |
+| `…/mutation-log/access` | **open** (database_access / status) |
+| `…/mutation-log/append` | `push`/`mutations` (`landed` from grant) |
+| `…/mutation-log/head` | `fetch`/`mutations_since` (latest `cursor`) |
+| `…/mutation-log/list` | `fetch`/`mutations_since` |
+| `…/mutation-log/inbox/list` | `fetch`/`mutations_since` (publisher; `stream: proposal`) |
+| `…/mutation-log/inbox/settle` (accepted) | folds into publisher `push`/`mutations` |
+| `…/mutation-log/inbox/settle` (discard) | **open** (reject without push) |
+| `…/mutation-log/settle-submissions` | **dropped** |
+| `…/mutation-log/blob/bytes` | `push`/`file` |
+| `…/mutation-log/delivery/object` | `fetch`/`file` |
+| `…/mutation-log/snapshot/bytes` prepare/publish | `push`/`snapshot` |
+| `…/mutation-log/snapshot/bytes` read / read-for-restore / download | `fetch`/`snapshot` |
+| `…/mutation-log/snapshot/bytes` retention/reclaim/* | `ops` |
 | `…/mutation-log/snapshot/bytes` *_dev | `ops` (dev) |
-| `…/share/members/set` | `manage` `grant` / `revoke` |
-| `…/share/members/get` | **open** — see questions (no public get-one in v3.0 list) |
-| `…/share/members/list` | **retired** (no list / revision) |
-| `…/share/members/read` | `fetch` `self_access` |
-| `…/share/members/settings/set` | `manage` `set_settings` |
-| `…/share/members/settings/get` | `fetch` `settings` |
-| `…/dev-snapshot-proof/{op}` | `dev/snapshot-proof` `{op}` |
-
-## Extensibility
-
-A new capability is a **new `intent` value** (and a protocol version bump when
-old nodes must stop). Never a new route family. Opaque handles absorb
-storage-shape changes without a wire bump when the intent stays the same.
+| `…/share/members/set` | `manage`/`grant` and `manage`/`revoke` |
+| `…/share/members/get` | **dropped** |
+| `…/share/members/list` | **dropped** |
+| `…/share/members/read` | **open** (self_access) |
+| `…/share/members/settings/set` | **open** (settings) |
+| `…/share/members/settings/get` | **open** (settings) |
+| `…/dev-snapshot-proof/{op}` | `dev/snapshot-proof` |
 
 ## Auth
 
 | Scheme | Wire | Where |
 |---|---|---|
-| `accountBearer` | `Authorization: Bearer <enrollment key>` | auth-service |
-| `apiKey` | `X-API-Key` (`em_…`) | `manage` create; `push` file (as today) |
+| `accountBearer` | `Authorization: Bearer` | auth-service |
+| `apiKey` | `X-API-Key` (`em_…`) | `manage`/`create`, `push`/`file` (as today) |
 | `lastDbNode` | `Authorization: LastDBNode …` | signed storage actions |
 | `githubOidc` | Bearer JWT | DEV snapshot-proof |
 
-Protocol header `X-LastDB-Cloud-Protocol: 3` on fetch/push/manage/ops/dev
-storage actions. **Not** on auth-service.
-
-## Protocol version
-
-- Version **3**. Header + matching token field.
-- Drop redundant body `version` fields.
-- Out of date → HTTP **426**
-  `{ "code":"upgrade_required", "field":"cloud.protocol", "minimum_version":3 }`.
-- Live OpenAPI home after implementation:
-  `cloud_backup_protocol/cloud-api.openapi.json`.
+Header `X-LastDB-Cloud-Protocol: 3` on fetch/push/manage/ops/dev. Not on
+auth-service.
 
 ## Errors
 
@@ -241,108 +307,50 @@ storage actions. **Not** on auth-service.
 { "code": "<snake_case>", "field": "<static.name>" }
 ```
 
+Out of date → HTTP **426**
+`{ "code":"upgrade_required", "field":"cloud.protocol", "minimum_version":3 }`.
+
 ## CI plan
 
-(a) Spec matches dispatch (intent enum ↔ handler). (b) Types from tagged
-unions. (c) Next cloud vs last stable released node (closes #1799).
-No unit tests. E2E DEV ops remain the proof.
+(a) Spec matches dispatch (intent ↔ handler). (b) Types from tagged unions.
+(c) Next cloud vs last stable released node (closes #1799). No unit tests.
 
-## Decisions (Tom, 2026-11-19)
+## Where the node still names a resource
 
-1. Protocol starts at **v3**.
-2. Version in **header + token**; drop redundant body `version`.
-3. Upgrade → **426** `upgrade_required` + `minimum_version`.
-4. Members are signed `grant#<node key>` entries and self-access — **no list,
-   no revision**. Settings are separate intents, not Share-named paths.
-5. **No** protocol header on auth-service.
-6. Live OpenAPI under **`cloud_backup_protocol/`**.
-7. DEV snapshot-proof stays, marked **`x-lastdb-environment: dev`**.
-
-**Shape (Tom, same day, refined):** exactly three product actions — fetch,
-push, manage — with intent enums. Action-based, not resource-based. Cloud
-storage may change without the node knowing.
+| # | Issue | Recommendation |
+|---|---|---|
+| R1 | Presigned `upload_url` may reveal object-store host | Keep as opaque string in v3.0; no bucket fields |
+| R2 | Node still builds `BlobPath` today | Replace with opaque `file_handle` from `push`/`file` |
+| R3 | Snapshot multipart layout | Only opaque `part_handle`s from `fetch`/`snapshot` |
+| R4 | Range size ↔ storage limit | Return `max_range_bytes` on begin/`file` if needed — no store name |
+| R5 | DEV snapshot-proof | Keep marked `dev`; proof ids only |
 
 ---
 
-## Where the node still names a resource, and why
+## Open questions for Tom
 
-These are places today’s node (or a naive port) still touches a **cloud
-storage** concept. Each is an **open question for Tom**.
+1. **Reject / discard a proposal without pushing.** Code still settles
+   `Discarded` proposals with no mutation append (`ProposalResult::Discarded`
+   in `contributions/intake`, then inbox settle). Accepted settle is folded
+   (Decision 10). Discard is not.
+   **Recommend:** add an optional `discard_cursors[]` (opaque) on
+   `push`/`mutations` for the publisher only — still one intent, no settle
+   route. Alternative: ExeMem auto-expires proposals the publisher has fetched
+   and not accepted within a TTL (weaker, needs product OK).
 
-### R1 — Presigned upload URLs may reveal bucket / object host
+2. **`self_access` / members/read.** Not in the nine.
+   **Recommend:** return the caller’s own grant summary on `manage`/`grant`
+   for the publisher; for members, a one-shot field on the first
+   `fetch`/`mutations_since` page, or local-only until a later intent.
 
-Today `push` file / backup returns a presigned PUT URL the transport calls
-directly (`cloud_backup_client` `put_presigned`). The URL hostname and path
-can expose the object store.
+3. **`database_access` / ACCESS.** Enrollment + contribution status today.
+   **Recommend:** enrollment on `manage`/`create` response; contribution
+   status as a later follow-up (not in the nine).
 
-**Recommendation:** keep short-lived opaque upload URLs as a **transport
-detail** outside the intent schema’s named fields (type them as
-`upload_url: string` with no bucket fields). Prefer cloud-mediated upload
-(`push` accepts bytes or a ticket-only flow) in a later protocol bump if
-URLs leak too much. For v3.0, document URLs as opaque strings.
+4. **Settings (link `read`, and today’s `write` / `member_writes`).** Tom: not
+   under fetch. Write is moving onto the grant entry; link `read`
+   (`members` \| `anyone`) still needs a home.
+   **Recommend:** optional signed settings on `manage`/`grant` (and initial on
+   `manage`/`create`).
 
-### R2 — File identity is still `BlobPath`-shaped in the node
-
-`lastdb_node` builds `BlobPath` (scope + content layout) for uploads and for
-`delivery/object` reads. That is a cloud key shape.
-
-**Recommendation:** replace with an opaque `file_handle` issued when a change
-that owns the file is accepted (or returned from `push`/`file`). The node
-stores and returns the handle; it does not compose storage keys. v3 request
-fields use `file_handle`, never `blob_path` / bucket / key.
-
-### R3 — Snapshot multipart / part layout
-
-Restore download today walks part indexes. If the wire lists part numbers or
-object keys, the node knows snapshot object layout.
-
-**Recommendation:** `fetch`/`restore_point` returns opaque `part_handle`s;
-`fetch`/`restore_part` takes only those handles. No part-index or object-key
-fields in the OpenAPI.
-
-### R4 — Range size tied to storage limit
-
-`file_range` length is bounded by the cloud object read limit. That couples
-the node to a storage max.
-
-**Recommendation:** cloud returns `max_range_bytes` once (on `head` or first
-`file` ticket) as a protocol constant field, not a store name. Node clamps
-ranges to that number. Open whether the constant lives in the OpenAPI as
-`x-lastdb-max-range-bytes` or only in responses.
-
-### R5 — DEV snapshot-proof
-
-CI provision/retire/inspect still talk about snapshot proof homes and may
-name DEV buckets in operator docs.
-
-**Recommendation:** keep the **dev** action path; mark
-`x-lastdb-environment: dev`. Request bodies use proof ids / opaque handles
-only — no bucket fields in the public schema.
-
-### R6 — Members `get` (single grant) without `list`
-
-Node `exchange.rs` calls members/get and members/list today. List is
-retired by decision. Get-one is not in the three-verb illustrative set.
-
-**Recommendation:** do **not** add `fetch`/`grant` in v3.0. Publisher uses
-`manage`/`grant` (put) and local copies; members use `fetch`/`self_access`.
-If get-one is required for publisher UX, add `fetch`/`grant` later as a new
-intent (version bump).
-
----
-
-## Other open questions for Tom
-
-1. **Retire `settle-submissions` with no replacement?**
-   Recommended: **yes**.
-
-2. **Is `ops` the right home for reclaim/retention (outside fetch/push/manage)?**
-   Recommended: **yes**.
-
-3. **`manage`/`database_access` vs folding enrollment into `fetch`/`self_access`?**
-   Recommended: keep **`database_access`** under manage — it is enrollment /
-   publisher access metadata, not the member’s grant view.
-
-4. **Single `push`/`file` intent with ticket stages vs separate begin/complete intents?**
-   Recommended: **one intent** + opaque ticket field (fewer enum slots, same
-   extensibility).
+5. **Members get-one.** **Dropped.** Confirmed unless Tom objects.
