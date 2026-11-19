@@ -1,4 +1,8 @@
-"""Sync a private database between real owner devices and recover it in DEV."""
+"""Sync a private database between real owner devices and recover it in DEV.
+
+The same two devices then prove created_by stays present through a body edit,
+an alternate-address move, and a delete followed by a create.
+"""
 
 from contextlib import contextmanager
 import json, os, socket, sys, tempfile, time
@@ -8,6 +12,7 @@ _HERE = Path(__file__).resolve().parent
 _SCRIPTS = _HERE.parent
 sys.path[:0] = [str(_HERE), str(_SCRIPTS), str(_SCRIPTS / "cloud_backup")]
 
+from authorship import expect_recreated, prove as prove_authorship  # noqa: E402
 from drive import LoadError  # noqa: E402
 from finish import ROOT, decimal  # noqa: E402
 import v1_records as v1  # noqa: E402
@@ -302,6 +307,7 @@ def check_restore(programs, call, database, owner, api_key):
         check_progress(source, database, 6, 10)
         check_progress(peer, database, 4, 10)
         through, records = reconnect_lagging_peer(programs, call, database, api_key, source, peer, records)
+        through = prove_authorship(programs, call, database, api_key, source, peer, owner, through)
         restored = OwnedNode(root / "restored", programs, account=account)
         restore(programs, credentials.home, restored.home, database, phrase, through, stage="private_fresh_log_restore")
         require(device_id(restored) not in (first, second), "private_restored_device_identity")
@@ -310,6 +316,7 @@ def check_restore(programs, call, database, owner, api_key):
                 "private_fresh_local_download")
         with running(restored):
             require(read_fields(restored, database, records) == [[row] for row in records], "private_recovered_record")
+            expect_recreated(restored, database, owner)
     summary("Each device kept separate local upload and download positions. The cloud "
             "recognized an exact resend and refused a different edit at the same number. "
             "A fresh home replayed the retained log and read both devices' edits.")
