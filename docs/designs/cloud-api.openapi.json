@@ -1658,9 +1658,9 @@
             "enum": [
               "submitted",
               "published",
-              "discarded",
               "unknown"
-            ]
+            ],
+            "description": "No discarded status: silent rejection (Decision 11)."
           }
         }
       },
