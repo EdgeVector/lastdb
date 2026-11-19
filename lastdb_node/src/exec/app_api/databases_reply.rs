@@ -22,10 +22,24 @@ pub(super) fn pass_owner(response: UdsResponse) -> Result<UdsResponse, HostError
         response.status
     };
     let mut error = HostError::new(status, message(&response.body));
+    if let Some(code) = owner_code(&response.body) {
+        error = error.with_code(code);
+    }
     if let Some(seconds) = retry_after(&response) {
         error = error.with_retry_after(seconds);
     }
     Err(error)
+}
+
+/// The owner code that the status hides. A final 409 is not a revision
+/// conflict, and a 503 that waits for enrollment is not an unconfirmed answer.
+fn owner_code(body: &[u8]) -> Option<&'static str> {
+    let value = serde_json::from_slice::<Value>(body).ok()?;
+    match text_at(&value, "error")?.as_str() {
+        "no_cloud_account" => Some("no_cloud_account"),
+        "database_enrolling" => Some("enrolling"),
+        _ => None,
+    }
 }
 
 fn retry_after(response: &UdsResponse) -> Option<u64> {

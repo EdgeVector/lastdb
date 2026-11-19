@@ -62,13 +62,16 @@ pub(in crate::exec) const fn status_reason(status: u16) -> &'static str {
 pub(in crate::exec) struct HostError {
     pub(in crate::exec) status: u16,
     pub(in crate::exec) message: String,
-    structured_body: Option<Value>,
+    /// Boxed so the error stays small in a `Result`.
+    structured_body: Option<Box<Value>>,
     /// Set when an app API refusal concerns one mutation in the list.
     pub(in crate::exec) index: Option<usize>,
     /// A fixed word for why a write condition did not hold.
     pub(in crate::exec) reason: Option<&'static str>,
     /// Seconds for a `Retry-After` header. Set only on a retryable refusal.
     pub(in crate::exec) retry_after: Option<u64>,
+    /// The app API code when the status alone does not name the refusal.
+    pub(in crate::exec) code: Option<&'static str>,
 }
 
 impl HostError {
@@ -80,6 +83,7 @@ impl HostError {
             index: None,
             reason: None,
             retry_after: None,
+            code: None,
         }
     }
 
@@ -91,10 +95,11 @@ impl HostError {
         Self {
             status,
             message: message.into(),
-            structured_body: Some(body),
+            structured_body: Some(Box::new(body)),
             index: None,
             reason: None,
             retry_after: None,
+            code: None,
         }
     }
 
@@ -111,6 +116,12 @@ impl HostError {
     /// Why a write condition did not hold: `exists`, `absent`, or `revision`.
     pub(in crate::exec) fn with_reason(mut self, reason: &'static str) -> Self {
         self.reason = Some(reason);
+        self
+    }
+
+    /// Name the refusal when the status maps to more than one cause.
+    pub(in crate::exec) fn with_code(mut self, code: &'static str) -> Self {
+        self.code = Some(code);
         self
     }
 

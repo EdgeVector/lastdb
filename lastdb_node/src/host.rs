@@ -24,6 +24,7 @@ mod recovery;
 pub(crate) mod share_identity;
 pub(crate) use cloud_sync::{BlockedDelivery, ReplayBlockReason};
 pub use logging::init_daemon_logging;
+pub(crate) use logging::publish_category_allowed;
 
 const SHUTDOWN_FLUSH_READY_FILE: &str = ".shutdown_flush_ready";
 

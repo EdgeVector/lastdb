@@ -134,17 +134,27 @@ pub(crate) fn read_page(
     }
 }
 
-/// A shareable log returns the writer tip only for its publisher.
-/// A member's first cloud sequence is 1, so an unauthorized tip is 0.
-/// Later sequences stay in the saved checkpoint and do not ask again.
+/// A shareable log returns the writer tip only for its publisher. A member with
+/// no saved position learns its tip from its own delivered entries. A guessed
+/// position of 0 is never saved: when the node lost its position after it had
+/// appended, the guess would conflict on every retry. A cursor the service no
+/// longer keeps hides the member's earlier entries, so the tip is unknown and
+/// the stop is named instead of guessed.
 async fn writer_seq(log: &CloudLog, member: bool) -> Result<u64, &'static str> {
     match log.writer_tip_async().await {
         Ok(seq) => Ok(seq),
-        Err(LogError::Unauthorized) if member => Ok(0),
+        Err(LogError::Unauthorized) if member => match log.delivered_tip_async().await {
+            Ok(seq) => Ok(seq),
+            Err(LogError::CursorExpired { .. }) => Err(SEQUENCE_UNKNOWN),
+            Err(_) => Err("could not read stored writes to initialize the local upload position"),
+        },
         Err(LogError::Conflict) => Err("cloud entries disagree with the saved upload identity"),
         Err(_) => Err("could not read stored writes to initialize the local upload position"),
     }
 }
+
+pub(in crate::log_sync) const SEQUENCE_UNKNOWN: &str =
+    "delivered entries before the retained log hide this device's writer sequence";
 
 fn report(database_id: Option<&str>, status: &'static str) {
     if let Some(database_id) = database_id {

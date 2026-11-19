@@ -241,6 +241,7 @@ async fn ensure_enrolled(host: &Host, database_id: &str) -> Result<(), ConfigErr
             Err(ConfigError::PaymentRequired)
         }
         crate::log_sync::CloudState::Enrolling => Err(ConfigError::Enrolling),
+        crate::log_sync::CloudState::Unverified => Err(ConfigError::Unconfirmed),
     }
 }
 
@@ -257,6 +258,7 @@ fn member_cloud_error(host: &Host, database_id: &str, error: String) -> HostErro
     match crate::log_sync::database_cloud_state(&host.home, database_id) {
         crate::log_sync::CloudState::NoAccount => host_error(ConfigError::NoAccount),
         crate::log_sync::CloudState::Enrolling => host_error(ConfigError::Enrolling),
+        crate::log_sync::CloudState::Unverified => host_error(ConfigError::Unconfirmed),
         crate::log_sync::CloudState::Enrolled => HostError::new(400, error),
     }
 }
@@ -268,7 +270,7 @@ fn link_error(
     ctx: &AccessContext,
 ) -> UdsResponse {
     let (status, message) = error.status();
-    if message == "cloud connection is unavailable" {
+    if error.is_cloud_connection() {
         let failure = named_grant::cloud_failure(&host.home, database_id, message);
         return render(Err(host_error(failure)), ctx);
     }

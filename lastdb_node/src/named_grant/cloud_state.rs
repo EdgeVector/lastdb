@@ -5,11 +5,15 @@
 //! second tracker. The set is empty after a process start until register
 //! returns live again.
 //!
-//! `NoAccount`: verified credentials are missing, or they have no account
-//! connection. `Enrolling`: a usable account exists and this database is not
-//! in the set. `Enrolled`: the sync loop has recorded this database.
+//! `NoAccount`: no credentials are saved, or they have no account connection.
+//! `Unverified`: saved credentials could not be read or did not verify. That
+//! is not proof that no account exists, so a caller may retry.
+//! `Enrolling`: a usable account exists and this database is not in the set
+//! for that account and environment. `Enrolled`: the sync loop has recorded
+//! this database for the account and environment the credentials name now.
+//! A database recorded for another account or environment is not enrolled.
 
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Mutex, OnceLock};
 
@@ -18,46 +22,66 @@ use tokio::sync::Notify;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum CloudState {
     NoAccount,
+    Unverified,
     Enrolling,
     Enrolled,
 }
 
-pub(crate) fn has_cloud_account(home: &Path) -> bool {
+/// True only when the credentials say there is no account: none saved, or
+/// saved with no account connection. A read or verify failure is not that.
+pub(crate) fn no_cloud_account(home: &Path) -> bool {
     match crate::cloud::load_verified_cloud_credentials(home) {
-        Ok(Some(creds)) => creds.connection.is_some(),
-        _ => false,
+        Ok(Some(creds)) => creds.connection.is_none(),
+        Ok(None) => true,
+        Err(_) => false,
     }
 }
 
 pub(crate) fn database_cloud_state(home: &Path, database_id: &str) -> CloudState {
-    if !has_cloud_account(home) {
-        CloudState::NoAccount
-    } else if confirmed(database_id) {
-        CloudState::Enrolled
-    } else {
-        CloudState::Enrolling
+    match crate::cloud::load_verified_cloud_credentials(home) {
+        Ok(Some(creds)) => match &creds.connection {
+            Some(connection)
+                if confirmed(
+                    database_id,
+                    &identity(creds.env.as_str(), connection.account_id.as_str()),
+                ) =>
+            {
+                CloudState::Enrolled
+            }
+            Some(_) => CloudState::Enrolling,
+            None => CloudState::NoAccount,
+        },
+        Ok(None) => CloudState::NoAccount,
+        Err(_) => CloudState::Unverified,
     }
+}
+
+/// The account and environment a cloud log was registered under.
+pub(crate) fn identity(environment: &str, account_id: &str) -> String {
+    format!("{environment}:{account_id}")
 }
 
 /// Record a live cloud log and wake share calls that are already waiting.
 /// A waiter that has not registered yet misses the signal. The wait polls.
-pub(crate) fn remember(database_id: &str) {
-    confirmed_set().insert(database_id.to_owned());
+pub(crate) fn remember(database_id: &str, identity: String) {
+    confirmed_set().insert(database_id.to_owned(), identity);
     signal().notify_waiters();
 }
 
-pub(crate) fn confirmed(database_id: &str) -> bool {
-    confirmed_set().contains(database_id)
+pub(crate) fn confirmed(database_id: &str, identity: &str) -> bool {
+    confirmed_set()
+        .get(database_id)
+        .is_some_and(|recorded| recorded == identity)
 }
 
 pub(crate) fn notified() -> tokio::sync::futures::Notified<'static> {
     signal().notified()
 }
 
-fn confirmed_set() -> std::sync::MutexGuard<'static, HashSet<String>> {
-    static CREATED: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+fn confirmed_set() -> std::sync::MutexGuard<'static, HashMap<String, String>> {
+    static CREATED: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
     CREATED
-        .get_or_init(|| Mutex::new(HashSet::new()))
+        .get_or_init(|| Mutex::new(HashMap::new()))
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }

@@ -34,8 +34,8 @@ pub(super) async fn publish_or_retract(host: &Host, log: &CloudLog) -> Result<()
         WriteMode::Direct => {
             super::publish_state::begin(log.database_id());
             let result = accepted::publish_owned(host, log).await;
-            if result.is_err() {
-                super::publish_state::finish_unnoted(host, log);
+            if let Err(reason) = result {
+                super::publish_state::finish_unnoted(host, log, reason);
             }
             result
         }
@@ -85,6 +85,7 @@ pub(super) async fn undo_page(
 
 async fn retract(host: &Host, log: &CloudLog) -> Result<(), &'static str> {
     super::publish_state::begin(log.database_id());
+    super::publish_state::clear_confirmed(log.database_id());
     let Some((store, key, policy)) = received_store(host, log.database_id()).await else {
         return Ok(());
     };

@@ -200,6 +200,29 @@ impl CloudLog {
         Ok(response.last_writer_seq.get())
     }
 
+    /// The highest writer sequence this node's key and device already has in
+    /// the delivered log. A member has no writer-tip read, so the member's own
+    /// delivered entries are the only record of that position. This lists the
+    /// log from its start. A cursor the service no longer keeps is an error,
+    /// because the entries before it are not readable and the tip is unknown.
+    pub(super) async fn delivered_tip_async(&self) -> Result<u64, LogError> {
+        let own = self.reader();
+        let (mut after, mut tip) = (0, 0);
+        loop {
+            let page = self.list_async(after).await?;
+            tip = page
+                .entries
+                .iter()
+                .filter(|stored| stored.entry.writer == own)
+                .map(|stored| stored.entry.writer_seq)
+                .fold(tip, u64::max);
+            if page.entries.is_empty() || page.next <= after {
+                return Ok(tip);
+            }
+            after = page.next;
+        }
+    }
+
     /// Ask for an exact snapshot only when this caller can install one.
     pub(super) async fn list_with_native_reset(
         &self,
