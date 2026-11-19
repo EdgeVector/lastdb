@@ -140,20 +140,12 @@ enum ManifestSide {
 
 /// Turn the manifest's access block into the listing's: each schema name gains
 /// the definition ID of the version the running node holds, which is the one
-/// the developer built against. `"*"` stays `"*"`.
-fn declared_access(socket: &Path, decl: &Value, api_version: u32) -> Result<Value, String> {
+/// the developer built against. `"*"` is allowed at every app API version and
+/// stays `"*"`.
+fn declared_access(socket: &Path, decl: &Value) -> Result<Value, String> {
     let read = manifest_side(decl, "read")?;
     let write = manifest_side(decl, "write")?;
     let extensions = manifest_list(decl, "extensions")?;
-    let wide = matches!(read, ManifestSide::All) || matches!(write, ManifestSide::All);
-    let min = app_identity_crypto::ALL_SCHEMAS_API_VERSION;
-    if wide && api_version < min {
-        return Err(format!(
-            "manifest access uses \"*\", which a listing may carry only at API version \
-             {min} or above (this listing is {api_version}); an older build that cannot \
-             parse \"*\" fails to read the whole registry list for that channel and API version"
-        ));
-    }
     let rows = schema_rows(socket)?;
     let access = json!({
         "read": side_value(&read, &rows)?,
@@ -279,7 +271,7 @@ fn publish_payload(home: &Path, input: &PublishArgs) -> Result<Value, String> {
         return Err("origin must be a public https://github.com/owner/repo.git URL".into());
     }
     let sha = git(&root, &["rev-parse", "HEAD"])?;
-    let (build, _, api_version, outbox, _) = registry::running_node(home);
+    let (build, _, api_version, outbox, _) = registry::running_node(home)?;
     let sock = lastdb_node::lastdb_uds::socket_path(&home.join("data"));
     require_held_schemas_listed(&sock, app_id, &listed)?;
     let channel = input
@@ -292,7 +284,7 @@ fn publish_payload(home: &Path, input: &PublishArgs) -> Result<Value, String> {
         "channel": channel, "api_version": api_version, "lastdb_build": build
     });
     if let Some(decl) = m.get("access") {
-        payload["access"] = declared_access(&sock, decl, api_version)?;
+        payload["access"] = declared_access(&sock, decl)?;
     }
     if m.get("outbox_format_version").is_some() {
         payload["outbox_format_version"] = json!(outbox);

@@ -4,7 +4,8 @@
 The Rust constants are the only hand-edited interface version numbers:
 
   lastdb_node/src/lastdb_uds/uds_router.rs   API_VERSION, CAPABILITIES_JSON, EXTENSIONS_JSON
-  lastdb_node/src/version.rs                 MIN_SUPPORTED_API_VERSION
+  lastdb_node/src/version.rs                 MIN_SUPPORTED_API_VERSION,
+                                             APP_API_VERSION, MIN_SUPPORTED_APP_API_VERSION
 
 This script derives two committed files from the source:
 
@@ -136,6 +137,8 @@ def current_surface():
     return {
         "api_version": constant(ROUTER, "API_VERSION"),
         "min_supported_api_version": constant(VERSION, "MIN_SUPPORTED_API_VERSION"),
+        "app_api_version": constant(VERSION, "APP_API_VERSION"),
+        "min_supported_app_api_version": constant(VERSION, "MIN_SUPPORTED_APP_API_VERSION"),
         "capabilities": capabilities(),
         "routes": routes,
         "extensions": extensions,
@@ -268,6 +271,8 @@ def main():
     errors = app_api_errors(surface)
     if surface["min_supported_api_version"] > surface["api_version"]:
         errors.append("MIN_SUPPORTED_API_VERSION is above API_VERSION")
+    if surface["min_supported_app_api_version"] > surface["app_api_version"]:
+        errors.append("MIN_SUPPORTED_APP_API_VERSION is above APP_API_VERSION")
     missing = sorted(
         r for r in surface["app_routes"] if not served(r, surface["routes"], surface["extensions"])
     )
@@ -297,6 +302,8 @@ def main():
         return 1
     print(f"api-surface: OK api_version={surface['api_version']} "
           f"min_supported={surface['min_supported_api_version']} "
+          f"app_api_version={surface['app_api_version']} "
+          f"min_supported_app_api={surface['min_supported_app_api_version']} "
           f"routes={len(surface['routes'])} capabilities={len(surface['capabilities'])} "
           f"extensions={len(surface['extensions'])} "
           f"app_api={len(app_api_paths(surface))}")
