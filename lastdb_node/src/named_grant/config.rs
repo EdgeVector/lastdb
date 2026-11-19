@@ -10,10 +10,12 @@ use super::entries::{self, Grant};
 use super::settings;
 use super::{exchange, lock, PublisherSession};
 use cloud_backup_protocol::v2::share_access::{
-    MemberEntry, ShareMemberRole, ShareMemberState, ShareRead, ShareWrite, ShareWriteScope,
+    MemberEntry, MemberWriteBehaviour, ShareMemberRole, ShareMemberState, ShareRead, ShareWrite,
+    ShareWriteScope,
 };
 use cloud_backup_protocol::{DecimalU64, Digest, ErrorCode, Id};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::path::Path;
 
 #[derive(Deserialize)]
@@ -28,6 +30,10 @@ pub(crate) struct ConfigUpdate {
     /// Omitted keeps the stored value. No stored statement is proposals.
     #[serde(default)]
     write: Option<ShareWrite>,
+    /// Omitted keeps the stored map. An empty object clears it. No stored
+    /// statement is an empty map, and a schema that is absent is owner_only.
+    #[serde(default)]
+    member_writes: Option<BTreeMap<String, MemberWriteBehaviour>>,
 }
 
 impl ConfigUpdate {
@@ -35,15 +41,6 @@ impl ConfigUpdate {
         self.members
             .iter()
             .filter_map(|member| member.write_schemas.as_ref())
-    }
-
-    /// An active submitter must name a schema scope. A reader omits it.
-    pub(crate) fn writer_missing_scope(&self) -> bool {
-        self.members.iter().any(|member| {
-            member.role == ShareMemberRole::Submit
-                && member.state == ShareMemberState::Active
-                && member.write_schemas.is_none()
-        })
     }
 }
 
@@ -78,6 +75,8 @@ pub(crate) struct Configuration {
     revision: DecimalU64,
     read: ShareRead,
     write: ShareWrite,
+    /// Empty when the database has no member-write map.
+    member_writes: BTreeMap<String, MemberWriteBehaviour>,
     members: Vec<ConfigMember>,
 }
 
@@ -121,6 +120,7 @@ pub(crate) async fn read_config(
         revision: DecimalU64::new(revision),
         read,
         write,
+        member_writes: settings::writes(current.as_ref()),
         members: stored.into_iter().map(Into::into).collect(),
     })
 }
@@ -139,10 +139,12 @@ pub(crate) async fn read_config(
 /// members while `expectedRevision` still matches. `requestId` is echoed and
 /// is not sent to the service.
 ///
-/// An omitted `read` or `write` keeps the stored value. No stored statement
-/// is members and proposals. The same pair sends no statement: the service
-/// refuses it, and a repeat whose answer was lost must not send it again.
-/// Every stored member must be named: leaving one out is not a revoke.
+/// An omitted `read`, `write`, or `memberWrites` keeps the stored value. No
+/// stored statement is members, proposals, and an empty map. The same three
+/// send no statement: the service refuses an unchanged statement, and a
+/// repeat whose answer was lost must not send it again. Every stored member
+/// must be named: leaving one out is not a revoke. An omitted `writeSchemas`
+/// signs the member entry without a scope.
 pub(crate) async fn set_config(
     home: &Path,
     database_id: &str,
@@ -150,6 +152,7 @@ pub(crate) async fn set_config(
 ) -> Result<DecimalU64, ConfigError> {
     let read = request.read;
     let write = request.write;
+    let member_writes = request.member_writes;
     let expected = request.expected_revision.get();
     let members = normalize(request.members)?;
     let _lock = lock::hold(home, database_id).map_err(|_| ConfigError::Unconfirmed)?;
@@ -161,8 +164,8 @@ pub(crate) async fn set_config(
     if !signed.is_empty() && revision != expected {
         return Err(ConfigError::Conflict(Some(DecimalU64::new(revision))));
     }
-    if read.is_some() || write.is_some() {
-        store_settings(&session, database_id, read, write).await?;
+    if read.is_some() || write.is_some() || member_writes.is_some() {
+        store_settings(&session, database_id, read, write, member_writes.as_ref()).await?;
     }
     if signed.is_empty() {
         return Ok(DecimalU64::new(revision));
@@ -242,12 +245,20 @@ async fn store_settings(
     database_id: &str,
     read: Option<ShareRead>,
     write: Option<ShareWrite>,
+    member_writes: Option<&BTreeMap<String, MemberWriteBehaviour>>,
 ) -> Result<(), ConfigError> {
     let current = exchange::get_settings(session, database_id)
         .await
         .map_err(settings_failure)?;
-    let Some(statement) = settings::prepare(session, database_id, current.as_ref(), read, write)
-        .map_err(ConfigError::Invalid)?
+    let Some(statement) = settings::prepare(
+        session,
+        database_id,
+        current.as_ref(),
+        read,
+        write,
+        member_writes,
+    )
+    .map_err(ConfigError::Invalid)?
     else {
         return Ok(());
     };
@@ -281,6 +292,27 @@ fn protocol_code(code: &ErrorCode) -> String {
         .ok()
         .and_then(|value| value.as_str().map(str::to_owned))
         .unwrap_or_else(|| "invalid_input".into())
+}
+
+/// The member-write map on the statement this publisher just confirmed.
+///
+/// The caller holds the member lock. This does not take that lock: the lock
+/// is not re-entrant. The read is `POST /api/cloud/backups/v2/share/members/settings/get`.
+/// `exchange::get_settings` accepts the body only when this publisher's
+/// signature verifies. No stored statement is a confirmed empty map. A failed
+/// read is unconfirmed. The caller must not treat that failure as `owner_only`
+/// and must not discard a proposal because of it.
+pub(crate) async fn confirmed_member_writes(
+    home: &Path,
+    database_id: &str,
+) -> Result<BTreeMap<String, MemberWriteBehaviour>, String> {
+    let session = open(home)
+        .await
+        .map_err(|_| "share settings are unconfirmed".to_owned())?;
+    let current = exchange::get_settings(&session, database_id)
+        .await
+        .map_err(|_| "share settings are unconfirmed".to_owned())?;
+    Ok(settings::writes(current.as_ref()))
 }
 
 /// Hold the member lock and read one member's entry, verified as this

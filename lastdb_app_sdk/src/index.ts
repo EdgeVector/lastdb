@@ -105,6 +105,7 @@ export type {
   CreateDatabaseRequest,
   DatabaseSpec,
   ListedDatabase,
+  MemberWriteBehaviour,
   SharedDatabaseAccess,
   ShareWriteScope,
 } from './databases.js';

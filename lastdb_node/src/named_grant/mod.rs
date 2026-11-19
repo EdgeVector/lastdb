@@ -21,7 +21,9 @@ use std::path::Path;
 use std::sync::Arc;
 use zeroize::Zeroizing;
 
-pub(crate) use config::{lock_member, read_config, set_config, ConfigError, ConfigUpdate};
+pub(crate) use config::{
+    confirmed_member_writes, lock_member, read_config, set_config, ConfigError, ConfigUpdate,
+};
 
 /// What the publisher wants the member row to become.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -95,9 +97,6 @@ pub(crate) async fn update_member(
     intent: MemberIntent,
 ) -> Result<MemberAck, String> {
     let entry = owned::find_shareable(home, selector)?;
-    if entry.whole_database() && matches!(intent, MemberIntent::Submit { .. }) {
-        return Err("whole-database writers require a configured schema scope".into());
-    }
     let _lock = lock::hold(home, &entry.id)?;
     let session = PublisherSession::open(home).await?;
     if &session.publisher == node {

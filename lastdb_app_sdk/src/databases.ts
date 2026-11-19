@@ -87,6 +87,9 @@ const UUID_SIMPLE = /^[0-9a-fA-F]{32}$/;
 /** Canonical names, legacy definition IDs, or all schemas. An empty list grants reads only. */
 export type ShareWriteScope = { names: string[] } | string[] | 'all';
 
+/** What a member with write access may do to one schema. A missing name is `owner_only`. */
+export type MemberWriteBehaviour = 'owner_only' | 'own_records' | 'shared';
+
 /** The last observed grant for this receiving node. Use it to display available actions. */
 export interface SharedDatabaseAccess {
   state: 'unknown' | 'active' | 'revoked' | 'absent';
@@ -95,6 +98,8 @@ export interface SharedDatabaseAccess {
   read: 'members' | 'anyone';
   /** Where a submit append goes. No stored statement is `proposals`. */
   write: 'proposals' | 'direct';
+  /** Schema name to behaviour. Empty means every schema is `owner_only`. */
+  memberWrites: Record<string, MemberWriteBehaviour>;
   writeSchemas?: ShareWriteScope;
   revision: string | null;
   confirmedAtMs: string | null;
@@ -281,6 +286,25 @@ function parseScope(value: unknown): ShareWriteScope | undefined {
   throw new UnexpectedResponseError('database returned an invalid write scope', 200, null);
 }
 
+function isMemberWriteBehaviour(value: string): value is MemberWriteBehaviour {
+  return value === 'owner_only' || value === 'own_records' || value === 'shared';
+}
+
+function parseMemberWrites(value: unknown): Record<string, MemberWriteBehaviour> {
+  if (value === undefined) return {};
+  if (!isObject(value)) {
+    throw new UnexpectedResponseError('database returned an invalid member write map', 200, null);
+  }
+  const map: Record<string, MemberWriteBehaviour> = {};
+  for (const [name, behaviour] of Object.entries(value)) {
+    if (typeof behaviour !== 'string' || !isMemberWriteBehaviour(behaviour)) {
+      throw new UnexpectedResponseError('database returned an invalid member write map', 200, null);
+    }
+    map[name] = behaviour;
+  }
+  return map;
+}
+
 function parseSharedDatabaseAccess(value: unknown): SharedDatabaseAccess {
   if (isObject(value)) {
     const { state, role, revision, confirmedAtMs, stale, writeSchemas, read, write } = value;
@@ -294,7 +318,9 @@ function parseSharedDatabaseAccess(value: unknown): SharedDatabaseAccess {
       typeof stale === 'boolean'
     ) {
       const access: SharedDatabaseAccess = {
-        state, role, read, write, revision, confirmedAtMs, stale,
+        state, role, read, write,
+        memberWrites: parseMemberWrites(value['memberWrites']),
+        revision, confirmedAtMs, stale,
       };
       const scope = parseScope(writeSchemas);
       if (scope !== undefined) access.writeSchemas = scope;
