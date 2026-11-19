@@ -10,35 +10,76 @@ contents. No dual paths, aliases, fallback, or migration. No unit tests.
 
 ## Trust model
 
-ExeMem is **untrusted storage and transport**. Honest nodes must
-independently reach the **same canonical source of truth** even if ExeMem
-is hacked. A compromised server may reorder delivery, withhold entries, or
-fork (serve different histories to different nodes). It must not be able to
-make honest nodes **silently disagree**.
+ExeMem (and every relay — see `docs/designs/relay-protocol.md`) is
+**untrusted storage and transport**. Honest nodes must independently reach
+the **same canonical source of truth** even if a relay is hacked. A
+compromised server may reorder delivery, withhold entries, or fork (serve
+different histories to different nodes). It must not be able to make honest
+nodes **silently disagree**.
 
 | Trusted for | Not trusted for |
 |---|---|
 | Availability (store and return bytes when it chooses) | Canonical order |
 | | Completeness of what any one node has seen |
-| | Authorization truth (who may write) |
+| | Authorization / acceptance |
 | | Integrity or authenticity of payloads |
+
+### Acceptance (local node rule)
+
+**Acceptance is a local node rule.** Relays neither enforce nor know about
+it. Each node runs the same deterministic function on signed data. Relays
+only store and relay bytes. Any relay-side check (signature shape, quota,
+“is this key known”) is **anti-spam / quota policy** that another relay may
+do differently; nodes must not rely on it for correctness.
+
+`AcceptEntry(E, S) → accept | reject` — `S` is the node’s already-verified
+signed history for `E.database_id`:
+
+1. **Signature.** Ed25519 verify of `E.signature` over `signed_bytes(E)`
+   with `E.node_key`. Fail → reject.
+2. **Database bind.** `E.database_id` matches the database of `S`. Fail →
+   reject (blocks cross-db replay).
+3. **Chain link.** `(E.writer_seq, E.prev_hash)` extends the chain in `S`
+   for `E.node_key`, or matches an existing entry with the same
+   `entry_hash` (idempotent duplicate). Else → reject (gap or
+   equivocation evidence).
+4. **Publisher authorization.** Let `owner` be the owner node key from the
+   verified birth certificate in `S`.
+   - If `E.node_key == owner` → authorized (publisher may append data,
+     grant, checkpoint, relays, birth continuation).
+   - Else `E` must be `kind=data` and the writer must hold a
+     **publisher-signed grant** in the publisher spine in `S`:
+     - `stream=direct` → effective role `write` under the grant-window
+       rules in § Signed history (`grant_publisher_seq`, checkpoint `C`).
+     - `stream=proposal` → effective role `submit` or `write` at the
+       publisher seq the entry binds (or, if unbound, at the highest
+       publisher seq in `S` when the proposal is admitted tentatively).
+   - Else → reject.
+5. **On reject:** do not apply `E`; retain it as evidence; **stop that
+   writer’s chain** at the gap (later seq for that key cannot apply). Do
+   not advance **canonical** state past a failed or missing publisher-chain
+   link.
+
+Canonical replay (checkpoint pull-in order, tentative Lamport order) is
+defined in § Signed history and uses only entries that already passed
+`AcceptEntry`. Proposal incorporation content is authorized because the
+**publisher** signed the incorporating entry (step 4, owner path); readers
+do not re-check the proposer’s grant for incorporated bytes.
 
 **Guarantees (honest nodes):**
 
 - Canonical history and its order come only from **signed data** (writer
   hash chains + the publisher spine). Never from cloud sequence, cursor, or
   receive time.
-- A valid writer signature proves who authored an entry and that it was not
-  altered.
-- Grant and revocation truth is the publisher’s signed chain, not ExeMem’s
-  ACL table. A hacked ExeMem cannot invent write access that honest readers
-  will accept.
+- `AcceptEntry` is the only admission gate; every honest node computes the
+  same result on the same `S`.
+- A hacked relay cannot invent write access that honest nodes will accept.
 - Reorderings of the same signed set yield the same canonical state.
 - Forks, equivocation, and gaps become **detectable signed evidence** once
   publisher heads are compared (own devices and People). On detection,
   nodes stop advancing canonical state for that database.
 
-**Limit (plainly):** ExeMem can always stop or delay delivery. That is a
+**Limit (plainly):** A relay can always stop or delay delivery. That is a
 **liveness / freshness** failure (for example, withholding the newest
 revocation). It cannot make honest nodes apply divergent canonical state
 without producing evidence when heads meet. See Open questions for any
@@ -142,17 +183,19 @@ single-use per node key and remembered for at least **2×** the skew window.
 - `db_seed = HKDF-SHA256(ikm = node Ed25519 private seed, salt = db_salt,
   info = "lastdb-db-key-v1")`.
 - Ed25519 keypair from `db_seed`. `database_id` = db public key (64 hex).
-- `manage`/`create` sends `db_salt` and `birth_signature`: Ed25519 by the
-  **db key** over
+- `manage`/`create` (ExeMem sugar) or a chained `birth` log entry carries
+  `db_salt` and `birth_signature`: Ed25519 by the **db key** over
   `lastdb-db-birth-v1\n<database_id>\n<owner node key>\n<db_salt>`.
-- ExeMem verifies the birth signature against `database_id`, checks that the
-  owner node key is the request signer, and stores owner, salt, and signature.
-- The db key signs **nothing else**. The birth certificate is how readers
+- **Nodes** verify the birth certificate into `S` before `AcceptEntry` can
+  treat anyone as owner. ExeMem may also check birth when indexing a new
+  database (anti-spam / billing); that check is not acceptance.
+- The db key signs **nothing else**. The birth certificate is how nodes
   learn the **publisher (owner) node key**. The publisher needs **no grant**
   for its own writes.
-- Members and public readers get `owner`, `db_salt`, `birth_signature` from
-  `manage`/`access` and verify: signature against `database_id`, and `owner`
-  matches the publisher People told them about.
+- Members and public readers obtain `owner`, `db_salt`, `birth_signature`
+  (from a birth log entry, People, or ExeMem `access` cache) and verify:
+  signature against `database_id`, and `owner` matches the publisher People
+  told them about.
 - New device: phrase → `add_device` → `databases` (returns `db_salt` for owned
   rows) → re-derive and check `database_id`.
 - **No rotation.** A compromised node key exposes every derived db key
@@ -306,8 +349,9 @@ birth certificate).
 
 ### Grant checks for member direct writes
 
-Let `W` be a member direct data entry with `grant_publisher_seq = G`,
-applied when a checkpoint `C` lists it.
+These rules refine step 4 of `AcceptEntry` (§ Trust model) for member
+direct data. Let `W` be a member direct data entry with
+`grant_publisher_seq = G`, applied when a checkpoint `C` lists it.
 
 1. `W`’s writer signature and hash-chain link verify.
 2. Publisher entry at seq `G` is a `grant` that sets `W.node_key` to role
@@ -336,36 +380,20 @@ incorporation is a publisher direct entry (always authorized). Readers do
 content; the publisher’s signature is the vouch. `grant#any` is irrelevant
 to writes.
 
-### What ExeMem checks at push vs what readers check
+### Relay / ExeMem policy vs node acceptance
 
-**ExeMem (door + storage hygiene, not source of truth):**
+**Nodes:** always run `AcceptEntry` (§ Trust model) on every entry before
+apply — including entries a relay happily stored. Delivery success means
+nothing about correctness.
 
-- Request `nodeSignature` (as today).
-- Each entry signature verifies under `node_key`; `database_id` matches the
-  envelope; on push, `node_key` / `device_id` match the request headers.
-- Chain step: `writer_seq` and `prev_hash` consistent with the last accepted
-  entry for that writer (or conflict / equivocation errors).
-- `stream` / reserved namespaces match the caller’s door role (publisher /
-  write / submit) — defense in depth only.
-- Grant/revoke manage intents: verify `lastdb-grant-v1` and that the signer
-  is the owner; append onto the publisher chain.
-- Bad signature → `invalid_request` / `entries.signature`.
-- Equivocation / different bytes at same seq → `conflict` /
-  `entries.writer_seq`.
-- Bad incorporation reference → `invalid_request` / `incorporated_from`.
-- Bad grant signature → `invalid_request` / `grants.signature`.
-
-**Readers (mandatory, even after a successful push):**
-
-- Verify every entry before apply; never trust ExeMem’s ACL or delivery
-  order.
-- On verification failure of an entry in a writer chain: **do not apply
-  it**, retain it as evidence, and **stop advancing that writer’s chain**
-  at the gap (later `writer_seq` for that key cannot apply). Continue other
-  writers’ tentative chains; do not advance **canonical** state past a
-  publisher-chain gap or failed publisher entry.
-- Justification: `writer_seq` / `prev_hash` ordering is gapless; applying
-  past a bad or missing link would invent history.
+**Relays / ExeMem (optional anti-spam and quota only):** may check request
+`nodeSignature`, approximate signature/chain shape, quotas, billing, or a
+cheap “key known to this database” door. Those checks are **policy**:
+another conforming relay may skip or differ. Nodes must not treat a relay
+accept or reject as authorization. A relay that stores a bad entry is
+still conforming for correctness purposes; honest nodes will reject it
+locally. Error codes such as `entries.signature` on push, if returned, are
+spam/quota responses — not part of the acceptance function.
 
 ### Forks, withholding, resolution
 
@@ -494,18 +522,17 @@ databases. `delete` always works.
     recovery = latest snapshot → restore → resume from its cursor.
     Acceptance visible via `incorporated_from` (no status intent).
 42. **Per-entry writer signatures + hash chains** (§ Signed history).
-    Request signatures are insufficient. Readers verify before apply.
-    ExeMem verifies at push and rejects bad signatures
-    (`entries.signature`). Failure rule: stop that writer’s chain at the
-    gap; retain evidence.
+    Request signatures are insufficient. **Acceptance is local**
+    (`AcceptEntry` in § Trust model). Relays do not enforce it. Failure
+    rule: stop that writer’s chain at the gap; retain evidence.
 43. **Signed grants in the publisher spine** (§ Signed history). Each
     grant/revocation is a publisher-signed `lastdb-grant-v1` entry in the
     publisher’s ordered direct stream (reserved namespace `grant`).
-    `manage`/`grant` and `manage`/`revoke` carry the signed entry; ExeMem
-    verifies and mirrors into its door ACL, but readers authorize writes
-    only from the publisher chain + checkpoints. Checkpoint entries
-    (`lastdb-checkpoint-v1`) make member writes canonical. Trust model:
-    ExeMem untrusted except availability.
+    `manage`/`grant` and `manage`/`revoke` carry the signed entry for
+    transport convenience; authorization is only via `AcceptEntry` over
+    the publisher chain + checkpoints. Checkpoint entries
+    (`lastdb-checkpoint-v1`) make member writes canonical. Relays are
+    untrusted except availability (`relay-protocol.md`).
 
 ## Opaque strings and encodings
 
@@ -579,10 +606,11 @@ Client GETs `url` with `headers`. Same model for snapshot files.
 
 ### `push` / `mutations`
 
-Who: write/publisher → `direct`; submit → `proposal`; read → `forbidden`.
-Errors: `conflict`/`entries.writer_seq`, `invalid_request`/`entries.signature`,
-`invalid_request`/`incorporated_from`, `forbidden`, `payment_required`,
-`not_found`/`file_handle`.
+Who (ExeMem door policy, not acceptance): write/publisher → `direct`;
+submit → `proposal`; read may be refused as spam/quota.
+Errors (policy/transport): `conflict`/`entries.writer_seq`,
+`forbidden`, `payment_required`, `not_found`/`file_handle`. A relay may
+also return spam rejects; nodes ignore those as correctness signals.
 
 | args | req |
 |---|---|
@@ -590,7 +618,8 @@ Errors: `conflict`/`entries.writer_seq`, `invalid_request`/`entries.signature`,
 
 Each entry is a full signed `data` or (publisher only) `checkpoint` entry.
 File refs must already be committed. Submit cannot attach files. Publisher
-`checkpoint` entries are how member writes become canonical.
+`checkpoint` entries are how member writes become canonical. Peers run
+`AcceptEntry` on read regardless of push outcome.
 
 | result | req |
 |---|---|
@@ -633,21 +662,22 @@ Errors: `conflict`/`database.id`, `invalid_request`/`birth_signature`,
 
 ### `manage` / `grant`
 
-Who: publisher.
+Who: publisher (ExeMem may require account/payment as product policy).
 Args: `entries[]` 1…90 signed `grant` entries (`role` ∈
 `read`|`submit`|`write`). Result: `{}`.
-ExeMem verifies each `lastdb-grant-v1` signature, checks chain linkage on
-the publisher spine, upserts door ACL, and makes the entries fetchable as
-direct publisher stream entries. `any` + non-`read` →
-`invalid_request`/`grants.any.role`. Bad signature →
-`invalid_request`/`grants.signature`.
+Transport sugar: ExeMem stores the entries on the publisher delivery
+stream (same bytes as `push`/`mutations` of `kind=grant`). Optional
+anti-spam may refuse garbage; **acceptance is only `AcceptEntry` on each
+node**. `any` + non-`read` → `invalid_request`/`grants.any.role` (schema).
+Under the open relay protocol these entries leave the manage surface and
+are plain `log.append` (`relay-protocol.md`).
 
 ### `manage` / `revoke`
 
 Who: publisher.
 Args: `entries[]` 1…90 signed `grant` entries with `role = revoked`.
-Result: `{}`. Same verification and spine append as grant. Revoking `any`
-turns public read off for readers who have that entry.
+Result: `{}`. Same transport as grant. Revoking `any` turns public read
+off for nodes that have accepted that entry via `AcceptEntry`.
 
 ### `manage` / `access`
 
@@ -663,8 +693,8 @@ Args: `{}`.
 | `db_salt` | yes |
 | `birth_signature` | yes |
 
-`role` / `level` here are ExeMem’s door view for UX. Readers still verify
-grants from the publisher chain before applying member writes.
+`role` / `level` here are ExeMem’s cached door view for UX only. Nodes
+authorize solely via `AcceptEntry` over signed history.
 
 ### `manage` / `delete`
 
@@ -737,7 +767,7 @@ A public reader does steps 3–7 with any key (no account).
 
 | HTTP | code | fields |
 |---|---|---|
-| 400 | `invalid_request` | arg paths, `grants.any.role`, `grants.signature`, `birth_signature`, `cursor`, `entries.signature`, `incorporated_from` |
+| 400 | `invalid_request` | arg paths, `grants.any.role`, `birth_signature`, `cursor` (relay may also use spam fields; not acceptance) |
 | 400 | `batch_too_large` | `batch.response` |
 | 401 | `unauthorized` | `request.signature`, `request.issued_at`, `request.nonce`, `device.unknown`, `device.removed`, `account.retired` |
 | 403 | `forbidden` | `grant.absent`, `grant.role` |
@@ -772,39 +802,36 @@ Removed vs earlier draft: `predecessor_conflict` (folded into
 
 ## CI plan (DEV E2E, not unit tests)
 
-Run against a fresh DEV home with the real CLI/daemon and a DEV ExeMem.
-No unit tests. No primary data.
+Run against a fresh DEV home with the real CLI/daemon and a DEV ExeMem
+(and, per `relay-protocol.md`, the same scenarios against a second
+reference relay). No unit tests. No primary data. Correctness assertions
+are **node-side** (`AcceptEntry`), not relay reject codes.
 
-1. **Payload tamper at push:** flip one byte of `payload_b64` after signing
-   → ExeMem returns `invalid_request` / `entries.signature`.
-2. **Payload / namespace / writer_seq / database_id tamper at fetch:** serve
-   an altered entry to a reader → reader rejects, does not apply, stops
-   that writer chain; cross-db replay (wrong `database_id` in signed bytes)
-   fails verification.
+1. **Tampered payload accepted by relay:** flip one byte of `payload_b64`
+   after signing; if the relay stores it anyway, a reading node still
+   rejects via `AcceptEntry` (bad signature), does not apply, stops that
+   writer chain.
+2. **Payload / namespace / writer_seq / database_id tamper on read:** altered
+   entry → node rejects; cross-db replay (wrong `database_id`) fails step 2
+   of `AcceptEntry`.
 3. **Incorporation mismatch:** publisher entry whose
-   `incorporated_from.signature_sha256` does not match the proposal →
-   rejected (`incorporated_from`).
-4. **Seq conflict:** same `(node_key, writer_seq)` with different bytes →
-   `conflict` / `entries.writer_seq`; reader treats as equivocation
-   evidence.
-5. **Forged grant:** grant entry not signed by the publisher/owner →
-   `invalid_request` / `grants.signature`; reader ignores for
-   authorization.
+   `incorporated_from.signature_sha256` does not match the proposal → node
+   rejects.
+4. **Seq conflict / equivocation:** same `(node_key, writer_seq)` with
+   different bytes → node keeps evidence (`history.equivocation`); relay
+   may also return a policy conflict on append.
+5. **Forged grant:** grant not signed by the publisher → `AcceptEntry`
+   rejects; cannot authorize member writes.
 6. **Revoked-grant replay:** write whose `grant_publisher_seq` predates a
-   later publisher revocation that is included by checkpoint `C` → reader
-   rejects at `C`; replay of the old grant entry cannot reopen write after
-   a later `revoked` entry.
-7. **Unsigned / bad writer signature:** reader rejects; chain stops.
-8. **Withheld publisher entry (seq gap):** reader detects gap on publisher
-   spine, halts canonical advance, surfaces `history.withheld`; member
-   writes that depend on publisher state past the gap do not become
-   canonical.
-9. **Reordered delivery:** same signed set delivered in different order →
-   identical canonical state after checkpoint replay.
-10. **Forked publisher history:** two readers receive divergent publisher
-    tips → on head compare (or via embedded `last_seen_publisher_*`),
-    detect `history.fork`, stop canonical advance, retain both signed
-    tips.
+   later publisher revocation included by checkpoint `C` → node rejects at
+   `C`.
+7. **Unsigned / bad writer signature:** node rejects; chain stops.
+8. **Withheld publisher entry (seq gap):** node detects gap on publisher
+   spine, halts canonical advance, surfaces `history.withheld`.
+9. **Reordered delivery:** same signed set, different order → identical
+   canonical state after checkpoint replay.
+10. **Forked publisher history:** divergent tips → head compare detects
+    `history.fork`; stop canonical advance; retain both signed tips.
 11. **Equivocating writer:** two signed entries same seq different hash →
     `history.equivocation`.
 
@@ -829,16 +856,15 @@ No unit tests. No primary data.
 
 ## Build work
 
-**ExeMem:** verify per-entry signatures and chain linkage; store entries
-opaque; mirror grant entries into door ACL; stop treating delivery order as
-authoritative; node-key → databases index; storage + transfer counters;
-device list; tombstones; restore-point holds; stop reading create
-`kind`/`spec`.
+**ExeMem / relays:** store and relay opaque signed entries; optional
+anti-spam/quota only; stop treating delivery order or door ACL as
+authoritative for nodes; account/billing service remains ExeMem-specific
+(`relay-protocol.md`).
 
-**Node:** hash-chain signing; verify on fetch; grant fold + checkpoint
-replay; head comparison across devices / People; local
-fork/withheld/equivocation surfaces; derive db keys; verify birth on
-access; use `incorporated_from` instead of submission status.
+**Node:** implement `AcceptEntry`; hash-chain signing; grant fold +
+checkpoint replay; head comparison across devices / People; local
+fork/withheld/equivocation surfaces; derive db keys; verify birth; use
+`incorporated_from` instead of submission status.
 
 ## Open questions for Tom
 

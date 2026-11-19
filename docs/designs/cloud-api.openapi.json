@@ -3,7 +3,7 @@
   "info": {
     "title": "LastDB ExeMem Cloud API",
     "version": "3.0.0-design",
-    "description": "ExeMem Cloud API v3 design. ExeMem is untrusted storage and transport. Canonical history is signed writer hash chains with a publisher spine (grants and checkpoints). Closed schemas; no dual paths or fallback."
+    "description": "ExeMem Cloud API v3 design. ExeMem/relays are untrusted storage and transport. Acceptance is the local node rule AcceptEntry (see cloud-api.md). Canonical history is signed writer hash chains with a publisher spine. Relay protocol: relay-protocol.md. Closed schemas; no dual paths or fallback."
   },
   "servers": [
     {

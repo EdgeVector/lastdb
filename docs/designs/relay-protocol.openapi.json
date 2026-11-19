@@ -1,0 +1,1033 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "LastDB relay protocol",
+    "version": "1.0.0-design",
+    "description": "Open relay: store and serve signed log entries, content-addressed blobs, and snapshots. Acceptance is a local node rule (AcceptEntry in cloud-api.md); relays do not enforce it. Optional anti-spam/quota only."
+  },
+  "tags": [
+    {
+      "name": "log"
+    },
+    {
+      "name": "blob"
+    },
+    {
+      "name": "snapshot"
+    },
+    {
+      "name": "retention"
+    }
+  ],
+  "paths": {
+    "/relay/v1/log/append": {
+      "post": {
+        "tags": [
+          "log"
+        ],
+        "summary": "Append signed log entries (store only; not acceptance)",
+        "operationId": "logAppend",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/NodeKey"
+          },
+          {
+            "$ref": "#/components/parameters/DeviceId"
+          },
+          {
+            "$ref": "#/components/parameters/IssuedAt"
+          },
+          {
+            "$ref": "#/components/parameters/Nonce"
+          },
+          {
+            "$ref": "#/components/parameters/Signature"
+          },
+          {
+            "$ref": "#/components/parameters/RelayProtocol"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LogAppendBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Stored (or duplicate). Node must still AcceptEntry on read.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogAppendResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Request signature / skew / nonce (transport)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Relay policy / payment (not acceptance)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/relay/v1/log/read": {
+      "post": {
+        "tags": [
+          "log"
+        ],
+        "summary": "Read stored signed entries (delivery order not canonical)",
+        "operationId": "logRead",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/NodeKey"
+          },
+          {
+            "$ref": "#/components/parameters/DeviceId"
+          },
+          {
+            "$ref": "#/components/parameters/IssuedAt"
+          },
+          {
+            "$ref": "#/components/parameters/Nonce"
+          },
+          {
+            "$ref": "#/components/parameters/Signature"
+          },
+          {
+            "$ref": "#/components/parameters/RelayProtocol"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LogReadBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Entries; caller runs AcceptEntry",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogReadResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Request auth",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Relay read policy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/relay/v1/blob/put": {
+      "post": {
+        "tags": [
+          "blob"
+        ],
+        "summary": "Put content-addressed blob (sha256)",
+        "operationId": "blobPut",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/NodeKey"
+          },
+          {
+            "$ref": "#/components/parameters/DeviceId"
+          },
+          {
+            "$ref": "#/components/parameters/IssuedAt"
+          },
+          {
+            "$ref": "#/components/parameters/Nonce"
+          },
+          {
+            "$ref": "#/components/parameters/Signature"
+          },
+          {
+            "$ref": "#/components/parameters/RelayProtocol"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BlobPutBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Begun or committed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BlobPutResult"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "blob.unverified",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/relay/v1/blob/get": {
+      "post": {
+        "tags": [
+          "blob"
+        ],
+        "summary": "Get blob by sha256 (inline or presigned)",
+        "operationId": "blobGet",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/NodeKey"
+          },
+          {
+            "$ref": "#/components/parameters/DeviceId"
+          },
+          {
+            "$ref": "#/components/parameters/IssuedAt"
+          },
+          {
+            "$ref": "#/components/parameters/Nonce"
+          },
+          {
+            "$ref": "#/components/parameters/Signature"
+          },
+          {
+            "$ref": "#/components/parameters/RelayProtocol"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BlobGetBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BlobGetResult"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "blob.sha256",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/relay/v1/snapshot/put": {
+      "post": {
+        "tags": [
+          "snapshot"
+        ],
+        "summary": "Put restore-point snapshot",
+        "operationId": "snapshotPut",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/NodeKey"
+          },
+          {
+            "$ref": "#/components/parameters/DeviceId"
+          },
+          {
+            "$ref": "#/components/parameters/IssuedAt"
+          },
+          {
+            "$ref": "#/components/parameters/Nonce"
+          },
+          {
+            "$ref": "#/components/parameters/Signature"
+          },
+          {
+            "$ref": "#/components/parameters/RelayProtocol"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SnapshotPutBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SnapshotPutResult"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/relay/v1/snapshot/get": {
+      "post": {
+        "tags": [
+          "snapshot"
+        ],
+        "summary": "Get restore-point snapshot",
+        "operationId": "snapshotGet",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/NodeKey"
+          },
+          {
+            "$ref": "#/components/parameters/DeviceId"
+          },
+          {
+            "$ref": "#/components/parameters/IssuedAt"
+          },
+          {
+            "$ref": "#/components/parameters/Nonce"
+          },
+          {
+            "$ref": "#/components/parameters/Signature"
+          },
+          {
+            "$ref": "#/components/parameters/RelayProtocol"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SnapshotGetBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SnapshotGetResult"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "restore_point_id",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/relay/v1/retention/request": {
+      "post": {
+        "tags": [
+          "retention"
+        ],
+        "summary": "Publisher-signed retention/GC request (relay policy)",
+        "operationId": "retentionRequest",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/NodeKey"
+          },
+          {
+            "$ref": "#/components/parameters/DeviceId"
+          },
+          {
+            "$ref": "#/components/parameters/IssuedAt"
+          },
+          {
+            "$ref": "#/components/parameters/Nonce"
+          },
+          {
+            "$ref": "#/components/parameters/Signature"
+          },
+          {
+            "$ref": "#/components/parameters/RelayProtocol"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RetentionRequestBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Accepted under relay policy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RetentionRequestResult"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "relay.policy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "NodeKey": {
+        "name": "X-LastDB-Node-Key",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "minLength": 64,
+          "maxLength": 64
+        }
+      },
+      "DeviceId": {
+        "name": "X-LastDB-Device-Id",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "IssuedAt": {
+        "name": "X-LastDB-Issued-At",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "pattern": "^[0-9]+$",
+          "maxLength": 20
+        }
+      },
+      "Nonce": {
+        "name": "X-LastDB-Nonce",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "minLength": 64,
+          "maxLength": 64
+        }
+      },
+      "Signature": {
+        "name": "X-LastDB-Signature",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 86,
+          "maxLength": 88,
+          "description": "base64url request signature"
+        }
+      },
+      "RelayProtocol": {
+        "name": "X-LastDB-Relay-Protocol",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "integer",
+          "enum": [
+            1
+          ]
+        }
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "required": [
+          "code",
+          "field"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": "string",
+            "enum": [
+              "unauthorized",
+              "forbidden",
+              "invalid_request",
+              "not_found",
+              "conflict",
+              "rate_limited",
+              "upgrade_required",
+              "batch_too_large",
+              "payment_required"
+            ]
+          },
+          "field": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "minimum_version": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "DatabaseId": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$",
+        "minLength": 64,
+        "maxLength": 64
+      },
+      "Sha256Hex": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$",
+        "minLength": 64,
+        "maxLength": 64
+      },
+      "OpaqueCursor": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256,
+        "description": "Delivery pagination only"
+      },
+      "SignedEntry": {
+        "type": "object",
+        "description": "Opaque-to-relay signed entry; full closed schemas in cloud-api.openapi.json (DataEntry|GrantEntry|CheckpointEntry|birth|relays). Nodes run AcceptEntry.",
+        "required": [
+          "kind",
+          "database_id",
+          "node_key",
+          "device_id",
+          "writer_seq",
+          "prev_hash",
+          "signature"
+        ],
+        "additionalProperties": true,
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "data",
+              "grant",
+              "checkpoint",
+              "birth",
+              "relays"
+            ]
+          },
+          "database_id": {
+            "$ref": "#/components/schemas/DatabaseId"
+          },
+          "node_key": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "device_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "writer_seq": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "prev_hash": {
+            "$ref": "#/components/schemas/Sha256Hex"
+          },
+          "signature": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{86}$",
+            "minLength": 86,
+            "maxLength": 86
+          }
+        }
+      },
+      "LogAppendBody": {
+        "type": "object",
+        "required": [
+          "database_id",
+          "entries"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "$ref": "#/components/schemas/DatabaseId"
+          },
+          "entries": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 90,
+            "items": {
+              "$ref": "#/components/schemas/SignedEntry"
+            }
+          }
+        }
+      },
+      "LogAppendResult": {
+        "type": "object",
+        "required": [
+          "stored"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "stored": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Entries stored this call"
+          },
+          "duplicate": {
+            "type": "boolean",
+            "description": "True if identical entry_hash replay"
+          }
+        }
+      },
+      "LogReadBody": {
+        "type": "object",
+        "required": [
+          "database_id"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "$ref": "#/components/schemas/DatabaseId"
+          },
+          "writer_key": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "from_seq": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "cursor": {
+            "$ref": "#/components/schemas/OpaqueCursor"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 90
+          }
+        }
+      },
+      "LogReadResult": {
+        "type": "object",
+        "required": [
+          "entries"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "cursor": {
+            "$ref": "#/components/schemas/OpaqueCursor"
+          },
+          "entries": {
+            "type": "array",
+            "maxItems": 90,
+            "items": {
+              "$ref": "#/components/schemas/SignedEntry"
+            }
+          }
+        }
+      },
+      "Upload": {
+        "type": "object",
+        "required": [
+          "url",
+          "headers",
+          "expires_at_ms"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "maxLength": 8192
+          },
+          "headers": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "maxLength": 1024
+            },
+            "maxProperties": 32
+          },
+          "expires_at_ms": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "BlobPutBody": {
+        "type": "object",
+        "required": [
+          "database_id",
+          "stage",
+          "bytes",
+          "sha256"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "$ref": "#/components/schemas/DatabaseId"
+          },
+          "stage": {
+            "type": "string",
+            "enum": [
+              "begin",
+              "commit"
+            ]
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "sha256": {
+            "$ref": "#/components/schemas/Sha256Hex"
+          }
+        }
+      },
+      "BlobPutResult": {
+        "type": "object",
+        "required": [
+          "stage",
+          "sha256"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "stage": {
+            "type": "string",
+            "enum": [
+              "begin",
+              "commit"
+            ]
+          },
+          "sha256": {
+            "$ref": "#/components/schemas/Sha256Hex"
+          },
+          "upload": {
+            "$ref": "#/components/schemas/Upload"
+          }
+        }
+      },
+      "BlobGetBody": {
+        "type": "object",
+        "required": [
+          "database_id",
+          "sha256"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "$ref": "#/components/schemas/DatabaseId"
+          },
+          "sha256": {
+            "$ref": "#/components/schemas/Sha256Hex"
+          }
+        }
+      },
+      "BlobGetResult": {
+        "type": "object",
+        "required": [
+          "sha256",
+          "bytes",
+          "expires_at_ms"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "sha256": {
+            "$ref": "#/components/schemas/Sha256Hex"
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "maxLength": 8192,
+            "description": "Optional presigned GET"
+          },
+          "headers": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "maxLength": 1024
+            },
+            "maxProperties": 32
+          },
+          "expires_at_ms": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "SnapshotPutBody": {
+        "type": "object",
+        "required": [
+          "database_id",
+          "stage"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "$ref": "#/components/schemas/DatabaseId"
+          },
+          "stage": {
+            "type": "string",
+            "enum": [
+              "begin",
+              "commit"
+            ]
+          },
+          "snapshot_upload": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "files": {
+            "type": "array",
+            "maxItems": 32,
+            "items": {
+              "type": "object",
+              "required": [
+                "bytes",
+                "sha256"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "bytes": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "sha256": {
+                  "$ref": "#/components/schemas/Sha256Hex"
+                }
+              }
+            }
+          },
+          "manifest_sha256": {
+            "$ref": "#/components/schemas/Sha256Hex"
+          }
+        }
+      },
+      "SnapshotPutResult": {
+        "type": "object",
+        "required": [
+          "stage"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "stage": {
+            "type": "string",
+            "enum": [
+              "begin",
+              "commit"
+            ]
+          },
+          "snapshot_upload": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "restore_point_id": {
+            "$ref": "#/components/schemas/Sha256Hex"
+          },
+          "files": {
+            "type": "array",
+            "maxItems": 32,
+            "items": {
+              "type": "object",
+              "required": [
+                "sha256"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "sha256": {
+                  "$ref": "#/components/schemas/Sha256Hex"
+                },
+                "upload": {
+                  "$ref": "#/components/schemas/Upload"
+                }
+              }
+            }
+          }
+        }
+      },
+      "SnapshotGetBody": {
+        "type": "object",
+        "required": [
+          "database_id"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "$ref": "#/components/schemas/DatabaseId"
+          },
+          "restore_point_id": {
+            "$ref": "#/components/schemas/Sha256Hex"
+          }
+        }
+      },
+      "SnapshotGetResult": {
+        "type": "object",
+        "required": [
+          "restore_point_id",
+          "manifest_sha256"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "restore_point_id": {
+            "$ref": "#/components/schemas/Sha256Hex"
+          },
+          "manifest_sha256": {
+            "$ref": "#/components/schemas/Sha256Hex"
+          },
+          "held_until_ms": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "RetentionRequestBody": {
+        "type": "object",
+        "required": [
+          "database_id",
+          "mode",
+          "writer_seq",
+          "signature"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "$ref": "#/components/schemas/DatabaseId"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "delete_database",
+              "gc_before_snapshot"
+            ]
+          },
+          "restore_point_id": {
+            "$ref": "#/components/schemas/Sha256Hex"
+          },
+          "writer_seq": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "signature": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{86}$",
+            "minLength": 86,
+            "maxLength": 86,
+            "description": "Publisher lastdb-retention-v1 signature"
+          }
+        }
+      },
+      "RetentionRequestResult": {
+        "type": "object",
+        "required": [],
+        "additionalProperties": false,
+        "properties": {},
+        "description": "Empty object"
+      }
+    }
+  }
+}
