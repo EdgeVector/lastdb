@@ -326,8 +326,7 @@
                           "prev_hash": "0000000000000000000000000000000000000000000000000000000000000000",
                           "authored_at_ms": 1730000000000,
                           "lamport": 1,
-                          "last_seen_publisher_seq": 0,
-                          "last_seen_publisher_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+                          "seen_publisher_heads": [],
                           "stream": "direct",
                           "namespace": "default",
                           "payload_b64": "AQID",
@@ -4299,6 +4298,7 @@
         "type": "object",
         "required": [
           "node_key",
+          "device_id",
           "writer_seq",
           "entry_hash"
         ],
@@ -4309,19 +4309,21 @@
             "pattern": "^[0-9a-f]{64}$",
             "minLength": 64,
             "maxLength": 64,
-            "description": "Writer key"
+            "description": "Writer node key"
+          },
+          "device_id": {
+            "type": "string",
+            "format": "uuid"
           },
           "writer_seq": {
             "type": "integer",
-            "minimum": 1,
-            "description": "Accepted head seq"
+            "minimum": 1
           },
           "entry_hash": {
             "type": "string",
             "pattern": "^[0-9a-f]{64}$",
             "minLength": 64,
-            "maxLength": 64,
-            "description": "Accepted head entry_hash"
+            "maxLength": 64
           }
         }
       },
@@ -4362,14 +4364,14 @@
           "prev_hash",
           "authored_at_ms",
           "lamport",
-          "last_seen_publisher_seq",
-          "last_seen_publisher_hash",
+          "seen_publisher_heads",
           "signature",
           "stream",
           "namespace",
           "payload_b64"
         ],
         "additionalProperties": false,
+        "description": "lastdb-mutation-v1; device chain (node_key, device_id). Nodes run AcceptEntry.",
         "properties": {
           "kind": {
             "type": "string",
@@ -4380,7 +4382,7 @@
             "pattern": "^[0-9a-f]{64}$",
             "minLength": 64,
             "maxLength": 64,
-            "description": "Must match envelope; bound in signature"
+            "description": "Must match envelope"
           },
           "node_key": {
             "type": "string",
@@ -4391,49 +4393,43 @@
           },
           "device_id": {
             "type": "string",
-            "format": "uuid",
-            "description": "UUID"
+            "format": "uuid"
           },
           "writer_seq": {
             "type": "integer",
             "minimum": 1,
-            "description": "Gapless per writer"
+            "description": "Per (node_key, device_id) sequence"
           },
           "prev_hash": {
             "type": "string",
             "pattern": "^[0-9a-f]{64}$",
             "minLength": 64,
             "maxLength": 64,
-            "description": "Zeros for seq 1; else prior entry_hash"
+            "description": "Zeros for seq 1; else prior entry_hash on this device"
           },
           "authored_at_ms": {
             "type": "integer",
-            "minimum": 0,
-            "description": "Unix ms"
+            "minimum": 0
           },
           "lamport": {
             "type": "integer",
             "minimum": 1,
-            "description": "Signed Lamport counter"
+            "description": "max seen + 1"
           },
-          "last_seen_publisher_seq": {
-            "type": "integer",
-            "minimum": 0,
-            "description": "0 = none; else publisher writer_seq"
-          },
-          "last_seen_publisher_hash": {
-            "type": "string",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64,
-            "description": "Zeros if seq 0; else publisher entry_hash"
+          "seen_publisher_heads": {
+            "type": "array",
+            "maxItems": 256,
+            "items": {
+              "$ref": "#/components/schemas/DeviceHead"
+            },
+            "description": "Publisher per-device heads this writer had verified"
           },
           "signature": {
             "type": "string",
-            "description": "base64url, no pad; 64-byte Ed25519",
             "pattern": "^[A-Za-z0-9_-]{86}$",
             "minLength": 86,
-            "maxLength": 86
+            "maxLength": 86,
+            "description": "base64url Ed25519 signature"
           },
           "stream": {
             "$ref": "#/components/schemas/StreamKind"
@@ -4442,12 +4438,10 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 128,
-            "description": "Not grant or checkpoint",
             "pattern": "^(?!grant$|checkpoint$).+$"
           },
           "payload_b64": {
             "type": "string",
-            "description": "Encrypted payload; signature binds sha256(decoded)",
             "pattern": "^[A-Za-z0-9_-]+$",
             "minLength": 1,
             "maxLength": 131072
@@ -4458,13 +4452,15 @@
           "incorporated_from": {
             "$ref": "#/components/schemas/IncorporatedFrom"
           },
-          "grant_publisher_seq": {
+          "grant_at_device": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "grant_at_seq": {
             "type": "integer",
-            "minimum": 1,
-            "description": "Required for member direct writes; omit for publisher/proposal"
+            "minimum": 1
           }
-        },
-        "description": "lastdb-mutation-v1 signed data entry"
+        }
       },
       "GrantEntry": {
         "type": "object",
@@ -4477,14 +4473,14 @@
           "prev_hash",
           "authored_at_ms",
           "lamport",
-          "last_seen_publisher_seq",
-          "last_seen_publisher_hash",
+          "seen_publisher_heads",
           "signature",
           "namespace",
           "grantee",
           "role"
         ],
         "additionalProperties": false,
+        "description": "lastdb-grant-v1 on a publisher device chain",
         "properties": {
           "kind": {
             "type": "string",
@@ -4495,7 +4491,7 @@
             "pattern": "^[0-9a-f]{64}$",
             "minLength": 64,
             "maxLength": 64,
-            "description": "Must match envelope; bound in signature"
+            "description": "Must match envelope"
           },
           "node_key": {
             "type": "string",
@@ -4506,49 +4502,43 @@
           },
           "device_id": {
             "type": "string",
-            "format": "uuid",
-            "description": "UUID"
+            "format": "uuid"
           },
           "writer_seq": {
             "type": "integer",
             "minimum": 1,
-            "description": "Gapless per writer"
+            "description": "Per (node_key, device_id) sequence"
           },
           "prev_hash": {
             "type": "string",
             "pattern": "^[0-9a-f]{64}$",
             "minLength": 64,
             "maxLength": 64,
-            "description": "Zeros for seq 1; else prior entry_hash"
+            "description": "Zeros for seq 1; else prior entry_hash on this device"
           },
           "authored_at_ms": {
             "type": "integer",
-            "minimum": 0,
-            "description": "Unix ms"
+            "minimum": 0
           },
           "lamport": {
             "type": "integer",
             "minimum": 1,
-            "description": "Signed Lamport counter"
+            "description": "max seen + 1"
           },
-          "last_seen_publisher_seq": {
-            "type": "integer",
-            "minimum": 0,
-            "description": "0 = none; else publisher writer_seq"
-          },
-          "last_seen_publisher_hash": {
-            "type": "string",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64,
-            "description": "Zeros if seq 0; else publisher entry_hash"
+          "seen_publisher_heads": {
+            "type": "array",
+            "maxItems": 256,
+            "items": {
+              "$ref": "#/components/schemas/DeviceHead"
+            },
+            "description": "Publisher per-device heads this writer had verified"
           },
           "signature": {
             "type": "string",
-            "description": "base64url, no pad; 64-byte Ed25519",
             "pattern": "^[A-Za-z0-9_-]{86}$",
             "minLength": 86,
-            "maxLength": 86
+            "maxLength": 86,
+            "description": "base64url Ed25519 signature"
           },
           "namespace": {
             "type": "string",
@@ -4560,8 +4550,7 @@
           "role": {
             "$ref": "#/components/schemas/GrantRole"
           }
-        },
-        "description": "lastdb-grant-v1 publisher spine entry"
+        }
       },
       "CheckpointEntry": {
         "type": "object",
@@ -4574,13 +4563,14 @@
           "prev_hash",
           "authored_at_ms",
           "lamport",
-          "last_seen_publisher_seq",
-          "last_seen_publisher_hash",
+          "seen_publisher_heads",
           "signature",
           "namespace",
-          "heads"
+          "publisher_heads",
+          "member_heads"
         ],
         "additionalProperties": false,
+        "description": "lastdb-checkpoint-v1; any publisher device may sign",
         "properties": {
           "kind": {
             "type": "string",
@@ -4591,7 +4581,7 @@
             "pattern": "^[0-9a-f]{64}$",
             "minLength": 64,
             "maxLength": 64,
-            "description": "Must match envelope; bound in signature"
+            "description": "Must match envelope"
           },
           "node_key": {
             "type": "string",
@@ -4602,64 +4592,63 @@
           },
           "device_id": {
             "type": "string",
-            "format": "uuid",
-            "description": "UUID"
+            "format": "uuid"
           },
           "writer_seq": {
             "type": "integer",
             "minimum": 1,
-            "description": "Gapless per writer"
+            "description": "Per (node_key, device_id) sequence"
           },
           "prev_hash": {
             "type": "string",
             "pattern": "^[0-9a-f]{64}$",
             "minLength": 64,
             "maxLength": 64,
-            "description": "Zeros for seq 1; else prior entry_hash"
+            "description": "Zeros for seq 1; else prior entry_hash on this device"
           },
           "authored_at_ms": {
             "type": "integer",
-            "minimum": 0,
-            "description": "Unix ms"
+            "minimum": 0
           },
           "lamport": {
             "type": "integer",
             "minimum": 1,
-            "description": "Signed Lamport counter"
+            "description": "max seen + 1"
           },
-          "last_seen_publisher_seq": {
-            "type": "integer",
-            "minimum": 0,
-            "description": "0 = none; else publisher writer_seq"
-          },
-          "last_seen_publisher_hash": {
-            "type": "string",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64,
-            "description": "Zeros if seq 0; else publisher entry_hash"
+          "seen_publisher_heads": {
+            "type": "array",
+            "maxItems": 256,
+            "items": {
+              "$ref": "#/components/schemas/DeviceHead"
+            },
+            "description": "Publisher per-device heads this writer had verified"
           },
           "signature": {
             "type": "string",
-            "description": "base64url, no pad; 64-byte Ed25519",
             "pattern": "^[A-Za-z0-9_-]{86}$",
             "minLength": 86,
-            "maxLength": 86
+            "maxLength": 86,
+            "description": "base64url Ed25519 signature"
           },
           "namespace": {
             "type": "string",
             "const": "checkpoint"
           },
-          "heads": {
+          "publisher_heads": {
+            "type": "array",
+            "maxItems": 256,
+            "items": {
+              "$ref": "#/components/schemas/DeviceHead"
+            }
+          },
+          "member_heads": {
             "type": "array",
             "maxItems": 4096,
             "items": {
-              "$ref": "#/components/schemas/CheckpointHead"
-            },
-            "description": "Sorted by node_key ascending"
+              "$ref": "#/components/schemas/MemberDeviceHead"
+            }
           }
-        },
-        "description": "lastdb-checkpoint-v1 publisher spine entry"
+        }
       },
       "SignedEntry": {
         "oneOf": [
@@ -4679,6 +4668,65 @@
             "data": "#/components/schemas/DataEntry",
             "grant": "#/components/schemas/GrantEntry",
             "checkpoint": "#/components/schemas/CheckpointEntry"
+          }
+        }
+      },
+      "DeviceHead": {
+        "type": "object",
+        "required": [
+          "device_id",
+          "writer_seq",
+          "entry_hash"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "device_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "writer_seq": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "entry_hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64,
+            "description": "entry_hash at that device seq"
+          }
+        }
+      },
+      "MemberDeviceHead": {
+        "type": "object",
+        "required": [
+          "node_key",
+          "device_id",
+          "writer_seq",
+          "entry_hash"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "node_key": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64,
+            "description": "Writer node key"
+          },
+          "device_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "writer_seq": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "entry_hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
           }
         }
       }

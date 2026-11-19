@@ -83,12 +83,18 @@ Args: `database_id`, `entries[]` (1…90) — each a full signed entry
 (`data` | `grant` | `checkpoint` | `birth` | `relays`) as in
 `cloud-api.md`.
 
+**Store key:** `(database_id, node_key, device_id, writer_seq)`. Chains and
+dedupe are per device (`cloud-api.md` § Writer hash chains). Identical
+`entry_hash` at that key is a duplicate; a different hash at the same key
+is policy-conflict / node-side equivocation evidence. Two devices under
+one `node_key` with the same `writer_seq` are distinct keys.
+
 **Correctness:** none. The relay stores opaque signed bytes.
 
 **Optional anti-spam / quota (policy, not conformance for truth):**
 
 1. Request signature valid.
-2. Cheap signature/chain shape check.
+2. Cheap signature/device-chain shape check.
 3. Quota / billing.
 4. Optional door: signer looks like publisher or a key that appears in a
    grant entry this relay already stored. **Nodes must not rely on this.**
@@ -97,9 +103,13 @@ Result: `{stored, duplicate?}`. Policy errors (if any) are transport-only.
 
 ### `log.read`
 
-Args: `database_id`, `writer_key?`, `from_seq?`, `cursor?`, `limit?` 1…90.
+Args: `database_id`, `writer_key?`, `device_id?`, `from_seq?`, `cursor?`,
+`limit?` 1…90.
 
-- If `writer_key` set: read that writer’s chain from `from_seq` (default 1).
+- If `writer_key` + `device_id` set: read that **device chain** from
+  `from_seq` (default 1).
+- If only `writer_key` set: read all device chains for that key (delivery
+  interleaving is not canonical order).
 - Else: opaque delivery `cursor` pagination (not canonical order).
 
 Result: `cursor?`, `entries[]`. The reading node runs `AcceptEntry` on
@@ -141,7 +151,7 @@ append-only (Open question). Nodes must not assume universal GC.
 | Grants / revocations | `grant` entries on publisher spine |
 | Ordering / canonical state | Writer hash chains + publisher checkpoints |
 | Incorporation | Publisher `data` entry with `incorporated_from` |
-| Heads / fork evidence | `last_seen_publisher_*`; People / device compare |
+| Heads / fork evidence | `seen_publisher_heads` per-device vector; People / device compare |
 | Relay discovery | `relays` publisher entry + People out-of-band |
 | **Acceptance** | **`AcceptEntry` on every node** (`cloud-api.md`) |
 

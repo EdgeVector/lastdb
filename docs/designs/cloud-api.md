@@ -39,26 +39,24 @@ signed history for `E.database_id`:
    with `E.node_key`. Fail → reject.
 2. **Database bind.** `E.database_id` matches the database of `S`. Fail →
    reject (blocks cross-db replay).
-3. **Chain link.** `(E.writer_seq, E.prev_hash)` extends the chain in `S`
-   for `E.node_key`, or matches an existing entry with the same
-   `entry_hash` (idempotent duplicate). Else → reject (gap or
-   equivocation evidence).
+3. **Chain link.** `(E.writer_seq, E.prev_hash)` extends the device chain
+   `(E.node_key, E.device_id)` in `S`, or matches an existing entry with
+   the same `entry_hash` (idempotent duplicate). Out-of-order delivery is
+   **buffered**, not rejected. Else → reject (equivocation) or hold
+   (missing predecessor).
 4. **Publisher authorization.** Let `owner` be the owner node key from the
    verified birth certificate in `S`.
-   - If `E.node_key == owner` → authorized (publisher may append data,
-     grant, checkpoint, relays, birth continuation).
+   - If `E.node_key == owner` → authorized (any publisher device may
+     append data, grant, checkpoint, relays, birth).
    - Else `E` must be `kind=data` and the writer must hold a
-     **publisher-signed grant** in the publisher spine in `S`:
+     **publisher-signed grant** in the merged publisher spine in `S`:
      - `stream=direct` → effective role `write` under the grant-window
-       rules in § Signed history (`grant_publisher_seq`, checkpoint `C`).
-     - `stream=proposal` → effective role `submit` or `write` at the
-       publisher seq the entry binds (or, if unbound, at the highest
-       publisher seq in `S` when the proposal is admitted tentatively).
+       rules in § Signed history.
+     - `stream=proposal` → effective role `submit` or `write`.
    - Else → reject.
 5. **On reject:** do not apply `E`; retain it as evidence; **stop that
-   writer’s chain** at the gap (later seq for that key cannot apply). Do
-   not advance **canonical** state past a failed or missing publisher-chain
-   link.
+   device chain** `(node_key, device_id)` at the gap. Do not advance
+   **canonical** state past a failed or missing publisher-spine link.
 
 Canonical replay (checkpoint pull-in order, tentative Lamport order) is
 defined in § Signed history and uses only entries that already passed
@@ -211,21 +209,21 @@ single-use per node key and remembered for at least **2×** the skew window.
 
 ### Writer hash chains
 
-Every writer’s entries form a **gapless hash chain** under that writer’s
-node key.
+Every mutation starts local. All of a node’s devices share one node key
+(Decision 21: **no per-device keys**). Chains are therefore keyed by
+**(node_key, device_id)** — not by `node_key` alone.
 
-- `writer_seq` starts at **1** and increases by exactly **1** per entry.
-- `prev_hash` is 32 zero bytes for `writer_seq = 1`; otherwise it is
-  `entry_hash` of that writer’s previous entry.
-- `entry_hash = SHA-256( signed_bytes || signature_raw_64 )` (signature
-  decoded from base64url).
-- Two different valid signatures for the same `(node_key, writer_seq)`, or
-  two valid entries that claim the same `prev_hash` with different
-  `entry_hash`, are **equivocation** — provable fork evidence.
-- Dedupe key is `(node_key, writer_seq)`. Same seq with identical
-  `entry_hash` is a no-op replay (`duplicate`). Same seq with a different
-  `entry_hash` is `conflict` / `entries.writer_seq` at push, and fork
-  evidence for readers.
+- Each `(node_key, device_id)` chain is gapless: `writer_seq` starts at 1
+  and increases by 1; `prev_hash` links within **that device’s** chain
+  (zeros at seq 1; else prior `entry_hash` on the same device).
+- `entry_hash = SHA-256( signed_bytes || signature_raw_64 )`.
+- **Dedupe:** `(node_key, device_id, writer_seq)`. Identical `entry_hash`
+  → duplicate. Two devices may both use `writer_seq = 1` with different
+  hashes — that is **not** equivocation.
+- **Equivocation:** only two different valid entries at the same position
+  in **one** device’s chain (`node_key`, `device_id`, `writer_seq`).
+- `device_id` is already in the signed bytes. A stolen node key can mint a
+  new device id and a new chain (accepted under Decision 21).
 - Cloud delivery sequence, cursor, and receive time are **excluded** from
   signed bytes and **never** define order.
 
@@ -246,15 +244,16 @@ Common header (every kind), in order:
 | `writer_seq` | u64 |
 | `prev_hash` | 32 bytes |
 | `authored_at_ms` | u64 |
-| `lamport` | u64 (≥ previous entry’s `lamport` for this writer; first ≥ 1) |
-| `last_seen_publisher_seq` | u64 (0 = none) |
-| `last_seen_publisher_hash` | 32 bytes (zeros if seq = 0) |
+| `lamport` | u64 — signed counter = max Lamport this device has seen + 1 |
+| `seen_publisher_count` | u16 |
+| `seen_publisher_heads` | count × (`device_id` 16, `writer_seq` u64, `entry_hash` 32), sorted by `device_id` |
 
 Then kind-specific fields. The writer signs the concatenation with its
 **node** Ed25519 key. Wire field `signature` is base64url, no pad (64 bytes).
 
-`last_seen_publisher_*` is the highest publisher chain head this writer had
-fully verified when signing. It carries fork evidence into every entry.
+`seen_publisher_heads` is the per-device publisher head vector this writer
+had fully verified when signing (fork evidence; replaces a single
+`last_seen_publisher_*`).
 
 ### Entry kinds
 
@@ -277,7 +276,8 @@ fully verified when signing. It carries fork evidence into every entry.
 | `has_incorporated_from` | `0x00` / `0x01` |
 | incorporated | if set: `node_key` 32, `device_id` 16, `writer_seq` u64, `signature_sha256` 32 |
 | `has_grant_at` | `0x00` / `0x01` |
-| `grant_publisher_seq` | if set: u64 — publisher `writer_seq` of the write grant this entry relies on |
+| `grant_at_device` | if set: 16-byte UUID — publisher device of the grant entry |
+| `grant_at_seq` | if set: u64 — that device’s `writer_seq` for the grant |
 
 Rules for data:
 
@@ -285,12 +285,11 @@ Rules for data:
 - **Member** direct data (`stream = direct`): `has_grant_at = 1`. See
   grant checks below.
 - **Proposal** (`stream = proposal`): writer signature required;
-  `has_grant_at = 0`. Submitters need a submit grant at push time for
-  ExeMem’s door check; readers do not re-check the submitter’s grant on
+  `has_grant_at = 0`. Readers do not re-check the submitter’s grant on
   **incorporated** content (publisher vouched by signing the incorporation).
-- **Incorporation:** publisher direct data with `has_incorporated_from = 1`.
-  Always authorized as publisher. The referenced proposal’s original
-  signature stays independently verifiable via `signature_sha256`.
+- **Incorporation:** publisher data with `has_incorporated_from = 1`.
+  Always authorized as publisher. The proposal’s original signature stays
+  verifiable via `signature_sha256`.
 
 **Grant** fields after the header (Decision 43):
 
@@ -301,7 +300,7 @@ Rules for data:
 
 One signed grant entry per member key (or one `any` entry). No member-list
 document, no share/members/update, no list-revision. Upsert = a new grant
-entry at a new publisher `writer_seq`. Revoke = role `revoked`.
+entry on some publisher device chain. Revoke = role `revoked`.
 
 `any` is **read-only**. `any` + non-read → `invalid_request` /
 `grants.any.role`. Readers never consult `any` for write authorization.
@@ -310,75 +309,80 @@ entry at a new publisher `writer_seq`. Revoke = role `revoked`.
 
 | Field | Encoding |
 |---|---|
-| `head_count` | u16 |
-| heads | `head_count` × (`node_key` 32, `writer_seq` u64, `entry_hash` 32), sorted by `node_key` ascending |
+| `publisher_head_count` | u16 |
+| `publisher_heads` | count × (`device_id` 16, `writer_seq` u64, `entry_hash` 32), sorted by `device_id` — publisher device heads this checkpoint covers |
+| `member_head_count` | u16 |
+| `member_heads` | count × (`node_key` 32, `device_id` 16, `writer_seq` u64, `entry_hash` 32), sorted by (`node_key`, `device_id`) |
 
-A checkpoint lists each writer chain head the publisher **accepts as
-canonical**. See Open questions: whether listing heads conflicts with “no
-member list document”.
+Any **publisher device** may sign a checkpoint. It lists the publisher
+device heads it includes (at least its own) plus the member device heads
+it makes canonical. See Open questions: whether member head lists conflict
+with “no member list document”.
+
+**Combining concurrent publisher-device checkpoints:** take the
+componentwise max head per `(node_key, device_id)` (higher `writer_seq`
+wins; equal seq requires equal `entry_hash` else fork). The combined view
+is the least upper bound of the two head maps. Canonical replay uses that
+combined head map; pull-in order for newly included member entries is
+`(lamport, node_key, device_id)`.
 
 ### Batch transport
 
 `push`/`mutations` entries and `fetch`/`mutations_since` entries each carry
 their own `signature` and **every signed field** (including `database_id`,
-`node_key`, `device_id`, `prev_hash`, `lamport`, `last_seen_publisher_*`,
+`node_key`, `device_id`, `prev_hash`, `lamport`, `seen_publisher_heads`,
 kind-specific fields, and decoded `payload_b64` when kind is `data`). Each
 entry is independently verifiable regardless of batching or delivery order.
 
 ### Publisher spine and canonical state
 
-The **publisher chain** is the canonical spine (owner node key from the
-birth certificate).
+The **publisher spine** is the set of all device chains whose `node_key`
+is the owner from the birth certificate.
 
-1. Readers verify the publisher chain gaplessly (`writer_seq`, `prev_hash`).
+1. **Merge order:** all `AcceptEntry`-valid entries from those device
+   chains, sorted by `(lamport, node_key, device_id)`. (`node_key` is the
+   owner for every spine entry; `device_id` breaks ties after Lamport.)
+   `lamport` is the signed per-entry counter (max seen + 1). Buffer
+   missing predecessors per device; do not block other devices.
 2. Grant/revocation state is the deterministic fold of `grant` entries in
-   publisher `writer_seq` order.
-3. **Canonical state** is the deterministic replay of the publisher chain:
-   for each `checkpoint` entry, pull in the listed writer entries that are
-   not yet canonical, in fixed order: **writer `node_key` ascending, then
-   `writer_seq` ascending**. Each pulled entry must verify against its
-   writer chain through that head.
-4. Member direct writes are **tentative** until a publisher checkpoint
-   lists them. Tentative display order (non-canonical): `lamport`
-   ascending, then `node_key` ascending. Canonical state never depends on
-   cloud order.
-5. Therefore member writes need the **publisher node online** to become
-   final under this shape. Alternative (fully deterministic merge of all
-   writer chains without checkpoints) is an Open question — weaker
-   revocation semantics.
+   that merge order. At **equal `lamport`**, **`revoked` wins** over any
+   non-revoked role for the same grantee.
+3. **Canonical state** advances by applying the combined checkpoint head
+   map (see above): pull newly included member-device entries in
+   `(lamport, node_key, device_id)` order after verifying each device
+   chain through its listed head.
+4. Member writes are **tentative** until included by a (combined)
+   checkpoint. Tentative order: `(lamport, node_key, device_id)`.
+5. A publisher device must be online to sign a checkpoint. See Open
+   questions for a no-checkpoint alternative.
 
 ### Grant checks for member direct writes
 
 These rules refine step 4 of `AcceptEntry` (§ Trust model) for member
-direct data. Let `W` be a member direct data entry with
-`grant_publisher_seq = G`, applied when a checkpoint `C` lists it.
+direct data. Let `W` reference grant position
+`(Gd, Gseq) = (grant_at_device, grant_at_seq)` — that entry’s place in the
+**merged** publisher order — and let checkpoint view `C` include `W`.
 
-1. `W`’s writer signature and hash-chain link verify.
-2. Publisher entry at seq `G` is a `grant` that sets `W.node_key` to role
-   **`write`** (effective role after folding grants with `seq ≤ G`).
-3. No publisher `grant` with seq `R` where `G < R ≤ C.writer_seq` sets that
-   key’s role to anything other than `write` (revocation or downgrade
-   closes the window).
-4. `W.last_seen_publisher_seq` / `hash` match the reader’s publisher chain
-   at that seq; mismatch → fork evidence, do not apply.
-5. If the reader knows a revocation/downgrade `R` and
-   `W.last_seen_publisher_seq ≥ R`, the writer **must have known** about
-   `R` and still signed a write under grant `G` → reject, keep evidence.
+1. `W`’s writer signature and device-chain link verify.
+2. Publisher entry at `(Gd, Gseq)` is a `grant` that sets `W.node_key` to
+   **`write`** after folding grants in merge order through that entry.
+3. Let `R` be the earliest later grant in merge order that sets that key
+   away from `write` (including equal-lamport revoke-wins). If `R` is at
+   or before `C`’s covered publisher prefix in merge order → reject `W`.
+4. Each head in `W.seen_publisher_heads` must match the reader’s verified
+   entry at that publisher `device_id`/`writer_seq`; mismatch → fork
+   evidence.
+5. If the reader knows revocation `R` and `W.seen_publisher_heads` already
+   covers a publisher position at or past `R` in merge order, the writer
+   **must have known** about `R` → reject, keep evidence.
 
-**Write signed before vs after a revocation by publisher seq:**
-
-- If `C.writer_seq < R`, checkpoint `C` is entirely before the revocation:
-  `W` may apply (rules 1–4).
-- If `R ≤ C.writer_seq`, rule 3 rejects `W` at `C` even if `W` was authored
-  “earlier” in wall time. Publisher seq, not clock time, orders grants.
-- Wall-clock `authored_at_ms` is informational and is not used for grant
-  validity.
+**Write signed before vs after a revocation:** ordered by **merged
+publisher position**, not wall clock. `authored_at_ms` is informational.
 
 **Proposals:** verify the submitter’s writer signature. Publisher
-incorporation is a publisher direct entry (always authorized). Readers do
-**not** require a still-valid submit grant on the proposer for incorporated
-content; the publisher’s signature is the vouch. `grant#any` is irrelevant
-to writes.
+incorporation is a publisher entry (always authorized). Readers do **not**
+require a still-valid submit grant on the proposer for incorporated
+content. `grant#any` is irrelevant to writes.
 
 ### Relay / ExeMem policy vs node acceptance
 
@@ -397,25 +401,24 @@ spam/quota responses — not part of the acceptance function.
 
 ### Forks, withholding, resolution
 
-- Publisher chain gap or `prev_hash` mismatch → withhold/corruption
-  detected; stop canonical advance; surface
-  `conflict` / `history.withheld` (local/app signal; may also appear if a
-  node refuses to proceed).
-- Equivocating writer → keep both signed entries; surface
-  `conflict` / `history.equivocation`.
-- Divergent publisher heads (same seq, different hash, or incompatible
-  tips) discovered when **comparing heads** → `conflict` /
-  `history.fork`. Compare paths: (1) a node’s own devices compare
-  latest-seen signed publisher heads; (2) members exchange heads via
-  **People** when they connect (no new cloud intent required); (3) every
-  entry embeds `last_seen_publisher_*` so ordinary writes propagate
-  evidence.
-- On fork/withheld: **stop advancing canonical state** for that database,
-  keep the evidence (both signed heads/entries), show the app a
-  database-forked/withheld condition, and require a **publisher-signed
-  resolution** entry (same publisher key) that explicitly names the chosen
-  tip `entry_hash` before canonical progress resumes. Resolution wire shape
-  is an Open question if not folded into a checkpoint.
+- **Out-of-order delivery:** if seq N+1 arrives before N on a device chain,
+  **buffer** N+1; resume when N links. Fillable gaps are not
+  `history.withheld` and need no publisher resolution.
+- **Withholding (peer evidence):** a peer’s signed **per-device** head
+  names a predecessor this node cannot obtain → `history.withheld`; stop
+  canonical advance past that prefix; keep buffering.
+- **Equivocation:** two valid entries at the same `(node_key, device_id,
+  writer_seq)` with different `entry_hash` → keep both;
+  `history.equivocation`. Two devices under one node key with the same
+  `writer_seq` are **not** equivocation.
+- **Fork:** compare **per-device heads**. Same `(node_key, device_id,
+  writer_seq)` with different `entry_hash`, or incompatible tips →
+  `history.fork`. Compare via own devices, People, and embedded
+  `seen_publisher_heads`. A stolen node key minting a new `device_id`
+  starts a new chain (Decision 21), not a fork of an existing device.
+- **Resolution:** only for incompatible signed histories
+  (fork/equivocation), not fillable gaps. Publisher-signed resolution
+  names the chosen tip `entry_hash`. Wire shape: Open question.
 
 ## Requirements (Decision 38)
 
@@ -521,10 +524,11 @@ databases. `delete` always works.
     after a later publisher delivery cursor past it; `cursor_expired`
     recovery = latest snapshot → restore → resume from its cursor.
     Acceptance visible via `incorporated_from` (no status intent).
-42. **Per-entry writer signatures + hash chains** (§ Signed history).
-    Request signatures are insufficient. **Acceptance is local**
-    (`AcceptEntry` in § Trust model). Relays do not enforce it. Failure
-    rule: stop that writer’s chain at the gap; retain evidence.
+42. **Per-entry writer signatures + device hash chains** (§ Signed
+    history). Chains are `(node_key, device_id)`. Request signatures are
+    insufficient. **Acceptance is local** (`AcceptEntry`). Relays do not
+    enforce it. Failure rule: stop that **device** chain at the gap;
+    retain evidence.
 43. **Signed grants in the publisher spine** (§ Signed history). Each
     grant/revocation is a publisher-signed `lastdb-grant-v1` entry in the
     publisher’s ordered direct stream (reserved namespace `grant`).
@@ -810,30 +814,33 @@ are **node-side** (`AcceptEntry`), not relay reject codes.
 1. **Tampered payload accepted by relay:** flip one byte of `payload_b64`
    after signing; if the relay stores it anyway, a reading node still
    rejects via `AcceptEntry` (bad signature), does not apply, stops that
-   writer chain.
+   **device** chain.
 2. **Payload / namespace / writer_seq / database_id tamper on read:** altered
    entry → node rejects; cross-db replay (wrong `database_id`) fails step 2
    of `AcceptEntry`.
 3. **Incorporation mismatch:** publisher entry whose
    `incorporated_from.signature_sha256` does not match the proposal → node
    rejects.
-4. **Seq conflict / equivocation:** same `(node_key, writer_seq)` with
-   different bytes → node keeps evidence (`history.equivocation`); relay
-   may also return a policy conflict on append.
-5. **Forged grant:** grant not signed by the publisher → `AcceptEntry`
+4. **True equivocation (one device):** same
+   `(node_key, device_id, writer_seq)` with different bytes →
+   `history.equivocation`.
+5. **Multi-device offline writes:** two devices under one node key both
+   emit `writer_seq = N` with different hashes while offline → **must not**
+   be flagged as equivocation; both chains advance; merge/checkpoint rules
+   apply.
+6. **Forged grant:** grant not signed by the publisher → `AcceptEntry`
    rejects; cannot authorize member writes.
-6. **Revoked-grant replay:** write whose `grant_publisher_seq` predates a
-   later publisher revocation included by checkpoint `C` → node rejects at
+7. **Revoked-grant replay:** write whose grant ref predates a later
+   publisher revocation included by checkpoint view `C` → node rejects at
    `C`.
-7. **Unsigned / bad writer signature:** node rejects; chain stops.
-8. **Withheld publisher entry (seq gap):** node detects gap on publisher
-   spine, halts canonical advance, surfaces `history.withheld`.
-9. **Reordered delivery:** same signed set, different order → identical
-   canonical state after checkpoint replay.
-10. **Forked publisher history:** divergent tips → head compare detects
+8. **Unsigned / bad writer signature:** node rejects; that device chain
+   stops.
+9. **Withheld publisher entry (peer evidence of missing predecessor):**
+   `history.withheld`; fillable delivery gaps buffer and resume.
+10. **Reordered delivery:** same signed set, different order → identical
+    canonical state after checkpoint combine/replay.
+11. **Forked publisher history:** divergent **per-device** tips →
     `history.fork`; stop canonical advance; retain both signed tips.
-11. **Equivocating writer:** two signed entries same seq different hash →
-    `history.equivocation`.
 
 ## Old → new
 
@@ -869,17 +876,12 @@ fork/withheld/equivocation surfaces; derive db keys; verify birth; use
 ## Open questions for Tom
 
 1. **Publisher online for finality.** Under checkpoints, member direct
-   writes stay tentative until the publisher signs a checkpoint. Is that
-   acceptable? Alternative: fully deterministic merge of all writer chains
-   by signed `lamport` then `node_key`, with grant validity judged only by
-   each write’s `grant_publisher_seq` (no checkpoint). That removes the
-   publisher-online requirement but weakens revocation (a write can stay
-   applyable without the publisher explicitly accepting a post-revocation
-   head).
-2. **Checkpoints vs “no member list”.** A checkpoint lists
-   `writer key → seq + hash` heads. That is not a share/members document and
-   has no list-revision, but it does name members. Confirm this is allowed,
-   or name a different canonicalization device that stays within the rule.
+   writes stay tentative until a publisher device signs a checkpoint. Is
+   that acceptable? Alternative: fully deterministic merge of all device
+   chains by `(lamport, node_key, device_id)` with grant validity judged
+   only by each write’s grant ref (no checkpoint) — weaker revocation.
+2. **Checkpoints vs “no member list”.** A checkpoint lists member
+   `(node_key, device_id) → seq + hash` heads. Confirm this is allowed.
 3. **Freshness of the newest revocation.** Head comparison detects forks
    and permanent withhold gaps once peers meet; ExeMem can still delay the
    **tail** (newest revocation) indefinitely. Is People + multi-device head

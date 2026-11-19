@@ -588,7 +588,7 @@
       },
       "SignedEntry": {
         "type": "object",
-        "description": "Opaque-to-relay signed entry; full closed schemas in cloud-api.openapi.json (DataEntry|GrantEntry|CheckpointEntry|birth|relays). Nodes run AcceptEntry.",
+        "description": "Opaque-to-relay signed entry. Store key (database_id, node_key, device_id, writer_seq). Full schemas in cloud-api.openapi.json. Nodes run AcceptEntry.",
         "required": [
           "kind",
           "database_id",
@@ -704,6 +704,11 @@
             "type": "integer",
             "minimum": 1,
             "maximum": 90
+          },
+          "device_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "With writer_key: read one device chain"
           }
         }
       },
