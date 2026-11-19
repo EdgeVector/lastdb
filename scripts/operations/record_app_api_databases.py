@@ -166,39 +166,49 @@ def prove_share(node, sock, database):
 
     A PUT that also names read, write, or memberWrites has the same shape and
     the same 503. A 400 would mean the body was refused before the cloud call.
-    The signed statement and the proposal check are not proven here. A two-node
-    DEV proof must make these requests:
+    The signed statement and the proposal check are not proven here. No CI
+    operation runs a publisher and a member against the cloud. A two-node DEV
+    proof must make these requests:
 
     1. Publisher GET /api/databases/{id}/share/config. No stored statement
-       answers read "members" and write "proposals".
+       answers read "members", write "proposals", and memberWrites {}.
     2. Publisher PUT /api/databases/{id}/share/config with the same members,
-       read "anyone", and write "direct". The node POSTs
+       read "anyone", write "direct", and memberWrites
+       {"social/Comment": "own_records"}. The node POSTs
        /api/cloud/backups/v2/share/members/settings/get, signs sequence 1, and
        POSTs /api/cloud/backups/v2/share/members/settings/set. Members are
        unchanged, so it does not POST /api/cloud/backups/v2/share/members/set.
        The reply is 200, the same member revision, committed true.
-    3. Publisher GET /api/databases/{id}/share/config again. read is "anyone"
-       and write is "direct".
-    4. Publisher repeats that PUT. The pair is unchanged, so no settings
+    3. Publisher GET /api/databases/{id}/share/config again. read is "anyone",
+       write is "direct", and memberWrites is {"social/Comment": "own_records"}.
+    4. Publisher repeats that PUT. The three are unchanged, so no settings
        statement and no member set. 200, same revision.
     5. Publisher PUT /api/databases/{id}/share/config with only write
-       "proposals" (read omitted). The node signs sequence 2 (anyone,
-       proposals) and POSTs /api/cloud/backups/v2/share/members/settings/set.
-       No member set.
+       "proposals" (read and memberWrites omitted). The node signs sequence 2
+       (anyone, proposals, the same map) and POSTs
+       /api/cloud/backups/v2/share/members/settings/set. No member set.
     6. Publisher PUT /api/databases/{id}/share/config that changes a member and
        sets read back to "members". Settings set goes first (sequence 3,
-       members and proposals), then the member set. If the member set fails,
-       that member error is the reply and sequence 3 stays stored. A repeat
-       sends no statement and retries the members while expectedRevision
-       still matches.
+       members and proposals, the same map), then the member set. If the
+       member set fails, that member error is the reply and sequence 3 stays
+       stored. A repeat sends no statement and retries the members while
+       expectedRevision still matches.
     7. After the member node's sync refresh, GET /api/databases.
-       selfAccess.read and selfAccess.write come from POST
-       /api/cloud/backups/v2/share/members/settings/get with the member
-       LastDBNode token and X-LastDB-Self-Access: 1, in the same refresh as
-       POST /api/cloud/backups/v2/share/members/read. No stored statement is
-       members, proposals, and memberWrites {}. A PUT that sets memberWrites
-       signs the next statement with that map. This operation does not prove
-       the proposal check. That needs a publisher and a member against the cloud.
+       selfAccess.read, selfAccess.write, and selfAccess.memberWrites come
+       from POST /api/cloud/backups/v2/share/members/settings/get with the
+       member LastDBNode token and X-LastDB-Self-Access: 1, in the same
+       refresh as POST /api/cloud/backups/v2/share/members/read. No stored
+       statement is members, proposals, and memberWrites {}.
+    8. With write "proposals" and an active Submit member, memberWrites is
+       {"social/Comment": "own_records"}. The member's create is published and
+       created_by is that member. That member's replace and delete of the
+       record are published. Another member's replace is discarded.
+    9. The publisher sets social/Comment to "shared". A member's create is
+       published. A member's replace or delete of another member's record is
+       published.
+    10. The publisher sets social/Comment to "owner_only", or leaves the schema
+        out of the map. A member's create is discarded. The publisher's own
+        writes are not on this check.
     """
     config = {"expectedRevision": "0", "requestId": REQUEST_ID, "members": []}
     path = f"/api/databases/{database}/share/config"
