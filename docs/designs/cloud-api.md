@@ -158,10 +158,11 @@ ExeMem rejects:
 | Bad signature | 401 | `{ "code":"unauthorized", "field":"request.signature" }` |
 | Expired / skewed `Issued-At` | 401 | `{ "code":"unauthorized", "field":"request.issued_at" }` |
 | Reused nonce | 401 | `{ "code":"unauthorized", "field":"request.nonce" }` |
-| Unknown / never registered device (except `add_device`) | 401 | `{ "code":"unauthorized", "field":"device.id" }` |
+| Unknown / never registered device (except `add_device`, and `fetch` under `grant#any`) | 401 | `{ "code":"unauthorized", "field":"device.id" }` |
 | Removed device | 401 | `{ "code":"unauthorized", "field":"device.revoked" }` |
 | `add_device` when node key is not a known account | 401 | `{ "code":"unauthorized", "field":"account.node_key" }` |
 | `register` rate limit | 429 | `{ "code":"rate_limited", "field":"account.register" }` |
+| `fetch` under `grant#any` rate limit | 429 | `{ "code":"rate_limited", "field":"fetch.any" }` |
 
 Members/grants remain keyed by **node key** (not device).
 
@@ -267,13 +268,16 @@ body (array or single).
     `manage`/`revoke` with `any` turns public read off. ExeMem stores a
     publisher-signed **`grant#any`** entry like other grants.
     **`manage`/`access`** reports public state to the publisher
-    (`public_read: true|false`).
-    **Fetch under `any`:** the reader still sends `nodeSignature` with **their
-    own** node key (and device headers). ExeMem allows **read** intents
-    (`fetch`/*) when `grant#any` is active, even if that node key has no
-    per-key grant. Push/manage still require a real membership grant.
-    Whether an **unregistered or unpaid** node key may read under `any` is
-    an open question (recommend **yes**, reads only).
+    (`public: true|false` on the access result).
+32. **Public links work for anyone.** Any node key — **registered or not,
+    paid or not** — may **`fetch`** (read intents only) a database that has
+    an active `grant#any`. The request is still `nodeSignature`-signed with
+    that key’s private key. For those read intents under `any`, the
+    unknown-device **401 is waived** (same idea as `add_device`). Abuse is
+    controlled by **rate limiting** → HTTP **429**
+    `{ "code":"rate_limited", "field":"fetch.any" }`. Push/manage still
+    require a real membership grant and normal device registration / paid
+    gates.
 
 ## Account
 
@@ -428,7 +432,7 @@ HTTP status → `code` (body always `{ "code", "field" }` + optional `minimum_ve
 | 409 | `predecessor_conflict` | `mutation_log.cursor` |
 | 409 | `cursor_expired` | `mutation_log.cursor` |
 | 426 | `upgrade_required` | `request.protocol` (+ `minimum_version`) |
-| 429 | `rate_limited` | `account.register` |
+| 429 | `rate_limited` | `account.register`, `fetch.any` |
 
 Sources: `ProtocolError` / `ErrorCode` in `cloud_backup_protocol/src/lib.rs`; node maps in `log_sync/wire.rs`.
 
@@ -448,7 +452,8 @@ response ≤ **8 MiB**.
 ### `fetch` / `mutations_since`
 
 Purpose: page mutation log (publisher also sees proposal stream).
-Who: member with read+; publisher sees `stream: proposal` entries too.
+Who: member with read+; publisher sees `stream: proposal` entries too; or
+**anyone** under `grant#any` (direct stream only; Decision 32).
 Source: `mutation-log/list`, `mutation-log/inbox/list` (`log_sync/wire.rs`).
 
 | args | type | req |
@@ -471,7 +476,7 @@ Errors: `cursor_expired`, `predecessor_conflict`, `forbidden`, `unauthorized`.
 ### `fetch` / `snapshot` (`stage: describe`)
 
 Purpose: describe a restore point (or latest).
-Who: member/publisher/public-read under `grant#any`.
+Who: member/publisher; or **anyone** under `grant#any` (Decision 32).
 Source: `snapshot/bytes` action `read` (`log_sync/snapshot/`).
 
 | args | type | req |
@@ -508,7 +513,7 @@ Source: `snapshot/bytes` action `download`.
 ### `fetch` / `file`
 
 Purpose: read a ciphertext byte range of a file blob.
-Who: member/publisher/public-read.
+Who: member/publisher; or **anyone** under `grant#any` (Decision 32).
 Source: `mutation-log/delivery/object` (`log_sync/restore.rs`).
 
 | args | type | req |
@@ -724,12 +729,9 @@ Source: `scripts/cloud_backup/snapshot_attempt_account.py`.
 12. **`storage_used_bytes` / device `added_at_ms`:** required/optional fields for `status` even though ExeMem does not expose them yet (Decision 27).
 13. **`duplicate` on push/mutations:** optional bool from today’s `result: duplicate`.
 14. **Inspect `entries`/`facts`:** open string maps with maxProperties (only place maps appear), matching DEV broker bags.
-15. **Public-read fetch auth:** unregistered/unpaid may read under `grant#any` left as open question (recommend yes).
+15. **Public-read fetch auth:** settled by Decision 32 (anyone may `fetch` under `grant#any`, rate-limited).
 
 ## Open questions for Tom
 
-1. Under `grant#any`, may an **unregistered** and/or **unpaid** node key
-   `fetch` (reads only)? **Recommend yes** — valid `nodeSignature` with their
-   own key is enough when `grant#any` is active; paid/register gates stay on
-   push/manage/account. Confirm or restrict.
+None.
 

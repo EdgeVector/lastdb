@@ -40,7 +40,7 @@
     "/api/cloud/v3/fetch": {
       "post": {
         "summary": "Fetch",
-        "description": "Intents: mutations_since, snapshot (describe|part), file. Batch max 90; body ≤256 KiB; response ≤8 MiB. Under grant#any, any nodeSignature may read (open Q: unpaid).",
+        "description": "Intents: mutations_since, snapshot (describe|part), file. Batch max 90; body ≤256 KiB; response ≤8 MiB. Under grant#any: any node key (registered/paid or not) may fetch; unknown-device 401 waived; rate-limited → 429 rate_limited / fetch.any (Decision 32).",
         "operationId": "cloudFetch",
         "security": [
           {
@@ -247,6 +247,24 @@
                   "upgrade_required": {
                     "value": {
                       "code": "upgrade_required",
+                      "field": "example"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Public-read fetch rate limit; field fetch.any",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "rate_limited": {
+                    "value": {
+                      "code": "rate_limited",
                       "field": "example"
                     }
                   }
