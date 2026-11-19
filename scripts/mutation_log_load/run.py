@@ -38,7 +38,6 @@ from harness import NoRedirect  # noqa: E402
 
 REGISTRY = Path(__file__).resolve().parents[2] / "lastdb_node" / "environments.json"
 DEV_ENVIRONMENT = "dev"
-MEMBER_LIST_REVISION = "0"
 AUTHORITY_DOMAIN = b"lastdb:share:node-read-authority:v1"
 HEADER_LIMIT = 4096
 STEADY_MS = 3 * 60 * 1000
@@ -120,13 +119,13 @@ def authorization(key, path, database_id, issued_at_ms, body, account_generation
     }
     covered = [
         2, database_id, stream, "POST", path, hashlib.sha256(body).hexdigest(),
-        issued, nonce, MEMBER_LIST_REVISION, public, DEV_ENVIRONMENT,
+        issued, nonce, public, DEV_ENVIRONMENT,
     ]
     digest = _authority_digest(covered)
     token_json = json.dumps({
         "version": 2, "environment": DEV_ENVIRONMENT, "database_id": database_id,
         "stream": stream, "method": "POST", "path": path, "issued_at_ms": issued,
-        "nonce": nonce, "member_list_revision": MEMBER_LIST_REVISION, "node_public_key": public,
+        "nonce": nonce, "node_public_key": public,
     }, separators=(",", ":")).encode("utf-8")
     header = "LastDBNode " + _b64url(token_json) + "." + _b64url(key.sign(digest.encode("ascii")))
     if len(header.encode("ascii")) > HEADER_LIMIT:

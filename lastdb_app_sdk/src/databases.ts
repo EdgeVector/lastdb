@@ -84,9 +84,6 @@ const UUID_HYPHENATED =
   /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 const UUID_SIMPLE = /^[0-9a-fA-F]{32}$/;
 
-/** Canonical names, legacy definition IDs, or all schemas. An empty list grants reads only. */
-export type ShareWriteScope = { names: string[] } | string[] | 'all';
-
 /** What a member with write access may do to one schema. A missing name is `owner_only`. */
 export type MemberWriteBehaviour = 'owner_only' | 'own_records' | 'shared';
 
@@ -100,7 +97,6 @@ export interface SharedDatabaseAccess {
   write: 'proposals' | 'direct';
   /** Schema name to behaviour. Empty means every schema is `owner_only`. */
   memberWrites: Record<string, MemberWriteBehaviour>;
-  writeSchemas?: ShareWriteScope;
   revision: string | null;
   confirmedAtMs: string | null;
   stale: boolean;
@@ -344,16 +340,6 @@ function decimalOrNull(value: unknown): value is string | null {
   return value === null || (typeof value === 'string' && /^(0|[1-9][0-9]*)$/.test(value));
 }
 
-function strings(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every((item: unknown) => typeof item === 'string');
-}
-
-function parseScope(value: unknown): ShareWriteScope | undefined {
-  if (value === undefined || value === 'all' || strings(value)) return value;
-  if (isObject(value) && strings(value['names'])) return { names: value['names'] };
-  throw new UnexpectedResponseError('database returned an invalid write scope', 200, null);
-}
-
 function isMemberWriteBehaviour(value: string): value is MemberWriteBehaviour {
   return value === 'owner_only' || value === 'own_records' || value === 'shared';
 }
@@ -375,7 +361,7 @@ function parseMemberWrites(value: unknown): Record<string, MemberWriteBehaviour>
 
 function parseSharedDatabaseAccess(value: unknown): SharedDatabaseAccess {
   if (isObject(value)) {
-    const { state, role, revision, confirmedAtMs, stale, writeSchemas, read, write } = value;
+    const { state, role, revision, confirmedAtMs, stale, read, write } = value;
     if (
       (state === 'active' || state === 'revoked' || state === 'absent' || state === 'unknown') &&
       (role === 'read' || role === 'submit' || role === null) &&
@@ -385,14 +371,11 @@ function parseSharedDatabaseAccess(value: unknown): SharedDatabaseAccess {
       decimalOrNull(confirmedAtMs) &&
       typeof stale === 'boolean'
     ) {
-      const access: SharedDatabaseAccess = {
+      return {
         state, role, read, write,
         memberWrites: parseMemberWrites(value['memberWrites']),
         revision, confirmedAtMs, stale,
       };
-      const scope = parseScope(writeSchemas);
-      if (scope !== undefined) access.writeSchemas = scope;
-      return access;
     }
   }
   throw new UnexpectedResponseError('database returned an invalid recipient grant', 200, null);

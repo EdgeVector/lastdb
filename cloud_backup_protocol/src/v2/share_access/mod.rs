@@ -1,12 +1,12 @@
 //! Share access v2 wire types for the mutation log, the proposal log, and share settings.
 //! Decided state: docs/designs/shared-database-mutation-logs.md (mutation log, proposal log, share settings).
 //!
-//! A member list names the Ed25519 node keys that may read one shared database.
+//! A member entry names one Ed25519 node key that may read one shared database.
 //! On a whole-database share, any active member may submit encrypted mutations.
 //! Only the publisher may read or settle the proposal log. Members follow the
 //! mutation log, and the publisher's LastDB checks schema write permissions.
-//! The publisher signs each new revision. A revoked key stays
-//! on that revision until a later revision sets `regrant`. v1 does not rotate
+//! The publisher signs each new entry. A revoked key stays on its entry until
+//! a later entry restores it with an explicit regrant. v1 does not rotate
 //! keys. These types do no I/O, do not verify signatures, and do not cap the
 //! member count.
 //!
@@ -19,17 +19,15 @@
 //! `NodeReadToken` JSON. The second segment is the raw 64-byte Ed25519
 //! signature over `NodeReadToken::digest` of the exact HTTP body. The signing
 //! key is the node key in that token. It is not the publisher account key.
-//! Data routes call `authorize_request` on the mutation-log paths. Those paths
-//! are the same in DEV and PROD. Native create is a separate route on that same
-//! prefix. The member-list read calls `member_list_read_view` so an authorized
-//! node can learn the revision without receiving the member list. A node-key
-//! revoke covers every device that signs with that key.
+//! Data routes check membership from each member's own signed entry. Those
+//! paths are the same in DEV and PROD. Native create is a separate route on
+//! that same prefix. A node-key revoke covers every device that signs with
+//! that key.
 
 mod entries;
 mod grant;
 mod members;
 mod settings;
-mod succession;
 
 pub use entries::{
     MemberEntry, MemberGetRequest, MemberGetResponse, MemberListRequest, MemberListResponse,
@@ -37,13 +35,10 @@ pub use entries::{
     SHARE_MEMBER_GET_PATH, SHARE_MEMBER_LIST_PATH, SHARE_MEMBER_SET_PATH,
 };
 pub use grant::{
-    authorize, authorize_access_read, authorize_member_get, authorize_native_create,
-    authorize_request, authorize_settings_get, authorize_settings_set, member_list_read_view,
-    member_list_revision, MemberListReadView, ShareAccess, SignedRequestTarget,
+    authorize_native_create, authorize_settings_set, ShareAccess, SignedRequestTarget,
 };
 pub use members::{
-    Ed25519Signature, MemberListReadRequest, MemberListReadResponse, MemberListRevision,
-    MemberListUpdate, ShareMember, ShareMemberRole, ShareMemberState, ShareWriteScope,
+    Ed25519Signature, MemberListReadRequest, MemberListRevision, ShareMemberRole, ShareMemberState,
 };
 pub use settings::{
     absent_share_settings, member_write_behaviour, MemberWriteBehaviour, ShareRead, ShareSettings,
@@ -64,11 +59,6 @@ pub const SHARE_NODE_AUTHORIZATION_SCHEME: &str = "LastDBNode";
 /// Symmetric clock skew for a signed share request, in milliseconds.
 pub const SHARE_REQUEST_SKEW_MS: u64 = 60_000;
 
-/// Complete HTTP path for a publisher member-list update.
-///
-/// `BackupTransport` inserts `/api` itself, so the operation suffix is
-/// `cloud/backups/v2/share/members/update`.
-pub const SHARE_MEMBER_LIST_UPDATE_PATH: &str = "/api/cloud/backups/v2/share/members/update";
 /// Complete HTTP path for a member-list read.
 ///
 /// `BackupTransport` inserts `/api` itself, so the operation suffix is
@@ -245,8 +235,6 @@ pub struct NodeReadToken {
     pub issued_at_ms: DecimalU64,
     /// 32 random bytes as 64 lowercase hex characters. One nonce per request.
     pub nonce: Text<64>,
-    /// Member-list revision this request is bound to. Zero is the empty list.
-    pub member_list_revision: DecimalU64,
     /// Ed25519 node key that signs this proof.
     pub node_public_key: Digest,
 }
@@ -291,11 +279,11 @@ impl NodeReadToken {
     /// Domain-separated SHA-256 of this statement and the raw request body.
     ///
     /// The canonical array is `version`, `database_id`, `stream`, `method`,
-    /// `path`, `body_sha256`, `issued_at_ms`, `nonce`, `member_list_revision`,
-    /// `node_public_key`, `environment`. `body_sha256` is SHA-256 of `body`
-    /// with no domain frame. Framing is a big-endian u32 domain length, the
-    /// UTF-8 domain `lastdb:share:node-read-authority:v1`, a big-endian u64
-    /// body length, and the RFC 8785 array.
+    /// `path`, `body_sha256`, `issued_at_ms`, `nonce`, `node_public_key`,
+    /// `environment`. `body_sha256` is SHA-256 of `body` with no domain frame.
+    /// Framing is a big-endian u32 domain length, the UTF-8 domain
+    /// `lastdb:share:node-read-authority:v1`, a big-endian u64 body length, and
+    /// the RFC 8785 array.
     pub fn digest(&self, body: &[u8]) -> Result<Digest, ProtocolError> {
         self.validate()?;
         let body_sha256 = bytes_sha256(body);
@@ -310,7 +298,6 @@ impl NodeReadToken {
                 &body_sha256,
                 self.issued_at_ms,
                 self.nonce.as_str(),
-                self.member_list_revision,
                 &self.node_public_key,
                 self.environment,
             ),

@@ -755,22 +755,6 @@
           "confirm_expire_existing": {"type": "boolean"}
         }
       },
-      "DatabasesNamedWriteSchemas": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["names"],
-        "properties": {
-          "names": {"type": "array", "items": {"type": "string"}}
-        }
-      },
-      "DatabasesWriteSchemas": {
-        "description": "Definition ids, schema names, or every schema.",
-        "oneOf": [
-          {"type": "array", "items": {"type": "string"}},
-          {"$ref": "#/components/schemas/DatabasesNamedWriteSchemas"},
-          {"const": "all"}
-        ]
-      },
       "DatabasesShareMember": {
         "type": "object",
         "additionalProperties": false,
@@ -779,8 +763,7 @@
           "nodeKey": {"type": "string", "description": "64 lowercase hex characters."},
           "role": {"type": "string", "enum": ["read", "submit"]},
           "state": {"type": "string", "enum": ["active", "revoked"]},
-          "regrant": {"type": "boolean"},
-          "writeSchemas": {"$ref": "#/components/schemas/DatabasesWriteSchemas"}
+          "regrant": {"type": "boolean"}
         }
       },
       "DatabasesMemberWrites": {

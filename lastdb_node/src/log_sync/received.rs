@@ -11,8 +11,7 @@ use std::sync::Arc;
 
 use cloud_backup_protocol::canonical_bytes;
 use cloud_backup_protocol::v2::share_access::{
-    MemberListReadRequest, MemberListReadResponse, ShareMemberRole, ShareWriteScope,
-    SHARE_MEMBER_LIST_READ_PATH,
+    MemberListReadRequest, ShareMemberRole, SHARE_MEMBER_LIST_READ_PATH,
 };
 use cloud_backup_protocol::v2::{Stream, Version};
 use cloud_backup_protocol::{DecimalU64, ErrorCode, Id, ProtocolError};
@@ -48,7 +47,6 @@ pub(super) enum ObservedAccess {
     Active {
         revision: u64,
         role: Option<ShareMemberRole>,
-        write_schemas: Option<ShareWriteScope>,
     },
     Revoked,
     Absent,
@@ -232,28 +230,16 @@ struct AccessRevision {
     database_id: Id,
     revision: DecimalU64,
     role: Option<ShareMemberRole>,
-    write_schemas: Option<ShareWriteScope>,
 }
 
 fn active_access(bytes: &[u8], stream: &Stream) -> Option<ObservedAccess> {
-    if let Ok(view) = serde_json::from_slice::<AccessRevision>(bytes) {
-        if view.version != Version::V2 || view.database_id != stream.stream_id {
-            return None;
-        }
-        return Some(ObservedAccess::Active {
-            revision: view.revision.get(),
-            role: view.role,
-            write_schemas: view.write_schemas,
-        });
-    }
-    let view = serde_json::from_slice::<MemberListReadResponse>(bytes).ok()?;
-    if view.version != Version::V2 || view.stream != *stream {
+    let view = serde_json::from_slice::<AccessRevision>(bytes).ok()?;
+    if view.version != Version::V2 || view.database_id != stream.stream_id {
         return None;
     }
     Some(ObservedAccess::Active {
         revision: view.revision.get(),
-        role: None,
-        write_schemas: None,
+        role: view.role,
     })
 }
 

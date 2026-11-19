@@ -212,7 +212,6 @@ impl Endpoint {
                 path: request.path,
             },
             request.body,
-            request.member_revision,
             now_ms,
         )
     }

@@ -32,7 +32,6 @@ pub(crate) fn authorization_post(
     keypair: &Ed25519KeyPair,
     target: PathPostTarget<'_>,
     body: &[u8],
-    member_revision: u64,
     now_ms: u64,
 ) -> std::result::Result<String, String> {
     if now_ms == 0 {
@@ -55,7 +54,6 @@ pub(crate) fn authorization_post(
         issued_at_ms: DecimalU64::new(now_ms),
         nonce: Text::try_from(fold_db::hex::hex_lower(nonce_bytes))
             .map_err(|_| "node read nonce was refused")?,
-        member_list_revision: DecimalU64::new(member_revision),
         node_public_key,
     };
     let digest = token

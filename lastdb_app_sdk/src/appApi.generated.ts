@@ -363,20 +363,12 @@ export interface DatabasesRetention {
   confirm_expire_existing?: boolean;
 }
 
-export interface DatabasesNamedWriteSchemas {
-  names: string[];
-}
-
-/** Definition ids, schema names, or every schema. */
-export type DatabasesWriteSchemas = string[] | DatabasesNamedWriteSchemas | 'all';
-
 export interface DatabasesShareMember {
   /** 64 lowercase hex characters. */
   nodeKey: string;
   role: 'read' | 'submit';
   state: 'active' | 'revoked';
   regrant?: boolean;
-  writeSchemas?: DatabasesWriteSchemas;
 }
 
 /** Schema name to member write behaviour. A name that is absent is owner_only. An empty object means every schema is owner_only. */

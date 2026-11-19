@@ -35,7 +35,6 @@ pub(crate) struct BlobUploadTarget<'a> {
     pub(crate) path: &'a BlobPath,
     pub(crate) bytes: DecimalU64,
     pub(crate) sha256: &'a Digest,
-    pub(crate) member_revision: u64,
 }
 
 /// Dual `X-API-Key` + Ed25519 `LastDBNode` client for account context and cold-blob uploads.
@@ -149,12 +148,7 @@ impl SignedBlobClient {
             sha256: target.sha256,
         };
         let prepared: PrepareReply = self
-            .signed_post(
-                target.scope,
-                &target.path.database,
-                target.member_revision,
-                &prepare_wire,
-            )
+            .signed_post(target.scope, &target.path.database, &prepare_wire)
             .await?;
         match prepared {
             PrepareReply::AlreadyVerified { scope, path } => {
@@ -187,12 +181,7 @@ impl SignedBlobClient {
             sha256: target.sha256,
         };
         let completed: CompleteReply = self
-            .signed_post(
-                target.scope,
-                &target.path.database,
-                target.member_revision,
-                &complete_wire,
-            )
+            .signed_post(target.scope, &target.path.database, &complete_wire)
             .await?;
         if completed.status != "verified"
             || completed.scope != *target.scope
@@ -207,7 +196,6 @@ impl SignedBlobClient {
         &self,
         scope: &CloudScope,
         database_id: &Id,
-        member_revision: u64,
         request: &Q,
     ) -> TransportResult<R> {
         let body = cloud_backup_protocol::canonical_bytes(request)?;
@@ -226,7 +214,6 @@ impl SignedBlobClient {
                 path: MUTATION_LOG_BLOB_BYTES_PATH,
             },
             &body,
-            member_revision,
             now_ms,
         )
         .map_err(|_| E::Configuration("node authorization"))?;

@@ -132,7 +132,6 @@ async fn upload_verified(
         path: &saved.path,
         bytes: saved.bytes,
         sha256: &saved.sha256,
-        member_revision: log.member_revision,
     };
     match client.upload_blob(target, sealed).await {
         Ok(()) => Ok(()),
