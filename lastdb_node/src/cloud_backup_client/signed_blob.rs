@@ -120,7 +120,7 @@ impl SignedBlobClient {
             account_id: &request.account_id,
             required_destinations: &request.required_destinations,
         };
-        let response: ContextReadResponse = self.signed_post(&scope, &context_id, 0, &wire).await?;
+        let response: ContextReadResponse = self.signed_post(&scope, &context_id, &wire).await?;
         response.validate_for(request)?;
         Ok(response)
     }

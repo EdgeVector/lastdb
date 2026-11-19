@@ -234,7 +234,7 @@ fn member_updates(
             continue;
         };
         signed.push(
-            entries::sign(session, database_id, &member.node_key, current, grant)
+            entries::sign(session, database_id, &member.node_key, current, &grant)
                 .map_err(ConfigError::Invalid)?,
         );
     }

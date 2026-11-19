@@ -59,7 +59,6 @@ pub(crate) struct LogRequest<'a> {
     pub database_id: &'a Id,
     pub path: &'a str,
     pub body: &'a [u8],
-    pub member_revision: u64,
     pub proof: Proof,
 }
 

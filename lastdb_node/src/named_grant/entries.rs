@@ -138,7 +138,7 @@ pub(super) fn sign(
     database_id: &str,
     node: &Digest,
     current: Option<&MemberEntry>,
-    grant: Grant,
+    grant: &Grant,
 ) -> Result<MemberEntry, String> {
     let sequence = current
         .map_or(Some(1), |entry| entry.sequence.get().checked_add(1))
