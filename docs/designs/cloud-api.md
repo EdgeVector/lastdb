@@ -6,436 +6,343 @@ OpenAPI file wins for paths, auth, and error shapes.
 
 The model is the LastDB app API: one prose contract, one OpenAPI 3.1 machine
 spec, one version number, and CI that keeps them honest. See `docs/app-api.md`,
-`lastdb_node/app-api.json` (`api_version` 42), `scripts/lints/api_surface.py`,
-and `scripts/lints/app_api_types.py`.
+`lastdb_node/app-api.json`, `scripts/lints/api_surface.py`, and
+`scripts/lints/app_api_types.py`.
+
+Tom (2026-11-19): **action-based** interface — three verbs, node intent,
+cloud chooses storage. Storage may change without LastDB knowing.
 
 ## Why
 
-Today the cloud surface is a hand-dispatched path tree under
-`POST /api/cloud/backups/v2/…` with no route spec and no real wire version
-(the JSON field named `version` only accepts the integer `2`).
-`deny_unknown_fields` is used everywhere, so a field rename on one side is an
-opaque failure on the other. The pin lint
-(`scripts/lints/lint-cloud-protocol-pin.py`) only checks a **new node** against
-the **pinned cloud**. It never checks the **next cloud** against the **last
-stable released node**. That gap is why lastdb #1799 (token / wire cleanup)
-broke 0.23.40 nodes and was caught only by People DEV sharing.
+Today the cloud surface is a hand-dispatched tree under
+`POST /api/cloud/backups/v2/…` with no route spec and no real wire version.
+Paths and bodies name cloud storage (`mutation-log`, `blob`, `delivery`,
+`snapshot/bytes`, `inbox`). The pin lint only checks a new node against the
+pinned cloud, not the next cloud against the last stable node (#1799).
 
 ## Sources (verified)
 
-Route inventory and auth were verified against:
-
 | Source | Role |
 |---|---|
-| `EdgeVector/exemem-infra` `exemem_service/lambdas/storage_service/src/http.rs` | Top-level dispatch |
-| Same repo `…/auth/members.rs`, `…/blobs/mod.rs`, `…/snapshots/mod.rs`, `…/logs/mod.rs` | Action lists |
-| Same repo `cdk/lib/storage-service-http.ts`, `cdk/lib/exemem-http-api.ts` | API Gateway routes |
-| Same repo `docs/cloud-byte-service-v2.md` | Prose (see note below) |
-| `cloud_backup_protocol` (this repo) | Wire types, path constants, `ProtocolError` |
-| `lastdb_node` cloud client paths | Which credentials each route uses |
+| `exemem-infra` `storage_service` `http.rs` + blobs/snapshots/logs/auth | Dispatch |
+| `cloud_backup_protocol` | Wire types and path constants |
+| `lastdb_node` `log_sync/`, `named_grant/`, `cloud_backup_client/` | Product call sites |
+| CI scripts under `scripts/cloud_backup/` | DEV/ops-only callers |
 
-**Prose vs code:** `docs/cloud-byte-service-v2.md` still names snapshot actions
-`index-status` / `index-history` and a `delivery/snapshot` spelling. Those are
-**not** in the current `storage_service` dispatch or snapshot `action` enum.
-This design follows the Rust dispatch tables, not the stale prose.
+## Hard rules
 
-**Auth service routes** on the same HTTP API (`/api/developer/*`,
-`/api/auth/*`) are inventoried below. They are not storage routes. The OpenAPI
-includes them as a separate tag so one file covers the whole ExeMem HTTP surface
-a node talks to.
+- No dual paths, aliases, fallback, or migration. Clean cutover via protocol v3.
+- No unit tests. E2E DEV checks in CI are fine.
+- Share, Deliver, and Org exist only in People. The cloud stores generic config.
+- Plain language. One concept in one system.
+- **No route segments or request fields that name cloud storage resources.**
 
-## Contract model (mirror the app API)
-
-After acceptance, the live contract is three committed artifacts:
-
-1. **Prose** — this document, later promoted beside `docs/app-api.md`.
-2. **OpenAPI 3.1** — live file at
-   `cloud_backup_protocol/cloud-api.openapi.json` (Tom, 2026-11-19).
-   This PR keeps the design draft at `docs/designs/cloud-api.openapi.json`.
-   `info.version` is the cloud protocol version as a decimal string.
-3. **Lint + generated types** — CI scripts modeled on `api_surface.py` and
-   `app_api_types.py` (plan below; not written in this docs-only PR).
-
-Rules:
-
-- The OpenAPI file is the explicit definition. Prose explains it.
-- Every served storage path appears in the OpenAPI `paths` object.
-- Every auth scheme appears under `components.securitySchemes`.
-- Every stable error code appears under `components.schemas`.
-- Unknown JSON fields stay refused (`additionalProperties: false` on request
-  bodies), matching today's `deny_unknown_fields`.
-- DEV-only routes stay in the same OpenAPI file, marked
-  `x-lastdb-environment: dev`.
-
-## Hard rules (owner)
-
-- **No fallback, compatibility, migration, or dual paths.** Old and new routes
-  do not run side by side. A cutover is a clean break, guarded by the protocol
-  version check.
-- **No unit tests** in the plan. End-to-end DEV checks in CI are fine.
-- **One concept, one system.** Share, Deliver, and Org exist only in People.
-  The cloud stores and returns generic signed config (`read`, `write`,
-  `member_writes`, member rows). It does not name presets and does not own
-  invitation or org product logic.
-- Keep it simple and scalable. Plain language.
-
-## Current inventory (v2)
-
-All storage routes today are **POST** under `/api/cloud/backups/v2/`. API Gateway
-attaches two proxies plus optional DEV proof routes.
-
-### Mutation-log proxy — `POST …/mutation-log/{proxy+}`
-
-| Suffix | Purpose |
-|---|---|
-| `create-database` | Native create (publisher; API key on create) |
-| `access` | Access / enrollment view for one database |
-| `append` | Append to mutation log or proposal log (by settings) |
-| `head` | Head / writer tip |
-| `list` | Page of mutation-log entries |
-| `settle-submissions` | Publisher settles older opaque submission position |
-| `inbox/list` | Publisher lists proposal-log page |
-| `inbox/settle` | Publisher settles proposal-log page |
-| `blob/bytes` | Cold blob: `context` / `prepare` / `complete` |
-| `snapshot/bytes` | Snapshot actions (see below) |
-| `delivery/object` | Bounded ciphertext byte range of one record file |
-
-**Snapshot `action` values** (body discriminator on `snapshot/bytes`):
-`read`, `read-for-restore`, `prepare`, `download`, `publish`, `retention`,
-`automatic-retention`, `reclaim`, `reclaim-covered`, `cleanup-retired`,
-`reclaim-blobs`, plus DEV-only `track_dev`, `cleanup_dev`,
-`cleanup_receipt_dev`.
-
-**Blob `action` values** (body discriminator on `blob/bytes`):
-`context`, `prepare`, `complete`.
-
-### Members proxy — `POST …/share/members/{proxy+}` (today)
-
-Access is one signed `grant#<node key>` row per member. lastdb #1799 already
-removed the whole-list counter from the token. v3 does not restore it.
-
-| Suffix | Purpose |
-|---|---|
-| `set` | Publisher writes signed grant entries |
-| `get` | Read one grant entry |
-| `list` | Publisher pages grant entries (cursor over node keys) |
-| `read` | Today: write-counter / optional self-access header — **wrong for Tom’s model**; v3 is self-access only |
-| `settings/set` | Publisher writes signed settings statement |
-| `settings/get` | Read settings statement |
-
-### DEV-only — `POST …/dev-snapshot-proof/{operation}`
-
-`provision`, `retire`, `status`, `inspect`. JWT authorizer
-(`token.actions.githubusercontent.com`, audience `lastdb-dev-snapshot`).
-Attached only on the DEV storage stack.
-
-### Auth service (same HTTP API, different Lambda)
-
-| Method | Path |
-|---|---|
-| GET, POST, DELETE | `/api/developer/api-keys` |
-| POST | `/api/developer/validate-key` |
-| POST | `/api/auth/cli/register` |
-| POST | `/api/auth/payments/webhook` |
-| GET | `/api/auth/payments/status` |
-| POST | `/api/auth/payments/checkout` |
-| POST | `/api/auth/payments/portal` |
-
-### Auth schemes in use today
-
-| Scheme | Wire | Used for |
-|---|---|---|
-| Account bearer | Header `Authorization: Bearer <account_key>` | Auth-service: developer key create/list/revoke, validate-key, payment status/checkout/portal. This is the saved enrollment credential (`CloudSession.api_key`), not an `em_` key. |
-| `em_` developer key | Header `X-API-Key` | Storage: native create (with `LastDBNode`); dual-auth on blob context/prepare/complete |
-| `LastDBNode` | Header `Authorization: LastDBNode <token>.<sig>` | Signed storage POSTs; token JSON is `NodeReadToken` |
-| GitHub OIDC JWT | Header `Authorization: Bearer …` | DEV snapshot-proof only (different bearer from the account credential) |
-
-`LastDBNode` binds method, path, raw body SHA-256, nonce, realm, and node key.
-Clock skew is ±60s. Replay uses the nonce.
-
-A node obtains its first `em_` developer key by calling `/api/developer/api-keys`
-with the **account bearer**. Modeling those routes as `X-API-Key` alone is wrong:
-the client would have no way to mint the first key.
-
-### Errors today
-
-Body shape from `cloud_backup_protocol::ProtocolError`:
+## Shape: three actions (not resources)
 
 ```
-{ "code": "<snake_case>", "field": "<static.name>" }
+POST /api/cloud/v3/fetch
+POST /api/cloud/v3/push
+POST /api/cloud/v3/manage
 ```
 
-Codes: `invalid_input`, `unsupported_capability`, `unauthorized`, `not_found`,
-`generation_conflict`, `identity_conflict`, `predecessor_conflict`,
-`resource_limit`, `quota_exceeded`, `missing_dependency`, `integrity_mismatch`,
-`provider_pending`, `outcome_unknown`, `retry_later`.
+Each body is a **tagged union** on `intent` (closed enum). The node states
+**intent** in LastDB nouns. The cloud decides which store, key, or backend
+to touch.
 
-HTTP status mapping (storage): 404 not_found, 403 unauthorized, 409 conflicts,
-413 limits/quota, 202 provider_pending, 503 outcome_unknown/retry_later,
-else 400. There is **no** typed “upgrade required” answer today.
+### How this differs from resource routing
 
-### Concept-boundary callouts
+| Resource-based (rejected) | Action-based (this design) |
+|---|---|
+| `/v3/logs/list`, `/v3/blobs/read`, `/v3/snapshots/…` | `/v3/fetch` with `intent` |
+| Request names the store (`log`, `blob`, `inbox`) | Request names the job (`changes_since`, `file_range`) |
+| New store → new route family | New store → invisible; new job → new `intent` + version bump |
+| Node and cloud share a storage vocabulary | Node owns product nouns; cloud owns storage |
 
-These routes are **config storage**, not People Share/Deliver/Org logic. Keep
-them. Rename the path prefix so “share” does not look like the People preset:
+**Why storage can change freely:** the node never asks for “the mutation
+log” or “B2 object X”. It asks for “changes since this cursor” or “this
+file range”. Cursors, upload tickets, and restore handles are **opaque
+cloud-issued strings** the node returns unchanged. The cloud may move from
+one log layout to another, swap object stores, or split proposal storage —
+the intents stay the same.
 
-- `share/members/*` and `settings/*` store publisher-signed member rows and the
-  generic `(read, write, member_writes)` statement. The service already does not
-  interpret `member_writes`. That is correct.
-- Do **not** add named presets, invitations, circles, albums, or org membership
-  to this API. Those stay in People / the LastDB owner and app surfaces.
+### Node nouns (allowed in the request)
 
-## Target shape (protocol 3)
+database · change · proposal · file · backup / restore point · member grant ·
+settings · cursor · (opaque) handle / ticket
 
-### URL and method scheme
+### Cloud storage nouns (forbidden in routes and request fields)
 
-Keep **POST + JSON body** for every storage operation (same pattern as the app
-API and today’s signed cloud POSTs). Drop the nested `backups/v2` and the
-mutation-log dumping ground.
+log · blob · snapshot object · inbox · bucket · B2/R2 key · delivery ·
+mutation-log path segments
 
-Prefix: `/api/cloud/v3/`.
+## Use cases → intents
 
-| Resource | New path | Notes |
+| Use case | Node call site(s) | Action + intent |
 |---|---|---|
-| Databases | `POST /api/cloud/v3/databases` | create |
-| | `POST /api/cloud/v3/databases/access` | access view |
-| Mutation log | `POST /api/cloud/v3/mutation-log/append` | |
-| | `POST /api/cloud/v3/mutation-log/head` | |
-| | `POST /api/cloud/v3/mutation-log/list` | |
-| | `POST /api/cloud/v3/mutation-log/settle-submissions` | |
-| Proposals | `POST /api/cloud/v3/proposals/list` | renamed from inbox |
-| | `POST /api/cloud/v3/proposals/settle` | |
-| Blobs | `POST /api/cloud/v3/blobs` | body `action`: context/prepare/complete |
-| Snapshots | `POST /api/cloud/v3/snapshots` | body `action`: current snapshot actions |
-| Delivery | `POST /api/cloud/v3/delivery/object` | out from under mutation-log |
-| Members (grants) | `POST /api/cloud/v3/members/set` | write signed grant entries |
-| | `POST /api/cloud/v3/members/get` | one grant entry |
-| | `POST /api/cloud/v3/members/list` | page grant entries (publisher) |
-| | `POST /api/cloud/v3/members/read` | caller’s own grant / self-access |
-| Settings | `POST /api/cloud/v3/settings/set` | was share/members/settings |
-| | `POST /api/cloud/v3/settings/get` | |
-| DEV proof | `POST /api/cloud/v3/dev-snapshot-proof/{op}` | DEV only; in the contract |
+| Publish (create) a database | CREATE | `manage` / `create_database` |
+| Enrollment / access view | ACCESS | `manage` / `database_access` |
+| Append mutation changes | APPEND (mutation) | `push` / `changes` |
+| Read mutation head | HEAD | `fetch` / `head` |
+| Read mutation changes | LIST | `fetch` / `changes_since` |
+| Propose | APPEND (proposal) | `push` / `proposal` |
+| List proposals | inbox/list | `fetch` / `proposals_since` |
+| Settle proposals | inbox/settle | `push` / `settle` |
+| Upload file bytes | blob context/prepare/complete | `push` / `file` (+ opaque tickets) |
+| Read file bytes | delivery/object | `fetch` / `file_range` |
+| Snapshot backup | snapshot prepare/publish | `push` / `backup` (+ opaque tickets) |
+| Snapshot restore | read / read-for-restore / download | `fetch` / `restore_point`, `restore_part` |
+| Grant members | members/set | `manage` / `grant` |
+| Revoke members | members/set (clear entry) | `manage` / `revoke` |
+| Read own access | members/read | `fetch` / `self_access` |
+| Set settings | settings/set | `manage` / `set_settings` |
+| Get settings | settings/get | `fetch` / `settings` |
+| Owner reclaim / retention | retention CLI | **ops** (off product surface) |
+| DEV snapshot proof | CI | **dev** (marked) |
 
-Auth-service paths stay under `/api/developer` and `/api/auth`. They do **not**
-use the cloud protocol header (Decision 5).
+Cut: `settle-submissions` (no node caller). Cut: grant **list** and any
+MemberList **revision** document (approved decision).
 
-### Old → new route table
+## Final action + intent list
+
+### `POST /api/cloud/v3/fetch`
+
+| intent | Meaning |
+|---|---|
+| `head` | Latest change cursor for a database |
+| `changes_since` | Changes after a cursor |
+| `proposals_since` | Proposals after a cursor |
+| `file_range` | Byte range of a record file (via opaque `file_handle`) |
+| `restore_point` | Describe / open a backup restore point |
+| `restore_part` | Bytes for one restore part (via opaque `part_handle`) |
+| `self_access` | Caller’s own grant view |
+| `settings` | Current settings config |
+
+### `POST /api/cloud/v3/push`
+
+| intent | Meaning |
+|---|---|
+| `changes` | Append mutation changes |
+| `proposal` | Append a proposal |
+| `settle` | Settle proposal ids |
+| `file` | Upload record-file bytes (ticket stages) |
+| `backup` | Publish a backup restore point (ticket stages) |
+
+`file` and `backup` use opaque tickets: the first call returns a ticket (and
+optionally a short-lived upload URL); later calls pass the ticket back. The
+node does not name object keys or multipart layouts in the request schema.
+
+### `POST /api/cloud/v3/manage`
+
+| intent | Meaning |
+|---|---|
+| `create_database` | Create / publish a database |
+| `database_access` | Enrollment / access view for one database |
+| `grant` | Put one or more signed `grant#<node key>` entries |
+| `revoke` | Remove grant(s) for node key(s) |
+| `set_settings` | Replace settings config |
+
+No `list` grants. No revision counter on a member list document.
+
+### Ops (off public product surface)
+
+`POST /api/cloud/v3/ops` — owner reclaim / retention. Same action style so the
+CLI stays consistent, but **not** part of the product fetch/push/manage
+surface. Tag: `ops`.
+
+| intent | Was |
+|---|---|
+| `retention` | snapshot retention |
+| `automatic_retention` | automatic-retention |
+| `reclaim` | reclaim |
+| `reclaim_covered` | reclaim-covered |
+| `cleanup_retired` | cleanup-retired |
+| `reclaim_files` | reclaim-blobs (renamed to node noun) |
+
+### DEV-only (`x-lastdb-environment: dev`)
+
+| Path | intents |
+|---|---|
+| `POST /api/cloud/v3/dev/snapshot-proof` | `provision`, `retire`, `status`, `inspect` |
+| `POST /api/cloud/v3/ops` | `track_dev`, `cleanup_dev`, `cleanup_receipt_dev` |
+
+### Auth-service (unchanged; no protocol header)
+
+`/api/developer/*`, `/api/auth/*` — tag `auth-service`.
+
+## Snapshot actions
+
+| Current action | Disposition |
+|---|---|
+| `prepare`, `publish` | **Keep** as `push` / `backup` (ticket stages) |
+| `read`, `read-for-restore` | **Keep** as `fetch` / `restore_point` |
+| `download` | **Keep** as `fetch` / `restore_part` |
+| `retention`, `automatic-retention`, `reclaim`, `reclaim-covered`, `cleanup-retired`, `reclaim-blobs` | **Move** to `ops` |
+| `track_dev`, `cleanup_dev`, `cleanup_receipt_dev` | **DEV-only** on `ops` |
+| `index-status`, `index-history` | **Absent** |
+
+## Old → new (every current route)
 
 | Old (v2) | New (v3) |
 |---|---|
-| `…/mutation-log/create-database` | `…/databases` |
-| `…/mutation-log/access` | `…/databases/access` |
-| `…/mutation-log/append` | `…/mutation-log/append` |
-| `…/mutation-log/head` | `…/mutation-log/head` |
-| `…/mutation-log/list` | `…/mutation-log/list` |
-| `…/mutation-log/settle-submissions` | `…/mutation-log/settle-submissions` |
-| `…/mutation-log/inbox/list` | `…/proposals/list` |
-| `…/mutation-log/inbox/settle` | `…/proposals/settle` |
-| `…/mutation-log/blob/bytes` | `…/blobs` |
-| `…/mutation-log/snapshot/bytes` | `…/snapshots` |
-| `…/mutation-log/delivery/object` | `…/delivery/object` |
-| `…/share/members/set` | `…/members/set` |
-| `…/share/members/get` | `…/members/get` |
-| `…/share/members/list` | `…/members/list` |
-| `…/share/members/read` | `…/members/read` |
-| `…/share/members/settings/set` | `…/settings/set` |
-| `…/share/members/settings/get` | `…/settings/get` |
-| `…/dev-snapshot-proof/{op}` | `…/dev-snapshot-proof/{op}` |
+| `…/mutation-log/create-database` | `manage` `create_database` |
+| `…/mutation-log/access` | `manage` `database_access` |
+| `…/mutation-log/append` (mutation) | `push` `changes` |
+| `…/mutation-log/append` (proposal) | `push` `proposal` |
+| `…/mutation-log/head` | `fetch` `head` |
+| `…/mutation-log/list` | `fetch` `changes_since` |
+| `…/mutation-log/inbox/list` | `fetch` `proposals_since` |
+| `…/mutation-log/inbox/settle` | `push` `settle` |
+| `…/mutation-log/settle-submissions` | **retired** |
+| `…/mutation-log/blob/bytes` | `push` `file` |
+| `…/mutation-log/delivery/object` | `fetch` `file_range` |
+| `…/mutation-log/snapshot/bytes` prepare/publish | `push` `backup` |
+| `…/mutation-log/snapshot/bytes` read / read-for-restore | `fetch` `restore_point` |
+| `…/mutation-log/snapshot/bytes` download | `fetch` `restore_part` |
+| `…/mutation-log/snapshot/bytes` retention / reclaim / cleanup-* | `ops` (see intents) |
+| `…/mutation-log/snapshot/bytes` *_dev | `ops` (dev) |
+| `…/share/members/set` | `manage` `grant` / `revoke` |
+| `…/share/members/get` | **open** — see questions (no public get-one in v3.0 list) |
+| `…/share/members/list` | **retired** (no list / revision) |
+| `…/share/members/read` | `fetch` `self_access` |
+| `…/share/members/settings/set` | `manage` `set_settings` |
+| `…/share/members/settings/get` | `fetch` `settings` |
+| `…/dev-snapshot-proof/{op}` | `dev/snapshot-proof` `{op}` |
 
-No dual routing. After the cutover deploy, v2 paths return the typed upgrade
-error (or plain 404 only before the version gate lands — prefer the typed
-error on every storage Lambda entry).
+## Extensibility
+
+A new capability is a **new `intent` value** (and a protocol version bump when
+old nodes must stop). Never a new route family. Opaque handles absorb
+storage-shape changes without a wire bump when the intent stays the same.
+
+## Auth
+
+| Scheme | Wire | Where |
+|---|---|---|
+| `accountBearer` | `Authorization: Bearer <enrollment key>` | auth-service |
+| `apiKey` | `X-API-Key` (`em_…`) | `manage` create; `push` file (as today) |
+| `lastDbNode` | `Authorization: LastDBNode …` | signed storage actions |
+| `githubOidc` | Bearer JWT | DEV snapshot-proof |
+
+Protocol header `X-LastDB-Cloud-Protocol: 3` on fetch/push/manage/ops/dev
+storage actions. **Not** on auth-service.
 
 ## Protocol version
 
-### Single wire version
+- Version **3**. Header + matching token field.
+- Drop redundant body `version` fields.
+- Out of date → HTTP **426**
+  `{ "code":"upgrade_required", "field":"cloud.protocol", "minimum_version":3 }`.
+- Live OpenAPI home after implementation:
+  `cloud_backup_protocol/cloud-api.openapi.json`.
 
-One integer: **cloud protocol version**. Cutover value: **3** (Decision 1).
-`info.version` in the OpenAPI is `"3"`. Rust constant (proposed name)
-`CLOUD_PROTOCOL_VERSION: u32 = 3`.
-
-There is no separate “API version” and “token version”.
-
-### Where the version travels
-
-**Required request header on every storage route:**
-
-```
-X-LastDB-Cloud-Protocol: 3
-```
-
-Checked first, before body decode.
-
-**Also bound into `LastDBNode`:** the token JSON carries the same integer in
-`version`, and that value is covered by the signature digest. Header and token
-must match. A mismatch is `invalid_input` / `cloud.protocol.mismatch`.
-
-**Drop redundant body `version` fields** where the path already implies the
-protocol (Decision 2). Do not put the protocol integer on grant, settings, or
-database response bodies.
-
-Auth-service routes (`/api/developer/*`, `/api/auth/*`) do **not** send or
-require this header (Decision 5).
-
-### Out-of-date node
-
-If the header is missing, lower than the service’s minimum, or higher than the
-service supports, the reply is **one clear typed error** — never an opaque
-serde failure (Decision 3):
-
-```
-HTTP 426
-{ "code": "upgrade_required", "field": "cloud.protocol", "minimum_version": 3 }
-```
-
-`minimum_version` is required on this code. The node surfaces it to the owner
-as “upgrade LastDB to continue using cloud.” No silent retry.
-
-Add `upgrade_required` to the stable error code set. Map it only to HTTP 426.
-
-### How the version is bumped
-
-| Change | Version action |
-|---|---|
-| Add a route or a required request field | Bump `CLOUD_PROTOCOL_VERSION` |
-| Remove a route or change a field meaning | Bump version **and** raise `CLOUD_PROTOCOL_MIN_VERSION` |
-| Add an optional response field the old client ignores | Still bump the version under today’s deny-unknown clients; clients that deny unknown fields cannot ignore new response keys |
-| Rename a path | Bump; cutover only — no alias |
-
-`CLOUD_PROTOCOL_MIN_VERSION` is what the service accepts. For a clean-break
-release it equals `CLOUD_PROTOCOL_VERSION`. It only lags when Tom later chooses
-a deliberate multi-release floor — and even then there is still **one** path
-tree, not two.
-
-Stable releases publish the protocol version the shipped node speaks. That
-number is what the reverse pin lint reads (check c).
-
-## Errors (stable)
-
-All storage refusals use one object:
+## Errors
 
 ```
 { "code": "<snake_case>", "field": "<static.name>" }
 ```
 
-Optional on upgrade only: `minimum_version` (u32).
+## CI plan
 
-| Code | Typical HTTP |
-|---|---|
-| `invalid_input` | 400 |
-| `unauthorized` | 403 |
-| `not_found` | 404 |
-| `generation_conflict` / `identity_conflict` / `predecessor_conflict` | 409 |
-| `resource_limit` / `quota_exceeded` | 413 |
-| `unsupported_capability` | 400 |
-| `missing_dependency` / `integrity_mismatch` | 400 |
-| `provider_pending` | 202 |
-| `outcome_unknown` / `retry_later` | 503 |
-| `upgrade_required` | 426 |
+(a) Spec matches dispatch (intent enum ↔ handler). (b) Types from tagged
+unions. (c) Next cloud vs last stable released node (closes #1799).
+No unit tests. E2E DEV ops remain the proof.
 
-Payment remains `unauthorized` with `field: "payment.subscription"` (existing
-convention). Do not invent a second payment shape.
+## Decisions (Tom, 2026-11-19)
 
-## Auth (target)
+1. Protocol starts at **v3**.
+2. Version in **header + token**; drop redundant body `version`.
+3. Upgrade → **426** `upgrade_required` + `minimum_version`.
+4. Members are signed `grant#<node key>` entries and self-access — **no list,
+   no revision**. Settings are separate intents, not Share-named paths.
+5. **No** protocol header on auth-service.
+6. Live OpenAPI under **`cloud_backup_protocol/`**.
+7. DEV snapshot-proof stays, marked **`x-lastdb-environment: dev`**.
 
-Four schemes, documented in OpenAPI:
+**Shape (Tom, same day, refined):** exactly three product actions — fetch,
+push, manage — with intent enums. Action-based, not resource-based. Cloud
+storage may change without the node knowing.
 
-1. **`accountBearer`** — `Authorization: Bearer <account_key>` (enrollment /
-   backup-connect credential). Auth-service developer-key and payment routes.
-2. **`apiKey`** — `X-API-Key` (`em_…` developer key). Storage create-database
-   and blob dual-auth only. Not used to manage developer keys.
-3. **`lastDbNode`** — `Authorization: LastDBNode <base64url(token)>.<base64url(sig)>`.
-4. **`githubOidc`** — DEV snapshot-proof only.
+---
 
-Dual-auth storage routes list both `apiKey` and `lastDbNode` as required.
-`/api/auth/cli/register` and `/api/auth/payments/webhook` stay outside these
-schemes (registration bootstrap and Stripe webhook).
+## Where the node still names a resource, and why
 
-## CI plan (three checks)
+These are places today’s node (or a naive port) still touches a **cloud
+storage** concept. Each is an **open question for Tom**.
 
-No unit tests. Source lints and DEV end-to-end operations only.
+### R1 — Presigned upload URLs may reveal bucket / object host
 
-### (a) Spec matches the dispatch table
+Today `push` file / backup returns a presigned PUT URL the transport calls
+directly (`cloud_backup_client` `put_presigned`). The URL hostname and path
+can expose the object store.
 
-New lint (name proposal: `scripts/lints/cloud_api_surface.py`), modeled on
-`api_surface.py`:
+**Recommendation:** keep short-lived opaque upload URLs as a **transport
+detail** outside the intent schema’s named fields (type them as
+`upload_url: string` with no bucket fields). Prefer cloud-mediated upload
+(`push` accepts bytes or a ticket-only flow) in a later protocol bump if
+URLs leak too much. For v3.0, document URLs as opaque strings.
 
-- Parse OpenAPI `paths` for `/api/cloud/v3/…`.
-- Parse `storage_service` route match arms (and members / snapshot / blob
-  `action` enums) from the pinned `exemem-infra` tree, or from a committed
-  path list generated when the fold pin moves.
-- Fail when a served route or action is missing from the OpenAPI, or when the
-  OpenAPI lists a path the service does not serve.
-- Fail when `info.version` ≠ `CLOUD_PROTOCOL_VERSION`.
+### R2 — File identity is still `BlobPath`-shaped in the node
 
-### (b) Types generated from the spec
+`lastdb_node` builds `BlobPath` (scope + content layout) for uploads and for
+`delivery/object` reads. That is a cloud key shape.
 
-New generator (name proposal: `scripts/lints/cloud_api_types.py`), modeled on
-`app_api_types.py`:
+**Recommendation:** replace with an opaque `file_handle` issued when a change
+that owns the file is accepted (or returned from `push`/`file`). The node
+stores and returns the handle; it does not compose storage keys. v3 request
+fields use `file_handle`, never `blob_path` / bucket / key.
 
-- Input: the OpenAPI file.
-- Output: committed generated Rust request/response types (or a thin module
-  that re-exports checked shapes) used by `cloud_backup_protocol` / the node
-  client.
-- `--check` in CI; `--write` for developers.
-- No third-party codegen package required if we follow the app API script’s
-  constrained JSON Schema subset.
+### R3 — Snapshot multipart / part layout
 
-### (c) Next cloud vs last stable released node
+Restore download today walks part indexes. If the wire lists part numbers or
+object keys, the node knows snapshot object layout.
 
-Close the #1799 gap. Extend or pair
-`scripts/lints/lint-cloud-protocol-pin.py`:
+**Recommendation:** `fetch`/`restore_point` returns opaque `part_handle`s;
+`fetch`/`restore_part` takes only those handles. No part-index or object-key
+fields in the OpenAPI.
 
-- Today: **new lastdb** vs **pinned exemem fold** (keep).
-- Add: **candidate cloud / protocol tree** vs **protocol tree at the latest
-  stable LastDB release tag** (for example `0.23.40`).
-- Fail when the candidate would reject that stable node’s requests or when
-  that stable node would reject the candidate’s responses, under
-  `deny_unknown_fields` rules already encoded in the pin helper.
-- When a break is intentional, the PR must raise
-  `CLOUD_PROTOCOL_MIN_VERSION` / `CLOUD_PROTOCOL_VERSION` and the stable-release
-  process must ship a node that speaks the new version **before** or **with**
-  the cloud deploy. The lint’s job is to make the break visible in CI instead
-  of in People DEV.
+### R4 — Range size tied to storage limit
 
-DEV end-to-end: reuse existing cloud shared-daily / snapshot proof operations
-against the new paths after cutover. No new unit test target.
+`file_range` length is bounded by the cloud object read limit. That couples
+the node to a storage max.
 
-## Cutover
+**Recommendation:** cloud returns `max_range_bytes` once (on `head` or first
+`file` ticket) as a protocol constant field, not a store name. Node clamps
+ranges to that number. Open whether the constant lives in the OpenAPI as
+`x-lastdb-max-range-bytes` or only in responses.
 
-1. Land the design OpenAPI + prose (this PR).
-2. Move the live OpenAPI to `cloud_backup_protocol/cloud-api.openapi.json`
-   when implementation starts (Decision 6).
-3. Implement protocol 3 paths and version gate in `cloud_backup_protocol` +
-   `exemem-infra` + `lastdb_node` in one coordinated release train.
-4. Deploy cloud that speaks only v3; ship a LastDB stable that speaks only v3.
-5. Remove v2 path constants. Do not leave aliases.
+### R5 — DEV snapshot-proof
 
-## Decisions
+CI provision/retire/inspect still talk about snapshot proof homes and may
+name DEV buckets in operator docs.
 
-Recorded 2026-11-19 (Tom, via LastDB Chief of Staff). These replace the earlier
-open questions.
+**Recommendation:** keep the **dev** action path; mark
+`x-lastdb-environment: dev`. Request bodies use proof ids / opaque handles
+only — no bucket fields in the public schema.
 
-1. **Protocol starts at v3.**
-2. **Version travels in the header and the `LastDBNode` token.** Drop redundant
-   body `version` fields.
-3. **Out-of-date clients get HTTP 426** with `code: upgrade_required` and
-   `minimum_version`.
-4. **Split `share/members` into `members` and `settings`.** Members means
-   signed grant entries (`grant#<node key>`), not a People Share preset and not
-   a whole-list document.
-5. **No protocol header on the auth service.**
-6. **Live OpenAPI lives under `cloud_backup_protocol/`**
-   (`cloud_backup_protocol/cloud-api.openapi.json`).
-7. **Keep DEV snapshot-proof in the contract**, marked
-   `x-lastdb-environment: dev`.
+### R6 — Members `get` (single grant) without `list`
 
-### Grants and self-access (Decision 4, clarified)
+Node `exchange.rs` calls members/get and members/list today. List is
+retired by decision. Get-one is not in the three-verb illustrative set.
 
-- One signed **grant entry** per node key. Schema name: `GrantEntry`.
-- `POST …/members/set` writes grant entries. `get` reads one. `list` pages
-  grant entries for the publisher (a cursor over node keys).
-- `POST …/members/read` returns the caller’s **self-access** only
-  (`SelfAccessRequest` / `SelfAccessResponse`). It does not return a write
-  counter. `#1799` already removed the whole-list counter from the token; v3
-  does not bring it back.
+**Recommendation:** do **not** add `fetch`/`grant` in v3.0. Publisher uses
+`manage`/`grant` (put) and local copies; members use `fetch`/`self_access`.
+If get-one is required for publisher UX, add `fetch`/`grant` later as a new
+intent (version bump).
+
+---
+
+## Other open questions for Tom
+
+1. **Retire `settle-submissions` with no replacement?**
+   Recommended: **yes**.
+
+2. **Is `ops` the right home for reclaim/retention (outside fetch/push/manage)?**
+   Recommended: **yes**.
+
+3. **`manage`/`database_access` vs folding enrollment into `fetch`/`self_access`?**
+   Recommended: keep **`database_access`** under manage — it is enrollment /
+   publisher access metadata, not the member’s grant view.
+
+4. **Single `push`/`file` intent with ticket stages vs separate begin/complete intents?**
+   Recommended: **one intent** + opaque ticket field (fewer enum slots, same
+   extensibility).
