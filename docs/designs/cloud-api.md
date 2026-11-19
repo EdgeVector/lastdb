@@ -8,6 +8,42 @@ Tom (2026-11-19): action-based interface. The node Ed25519 key is the
 identity. Every node request is signed. The cloud stays blind to database
 contents. No dual paths, aliases, fallback, or migration. No unit tests.
 
+## Trust model
+
+ExeMem is **untrusted storage and transport**. Honest nodes must
+independently reach the **same canonical source of truth** even if ExeMem
+is hacked. A compromised server may reorder delivery, withhold entries, or
+fork (serve different histories to different nodes). It must not be able to
+make honest nodes **silently disagree**.
+
+| Trusted for | Not trusted for |
+|---|---|
+| Availability (store and return bytes when it chooses) | Canonical order |
+| | Completeness of what any one node has seen |
+| | Authorization truth (who may write) |
+| | Integrity or authenticity of payloads |
+
+**Guarantees (honest nodes):**
+
+- Canonical history and its order come only from **signed data** (writer
+  hash chains + the publisher spine). Never from cloud sequence, cursor, or
+  receive time.
+- A valid writer signature proves who authored an entry and that it was not
+  altered.
+- Grant and revocation truth is the publisher’s signed chain, not ExeMem’s
+  ACL table. A hacked ExeMem cannot invent write access that honest readers
+  will accept.
+- Reorderings of the same signed set yield the same canonical state.
+- Forks, equivocation, and gaps become **detectable signed evidence** once
+  publisher heads are compared (own devices and People). On detection,
+  nodes stop advancing canonical state for that database.
+
+**Limit (plainly):** ExeMem can always stop or delay delivery. That is a
+**liveness / freshness** failure (for example, withholding the newest
+revocation). It cannot make honest nodes apply divergent canonical state
+without producing evidence when heads meet. See Open questions for any
+extra freshness signal.
+
 ## Shape
 
 ```
@@ -85,7 +121,8 @@ POST
 
 Protocol slot is `3` when the protocol header is required, else `-`. Body hash
 is SHA-256 of the raw body, lowercase hex. One signature covers the whole
-batch body.
+batch body. **Request signatures authorize the HTTP call only.** They are not
+a substitute for per-entry writer signatures (Decision 42).
 
 Clock skew: **±60 seconds** (`SHARE_REQUEST_SKEW_MS` today). Nonces are
 single-use per node key and remembered for at least **2×** the skew window.
@@ -110,8 +147,9 @@ single-use per node key and remembered for at least **2×** the skew window.
   `lastdb-db-birth-v1\n<database_id>\n<owner node key>\n<db_salt>`.
 - ExeMem verifies the birth signature against `database_id`, checks that the
   owner node key is the request signer, and stores owner, salt, and signature.
-- The db key signs **nothing else**. After create, the owner’s **node-key**
-  request signature authorizes every change. No per-grant signatures.
+- The db key signs **nothing else**. The birth certificate is how readers
+  learn the **publisher (owner) node key**. The publisher needs **no grant**
+  for its own writes.
 - Members and public readers get `owner`, `db_salt`, `birth_signature` from
   `manage`/`access` and verify: signature against `database_id`, and `owner`
   matches the publisher People told them about.
@@ -125,6 +163,231 @@ single-use per node key and remembered for at least **2×** the skew window.
 - Deactivate retires the node key and tombstones every owned database.
 - The cloud stays blind to contents (name lives in the node-encrypted
   manifest; no `kind` / schema fields on create).
+
+## Signed history (Decision 42)
+
+### Writer hash chains
+
+Every writer’s entries form a **gapless hash chain** under that writer’s
+node key.
+
+- `writer_seq` starts at **1** and increases by exactly **1** per entry.
+- `prev_hash` is 32 zero bytes for `writer_seq = 1`; otherwise it is
+  `entry_hash` of that writer’s previous entry.
+- `entry_hash = SHA-256( signed_bytes || signature_raw_64 )` (signature
+  decoded from base64url).
+- Two different valid signatures for the same `(node_key, writer_seq)`, or
+  two valid entries that claim the same `prev_hash` with different
+  `entry_hash`, are **equivocation** — provable fork evidence.
+- Dedupe key is `(node_key, writer_seq)`. Same seq with identical
+  `entry_hash` is a no-op replay (`duplicate`). Same seq with a different
+  `entry_hash` is `conflict` / `entries.writer_seq` at push, and fork
+  evidence for readers.
+- Cloud delivery sequence, cursor, and receive time are **excluded** from
+  signed bytes and **never** define order.
+
+### Signed-bytes layout (common)
+
+All entry kinds share a length-prefixed binary layout. Integers are
+big-endian. Hex fields on the wire are lowercase; in signed bytes they are
+the **raw 32-byte** value unless noted.
+
+Common header (every kind), in order:
+
+| Field | Encoding |
+|---|---|
+| domain | UTF-8 label + `0x00` (see kinds below) |
+| `database_id` | 32 bytes |
+| `node_key` | 32 bytes (writer) |
+| `device_id` | UUID as 16 raw bytes |
+| `writer_seq` | u64 |
+| `prev_hash` | 32 bytes |
+| `authored_at_ms` | u64 |
+| `lamport` | u64 (≥ previous entry’s `lamport` for this writer; first ≥ 1) |
+| `last_seen_publisher_seq` | u64 (0 = none) |
+| `last_seen_publisher_hash` | 32 bytes (zeros if seq = 0) |
+
+Then kind-specific fields. The writer signs the concatenation with its
+**node** Ed25519 key. Wire field `signature` is base64url, no pad (64 bytes).
+
+`last_seen_publisher_*` is the highest publisher chain head this writer had
+fully verified when signing. It carries fork evidence into every entry.
+
+### Entry kinds
+
+| Kind | Domain | Who | Wire / reserved |
+|---|---|---|---|
+| `data` | `lastdb-mutation-v1` | any writer | `namespace` not `grant` / `checkpoint` |
+| `grant` | `lastdb-grant-v1` | publisher only | reserved namespace `grant` |
+| `checkpoint` | `lastdb-checkpoint-v1` | publisher only | reserved namespace `checkpoint` |
+
+**Data** fields after the header:
+
+| Field | Encoding |
+|---|---|
+| `stream` | `0x00` direct, `0x01` proposal |
+| `namespace` | u16 length + UTF-8 (1…128), not `grant`/`checkpoint` |
+| `payload_sha256` | 32 bytes = SHA-256 of decoded `payload_b64` |
+| `has_file` | `0x00` / `0x01` |
+| `file_handle` | if has_file: u16 length + UTF-8 (1…256) |
+| `file_sha256` | if has_file: 32 bytes |
+| `has_incorporated_from` | `0x00` / `0x01` |
+| incorporated | if set: `node_key` 32, `device_id` 16, `writer_seq` u64, `signature_sha256` 32 |
+| `has_grant_at` | `0x00` / `0x01` |
+| `grant_publisher_seq` | if set: u64 — publisher `writer_seq` of the write grant this entry relies on |
+
+Rules for data:
+
+- **Publisher** direct data: `has_grant_at = 0`. Owner needs no grant.
+- **Member** direct data (`stream = direct`): `has_grant_at = 1`. See
+  grant checks below.
+- **Proposal** (`stream = proposal`): writer signature required;
+  `has_grant_at = 0`. Submitters need a submit grant at push time for
+  ExeMem’s door check; readers do not re-check the submitter’s grant on
+  **incorporated** content (publisher vouched by signing the incorporation).
+- **Incorporation:** publisher direct data with `has_incorporated_from = 1`.
+  Always authorized as publisher. The referenced proposal’s original
+  signature stays independently verifiable via `signature_sha256`.
+
+**Grant** fields after the header (Decision 43):
+
+| Field | Encoding |
+|---|---|
+| `grantee` | `0x00` + 32-byte node key, or `0x01` for `any` |
+| `role` | `0x01` read, `0x02` submit, `0x03` write, `0x00` revoked |
+
+One signed grant entry per member key (or one `any` entry). No member-list
+document, no share/members/update, no list-revision. Upsert = a new grant
+entry at a new publisher `writer_seq`. Revoke = role `revoked`.
+
+`any` is **read-only**. `any` + non-read → `invalid_request` /
+`grants.any.role`. Readers never consult `any` for write authorization.
+
+**Checkpoint** fields after the header:
+
+| Field | Encoding |
+|---|---|
+| `head_count` | u16 |
+| heads | `head_count` × (`node_key` 32, `writer_seq` u64, `entry_hash` 32), sorted by `node_key` ascending |
+
+A checkpoint lists each writer chain head the publisher **accepts as
+canonical**. See Open questions: whether listing heads conflicts with “no
+member list document”.
+
+### Batch transport
+
+`push`/`mutations` entries and `fetch`/`mutations_since` entries each carry
+their own `signature` and **every signed field** (including `database_id`,
+`node_key`, `device_id`, `prev_hash`, `lamport`, `last_seen_publisher_*`,
+kind-specific fields, and decoded `payload_b64` when kind is `data`). Each
+entry is independently verifiable regardless of batching or delivery order.
+
+### Publisher spine and canonical state
+
+The **publisher chain** is the canonical spine (owner node key from the
+birth certificate).
+
+1. Readers verify the publisher chain gaplessly (`writer_seq`, `prev_hash`).
+2. Grant/revocation state is the deterministic fold of `grant` entries in
+   publisher `writer_seq` order.
+3. **Canonical state** is the deterministic replay of the publisher chain:
+   for each `checkpoint` entry, pull in the listed writer entries that are
+   not yet canonical, in fixed order: **writer `node_key` ascending, then
+   `writer_seq` ascending**. Each pulled entry must verify against its
+   writer chain through that head.
+4. Member direct writes are **tentative** until a publisher checkpoint
+   lists them. Tentative display order (non-canonical): `lamport`
+   ascending, then `node_key` ascending. Canonical state never depends on
+   cloud order.
+5. Therefore member writes need the **publisher node online** to become
+   final under this shape. Alternative (fully deterministic merge of all
+   writer chains without checkpoints) is an Open question — weaker
+   revocation semantics.
+
+### Grant checks for member direct writes
+
+Let `W` be a member direct data entry with `grant_publisher_seq = G`,
+applied when a checkpoint `C` lists it.
+
+1. `W`’s writer signature and hash-chain link verify.
+2. Publisher entry at seq `G` is a `grant` that sets `W.node_key` to role
+   **`write`** (effective role after folding grants with `seq ≤ G`).
+3. No publisher `grant` with seq `R` where `G < R ≤ C.writer_seq` sets that
+   key’s role to anything other than `write` (revocation or downgrade
+   closes the window).
+4. `W.last_seen_publisher_seq` / `hash` match the reader’s publisher chain
+   at that seq; mismatch → fork evidence, do not apply.
+5. If the reader knows a revocation/downgrade `R` and
+   `W.last_seen_publisher_seq ≥ R`, the writer **must have known** about
+   `R` and still signed a write under grant `G` → reject, keep evidence.
+
+**Write signed before vs after a revocation by publisher seq:**
+
+- If `C.writer_seq < R`, checkpoint `C` is entirely before the revocation:
+  `W` may apply (rules 1–4).
+- If `R ≤ C.writer_seq`, rule 3 rejects `W` at `C` even if `W` was authored
+  “earlier” in wall time. Publisher seq, not clock time, orders grants.
+- Wall-clock `authored_at_ms` is informational and is not used for grant
+  validity.
+
+**Proposals:** verify the submitter’s writer signature. Publisher
+incorporation is a publisher direct entry (always authorized). Readers do
+**not** require a still-valid submit grant on the proposer for incorporated
+content; the publisher’s signature is the vouch. `grant#any` is irrelevant
+to writes.
+
+### What ExeMem checks at push vs what readers check
+
+**ExeMem (door + storage hygiene, not source of truth):**
+
+- Request `nodeSignature` (as today).
+- Each entry signature verifies under `node_key`; `database_id` matches the
+  envelope; on push, `node_key` / `device_id` match the request headers.
+- Chain step: `writer_seq` and `prev_hash` consistent with the last accepted
+  entry for that writer (or conflict / equivocation errors).
+- `stream` / reserved namespaces match the caller’s door role (publisher /
+  write / submit) — defense in depth only.
+- Grant/revoke manage intents: verify `lastdb-grant-v1` and that the signer
+  is the owner; append onto the publisher chain.
+- Bad signature → `invalid_request` / `entries.signature`.
+- Equivocation / different bytes at same seq → `conflict` /
+  `entries.writer_seq`.
+- Bad incorporation reference → `invalid_request` / `incorporated_from`.
+- Bad grant signature → `invalid_request` / `grants.signature`.
+
+**Readers (mandatory, even after a successful push):**
+
+- Verify every entry before apply; never trust ExeMem’s ACL or delivery
+  order.
+- On verification failure of an entry in a writer chain: **do not apply
+  it**, retain it as evidence, and **stop advancing that writer’s chain**
+  at the gap (later `writer_seq` for that key cannot apply). Continue other
+  writers’ tentative chains; do not advance **canonical** state past a
+  publisher-chain gap or failed publisher entry.
+- Justification: `writer_seq` / `prev_hash` ordering is gapless; applying
+  past a bad or missing link would invent history.
+
+### Forks, withholding, resolution
+
+- Publisher chain gap or `prev_hash` mismatch → withhold/corruption
+  detected; stop canonical advance; surface
+  `conflict` / `history.withheld` (local/app signal; may also appear if a
+  node refuses to proceed).
+- Equivocating writer → keep both signed entries; surface
+  `conflict` / `history.equivocation`.
+- Divergent publisher heads (same seq, different hash, or incompatible
+  tips) discovered when **comparing heads** → `conflict` /
+  `history.fork`. Compare paths: (1) a node’s own devices compare
+  latest-seen signed publisher heads; (2) members exchange heads via
+  **People** when they connect (no new cloud intent required); (3) every
+  entry embeds `last_seen_publisher_*` so ordinary writes propagate
+  evidence.
+- On fork/withheld: **stop advancing canonical state** for that database,
+  keep the evidence (both signed heads/entries), show the app a
+  database-forked/withheld condition, and require a **publisher-signed
+  resolution** entry (same publisher key) that explicitly names the chosen
+  tip `entry_hash` before canonical progress resumes. Resolution wire shape
+  is an Open question if not folded into a checkpoint.
 
 ## Requirements (Decision 38)
 
@@ -154,14 +417,15 @@ databases. `delete` always works.
 1. Protocol **v3**.
 2. Version in **header + signature material**; no body `version`.
 3. **426** `upgrade_required` + `minimum_version` (not on account).
-4. Grants are plain `{grantee, role}`, authorized by the publisher’s
-   **request signature**. No per-grant signature, sequence, or `signed_at`.
+4. **Superseded by 43.** Grants are publisher-signed chain entries, not
+   request-only ACL rows.
 5. **No** protocol header on **account**.
 6. Live OpenAPI under **`cloud_backup_protocol/`**.
 7. DEV snapshot-proof under **`maintenance`**, `x-lastdb-environment: dev`.
 8. Actions: `fetch` / `push` / `manage` / `account` / `maintenance`.
-9. `push`/`mutations`: no `kind`; `landed` from grant (`direct` /
-   `proposal`). Publisher always `direct`.
+9. `push`/`mutations`: no `kind` field for landed stream; `landed` from
+   door grant (`direct` / `proposal`). Publisher always `direct`. Entry
+   `stream` is signed and must match what ExeMem lands.
 10. `fetch`/`mutations_since`: publisher sees direct+proposal; receivers
     direct only; accept = publisher push with `incorporated_from`; entries
     tagged `stream`.
@@ -169,7 +433,7 @@ databases. `delete` always works.
 12. Access under **manage**; no share-settings / `rules` surface.
 13. Cleanup / retention **ExeMem-internal** — no public ops.
 14. Ingested proposals deletable when publisher fetch cursor advances past
-    them (Decision 41).
+    them (Decision 41). Delivery cursor is not canonical order.
 15. **`manage`/`delete`** — publisher reclaim; immediate tombstone.
 16. Standard body envelope `{database_id?, intent, args|result}`.
 17. **Batching** — single or array; caps above; per-item errors.
@@ -192,8 +456,9 @@ databases. `delete` always works.
 29. Connect codes / invites / joins are **People-app only**.
 30. No `rules` / share-settings. Defaults: members-only read without `any`;
     write vs proposal from each member’s grant; publisher always direct.
-31. Public read is **`grant#any`** at **`read` only**. Revoke `any` turns it
-    off. No per-grant signatures (with Decision 4).
+31. **Superseded by 43.** Public read remains `grant#any` at **`read`
+    only**, expressed as a publisher-signed grant entry with grantee
+    `any`.
 32. **Device rule** (§ Auth): account keys need a registered device;
     account-less keys skip the device check. Public fetch rate-limited
     `read.public` per IP+database; publisher pays.
@@ -205,7 +470,8 @@ databases. `delete` always works.
 34. **`manage`/`create`** carries only `db_salt` + `birth_signature` (no
     `kind`/`name`/`schema_version`). Cloud stays blind. Today’s node
     `CreateBody` in `log_sync/native.rs` must stop sending kind/spec.
-35. Access levels everywhere: **`read` | `submit` | `write`**.
+35. Access levels everywhere: **`read` | `submit` | `write`** (plus
+    signed role `revoked` on grant entries).
 36. **Self-certifying derived `database_id`** (§ Database keys). Tombstones.
     No db-key rotation.
 37. **Retention is ExeMem’s.** `advance_cutoff`, `previous`, `destination`
@@ -222,22 +488,38 @@ databases. `delete` always works.
     the key forever → later calls `unauthorized` / `account.retired`.
 40. **Devices:** `remove_device` is bookkeeping only (id never returns);
     cap **256** → `conflict` / `device.limit`.
-41. **Cursors / proposals / restore:** opaque forward-only cursors; proposal
-    deletion only after a later publisher cursor past it; `cursor_expired`
+41. **Cursors / proposals / restore:** opaque forward-only **delivery**
+    cursors (pagination only, not canonical order); proposal deletion only
+    after a later publisher delivery cursor past it; `cursor_expired`
     recovery = latest snapshot → restore → resume from its cursor.
     Acceptance visible via `incorporated_from` (no status intent).
+42. **Per-entry writer signatures + hash chains** (§ Signed history).
+    Request signatures are insufficient. Readers verify before apply.
+    ExeMem verifies at push and rejects bad signatures
+    (`entries.signature`). Failure rule: stop that writer’s chain at the
+    gap; retain evidence.
+43. **Signed grants in the publisher spine** (§ Signed history). Each
+    grant/revocation is a publisher-signed `lastdb-grant-v1` entry in the
+    publisher’s ordered direct stream (reserved namespace `grant`).
+    `manage`/`grant` and `manage`/`revoke` carry the signed entry; ExeMem
+    verifies and mirrors into its door ACL, but readers authorize writes
+    only from the publisher chain + checkpoints. Checkpoint entries
+    (`lastdb-checkpoint-v1`) make member writes canonical. Trust model:
+    ExeMem untrusted except availability.
 
 ## Opaque strings and encodings
 
 | Name | Max | Notes |
 |---|---|---|
-| `cursor`, `file_handle`, `snapshot_upload` | 256 | Opaque; no raw delivery_seq |
+| `cursor`, `file_handle`, `snapshot_upload` | 256 | Opaque; delivery pagination only |
 | `url` | 8192 | Presigned |
 | `headers` | 32 entries, values ≤1024 | String map |
 | `payload_b64` | ≤96 KiB decoded | base64url, no pad |
 | `db_salt` | 64 hex | 32 bytes |
-| `birth_signature` | base64url, 64 bytes | Db-key Ed25519 |
+| `birth_signature`, entry `signature` | base64url, 64 bytes | Ed25519 |
+| `prev_hash`, `entry_hash`, `*_sha256` | 64 hex | 32 bytes |
 | `restore_point_id` | 64 hex | sha256 of manifest file |
+| reserved namespaces | — | `grant`, `checkpoint` |
 
 ## Intent reference
 
@@ -256,9 +538,8 @@ Errors: `cursor_expired`, `forbidden`, `not_found`.
 | `cursor` | yes |
 | `mutations[]` ≤90 | yes |
 
-Each mutation: `stream` (`direct`|`proposal`; proposals to publisher only),
-`node_key`, `device_id`, `writer_seq`, `authored_at_ms`, `namespace`,
-`payload_b64`, `file?`, `incorporated_from?`.
+Each element is a full signed entry (`data` | `grant` | `checkpoint`) as in
+§ Signed history. Delivery order is not canonical order.
 
 ### `fetch` / `snapshot`
 
@@ -299,24 +580,23 @@ Client GETs `url` with `headers`. Same model for snapshot files.
 ### `push` / `mutations`
 
 Who: write/publisher → `direct`; submit → `proposal`; read → `forbidden`.
-Errors: `conflict`/`entries.writer_seq`, `forbidden`, `payment_required`,
+Errors: `conflict`/`entries.writer_seq`, `invalid_request`/`entries.signature`,
+`invalid_request`/`incorporated_from`, `forbidden`, `payment_required`,
 `not_found`/`file_handle`.
 
 | args | req |
 |---|---|
 | `entries[]` 1…90 | yes |
 
-Entry: `writer_seq` ≥1, `authored_at_ms`, `namespace` ≤128, `payload_b64`,
-`file?`, `incorporated_from?` (publisher only). File must already be
-committed. Submit cannot attach files.
+Each entry is a full signed `data` or (publisher only) `checkpoint` entry.
+File refs must already be committed. Submit cannot attach files. Publisher
+`checkpoint` entries are how member writes become canonical.
 
 | result | req |
 |---|---|
 | `landed` | yes |
 | `next_writer_seq` | yes |
 | `duplicate` | no |
-
-Dedupe by (node key, device, writer_seq).
 
 ### `push` / `file` (`begin` | `commit`)
 
@@ -354,13 +634,20 @@ Errors: `conflict`/`database.id`, `invalid_request`/`birth_signature`,
 ### `manage` / `grant`
 
 Who: publisher.
-Args: `grants[]` 1…90 `{grantee, role}`. Result: `{}`.
-`any` + non-`read` → `invalid_request`/`grants.any.role`. Upsert, idempotent.
+Args: `entries[]` 1…90 signed `grant` entries (`role` ∈
+`read`|`submit`|`write`). Result: `{}`.
+ExeMem verifies each `lastdb-grant-v1` signature, checks chain linkage on
+the publisher spine, upserts door ACL, and makes the entries fetchable as
+direct publisher stream entries. `any` + non-`read` →
+`invalid_request`/`grants.any.role`. Bad signature →
+`invalid_request`/`grants.signature`.
 
 ### `manage` / `revoke`
 
 Who: publisher.
-Args: `grantees[]` 1…90. Result: `{}`. Revoking `any` turns public read off.
+Args: `entries[]` 1…90 signed `grant` entries with `role = revoked`.
+Result: `{}`. Same verification and spine append as grant. Revoking `any`
+turns public read off for readers who have that entry.
 
 ### `manage` / `access`
 
@@ -375,6 +662,9 @@ Args: `{}`.
 | `owner` | yes |
 | `db_salt` | yes |
 | `birth_signature` | yes |
+
+`role` / `level` here are ExeMem’s door view for UX. Readers still verify
+grants from the publisher chain before applying member writes.
 
 ### `manage` / `delete`
 
@@ -437,7 +727,9 @@ No `account_id` / `account_generation` / `database_id_version`.
    decrypt.
 6. Batch `fetch`/`file` (≤90) for links → GET each file, check sha256.
 7. Install under the manifest’s name → `mutations_since` from the snapshot
-   cursor.
+   delivery cursor → verify chains, fold publisher grants, replay
+   checkpoints to rebuild canonical state; compare publisher heads with
+   other devices / People before treating the tip as final.
 
 A public reader does steps 3–7 with any key (no account).
 
@@ -445,32 +737,76 @@ A public reader does steps 3–7 with any key (no account).
 
 | HTTP | code | fields |
 |---|---|---|
-| 400 | `invalid_request` | arg paths, `grants.any.role`, `birth_signature`, `cursor` |
+| 400 | `invalid_request` | arg paths, `grants.any.role`, `grants.signature`, `birth_signature`, `cursor`, `entries.signature`, `incorporated_from` |
 | 400 | `batch_too_large` | `batch.response` |
 | 401 | `unauthorized` | `request.signature`, `request.issued_at`, `request.nonce`, `device.unknown`, `device.removed`, `account.retired` |
 | 403 | `forbidden` | `grant.absent`, `grant.role` |
 | 403 | `payment_required` | `payment.subscription` |
 | 404 | `not_found` | `database.id`, `database.deleted`, `file_handle`, `restore_point_id`, `snapshot_upload` |
-| 409 | `conflict` | `database.id`, `account.exists`, `device.removed`, `device.limit`, `entries.writer_seq`, `file.unverified` |
+| 409 | `conflict` | `database.id`, `account.exists`, `device.removed`, `device.limit`, `entries.writer_seq`, `file.unverified`, `history.fork`, `history.equivocation`, `history.withheld` |
 | 409 | `cursor_expired` | `cursor` |
 | 426 | `upgrade_required` | `request.protocol` (not on account) |
 | 429 | `rate_limited` | `account.register` (per IP), `read.public` (per IP+database) |
+
+`history.*` fields are primarily reader/app signals when local verification
+detects fork, equivocation, or a gap; ExeMem may also return
+`entries.writer_seq` on push-time equivocation.
 
 Removed vs earlier draft: `predecessor_conflict` (folded into
 `cursor_expired`), `mutation_log.*` fields.
 
 ## Cursors, proposals, retention (Decision 41)
 
-- Cursors are opaque, per database, forward-only. One delivery order;
-  members skip proposal entries.
-- A proposal is deleted only when a later publisher `mutations_since`
-  carries a cursor past it.
+- Delivery cursors are opaque, per database, forward-only. They paginate
+  ExeMem’s blob store; they do **not** define canonical order.
+- One delivery stream may interleave writers; members skip proposal
+  entries in delivery.
+- A proposal is deleted only when a later publisher delivery
+  `mutations_since` carries a cursor past it.
 - ExeMem owns log cutting. It never deletes the latest restore point or one
   under hold.
 - On `cursor_expired`: `fetch`/`snapshot` (latest) → restore → resume
-  `mutations_since` from that cursor.
+  `mutations_since` from that cursor, then re-verify chains.
 - Submitter sees acceptance via a direct entry whose `incorporated_from`
-  matches its key, device, and writer_seq.
+  matches its key, device, writer_seq, and signature hash.
+
+## CI plan (DEV E2E, not unit tests)
+
+Run against a fresh DEV home with the real CLI/daemon and a DEV ExeMem.
+No unit tests. No primary data.
+
+1. **Payload tamper at push:** flip one byte of `payload_b64` after signing
+   → ExeMem returns `invalid_request` / `entries.signature`.
+2. **Payload / namespace / writer_seq / database_id tamper at fetch:** serve
+   an altered entry to a reader → reader rejects, does not apply, stops
+   that writer chain; cross-db replay (wrong `database_id` in signed bytes)
+   fails verification.
+3. **Incorporation mismatch:** publisher entry whose
+   `incorporated_from.signature_sha256` does not match the proposal →
+   rejected (`incorporated_from`).
+4. **Seq conflict:** same `(node_key, writer_seq)` with different bytes →
+   `conflict` / `entries.writer_seq`; reader treats as equivocation
+   evidence.
+5. **Forged grant:** grant entry not signed by the publisher/owner →
+   `invalid_request` / `grants.signature`; reader ignores for
+   authorization.
+6. **Revoked-grant replay:** write whose `grant_publisher_seq` predates a
+   later publisher revocation that is included by checkpoint `C` → reader
+   rejects at `C`; replay of the old grant entry cannot reopen write after
+   a later `revoked` entry.
+7. **Unsigned / bad writer signature:** reader rejects; chain stops.
+8. **Withheld publisher entry (seq gap):** reader detects gap on publisher
+   spine, halts canonical advance, surfaces `history.withheld`; member
+   writes that depend on publisher state past the gap do not become
+   canonical.
+9. **Reordered delivery:** same signed set delivered in different order →
+   identical canonical state after checkpoint replay.
+10. **Forked publisher history:** two readers receive divergent publisher
+    tips → on head compare (or via embedded `last_seen_publisher_*`),
+    detect `history.fork`, stop canonical advance, retain both signed
+    tips.
+11. **Equivocating writer:** two signed entries same seq different hash →
+    `history.equivocation`.
 
 ## Old → new
 
@@ -479,7 +815,8 @@ Removed vs earlier draft: `predecessor_conflict` (folded into
 | UUID `database_id` | 64-hex db public key |
 | `create-database` + `kind`/`spec` | `manage`/`create` `{db_salt, birth_signature}` |
 | `share/members/settings/*` | **removed** |
-| `ShareSettings.read: anyone` | `grant` `any` / `read` |
+| Request-authorized grants only | Publisher-signed `grant` chain entries + checkpoints |
+| `ShareSettings.read: anyone` | signed `grant` `any` / `read` |
 | `lastdb-read-v1.` links | People delivers content key; cloud auth = `grant#any` |
 | `blob/bytes` prepare/complete | `push`/`file` begin/commit |
 | `delivery/object` ranges | `fetch`/`file` presigned GET |
@@ -488,16 +825,41 @@ Removed vs earlier draft: `predecessor_conflict` (folded into
 | `Authorization: LastDBNode` / `X-API-Key` | `nodeSignature` |
 | inbox settle discard | **removed** (silent) |
 | proposal status / `mutation_id` access | `incorporated_from` on direct entries |
+| Cloud cursor as history order | Signed writer chains + publisher checkpoints |
 
 ## Build work
 
-**ExeMem:** node-key → databases index; storage + transfer counters; device
-list; tombstones; restore-point holds; stop reading create `kind`/`spec`.
+**ExeMem:** verify per-entry signatures and chain linkage; store entries
+opaque; mirror grant entries into door ACL; stop treating delivery order as
+authoritative; node-key → databases index; storage + transfer counters;
+device list; tombstones; restore-point holds; stop reading create
+`kind`/`spec`.
 
-**Node:** local registry keys by 64-hex ids and stores `db_salt`; stop
-sending `CreateBody.kind`/`spec`; derive db keys; verify birth on access;
-use `incorporated_from` instead of submission status.
+**Node:** hash-chain signing; verify on fetch; grant fold + checkpoint
+replay; head comparison across devices / People; local
+fork/withheld/equivocation surfaces; derive db keys; verify birth on
+access; use `incorporated_from` instead of submission status.
 
 ## Open questions for Tom
 
-None. Lapsed-publisher payment is Decision 38 as approved.
+1. **Publisher online for finality.** Under checkpoints, member direct
+   writes stay tentative until the publisher signs a checkpoint. Is that
+   acceptable? Alternative: fully deterministic merge of all writer chains
+   by signed `lamport` then `node_key`, with grant validity judged only by
+   each write’s `grant_publisher_seq` (no checkpoint). That removes the
+   publisher-online requirement but weakens revocation (a write can stay
+   applyable without the publisher explicitly accepting a post-revocation
+   head).
+2. **Checkpoints vs “no member list”.** A checkpoint lists
+   `writer key → seq + hash` heads. That is not a share/members document and
+   has no list-revision, but it does name members. Confirm this is allowed,
+   or name a different canonicalization device that stays within the rule.
+3. **Freshness of the newest revocation.** Head comparison detects forks
+   and permanent withhold gaps once peers meet; ExeMem can still delay the
+   **tail** (newest revocation) indefinitely. Is People + multi-device head
+   exchange enough, or do you want a minimal publisher-signed
+   head/checkpoint with a time bound (and if so, should it be a cloud
+   intent or People-only)?
+4. **Fork resolution wire shape.** Require a publisher-signed resolution
+   naming the chosen tip `entry_hash` — fold into `checkpoint`, or a
+   dedicated reserved namespace / manage intent?

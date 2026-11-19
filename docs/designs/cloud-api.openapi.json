@@ -3,7 +3,7 @@
   "info": {
     "title": "LastDB ExeMem Cloud API",
     "version": "3.0.0-design",
-    "description": "Cloud API v3 redesign 2026-11-19. database_id is a 64-hex Ed25519 db public key. nodeSignature auth. See docs/designs/cloud-api.md."
+    "description": "ExeMem Cloud API v3 design. ExeMem is untrusted storage and transport. Canonical history is signed writer hash chains with a publisher spine (grants and checkpoints). Closed schemas; no dual paths or fallback."
   },
   "servers": [
     {
@@ -166,7 +166,7 @@
             }
           },
           "400": {
-            "description": "arg paths / grants.any.role / batch.response",
+            "description": "arg paths / grants.any.role / batch.response, entries.signature, incorporated_from",
             "content": {
               "application/json": {
                 "schema": {
@@ -208,7 +208,7 @@
             }
           },
           "409": {
-            "description": "database.id / account.exists / device.* / entries.writer_seq / file.unverified / cursor",
+            "description": "database.id / account.exists / device.* / entries.writer_seq / entries.signature / incorporated_from / file.unverified / cursor / grants.signature / history.*",
             "content": {
               "application/json": {
                 "schema": {
@@ -318,10 +318,20 @@
                     "args": {
                       "entries": [
                         {
+                          "kind": "data",
+                          "database_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                          "node_key": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                          "device_id": "11111111-1111-4111-8111-111111111111",
                           "writer_seq": 1,
+                          "prev_hash": "0000000000000000000000000000000000000000000000000000000000000000",
                           "authored_at_ms": 1730000000000,
+                          "lamport": 1,
+                          "last_seen_publisher_seq": 0,
+                          "last_seen_publisher_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+                          "stream": "direct",
                           "namespace": "default",
-                          "payload_b64": "AQID"
+                          "payload_b64": "AQID",
+                          "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
                         }
                       ]
                     }
@@ -385,7 +395,7 @@
             }
           },
           "400": {
-            "description": "arg paths / grants.any.role / batch.response",
+            "description": "arg paths / grants.any.role / batch.response, entries.signature, incorporated_from",
             "content": {
               "application/json": {
                 "schema": {
@@ -427,7 +437,7 @@
             }
           },
           "409": {
-            "description": "database.id / account.exists / device.* / entries.writer_seq / file.unverified / cursor",
+            "description": "database.id / account.exists / device.* / entries.writer_seq / entries.signature / incorporated_from / file.unverified / cursor / grants.signature / history.*",
             "content": {
               "application/json": {
                 "schema": {
@@ -548,14 +558,54 @@
                   }
                 },
                 "grant_any": {
+                  "summary": "Publisher-signed public-read grant",
                   "value": {
                     "database_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                     "intent": "grant",
                     "args": {
-                      "grants": [
+                      "entries": [
                         {
+                          "kind": "grant",
+                          "database_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                          "node_key": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                          "device_id": "11111111-1111-4111-8111-111111111111",
+                          "writer_seq": 3,
+                          "prev_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                          "authored_at_ms": 1730000002000,
+                          "lamport": 3,
+                          "last_seen_publisher_seq": 2,
+                          "last_seen_publisher_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+                          "namespace": "grant",
                           "grantee": "any",
-                          "role": "read"
+                          "role": "read",
+                          "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+                        }
+                      ]
+                    }
+                  }
+                },
+                "grant_member": {
+                  "summary": "Publisher-signed member write grant",
+                  "value": {
+                    "database_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "intent": "grant",
+                    "args": {
+                      "entries": [
+                        {
+                          "kind": "grant",
+                          "database_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                          "node_key": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                          "device_id": "11111111-1111-4111-8111-111111111111",
+                          "writer_seq": 4,
+                          "prev_hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                          "authored_at_ms": 1730000003000,
+                          "lamport": 4,
+                          "last_seen_publisher_seq": 3,
+                          "last_seen_publisher_hash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+                          "namespace": "grant",
+                          "grantee": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                          "role": "write",
+                          "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
                         }
                       ]
                     }
@@ -635,7 +685,7 @@
             }
           },
           "400": {
-            "description": "arg paths / grants.any.role / batch.response",
+            "description": "arg paths / grants.any.role / batch.response, entries.signature, incorporated_from",
             "content": {
               "application/json": {
                 "schema": {
@@ -677,7 +727,7 @@
             }
           },
           "409": {
-            "description": "database.id / account.exists / device.* / entries.writer_seq / file.unverified / cursor",
+            "description": "database.id / account.exists / device.* / entries.writer_seq / entries.signature / incorporated_from / file.unverified / cursor / grants.signature / history.*",
             "content": {
               "application/json": {
                 "schema": {
@@ -849,7 +899,7 @@
             }
           },
           "400": {
-            "description": "arg paths / grants.any.role / batch.response",
+            "description": "arg paths / grants.any.role / batch.response, entries.signature, incorporated_from",
             "content": {
               "application/json": {
                 "schema": {
@@ -891,7 +941,7 @@
             }
           },
           "409": {
-            "description": "database.id / account.exists / device.* / entries.writer_seq / file.unverified / cursor",
+            "description": "database.id / account.exists / device.* / entries.writer_seq / entries.signature / incorporated_from / file.unverified / cursor / grants.signature / history.*",
             "content": {
               "application/json": {
                 "schema": {
@@ -1032,7 +1082,7 @@
         "type": "apiKey",
         "in": "header",
         "name": "X-LastDB-Signature",
-        "description": "Ed25519 over POST\\n<path>\\n<protocol|->\\n<node key>\\n<device id>\\n<issued-at>\\n<nonce>\\n<body sha256 hex>. Skew ±60s. Companion headers required."
+        "description": "Ed25519 over POST\\n<path>\\n<protocol|->\\n<node key>\\n<device id>\\n<issued-at>\\n<nonce>\\n<body sha256 hex>. Skew \u00b160s. Companion headers required."
       },
       "githubOidc": {
         "type": "http",
@@ -1215,16 +1265,17 @@
         "required": [
           "node_key",
           "device_id",
-          "writer_seq"
+          "writer_seq",
+          "signature_sha256"
         ],
         "additionalProperties": false,
         "properties": {
           "node_key": {
             "type": "string",
-            "description": "64 lowercase hex",
             "pattern": "^[0-9a-f]{64}$",
             "minLength": 64,
-            "maxLength": 64
+            "maxLength": 64,
+            "description": "Proposal writer node public key"
           },
           "device_id": {
             "type": "string",
@@ -1234,7 +1285,14 @@
           "writer_seq": {
             "type": "integer",
             "minimum": 1,
-            "description": "Source writer_seq"
+            "description": "Proposal writer_seq"
+          },
+          "signature_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64,
+            "description": "SHA-256 of proposal signature bytes"
           }
         }
       },
@@ -1260,7 +1318,7 @@
               "maxLength": 1024
             },
             "maxProperties": 32,
-            "description": "Header map for presigned transfer (≤32 entries)."
+            "description": "Header map for presigned transfer (\u226432 entries)."
           },
           "expires_at_ms": {
             "type": "integer",
@@ -1286,63 +1344,26 @@
         }
       },
       "MutationOut": {
-        "type": "object",
-        "required": [
-          "stream",
-          "node_key",
-          "device_id",
-          "writer_seq",
-          "authored_at_ms",
-          "namespace",
-          "payload_b64"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "stream": {
-            "$ref": "#/components/schemas/StreamKind"
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/DataEntry"
           },
-          "node_key": {
-            "type": "string",
-            "description": "64 lowercase hex",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
+          {
+            "$ref": "#/components/schemas/GrantEntry"
           },
-          "device_id": {
-            "type": "string",
-            "format": "uuid",
-            "description": "UUID"
-          },
-          "writer_seq": {
-            "type": "integer",
-            "minimum": 1,
-            "description": "Writer sequence"
-          },
-          "authored_at_ms": {
-            "type": "integer",
-            "minimum": 0,
-            "description": "Unix ms"
-          },
-          "namespace": {
-            "type": "string",
-            "description": "Namespace",
-            "minLength": 1,
-            "maxLength": 128
-          },
-          "payload_b64": {
-            "type": "string",
-            "description": "base64url payload ≤96 KiB decoded",
-            "pattern": "^[A-Za-z0-9_-]+$",
-            "minLength": 1,
-            "maxLength": 131072
-          },
-          "file": {
-            "$ref": "#/components/schemas/OpaqueFileHandle"
-          },
-          "incorporated_from": {
-            "$ref": "#/components/schemas/IncorporatedFrom"
+          {
+            "$ref": "#/components/schemas/CheckpointEntry"
           }
-        }
+        ],
+        "discriminator": {
+          "propertyName": "kind",
+          "mapping": {
+            "data": "#/components/schemas/DataEntry",
+            "grant": "#/components/schemas/GrantEntry",
+            "checkpoint": "#/components/schemas/CheckpointEntry"
+          }
+        },
+        "description": "fetch/mutations_since signed entry"
       },
       "FetchMutationsSinceResult": {
         "type": "object",
@@ -1444,7 +1465,7 @@
               "maxLength": 1024
             },
             "maxProperties": 32,
-            "description": "Header map for presigned transfer (≤32 entries)."
+            "description": "Header map for presigned transfer (\u226432 entries)."
           },
           "expires_at_ms": {
             "type": "integer",
@@ -1466,45 +1487,15 @@
         }
       },
       "MutationIn": {
-        "type": "object",
-        "required": [
-          "writer_seq",
-          "authored_at_ms",
-          "namespace",
-          "payload_b64"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "writer_seq": {
-            "type": "integer",
-            "minimum": 1,
-            "description": ""
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/DataEntry"
           },
-          "authored_at_ms": {
-            "type": "integer",
-            "minimum": 0,
-            "description": ""
-          },
-          "namespace": {
-            "type": "string",
-            "description": "",
-            "minLength": 1,
-            "maxLength": 128
-          },
-          "payload_b64": {
-            "type": "string",
-            "description": "≤96 KiB decoded",
-            "pattern": "^[A-Za-z0-9_-]+$",
-            "minLength": 1,
-            "maxLength": 131072
-          },
-          "file": {
-            "$ref": "#/components/schemas/OpaqueFileHandle"
-          },
-          "incorporated_from": {
-            "$ref": "#/components/schemas/IncorporatedFrom"
+          {
+            "$ref": "#/components/schemas/CheckpointEntry"
           }
-        }
+        ],
+        "description": "push/mutations entry"
       },
       "PushMutationsArgs": {
         "type": "object",
@@ -1808,7 +1799,7 @@
           },
           "birth_signature": {
             "type": "string",
-            "description": "Db-key Ed25519 over lastdb-db-birth-v1\\n… (64 bytes)",
+            "description": "Db-key Ed25519 over lastdb-db-birth-v1\\n\u2026 (64 bytes)",
             "pattern": "^[A-Za-z0-9_-]+$",
             "minLength": 1,
             "maxLength": 88
@@ -1822,36 +1813,21 @@
         "properties": {},
         "description": "Empty object"
       },
-      "ManageGrantEntry": {
-        "type": "object",
-        "required": [
-          "grantee",
-          "role"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "grantee": {
-            "$ref": "#/components/schemas/GrantGrantee"
-          },
-          "role": {
-            "$ref": "#/components/schemas/AccessLevel"
-          }
-        }
-      },
       "ManageGrantArgs": {
         "type": "object",
         "required": [
-          "grants"
+          "entries"
         ],
         "additionalProperties": false,
         "properties": {
-          "grants": {
+          "entries": {
             "type": "array",
             "minItems": 1,
             "maxItems": 90,
             "items": {
-              "$ref": "#/components/schemas/ManageGrantEntry"
-            }
+              "$ref": "#/components/schemas/GrantEntry"
+            },
+            "description": "Publisher-signed grant entries; role not revoked"
           }
         }
       },
@@ -1865,17 +1841,18 @@
       "ManageRevokeArgs": {
         "type": "object",
         "required": [
-          "grantees"
+          "entries"
         ],
         "additionalProperties": false,
         "properties": {
-          "grantees": {
+          "entries": {
             "type": "array",
             "minItems": 1,
             "maxItems": 90,
             "items": {
-              "$ref": "#/components/schemas/GrantGrantee"
-            }
+              "$ref": "#/components/schemas/GrantEntry"
+            },
+            "description": "Publisher-signed grant entries with role=revoked"
           }
         }
       },
@@ -4297,6 +4274,413 @@
       },
       "MaintenanceResponseBody": {
         "$ref": "#/components/schemas/MaintenanceResultItem"
+      },
+      "MutationFileRef": {
+        "type": "object",
+        "required": [
+          "file_handle",
+          "sha256"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "file_handle": {
+            "$ref": "#/components/schemas/OpaqueFileHandle"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64,
+            "description": "SHA-256 of committed file bytes"
+          }
+        }
+      },
+      "CheckpointHead": {
+        "type": "object",
+        "required": [
+          "node_key",
+          "writer_seq",
+          "entry_hash"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "node_key": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64,
+            "description": "Writer key"
+          },
+          "writer_seq": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Accepted head seq"
+          },
+          "entry_hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64,
+            "description": "Accepted head entry_hash"
+          }
+        }
+      },
+      "GrantRole": {
+        "type": "string",
+        "enum": [
+          "read",
+          "submit",
+          "write",
+          "revoked"
+        ],
+        "description": "Signed grant role; revoked = revoke entry"
+      },
+      "GrantGranteeWire": {
+        "oneOf": [
+          {
+            "type": "string",
+            "description": "Member node public key",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          {
+            "type": "string",
+            "const": "any",
+            "description": "Public-read grantee"
+          }
+        ]
+      },
+      "DataEntry": {
+        "type": "object",
+        "required": [
+          "kind",
+          "database_id",
+          "node_key",
+          "device_id",
+          "writer_seq",
+          "prev_hash",
+          "authored_at_ms",
+          "lamport",
+          "last_seen_publisher_seq",
+          "last_seen_publisher_hash",
+          "signature",
+          "stream",
+          "namespace",
+          "payload_b64"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "data"
+          },
+          "database_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64,
+            "description": "Must match envelope; bound in signature"
+          },
+          "node_key": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64,
+            "description": "Writer node public key"
+          },
+          "device_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "UUID"
+          },
+          "writer_seq": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Gapless per writer"
+          },
+          "prev_hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64,
+            "description": "Zeros for seq 1; else prior entry_hash"
+          },
+          "authored_at_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Unix ms"
+          },
+          "lamport": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Signed Lamport counter"
+          },
+          "last_seen_publisher_seq": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "0 = none; else publisher writer_seq"
+          },
+          "last_seen_publisher_hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64,
+            "description": "Zeros if seq 0; else publisher entry_hash"
+          },
+          "signature": {
+            "type": "string",
+            "description": "base64url, no pad; 64-byte Ed25519",
+            "pattern": "^[A-Za-z0-9_-]{86}$",
+            "minLength": 86,
+            "maxLength": 86
+          },
+          "stream": {
+            "$ref": "#/components/schemas/StreamKind"
+          },
+          "namespace": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "description": "Not grant or checkpoint",
+            "pattern": "^(?!grant$|checkpoint$).+$"
+          },
+          "payload_b64": {
+            "type": "string",
+            "description": "Encrypted payload; signature binds sha256(decoded)",
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "minLength": 1,
+            "maxLength": 131072
+          },
+          "file": {
+            "$ref": "#/components/schemas/MutationFileRef"
+          },
+          "incorporated_from": {
+            "$ref": "#/components/schemas/IncorporatedFrom"
+          },
+          "grant_publisher_seq": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Required for member direct writes; omit for publisher/proposal"
+          }
+        },
+        "description": "lastdb-mutation-v1 signed data entry"
+      },
+      "GrantEntry": {
+        "type": "object",
+        "required": [
+          "kind",
+          "database_id",
+          "node_key",
+          "device_id",
+          "writer_seq",
+          "prev_hash",
+          "authored_at_ms",
+          "lamport",
+          "last_seen_publisher_seq",
+          "last_seen_publisher_hash",
+          "signature",
+          "namespace",
+          "grantee",
+          "role"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "grant"
+          },
+          "database_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64,
+            "description": "Must match envelope; bound in signature"
+          },
+          "node_key": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64,
+            "description": "Writer node public key"
+          },
+          "device_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "UUID"
+          },
+          "writer_seq": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Gapless per writer"
+          },
+          "prev_hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64,
+            "description": "Zeros for seq 1; else prior entry_hash"
+          },
+          "authored_at_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Unix ms"
+          },
+          "lamport": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Signed Lamport counter"
+          },
+          "last_seen_publisher_seq": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "0 = none; else publisher writer_seq"
+          },
+          "last_seen_publisher_hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64,
+            "description": "Zeros if seq 0; else publisher entry_hash"
+          },
+          "signature": {
+            "type": "string",
+            "description": "base64url, no pad; 64-byte Ed25519",
+            "pattern": "^[A-Za-z0-9_-]{86}$",
+            "minLength": 86,
+            "maxLength": 86
+          },
+          "namespace": {
+            "type": "string",
+            "const": "grant"
+          },
+          "grantee": {
+            "$ref": "#/components/schemas/GrantGrantee"
+          },
+          "role": {
+            "$ref": "#/components/schemas/GrantRole"
+          }
+        },
+        "description": "lastdb-grant-v1 publisher spine entry"
+      },
+      "CheckpointEntry": {
+        "type": "object",
+        "required": [
+          "kind",
+          "database_id",
+          "node_key",
+          "device_id",
+          "writer_seq",
+          "prev_hash",
+          "authored_at_ms",
+          "lamport",
+          "last_seen_publisher_seq",
+          "last_seen_publisher_hash",
+          "signature",
+          "namespace",
+          "heads"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "checkpoint"
+          },
+          "database_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64,
+            "description": "Must match envelope; bound in signature"
+          },
+          "node_key": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64,
+            "description": "Writer node public key"
+          },
+          "device_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "UUID"
+          },
+          "writer_seq": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Gapless per writer"
+          },
+          "prev_hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64,
+            "description": "Zeros for seq 1; else prior entry_hash"
+          },
+          "authored_at_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Unix ms"
+          },
+          "lamport": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Signed Lamport counter"
+          },
+          "last_seen_publisher_seq": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "0 = none; else publisher writer_seq"
+          },
+          "last_seen_publisher_hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64,
+            "description": "Zeros if seq 0; else publisher entry_hash"
+          },
+          "signature": {
+            "type": "string",
+            "description": "base64url, no pad; 64-byte Ed25519",
+            "pattern": "^[A-Za-z0-9_-]{86}$",
+            "minLength": 86,
+            "maxLength": 86
+          },
+          "namespace": {
+            "type": "string",
+            "const": "checkpoint"
+          },
+          "heads": {
+            "type": "array",
+            "maxItems": 4096,
+            "items": {
+              "$ref": "#/components/schemas/CheckpointHead"
+            },
+            "description": "Sorted by node_key ascending"
+          }
+        },
+        "description": "lastdb-checkpoint-v1 publisher spine entry"
+      },
+      "SignedEntry": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/DataEntry"
+          },
+          {
+            "$ref": "#/components/schemas/GrantEntry"
+          },
+          {
+            "$ref": "#/components/schemas/CheckpointEntry"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "kind",
+          "mapping": {
+            "data": "#/components/schemas/DataEntry",
+            "grant": "#/components/schemas/GrantEntry",
+            "checkpoint": "#/components/schemas/CheckpointEntry"
+          }
+        }
       }
     }
   }
