@@ -973,6 +973,41 @@
           {"$ref": "#/components/schemas/DatabasesStatusRequest"}
         ]
       },
+      "DatabasesPublishAttempt": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["at", "outcome", "status"],
+        "description": "The last publish attempt for one received database. It is kept in memory and is absent again after a restart. at is RFC 3339 UTC. status is the HTTP status when the service answered, access_unknown when the self-access view was unknown or stale, no_credentials when the node had no usable cloud credentials for the share, or null when the attempt failed before a status.",
+        "properties": {
+          "at": {"type": "string"},
+          "outcome": {"type": "string", "enum": ["confirmed", "refused", "unconfirmed"]},
+          "status": {"type": ["integer", "string", "null"]}
+        }
+      },
+      "DatabasesPublish": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["pending", "lastAttempt"],
+        "description": "How many of this member's accepted local writes are still on the spool, and the last append attempt. Owned databases omit this object.",
+        "properties": {
+          "pending": {"type": "integer", "minimum": 0, "description": "Spool head minus the prefix the service has confirmed."},
+          "lastAttempt": {
+            "description": "Null until a publish attempt, and null again after a restart.",
+            "oneOf": [
+              {"type": "null"},
+              {"$ref": "#/components/schemas/DatabasesPublishAttempt"}
+            ]
+          }
+        }
+      },
+      "DatabasesListItem": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "One database from list. A received database includes publish. An owned database omits it.",
+        "properties": {
+          "publish": {"$ref": "#/components/schemas/DatabasesPublish"}
+        }
+      },
       "DatabasesListReply": {
         "type": "object",
         "additionalProperties": true,
@@ -980,7 +1015,7 @@
         "properties": {
           "ok": {"type": "boolean"},
           "user_hash": {"type": "string"},
-          "databases": {"type": "array", "items": {"type": "object", "additionalProperties": true}}
+          "databases": {"type": "array", "items": {"$ref": "#/components/schemas/DatabasesListItem"}}
         }
       },
       "DatabasesDatabaseReply": {

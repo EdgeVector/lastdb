@@ -14,7 +14,7 @@ use cloud_backup_protocol::v2::limits::CONTROL_JSON_MAX_BYTES;
 use database_policy::SpecBinding;
 use fold_db::storage::disk_backup::accepted::UploadPosition;
 use fold_db::storage::disk_pack::PackRuntime;
-use mutation_log::{AppendBatch, AppendOutcome, DatabaseId, Entry, LogError, Namespace};
+use mutation_log::{AppendBatch, DatabaseId, Entry, Namespace};
 use zeroize::Zeroizing;
 
 use crate::accepted_writes::{self, Item, Page};
@@ -322,50 +322,50 @@ async fn append_entries(
             )
             .await
         else {
+            if received {
+                super::publish_state::note_unreachable(log.database_id(), home, log.environment());
+            }
             return Err("cloud did not confirm the upload");
         };
-        if (200..300).contains(&status) {
-            match wire::append_outcome(&reply, &batch) {
-                Ok(AppendOutcome::Accepted { delivery_seqs }) if !delivery_seqs.is_empty() => {
-                    committed = true;
-                    if !blobs.is_empty() {
-                        let start = batch.entries.len() - delivery_seqs.len();
-                        let committed: Vec<_> = batch.entries[start..]
-                            .iter()
-                            .zip(&delivery_seqs)
-                            .filter_map(|(entry, &delivery_seq)| {
-                                blobs
-                                    .get(&entry.writer_seq)
-                                    .map(|path| (delivery_seq, path.clone()))
-                            })
-                            .collect();
-                        super::blob_retention::record_personal(home, log, &committed)
-                            .map_err(|_| "local blob retention ledger could not be stored")?;
-                    }
+        match super::publish_state::classify(
+            received,
+            log.database_id(),
+            status,
+            &reply,
+            &batch,
+            through,
+            committed,
+        ) {
+            super::publish_state::Step::Accepted(delivery_seqs) => {
+                committed = true;
+                if !blobs.is_empty() {
+                    let start = batch.entries.len() - delivery_seqs.len();
+                    let committed: Vec<_> = batch.entries[start..]
+                        .iter()
+                        .zip(&delivery_seqs)
+                        .filter_map(|(entry, &delivery_seq)| {
+                            blobs
+                                .get(&entry.writer_seq)
+                                .map(|path| (delivery_seq, path.clone()))
+                        })
+                        .collect();
+                    super::blob_retention::record_personal(home, log, &committed)
+                        .map_err(|_| "local blob retention ledger could not be stored")?;
                 }
-                Ok(AppendOutcome::Duplicate { next_seq }) if next_seq > through => {
-                    committed = true;
-                }
-                _ => return Err("cloud did not confirm the upload"),
             }
-            continue;
+            super::publish_state::Step::Duplicate => committed = true,
+            super::publish_state::Step::Payment => {
+                mark_payment_hold(log.database_id());
+                return Err(crate::cloud::PAYMENT_REQUIRED_MESSAGE);
+            }
+            super::publish_state::Step::Refused => return Err(super::direct::REFUSED),
+            super::publish_state::Step::Conflict => {
+                return Err("cloud already has a different edit at this local writer sequence");
+            }
+            super::publish_state::Step::Unconfirmed => {
+                return Err("cloud did not confirm the upload");
+            }
         }
-        if crate::cloud::is_payment_subscription_error(status, &reply) {
-            mark_payment_hold(log.database_id());
-            return Err(crate::cloud::PAYMENT_REQUIRED_MESSAGE);
-        }
-        if wire::service_error(&reply) == Some(LogError::Conflict) {
-            return Err("cloud already has a different edit at this local writer sequence");
-        }
-        if received
-            && !committed
-            && (status == 401
-                || status == 403
-                || wire::service_error(&reply) == Some(LogError::Unauthorized))
-        {
-            return Err(super::direct::REFUSED);
-        }
-        return Err("cloud did not confirm the upload");
     }
     Ok(())
 }

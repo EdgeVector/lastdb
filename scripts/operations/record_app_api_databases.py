@@ -16,6 +16,9 @@ calling app.
 
 invite, accept, submit, and submission_status need two nodes that share one
 database. No operation in this tree does that, so this proof does not call them.
+This fresh home creates no received database. Every listed row omits publish.
+Only a DEV member node (People people-direct, two nodes) can show
+publish.pending and publish.lastAttempt.
 A service authorization refusal on submit is the cloud's decision. This
 fresh home has no cloud, so it cannot show the 403. The DEV two-node run
 (People people-circles, exercise_reader) is the proof.
@@ -107,9 +110,21 @@ def create_database(node, sock):
             "create returned another row")
     require(uuid.UUID(row["id"]).version == 4, "create did not return a v4 id")
     listed = same_list(node, sock)
+    owned_rows_omit_publish(listed)
     found = [item for item in listed["databases"] if item.get("name") == NAME]
     require(len(found) == 1 and found[0]["id"] == row["id"], "the owner list omitted the created database")
     return row["id"]
+
+
+def owned_rows_omit_publish(reply):
+    rows = reply["databases"]
+    require(isinstance(rows, list) and rows, "database list was empty")
+    require(all(isinstance(row, dict) and "publish" not in row for row in rows),
+            "an owned database list row included publish")
+    print("Received publish is only visible on a DEV member node "
+          "(People people-direct, two nodes). This fresh home has no received "
+          "database, so it cannot show publish.pending or publish.lastAttempt.",
+          flush=True)
 
 
 def same_list(node, sock):

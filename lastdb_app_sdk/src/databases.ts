@@ -112,6 +112,19 @@ export interface DatabaseSpec {
   version: number;
 }
 
+export type PublishOutcome = 'confirmed' | 'refused' | 'unconfirmed';
+
+export interface PublishAttempt {
+  at: string;
+  outcome: PublishOutcome;
+  status: number | string | null;
+}
+
+export interface ReceivedPublish {
+  pending: number;
+  lastAttempt: PublishAttempt | null;
+}
+
 /** One row from `GET /api/databases`, including personal and received shares. */
 export interface ListedDatabase {
   id: string;
@@ -122,6 +135,7 @@ export interface ListedDatabase {
   state: string;
   sharingMode?: 'whole_database';
   selfAccess?: SharedDatabaseAccess;
+  publish?: ReceivedPublish;
   publisher?: string;
   snapshot?: string | null;
   expires_ms?: number;
@@ -249,6 +263,9 @@ function parseListedDatabase(value: unknown): ListedDatabase {
   if (value['selfAccess'] !== undefined) {
     listed.selfAccess = parseSharedDatabaseAccess(value['selfAccess']);
   }
+  if (value['publish'] !== undefined) {
+    listed.publish = parseReceivedPublish(value['publish']);
+  }
   if (value['snapshot'] === null || typeof value['snapshot'] === 'string') {
     listed.snapshot = value['snapshot'];
   }
@@ -256,6 +273,54 @@ function parseListedDatabase(value: unknown): ListedDatabase {
     listed.expires_ms = value['expires_ms'];
   }
   return listed;
+}
+
+function parseReceivedPublish(value: unknown): ReceivedPublish {
+  if (!isObject(value)) {
+    throw new UnexpectedResponseError(
+      'database list returned an invalid publish state',
+      200,
+      value,
+    );
+  }
+  const pending = value['pending'];
+  if (typeof pending !== 'number' || !Number.isInteger(pending) || pending < 0) {
+    throw new UnexpectedResponseError(
+      'database list returned an invalid publish state',
+      200,
+      value,
+    );
+  }
+  const last = value['lastAttempt'];
+  if (last === null) {
+    return { pending, lastAttempt: null };
+  }
+  if (!isObject(last)) {
+    throw new UnexpectedResponseError(
+      'database list returned an invalid publish attempt',
+      200,
+      value,
+    );
+  }
+  const at = last['at'];
+  const outcome = last['outcome'];
+  const status = last['status'];
+  if (typeof at !== 'string' || !publishOutcome(outcome) || !publishStatus(status)) {
+    throw new UnexpectedResponseError(
+      'database list returned an invalid publish attempt',
+      200,
+      value,
+    );
+  }
+  return { pending, lastAttempt: { at, outcome, status } };
+}
+
+function publishStatus(value: unknown): value is number | string | null {
+  return value === null || typeof value === 'string' || (typeof value === 'number' && Number.isInteger(value));
+}
+
+function publishOutcome(value: unknown): value is PublishOutcome {
+  return value === 'confirmed' || value === 'refused' || value === 'unconfirmed';
 }
 
 function parseSpec(value: unknown): DatabaseSpec | null {

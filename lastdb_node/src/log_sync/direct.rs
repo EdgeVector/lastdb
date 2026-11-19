@@ -31,8 +31,18 @@ pub(super) async fn publish_or_retract(host: &Host, log: &CloudLog) -> Result<()
         .flatten()
         .map_or(WriteMode::Unknown, |share| share_mode::mode(host, &share));
     match mode {
-        WriteMode::Direct => accepted::publish_owned(host, log).await,
-        WriteMode::Unknown => Ok(()),
+        WriteMode::Direct => {
+            super::publish_state::begin(log.database_id());
+            let result = accepted::publish_owned(host, log).await;
+            if result.is_err() {
+                super::publish_state::finish_unnoted(host, log);
+            }
+            result
+        }
+        WriteMode::Unknown => {
+            super::publish_state::note_access_unknown(log.database_id());
+            Ok(())
+        }
         WriteMode::Closed => retract(host, log).await,
     }
 }

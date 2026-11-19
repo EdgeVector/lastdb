@@ -74,6 +74,11 @@ async fn one(host: &Arc<Host>, share: &RegisteredShare) -> Pause {
     let log = match connect_received(host, share, &device, stored) {
         Ok(log) => log,
         Err(error) => {
+            super::publish_state::note_unreachable(
+                database_id,
+                &host.home,
+                profile_service(share.environment()).0,
+            );
             tracing::warn!(target: "lastdbd::log_sync", error = %error, "received log is unavailable");
             return Pause::Retry;
         }
