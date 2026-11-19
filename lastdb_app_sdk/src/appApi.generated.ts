@@ -740,10 +740,31 @@ export interface DatabasesStatusRequest {
 /** One action. A field from another action is invalid_request. */
 export type DatabasesRequest = DatabasesListRequest | DatabasesCreateRequest | DatabasesAcceptRequest | DatabasesAcceptLinkRequest | DatabasesSchemasRequest | DatabasesDeclareRequest | DatabasesShareConfigRequest | DatabasesSetShareConfigRequest | DatabasesInviteRequest | DatabasesShareLinkRequest | DatabasesSubmitRequest | DatabasesStatusRequest;
 
+/** The last publish attempt for one received database. It is kept in memory and is absent again after a restart. at is RFC 3339 UTC. status is the HTTP status when the service answered, access_unknown when the self-access view was unknown or stale, no_credentials when the node had no usable cloud credentials for the share, or null when the attempt failed before a status. */
+export interface DatabasesPublishAttempt {
+  at: string;
+  outcome: 'confirmed' | 'refused' | 'unconfirmed';
+  status: number | string | null;
+}
+
+/** How many of this member's accepted local writes are still on the spool, and the last append attempt. Owned databases omit this object. */
+export interface DatabasesPublish {
+  /** Spool head minus the prefix the service has confirmed. Integer. Minimum 0. */
+  pending: number;
+  /** Null until a publish attempt, and null again after a restart. */
+  lastAttempt: null | DatabasesPublishAttempt;
+}
+
+/** One database from list. A received database includes publish. An owned database omits it. */
+export interface DatabasesListItem {
+  publish?: DatabasesPublish;
+  [key: string]: unknown;
+}
+
 export interface DatabasesListReply {
   ok: boolean;
   user_hash: string;
-  databases: { [key: string]: unknown }[];
+  databases: DatabasesListItem[];
   [key: string]: unknown;
 }
 

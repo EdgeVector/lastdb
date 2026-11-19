@@ -19,12 +19,15 @@ use tracing_subscriber::util::SubscriberInitExt;
 struct PrivateFormat;
 
 #[derive(Default)]
-struct Metrics(Vec<(&'static str, u64)>);
+struct Metrics {
+    nums: Vec<(&'static str, u64)>,
+    category: Option<String>,
+}
 
 impl Visit for Metrics {
     fn record_u64(&mut self, f: &Field, v: u64) {
         if matches!(f.name(), "workers" | "queue_capacity") {
-            self.0.push((f.name(), v));
+            self.nums.push((f.name(), v));
         }
     }
     fn record_i64(&mut self, f: &Field, v: i64) {
@@ -32,7 +35,34 @@ impl Visit for Metrics {
             self.record_u64(f, v);
         }
     }
+    fn record_str(&mut self, f: &Field, value: &str) {
+        if f.name() == "category" && publish_category_allowed(value) {
+            self.category = Some(value.to_owned());
+        }
+    }
     fn record_debug(&mut self, _: &Field, _: &dyn fmt::Debug) {}
+}
+
+fn publish_category_allowed(value: &str) -> bool {
+    let (head, tail) = match value.split_once(':') {
+        Some((head, tail)) => (head, Some(tail)),
+        None => (value, None),
+    };
+    if !matches!(head, "confirmed" | "refused" | "unconfirmed") {
+        return false;
+    }
+    match tail {
+        None => true,
+        Some(tail) => {
+            let http =
+                (3..=5).contains(&tail.len()) && tail.bytes().all(|byte| byte.is_ascii_digit());
+            let word = (1..=40).contains(&tail.len())
+                && tail
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte == b'_');
+            http || word
+        }
+    }
 }
 
 impl<S, N> FormatEvent<S, N> for PrivateFormat
@@ -50,17 +80,22 @@ where
         let ts = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_or(0, |d| d.as_secs());
+        let mut metrics = Metrics::default();
+        if matches!(meta.target(), "lastdbd" | "lastdbd::log_sync") {
+            ev.record(&mut metrics);
+        }
+        let saved = metrics.category.take();
         let cat = if meta.target() == "lastdb_node::cloud" {
             "cloud"
+        } else if meta.target() == "lastdbd::log_sync" {
+            saved.as_deref().unwrap_or("daemon")
         } else {
             "daemon"
         };
         write!(w, "timestamp={ts} severity={} category={cat}", meta.level())?;
         if meta.target() == "lastdbd" {
-            let mut m = Metrics::default();
-            ev.record(&mut m);
-            for (k, v) in m.0 {
-                write!(w, " {k}={v}")?;
+            for (name, value) in metrics.nums {
+                write!(w, " {name}={value}")?;
             }
         }
         writeln!(w)
