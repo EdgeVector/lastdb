@@ -2,7 +2,7 @@
 
 use super::{MemberIntent, PublisherSession};
 use cloud_backup_protocol::v2::share_access::{
-    Ed25519Signature, MemberEntry, ShareMemberRole, ShareMemberState, ShareWriteScope,
+    Ed25519Signature, MemberEntry, ShareMemberRole, ShareMemberState,
 };
 use cloud_backup_protocol::v2::{Stream, Version};
 use cloud_backup_protocol::{DecimalU64, Digest, Id};
@@ -12,7 +12,6 @@ use cloud_backup_protocol::{DecimalU64, Digest, Id};
 pub(super) struct Grant {
     pub role: ShareMemberRole,
     pub state: ShareMemberState,
-    pub write_schemas: Option<ShareWriteScope>,
 }
 
 impl Grant {
@@ -20,7 +19,6 @@ impl Grant {
         Self {
             role: entry.role,
             state: entry.state,
-            write_schemas: entry.write_schemas.clone(),
         }
     }
 }
@@ -65,7 +63,6 @@ pub(super) fn member_step(
     let active = |role: ShareMemberRole| Grant {
         role,
         state: ShareMemberState::Active,
-        write_schemas: None,
     };
     let (grant, regrant) = match intent {
         MemberIntent::Read { regrant } => (active(ShareMemberRole::Read), regrant),
@@ -78,7 +75,6 @@ pub(super) fn member_step(
             return Ok(Some(Grant {
                 role: current.role,
                 state: ShareMemberState::Revoked,
-                write_schemas: None,
             }));
         }
     };
@@ -142,7 +138,7 @@ pub(super) fn sign(
     database_id: &str,
     node: &Digest,
     current: Option<&MemberEntry>,
-    grant: Grant,
+    grant: &Grant,
 ) -> Result<MemberEntry, String> {
     let sequence = current
         .map_or(Some(1), |entry| entry.sequence.get().checked_add(1))
@@ -158,7 +154,6 @@ pub(super) fn sign(
         node_public_key: node.clone(),
         role: grant.role,
         state: grant.state,
-        write_schemas: grant.write_schemas,
         sequence: DecimalU64::new(sequence),
         publisher_public_key: session.publisher.clone(),
         signed_at_ms: DecimalU64::new(now),

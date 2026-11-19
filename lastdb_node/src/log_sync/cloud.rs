@@ -262,7 +262,6 @@ impl CloudLog {
             database_id: &self.database_id,
             path,
             body,
-            member_revision: self.member_revision,
             proof,
         }
     }

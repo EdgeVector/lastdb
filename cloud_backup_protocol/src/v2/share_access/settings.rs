@@ -30,10 +30,9 @@ pub const MEMBER_WRITES_MAX: usize = 256;
 
 /// Most bytes in one schema name in [`ShareSettings::member_writes`].
 ///
-/// [`super::ShareWriteScope::Named`] does not cap the byte length. It rejects
-/// an empty name, leading or trailing whitespace, and a control character.
-/// This map uses that check and a 128-byte cap. 128 bytes is the canonical
-/// schema-name cap used for app grants. `Named` itself has no byte cap.
+/// A name must be non-empty, without leading or trailing whitespace, and
+/// without a control character. 128 bytes is the canonical schema-name cap
+/// used for app grants.
 ///
 /// A name `validate` accepts is at most 128 bytes, and `"` and `\` are the
 /// characters that expand the most in JSON (two bytes each). 256 such names,

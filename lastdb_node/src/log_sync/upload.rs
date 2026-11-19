@@ -76,7 +76,7 @@ pub(super) async fn cloud_body(
         let envelope = retry::load_file(&host.home, log.database_id(), mutation_id)
             .map_err(|_| PREPARE_FAILED)?
             .ok_or(PREPARE_FAILED)?;
-        upload_verified(host, log, &saved, envelope).await?;
+        upload_verified(host, &saved, envelope).await?;
         saved.verified = true;
         store(&host.home, log.database_id(), mutation_id, &saved).ok_or(PREPARE_FAILED)?;
     }
@@ -121,7 +121,6 @@ fn same_saved(saved: &PendingBlobUpload, log: &CloudLog, path: &BlobPath, propos
 
 async fn upload_verified(
     host: &Host,
-    log: &CloudLog,
     saved: &PendingBlobUpload,
     sealed: Vec<u8>,
 ) -> Result<(), &'static str> {
@@ -132,7 +131,6 @@ async fn upload_verified(
         path: &saved.path,
         bytes: saved.bytes,
         sha256: &saved.sha256,
-        member_revision: log.member_revision,
     };
     match client.upload_blob(target, sealed).await {
         Ok(()) => Ok(()),

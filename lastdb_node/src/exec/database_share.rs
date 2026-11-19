@@ -79,7 +79,6 @@ pub(super) async fn execute(
 
 async fn set(req: &UdsRequest, host: &Host, entry: &owned::Entry) -> Result<Value, ConfigError> {
     let update: ConfigUpdate = decode(req, CONFIG_BODY_MAX)?;
-    crate::log_sync::validate_write_scopes(host, entry, &update)?;
     ensure_enrolled(host, &entry.id).await?;
     let id = &entry.id;
     let request_id = update.request_id.clone();

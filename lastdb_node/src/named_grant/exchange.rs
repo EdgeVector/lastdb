@@ -195,7 +195,6 @@ async fn signed<Request: serde::Serialize, Reply: DeserializeOwned>(
             path,
         },
         &body,
-        0,
         fold_db::clock::unix_millis(),
     )
     .map_err(|_| CloudRefusal::Unconfirmed)?;
