@@ -124,6 +124,13 @@ def hash_records(node, cli):
     mutate(node, "RecordById", {"hash": "one"}, {"id": "one", "bucket": "b1", "value": "v2"})
     require(one(node, "one") == {"id": "one", "bucket": "b1", "value": "v2"}, "the full replacement differs")
     authorship(node, "one", author, author)
+    # Append changes a range part and leaves the alternate hash. Status changes the hash.
+    mutate(node, "RecordById", {"hash": "one"}, {"id": "one-r", "bucket": "b1", "value": "v2"})
+    authorship(node, "one", author, author)
+    mutate(node, "RecordById", {"hash": "one"}, {"id": "one", "bucket": "archived", "value": "v2"})
+    authorship(node, "one", author, author)
+    mutate(node, "RecordById", {"hash": "one"}, {"id": "one", "bucket": "b1", "value": "v2"})
+    authorship(node, "one", author, author)
     refused(lambda: mutate(node, "RecordById", {"hash": "one"},
                            {"id": "one", "bucket": "b1", "value": "v2", "created_by": author}),
             ("HTTP 400", "unknown_fields", "created_by"))
@@ -144,8 +151,8 @@ def hash_records(node, cli):
     require(row["key"]["hash"] == "external-key" and held(row["record"]) == {"value": "standalone"},
             "independent primary/alternate addresses required payload key fields")
     external_boundaries(node, external)
-    print("Hash records: create, full replacement, omitted-field removal, batch read by key, authorship passed", flush=True)
-    print("Authorship omission is not produced here. A fresh home sets both values on create, and a replace keeps created_by.", flush=True)
+    print("Hash records: create, replacement, alternate range and hash changes, authorship passed", flush=True)
+    print("A fresh home sets both authors on create. A later replace keeps created_by, including when the alternate hash changes.", flush=True)
 
 
 def external_boundaries(node, external):

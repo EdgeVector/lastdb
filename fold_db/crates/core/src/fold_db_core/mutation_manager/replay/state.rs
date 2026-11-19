@@ -11,11 +11,52 @@ use lastdb_model::record_value::{StoredRecord, MAX_RECORD_BYTES};
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeSet, sync::Arc};
 
-#[derive(Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub(crate) struct Baseline {
     pub stamp: Option<ReplayStamp>,
     pub record: Option<StoredRecord>,
+}
+
+/// The nested record uses ordinary serde. Author keys live in its meta map, not in skipped fields.
+#[derive(Serialize)]
+struct StoredBaseline<'a> {
+    stamp: &'a Option<ReplayStamp>,
+    record: Option<StoredRecord>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LoadedBaseline {
+    stamp: Option<ReplayStamp>,
+    record: Option<StoredRecord>,
+}
+
+impl Serialize for Baseline {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        StoredBaseline {
+            stamp: &self.stamp,
+            record: self.record.as_ref().map(StoredRecord::authors_in_meta),
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for Baseline {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let mut saved = LoadedBaseline::deserialize(deserializer)?;
+        if let Some(record) = saved.record.as_mut() {
+            record.authors_from_meta();
+        }
+        Ok(Self {
+            stamp: saved.stamp,
+            record: saved.record,
+        })
+    }
 }
 
 pub(super) fn invalid(error: impl std::fmt::Display) -> SchemaError {

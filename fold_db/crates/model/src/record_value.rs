@@ -261,7 +261,8 @@ impl StoredRecord {
 
     /// Put the node-owned author fields into the meta map for the bytes on disk.
     /// The in-memory record keeps the fields and does not keep the keys in the map.
-    fn authors_in_meta(&self) -> Self {
+    /// A serde round trip has to start from this copy: the fields themselves are skipped.
+    pub fn authors_in_meta(&self) -> Self {
         let mut wire = self.clone();
         if let Some(meta) = wire.meta.as_mut() {
             meta.metadata.remove(CREATED_BY_META_KEY);
@@ -290,7 +291,8 @@ impl StoredRecord {
         wire
     }
 
-    fn authors_from_meta(&mut self) {
+    /// Move `created_by` and `updated_by` out of the meta map into the skipped fields.
+    pub fn authors_from_meta(&mut self) {
         let Some(mut meta) = self.meta.take() else {
             return;
         };
