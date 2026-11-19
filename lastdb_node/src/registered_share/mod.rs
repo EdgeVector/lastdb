@@ -12,7 +12,6 @@ use std::fs;
 use std::io::ErrorKind;
 use std::path::Path;
 
-#[path = "registered_share_store.rs"]
 mod store;
 
 pub(crate) use store::{content_material, receiver_store};
