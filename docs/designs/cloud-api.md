@@ -339,19 +339,9 @@ DEV snapshot-proof only (`githubOidc`). Considered and rejected: local
 
 ## Product intent args (summary)
 
-| Intent | args → result |
-|---|---|
-| `fetch`/`mutations_since` | `cursor?`, `limit?` → `cursor`, `mutations[]` (`stream`, …) |
-| `fetch`/`snapshot` | `restore_point_id?`, `part_handle?` → describe or part |
-| `fetch`/`file` | `file_handle`, `offset`, `length` → bytes |
-| `push`/`mutations` | `entries[]` (writer device = header) → `landed`, `cursor`, `accepted` |
-| `push`/`snapshot` | `stage`, `ticket?`, … → ticket / `upload_url?` |
-| `push`/`file` | `stage`, `ticket?`, … → `file_handle?` |
-| `manage`/`create` | `{}` → `access?` (`public_read`, …) |
-| `manage`/`grant` | `grants[]` (`grantee` = node-key hex \| `any`, `role`) → `ok` |
-| `manage`/`revoke` | `grantees[]` (hex \| `any`) → `ok` |
-| `manage`/`access` | `mutation_id?` → `state`, `public_read`, … |
-| `manage`/`delete` | `{}` → `status` |
+Fully typed args/results are in **Intent reference** below and in
+`cloud-api.openapi.json` (`additionalProperties: false`, intent
+discriminators, staged snapshot/file).
 
 ## Use cases
 
@@ -422,9 +412,324 @@ stable released node (#1799). No unit tests.
 | R3 | Snapshot multipart layout | Opaque `part_handle` |
 | R4 | Range size ↔ storage limit | Optional `max_range_bytes` |
 
+## Errors (closed set)
+
+HTTP status → `code` (body always `{ "code", "field" }` + optional `minimum_version`):
+
+| HTTP | code | Typical `field` |
+|---|---|---|
+| 401 | `unauthorized` | `request.signature`, `request.issued_at`, `request.nonce`, `device.id`, `device.revoked`, `account.node_key` |
+| 403 | `forbidden` | `grant.absent`, `grant.revoked`, `database.role` |
+| 403 | `payment_required` | `payment.subscription` |
+| 400 | `invalid_request` | `grants.any.role`, intent-specific arg paths |
+| 400 | `batch_too_large` | `batch.response` |
+| 404 | `not_found` | `database.id`, `restore_point_id`, `file_handle` |
+| 409 | `conflict` | `mutation_log.conflict` |
+| 409 | `predecessor_conflict` | `mutation_log.cursor` |
+| 409 | `cursor_expired` | `mutation_log.cursor` |
+| 426 | `upgrade_required` | `request.protocol` (+ `minimum_version`) |
+| 429 | `rate_limited` | `account.register` |
+
+Sources: `ProtocolError` / `ErrorCode` in `cloud_backup_protocol/src/lib.rs`; node maps in `log_sync/wire.rs`.
+
+## Intent reference
+
+Every intent below is a closed typed envelope. Product intents carry
+`database_id` in the envelope. Full JSON Schema: `cloud-api.openapi.json`.
+
+Opaque strings: `cursor` ≤256, `file_handle` ≤512, `part_handle` ≤256,
+`ticket` ≤256, `upload_url`/`payment_url`/`download_url` ≤8192.
+
+Byte payloads: mutation `payload_b64` = **base64url** (no pad); file
+`ciphertext_b64` = **standard base64** (delivery/object today). Range max
+**180 KiB** (`OBJECT_RANGE`). Control JSON ≤ **256 KiB**; batch ≤ **90**;
+response ≤ **8 MiB**.
+
+### `fetch` / `mutations_since`
+
+Purpose: page mutation log (publisher also sees proposal stream).
+Who: member with read+; publisher sees `stream: proposal` entries too.
+Source: `mutation-log/list`, `mutation-log/inbox/list` (`log_sync/wire.rs`).
+
+| args | type | req |
+|---|---|---|
+| `cursor` | opaque string ≤256 | no |
+| `limit` | int 1…90 | no |
+
+| result | type | req |
+|---|---|---|
+| `cursor` | opaque string | yes |
+| `mutations[]` | see OpenAPI `MutationEntryOut` | yes |
+
+Errors: `cursor_expired`, `predecessor_conflict`, `forbidden`, `unauthorized`.
+
+```json
+{ "database_id": "…", "intent": "mutations_since", "args": { "limit": 50 } }
+→ { "database_id": "…", "intent": "mutations_since", "result": { "cursor": "c-next", "mutations": [] } }
+```
+
+### `fetch` / `snapshot` (`stage: describe`)
+
+Purpose: describe a restore point (or latest).
+Who: member/publisher/public-read under `grant#any`.
+Source: `snapshot/bytes` action `read` (`log_sync/snapshot/`).
+
+| args | type | req |
+|---|---|---|
+| `stage` | `"describe"` | yes |
+| `restore_point_id` | 64 hex | no |
+
+| result | type | req |
+|---|---|---|
+| `stage` | `"describe"` | yes |
+| `restore_point_id` | 64 hex | no |
+| `through` | uint | no |
+| `file_count` | uint | no |
+| `name` | string ≤256 | no |
+
+### `fetch` / `snapshot` (`stage: part`)
+
+Purpose: get a presigned download for one snapshot part page.
+Who: same as describe.
+Source: `snapshot/bytes` action `download`.
+
+| args | type | req |
+|---|---|---|
+| `stage` | `"part"` | yes |
+| `restore_point_id` | 64 hex | yes |
+| `part_handle` | opaque ≤256 | yes |
+
+| result | type | req |
+|---|---|---|
+| `stage` | `"part"` | yes |
+| `download_url` | uri ≤8192 | yes |
+| `headers` | string map ≤32 keys | yes |
+
+### `fetch` / `file`
+
+Purpose: read a ciphertext byte range of a file blob.
+Who: member/publisher/public-read.
+Source: `mutation-log/delivery/object` (`log_sync/restore.rs`).
+
+| args | type | req |
+|---|---|---|
+| `file_handle` | opaque ≤512 | yes |
+| `offset` | uint | yes |
+| `length` | uint 1…184320 | yes |
+
+| result | type | req |
+|---|---|---|
+| `total_bytes` | uint ≥1 | yes |
+| `offset` | uint | yes |
+| `length` | uint 1…184320 | yes |
+| `ciphertext_b64` | standard base64 | yes |
+
+### `push` / `mutations`
+
+Purpose: append mutations (land direct or proposal from grant).
+Who: publisher (always direct); member with writer→direct or submit→proposal.
+Source: `mutation-log/append` (`EntryWire` / `AppendResponse`).
+
+| args | type | req |
+|---|---|---|
+| `entries[]` | `MutationEntryIn` 1…90 | yes |
+
+Writer device = `X-LastDB-Device-Id`.
+
+| result | type | req |
+|---|---|---|
+| `landed` | `direct`\|`proposal` | yes |
+| `cursor` | opaque | yes |
+| `accepted[]` | uint delivery_seq | yes |
+| `next_writer_seq` | uint ≥1 | yes |
+| `duplicate` | bool | no |
+
+### `push` / `snapshot` (`stage: prepare`)
+
+Purpose: obtain PUT URLs for snapshot files (≤32 per call).
+Who: publisher.
+Source: `snapshot/bytes` action `prepare`. Client PUTs to `upload_url` (not this API).
+
+### `push` / `snapshot` (`stage: publish`)
+
+Purpose: commit Manifest; returns `restore_point_id` (= snapshot digest).
+Who: publisher.
+Source: `snapshot/bytes` action `publish`.
+
+### `push` / `file` (`stage: prepare` \| `complete`)
+
+Purpose: prepare upload grant or verify completed upload.
+Who: member/publisher with write.
+Source: `mutation-log/blob/bytes` (`signed_blob.rs`). Binary PUT uses `upload_url`.
+
+### `manage` / `create`
+
+Purpose: create cloud database; `database_id` is node-chosen (envelope).
+Who: registered paid account (publisher).
+Source: `mutation-log/create-database` (`kind`, optional `spec`).
+
+| args | type | req |
+|---|---|---|
+| `kind` | `personal`\|`shareable` | yes |
+| `name` | string ≤128 | no (needed for shareable today) |
+| `schema_version` | uint | no |
+
+| result | type | req |
+|---|---|---|
+| `state` | `"native"` | yes |
+| `public_read` | bool | yes (false) |
+
+### `manage` / `grant`
+
+Purpose: set member grants and/or public read (`grantee: "any"`).
+Who: publisher.
+Source: `share/members/set` (`MemberEntry`); v3 adds `any`.
+
+| args | type | req |
+|---|---|---|
+| `grants[]` | `{ grantee: hex\|"any", role: writer\|submit\|reader }` 1…98 | yes |
+
+`any` + non-`reader` → `invalid_request` / `grants.any.role`.
+
+| result | type | req |
+|---|---|---|
+| `ok` | bool | yes |
+
+### `manage` / `revoke`
+
+Purpose: revoke members or turn public read off (`any`).
+Who: publisher.
+
+| args | type | req |
+|---|---|---|
+| `grantees[]` | hex \| `"any"` 1…98 | yes |
+
+| result | type | req |
+|---|---|---|
+| `ok` | bool | yes |
+
+### `manage` / `access`
+
+Purpose: caller's relationship to the database (+ publisher public flag).
+Who: any node that can authenticate; result may be `role: none`.
+Source: folds `mutation-log/access` (liveness) + `share/members/read` (+ `grant#any`).
+
+| args | type | req |
+|---|---|---|
+| *(none)* | | |
+
+| result | type | req |
+|---|---|---|
+| `role` | `publisher`\|`member`\|`public`\|`none` | yes |
+| `level` | `read`\|`submit`\|`write` | yes |
+| `public` | bool | yes (publisher: `grant#any` active; others false) |
+| `expires_at_ms` | uint | no |
+
+```json
+{ "database_id": "…", "intent": "access", "args": {} }
+→ { "database_id": "…", "intent": "access", "result": { "role": "publisher", "level": "write", "public": true } }
+```
+
+### `manage` / `delete`
+
+Purpose: publisher reclaim of all cloud data for the database.
+Who: publisher.
+
+| args | | |
+|---|---|---|
+| *(none)* | | |
+
+| result | type | req |
+|---|---|---|
+| `status` | `done`\|`accepted` | yes |
+
+### `account` / `register`
+
+Purpose: first device of a new account.
+Who: unsigned-as-account yet; node key must be new.
+Source: `/api/auth/cli/register`.
+
+| result | type | req |
+|---|---|---|
+| `ok` | bool | yes |
+| `account_id` | 32 hex | yes |
+
+Errors: `429` `rate_limited` / `account.register`.
+
+### `account` / `payment`
+
+Purpose: short-lived signed browser payment link.
+Who: registered device.
+Source: replaces checkout/portal URL fetch.
+
+| result | type | req |
+|---|---|---|
+| `payment_url` | uri ≤8192 | yes |
+| `expires_at_ms` | uint | yes |
+
+### `account` / `deactivate`
+
+| result | `ok`, `status` (`done`\|`accepted`) |
+
+### `account` / `add_device`
+
+Purpose: enroll header device for existing account (no body proof).
+Who: holder of existing account node key; device may be unregistered.
+
+| result | `ok`, `device_id` (header echo) |
+
+### `account` / `remove_device`
+
+| args | `device_id` (uuid) required |
+| result | `ok` |
+
+### `account` / `databases`
+
+Purpose: page owned/granted databases for sync discovery.
+Who: registered device. **ExeMem must add reverse index** (none today).
+
+| args | `cursor?`, `limit?` 1…90 |
+| result | `cursor?`, `databases[]` `{ database_id, role }` |
+
+### `account` / `status`
+
+| result | `paid`, `storage_used_bytes`, `devices[]` `{ device_id, added_at_ms? }` |
+
+`paid` from payments/status today; storage/devices list not on wire yet.
+
+### `maintenance` / `snapshot_proof_*` (DEV, `githubOidc`)
+
+Source: `scripts/cloud_backup/snapshot_attempt_account.py`.
+
+| intent | args | result |
+|---|---|---|
+| `snapshot_proof_provision` | `public_key`, `device_id`, `database_id_version` 1\|2 | `account_id`, `account_generation`, `database_id` |
+| `snapshot_proof_status` | `run_id`, `run_attempt` | `phase`, `account_id`, `account_generation`, `database_id`, `retry_after_ms`, `released_bytes` |
+| `snapshot_proof_retire` | same as status | same as status |
+| `snapshot_proof_inspect` | `through` 1…32 | `database_id`, `entries` map, `facts` map |
+
+## Judgment calls (for Tom)
+
+1. **`account_id` format:** typed as **32 hex** (`user_hash` today), not UUID.
+2. **`manage`/`create` args:** kept `kind` + optional `name`/`schema_version` from create-database `spec` (not empty `{}`).
+3. **`manage`/`access`:** dropped `mutation_id` as Tom asked. Sole caller today is `log_sync/contributions.rs` `status()` for proposal polling (`submitted`/`published`/`discarded`/`unknown`). That status path is **not** in this surface — needs a later intent or publisher-only fetch if still required.
+4. **`expires_at_ms` on access:** optional; **not on wire today** — included only because Tom listed it.
+5. **Cursors:** opaque strings wrapping today’s decimal `delivery_seq` (not exposing decimal in the public schema).
+6. **`file_handle` / `part_handle` / `ticket`:** opaque; lengths 512/256/256 chosen from BlobPath / grant sizes.
+7. **Snapshot describe result:** flattened (`through`, `file_count`, `name`) instead of returning full `Manifest.files[]` (can be large); full file list still available via part/prepare flows.
+8. **Push snapshot stages:** only `prepare` + `publish` on this API; binary PUT stays off-API to presigned URLs (same as today).
+9. **Push file stages:** `prepare` + `complete` (today’s actions); no `upload` stage on this API.
+10. **Fetch ciphertext encoding:** kept **standard base64** to match `delivery/object` (not base64url).
+11. **Grant roles:** `writer` \| `submit` \| `reader` (maps today’s Submit/Read + direct-write).
+12. **`storage_used_bytes` / device `added_at_ms`:** required/optional fields for `status` even though ExeMem does not expose them yet (Decision 27).
+13. **`duplicate` on push/mutations:** optional bool from today’s `result: duplicate`.
+14. **Inspect `entries`/`facts`:** open string maps with maxProperties (only place maps appear), matching DEV broker bags.
+15. **Public-read fetch auth:** unregistered/unpaid may read under `grant#any` left as open question (recommend yes).
+
 ## Open questions for Tom
 
 1. Under `grant#any`, may an **unregistered** and/or **unpaid** node key
    `fetch` (reads only)? **Recommend yes** — valid `nodeSignature` with their
    own key is enough when `grant#any` is active; paid/register gates stay on
    push/manage/account. Confirm or restrict.
+

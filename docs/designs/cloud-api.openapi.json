@@ -3,7 +3,7 @@
   "info": {
     "title": "LastDB ExeMem Cloud API",
     "version": "3.0.0-design",
-    "description": "Design contract for cloud API v3. Node traffic uses Ed25519 `nodeSignature` headers (not bearer / API key). See docs/designs/cloud-api.md Decisions 19–20."
+    "description": "Fully typed design contract for cloud API v3. See docs/designs/cloud-api.md. nodeSignature for node traffic; githubOidc for DEV maintenance. No rules/settings; public read via grant#any (reader only)."
   },
   "servers": [
     {
@@ -30,14 +30,17 @@
     },
     {
       "name": "maintenance",
-      "description": "DEV-only; x-lastdb-environment: dev"
+      "description": "DEV-only"
+    },
+    {
+      "name": "errors"
     }
   ],
   "paths": {
     "/api/cloud/v3/fetch": {
       "post": {
         "summary": "Fetch",
-        "description": "Body is one envelope or an array of envelopes (max 90). Request ≤ 256 KiB; response ≤ 8 MiB (per-item batch_too_large). One Ed25519 signature covers the whole body. Intents: mutations_since, snapshot, file.",
+        "description": "Intents: mutations_since, snapshot (describe|part), file. Batch max 90; body ≤256 KiB; response ≤8 MiB. Under grant#any, any nodeSignature may read (open Q: unpaid).",
         "operationId": "cloudFetch",
         "security": [
           {
@@ -73,23 +76,20 @@
               },
               "examples": {
                 "mutations_since": {
-                  "summary": "Publisher or receiver mutation page",
                   "value": {
                     "database_id": "22222222-2222-4222-8222-222222222222",
                     "intent": "mutations_since",
                     "args": {
-                      "cursor": "opaque",
                       "limit": 50
                     }
                   }
                 },
                 "file": {
-                  "summary": "Byte range of a file",
                   "value": {
                     "database_id": "22222222-2222-4222-8222-222222222222",
                     "intent": "file",
                     "args": {
-                      "file_handle": "opaque",
+                      "file_handle": "opaque-file-1",
                       "offset": 0,
                       "length": 65536
                     }
@@ -101,7 +101,7 @@
         },
         "responses": {
           "200": {
-            "description": "Processed (batch or single).",
+            "description": "Processed (single or batch).",
             "content": {
               "application/json": {
                 "schema": {
@@ -113,14 +113,8 @@
                       "database_id": "22222222-2222-4222-8222-222222222222",
                       "intent": "mutations_since",
                       "result": {
-                        "cursor": "next",
-                        "mutations": [
-                          {
-                            "mutation_id": "m1",
-                            "stream": "direct",
-                            "payload": {}
-                          }
-                        ]
+                        "cursor": "c-next",
+                        "mutations": []
                       }
                     }
                   }
@@ -129,7 +123,7 @@
             }
           },
           "401": {
-            "description": "Bad, expired, or reused signature; unknown or revoked device. field is request.signature | request.issued_at | request.nonce | device.id | device.revoked.",
+            "description": "Bad/expired/reused signature or unknown/revoked device (fields: request.signature|issued_at|nonce, device.id|revoked, account.node_key).",
             "content": {
               "application/json": {
                 "schema": {
@@ -146,8 +140,32 @@
               }
             }
           },
+          "403": {
+            "description": "Not permitted (fields: payment.subscription, grant.*, database.*).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "forbidden": {
+                    "value": {
+                      "code": "forbidden",
+                      "field": "example"
+                    }
+                  },
+                  "payment_required": {
+                    "value": {
+                      "code": "payment_required",
+                      "field": "example"
+                    }
+                  }
+                }
+              }
+            }
+          },
           "400": {
-            "description": "Bad request / batch overflow",
+            "description": "Invalid request / batch overflow (fields: batch.response, grants.any.role, …).",
             "content": {
               "application/json": {
                 "schema": {
@@ -170,26 +188,8 @@
               }
             }
           },
-          "403": {
-            "description": "Not permitted for this grant/account",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                },
-                "examples": {
-                  "forbidden": {
-                    "value": {
-                      "code": "forbidden",
-                      "field": "example"
-                    }
-                  }
-                }
-              }
-            }
-          },
           "404": {
-            "description": "Unknown resource",
+            "description": "Unknown resource.",
             "content": {
               "application/json": {
                 "schema": {
@@ -206,8 +206,38 @@
               }
             }
           },
+          "409": {
+            "description": "Conflict (fields: mutation_log.conflict, mutation_log.cursor).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "conflict": {
+                    "value": {
+                      "code": "conflict",
+                      "field": "example"
+                    }
+                  },
+                  "predecessor_conflict": {
+                    "value": {
+                      "code": "predecessor_conflict",
+                      "field": "example"
+                    }
+                  },
+                  "cursor_expired": {
+                    "value": {
+                      "code": "cursor_expired",
+                      "field": "example"
+                    }
+                  }
+                }
+              }
+            }
+          },
           "426": {
-            "description": "Protocol too old; Error.minimum_version set",
+            "description": "Protocol too old; minimum_version set.",
             "content": {
               "application/json": {
                 "schema": {
@@ -233,7 +263,7 @@
     "/api/cloud/v3/push": {
       "post": {
         "summary": "Push",
-        "description": "Body is one envelope or an array of envelopes (max 90). Request ≤ 256 KiB; response ≤ 8 MiB (per-item batch_too_large). One Ed25519 signature covers the whole body. Intents: mutations, snapshot, file. Writer device is the signed header.",
+        "description": "Intents: mutations, snapshot (prepare|publish), file (prepare|complete). landed from grant; publisher always direct.",
         "operationId": "cloudPush",
         "security": [
           {
@@ -269,17 +299,16 @@
               },
               "examples": {
                 "mutations": {
-                  "summary": "Append or propose mutations",
                   "value": {
                     "database_id": "22222222-2222-4222-8222-222222222222",
                     "intent": "mutations",
                     "args": {
                       "entries": [
                         {
-                          "mutation_id": "m1",
-                          "payload": {
-                            "op": "set"
-                          }
+                          "writer_seq": 1,
+                          "authored_at_ms": 1730000000000,
+                          "namespace": "default",
+                          "payload_b64": "AQID"
                         }
                       ]
                     }
@@ -291,7 +320,7 @@
         },
         "responses": {
           "200": {
-            "description": "Processed (batch or single).",
+            "description": "Processed (single or batch).",
             "content": {
               "application/json": {
                 "schema": {
@@ -306,8 +335,9 @@
                         "landed": "direct",
                         "cursor": "c1",
                         "accepted": [
-                          "m1"
-                        ]
+                          1
+                        ],
+                        "next_writer_seq": 2
                       }
                     }
                   }
@@ -316,7 +346,7 @@
             }
           },
           "401": {
-            "description": "Bad, expired, or reused signature; unknown or revoked device. field is request.signature | request.issued_at | request.nonce | device.id | device.revoked.",
+            "description": "Bad/expired/reused signature or unknown/revoked device (fields: request.signature|issued_at|nonce, device.id|revoked, account.node_key).",
             "content": {
               "application/json": {
                 "schema": {
@@ -333,8 +363,32 @@
               }
             }
           },
+          "403": {
+            "description": "Not permitted (fields: payment.subscription, grant.*, database.*).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "forbidden": {
+                    "value": {
+                      "code": "forbidden",
+                      "field": "example"
+                    }
+                  },
+                  "payment_required": {
+                    "value": {
+                      "code": "payment_required",
+                      "field": "example"
+                    }
+                  }
+                }
+              }
+            }
+          },
           "400": {
-            "description": "Bad request / batch overflow",
+            "description": "Invalid request / batch overflow (fields: batch.response, grants.any.role, …).",
             "content": {
               "application/json": {
                 "schema": {
@@ -357,26 +411,8 @@
               }
             }
           },
-          "403": {
-            "description": "Not permitted for this grant/account",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                },
-                "examples": {
-                  "forbidden": {
-                    "value": {
-                      "code": "forbidden",
-                      "field": "example"
-                    }
-                  }
-                }
-              }
-            }
-          },
           "404": {
-            "description": "Unknown resource",
+            "description": "Unknown resource.",
             "content": {
               "application/json": {
                 "schema": {
@@ -393,8 +429,38 @@
               }
             }
           },
+          "409": {
+            "description": "Conflict (fields: mutation_log.conflict, mutation_log.cursor).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "conflict": {
+                    "value": {
+                      "code": "conflict",
+                      "field": "example"
+                    }
+                  },
+                  "predecessor_conflict": {
+                    "value": {
+                      "code": "predecessor_conflict",
+                      "field": "example"
+                    }
+                  },
+                  "cursor_expired": {
+                    "value": {
+                      "code": "cursor_expired",
+                      "field": "example"
+                    }
+                  }
+                }
+              }
+            }
+          },
           "426": {
-            "description": "Protocol too old; Error.minimum_version set",
+            "description": "Protocol too old; minimum_version set.",
             "content": {
               "application/json": {
                 "schema": {
@@ -420,7 +486,7 @@
     "/api/cloud/v3/manage": {
       "post": {
         "summary": "Manage",
-        "description": "Body is one envelope or an array of envelopes (max 90). Request ≤ 256 KiB; response ≤ 8 MiB (per-item batch_too_large). One Ed25519 signature covers the whole body. Intents: create, grant, revoke, access, delete. No rules/settings. Public read = grant grantee any (reader only; stored as grant#any). any+writer/submit → 400 invalid_request / grants.any.role.",
+        "description": "Intents: create, grant, revoke, access, delete. No rules. Public read: grantee any / role reader → grant#any. any+writer|submit → invalid_request / grants.any.role.",
         "operationId": "cloudManage",
         "security": [
           {
@@ -459,11 +525,13 @@
                   "value": {
                     "database_id": "22222222-2222-4222-8222-222222222222",
                     "intent": "create",
-                    "args": {}
+                    "args": {
+                      "kind": "shareable",
+                      "name": "album"
+                    }
                   }
                 },
                 "grant_any": {
-                  "summary": "Enable public read (grant#any)",
                   "value": {
                     "database_id": "22222222-2222-4222-8222-222222222222",
                     "intent": "grant",
@@ -477,29 +545,10 @@
                     }
                   }
                 },
-                "revoke_any": {
-                  "summary": "Turn public read off",
-                  "value": {
-                    "database_id": "22222222-2222-4222-8222-222222222222",
-                    "intent": "revoke",
-                    "args": {
-                      "grantees": [
-                        "any"
-                      ]
-                    }
-                  }
-                },
                 "access": {
                   "value": {
                     "database_id": "22222222-2222-4222-8222-222222222222",
                     "intent": "access",
-                    "args": {}
-                  }
-                },
-                "delete": {
-                  "value": {
-                    "database_id": "22222222-2222-4222-8222-222222222222",
-                    "intent": "delete",
                     "args": {}
                   }
                 }
@@ -509,32 +558,21 @@
         },
         "responses": {
           "200": {
-            "description": "Processed (batch or single).",
+            "description": "Processed (single or batch).",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ManageResponseBody"
                 },
                 "examples": {
-                  "create": {
-                    "value": {
-                      "database_id": "22222222-2222-4222-8222-222222222222",
-                      "intent": "create",
-                      "result": {
-                        "access": {
-                          "state": "ready",
-                          "public_read": false
-                        }
-                      }
-                    }
-                  },
                   "access": {
                     "value": {
                       "database_id": "22222222-2222-4222-8222-222222222222",
                       "intent": "access",
                       "result": {
-                        "state": "ready",
-                        "public_read": true
+                        "role": "publisher",
+                        "level": "write",
+                        "public": true
                       }
                     }
                   }
@@ -543,7 +581,7 @@
             }
           },
           "401": {
-            "description": "Bad, expired, or reused signature; unknown or revoked device. field is request.signature | request.issued_at | request.nonce | device.id | device.revoked.",
+            "description": "Bad/expired/reused signature or unknown/revoked device (fields: request.signature|issued_at|nonce, device.id|revoked, account.node_key).",
             "content": {
               "application/json": {
                 "schema": {
@@ -560,8 +598,32 @@
               }
             }
           },
+          "403": {
+            "description": "Not permitted (fields: payment.subscription, grant.*, database.*).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "forbidden": {
+                    "value": {
+                      "code": "forbidden",
+                      "field": "example"
+                    }
+                  },
+                  "payment_required": {
+                    "value": {
+                      "code": "payment_required",
+                      "field": "example"
+                    }
+                  }
+                }
+              }
+            }
+          },
           "400": {
-            "description": "Bad request / batch overflow",
+            "description": "Invalid request / batch overflow (fields: batch.response, grants.any.role, …).",
             "content": {
               "application/json": {
                 "schema": {
@@ -584,26 +646,8 @@
               }
             }
           },
-          "403": {
-            "description": "Not permitted for this grant/account",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                },
-                "examples": {
-                  "forbidden": {
-                    "value": {
-                      "code": "forbidden",
-                      "field": "example"
-                    }
-                  }
-                }
-              }
-            }
-          },
           "404": {
-            "description": "Unknown resource",
+            "description": "Unknown resource.",
             "content": {
               "application/json": {
                 "schema": {
@@ -620,8 +664,38 @@
               }
             }
           },
+          "409": {
+            "description": "Conflict (fields: mutation_log.conflict, mutation_log.cursor).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "conflict": {
+                    "value": {
+                      "code": "conflict",
+                      "field": "example"
+                    }
+                  },
+                  "predecessor_conflict": {
+                    "value": {
+                      "code": "predecessor_conflict",
+                      "field": "example"
+                    }
+                  },
+                  "cursor_expired": {
+                    "value": {
+                      "code": "cursor_expired",
+                      "field": "example"
+                    }
+                  }
+                }
+              }
+            }
+          },
           "426": {
-            "description": "Protocol too old; Error.minimum_version set",
+            "description": "Protocol too old; minimum_version set.",
             "content": {
               "application/json": {
                 "schema": {
@@ -647,7 +721,7 @@
     "/api/cloud/v3/account": {
       "post": {
         "summary": "Account",
-        "description": "Body is one envelope or an array of envelopes (max 90). Request ≤ 256 KiB; response ≤ 8 MiB (per-item batch_too_large). One Ed25519 signature covers the whole body. No Cloud-Protocol header. Intents: register, payment, deactivate, add_device, remove_device, databases, status. No login; no API keys; no per-device keys; no node-key rotation; no invite/claim/connect-code surface (People app). add_device: empty args; header device is new; existing account node-key signature suffices. register rate-limited → 429 rate_limited / account.register. payment → signed payment_url. databases: paginated owned/granted DBs. status: paid, storage_used_bytes, devices. App registry publish requires a paid ExeMem account.",
+        "description": "No protocol header. Intents: register, payment, deactivate, add_device, remove_device, databases, status. register → 429 rate_limited / account.register.",
         "operationId": "cloudAccount",
         "security": [
           {
@@ -680,37 +754,18 @@
               },
               "examples": {
                 "register": {
-                  "summary": "First device; device id is the signed header",
                   "value": {
                     "intent": "register",
                     "args": {}
                   }
                 },
                 "add_device": {
-                  "summary": "Existing account node-key signature; header device id is the new device; args empty",
                   "value": {
                     "intent": "add_device",
                     "args": {}
                   }
                 },
-                "payment": {
-                  "summary": "Returns a short-lived single-use signed payment URL",
-                  "value": {
-                    "intent": "payment",
-                    "args": {}
-                  }
-                },
-                "databases": {
-                  "summary": "Page of DBs this node key owns or is granted",
-                  "value": {
-                    "intent": "databases",
-                    "args": {
-                      "limit": 50
-                    }
-                  }
-                },
                 "status": {
-                  "summary": "Paid state, storage used, registered devices",
                   "value": {
                     "intent": "status",
                     "args": {}
@@ -722,7 +777,7 @@
         },
         "responses": {
           "200": {
-            "description": "Processed (batch or single).",
+            "description": "Processed (single or batch).",
             "content": {
               "application/json": {
                 "schema": {
@@ -734,34 +789,7 @@
                       "intent": "register",
                       "result": {
                         "ok": true,
-                        "account_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
-                      }
-                    }
-                  },
-                  "payment": {
-                    "value": {
-                      "intent": "payment",
-                      "result": {
-                        "payment_url": "https://pay.example/s/opaque-single-use",
-                        "expires_at_ms": 1730000300000
-                      }
-                    }
-                  },
-                  "databases": {
-                    "value": {
-                      "intent": "databases",
-                      "result": {
-                        "cursor": "next-opaque",
-                        "databases": [
-                          {
-                            "database_id": "22222222-2222-4222-8222-222222222222",
-                            "role": "publisher"
-                          },
-                          {
-                            "database_id": "44444444-4444-4444-8444-444444444444",
-                            "role": "reader"
-                          }
-                        ]
+                        "account_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
                       }
                     }
                   },
@@ -770,11 +798,10 @@
                       "intent": "status",
                       "result": {
                         "paid": true,
-                        "storage_used_bytes": 1048576,
+                        "storage_used_bytes": 0,
                         "devices": [
                           {
-                            "device_id": "11111111-1111-4111-8111-111111111111",
-                            "added_at_ms": 1730000000000
+                            "device_id": "11111111-1111-4111-8111-111111111111"
                           }
                         ]
                       }
@@ -785,7 +812,7 @@
             }
           },
           "401": {
-            "description": "Bad, expired, or reused signature; unknown or revoked device. field is request.signature | request.issued_at | request.nonce | device.id | device.revoked.",
+            "description": "Bad/expired/reused signature or unknown/revoked device (fields: request.signature|issued_at|nonce, device.id|revoked, account.node_key).",
             "content": {
               "application/json": {
                 "schema": {
@@ -802,8 +829,32 @@
               }
             }
           },
+          "403": {
+            "description": "Not permitted (fields: payment.subscription, grant.*, database.*).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "forbidden": {
+                    "value": {
+                      "code": "forbidden",
+                      "field": "example"
+                    }
+                  },
+                  "payment_required": {
+                    "value": {
+                      "code": "payment_required",
+                      "field": "example"
+                    }
+                  }
+                }
+              }
+            }
+          },
           "400": {
-            "description": "Bad request / batch overflow",
+            "description": "Invalid request / batch overflow (fields: batch.response, grants.any.role, …).",
             "content": {
               "application/json": {
                 "schema": {
@@ -826,26 +877,8 @@
               }
             }
           },
-          "403": {
-            "description": "Not permitted for this grant/account",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                },
-                "examples": {
-                  "forbidden": {
-                    "value": {
-                      "code": "forbidden",
-                      "field": "example"
-                    }
-                  }
-                }
-              }
-            }
-          },
           "404": {
-            "description": "Unknown resource",
+            "description": "Unknown resource.",
             "content": {
               "application/json": {
                 "schema": {
@@ -862,8 +895,38 @@
               }
             }
           },
+          "409": {
+            "description": "Conflict (fields: mutation_log.conflict, mutation_log.cursor).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "conflict": {
+                    "value": {
+                      "code": "conflict",
+                      "field": "example"
+                    }
+                  },
+                  "predecessor_conflict": {
+                    "value": {
+                      "code": "predecessor_conflict",
+                      "field": "example"
+                    }
+                  },
+                  "cursor_expired": {
+                    "value": {
+                      "code": "cursor_expired",
+                      "field": "example"
+                    }
+                  }
+                }
+              }
+            }
+          },
           "426": {
-            "description": "Protocol too old; Error.minimum_version set",
+            "description": "Protocol too old; minimum_version set.",
             "content": {
               "application/json": {
                 "schema": {
@@ -907,7 +970,7 @@
     "/api/cloud/v3/maintenance": {
       "post": {
         "summary": "Maintenance (DEV)",
-        "description": "DEV snapshot-proof only. githubOidc. Not node-signed.",
+        "description": "DEV snapshot-proof. githubOidc. Not node-signed.",
         "operationId": "cloudMaintenance",
         "security": [
           {
@@ -930,7 +993,10 @@
                 "status": {
                   "value": {
                     "intent": "snapshot_proof_status",
-                    "args": {}
+                    "args": {
+                      "run_id": "123",
+                      "run_attempt": 1
+                    }
                   }
                 }
               }
@@ -939,7 +1005,7 @@
         },
         "responses": {
           "200": {
-            "description": "Processed (batch or single).",
+            "description": "Processed (single or batch).",
             "content": {
               "application/json": {
                 "schema": {
@@ -950,7 +1016,12 @@
                     "value": {
                       "intent": "snapshot_proof_status",
                       "result": {
-                        "state": "idle"
+                        "phase": "open",
+                        "account_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                        "account_generation": "1",
+                        "database_id": "22222222-2222-4222-8222-222222222222",
+                        "retry_after_ms": 0,
+                        "released_bytes": "0"
                       }
                     }
                   }
@@ -958,32 +1029,8 @@
               }
             }
           },
-          "400": {
-            "description": "Bad request / batch overflow",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                },
-                "examples": {
-                  "invalid_request": {
-                    "value": {
-                      "code": "invalid_request",
-                      "field": "example"
-                    }
-                  },
-                  "batch_too_large": {
-                    "value": {
-                      "code": "batch_too_large",
-                      "field": "example"
-                    }
-                  }
-                }
-              }
-            }
-          },
           "403": {
-            "description": "Not DEV / bad OIDC",
+            "description": "Not DEV / bad OIDC.",
             "content": {
               "application/json": {
                 "schema": {
@@ -993,42 +1040,6 @@
                   "forbidden": {
                     "value": {
                       "code": "forbidden",
-                      "field": "example"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Unknown resource",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                },
-                "examples": {
-                  "not_found": {
-                    "value": {
-                      "code": "not_found",
-                      "field": "example"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "426": {
-            "description": "Protocol too old; Error.minimum_version set",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                },
-                "examples": {
-                  "upgrade_required": {
-                    "value": {
-                      "code": "upgrade_required",
                       "field": "example"
                     }
                   }
@@ -1050,13 +1061,13 @@
         "type": "apiKey",
         "in": "header",
         "name": "X-LastDB-Signature",
-        "description": "Ed25519 signature (base64url, no pad) over UTF-8 lines joined by newline: POST\\n<path>\\n<protocol|->\\n<node key hex>\\n<device id>\\n<issued-at ms>\\n<nonce hex>\\n<body sha256 hex>. Companion headers: X-LastDB-Node-Key, X-LastDB-Device-Id, X-LastDB-Issued-At, X-LastDB-Nonce. Clock skew ±5 minutes. Replaces LastDBNode bearer and X-API-Key. Bad signature → 401 field request.signature; expired → request.issued_at; reused nonce → request.nonce."
+        "description": "Ed25519 over POST\\n<path>\\n<protocol|->\\n<node key>\\n<device id>\\n<issued-at>\\n<nonce>\\n<body sha256 hex>. Companion headers required. Replaces LastDBNode bearer and X-API-Key."
       },
       "githubOidc": {
         "type": "http",
         "scheme": "bearer",
         "bearerFormat": "JWT",
-        "description": "GitHub Actions OIDC for DEV maintenance only."
+        "description": "GitHub Actions OIDC for DEV maintenance."
       }
     },
     "parameters": {
@@ -1069,8 +1080,7 @@
           "enum": [
             3
           ]
-        },
-        "description": "Wire protocol version. Required on fetch/push/manage/maintenance. Not on account."
+        }
       },
       "NodeKey": {
         "name": "X-LastDB-Node-Key",
@@ -1078,20 +1088,21 @@
         "required": true,
         "schema": {
           "type": "string",
-          "pattern": "^[0-9a-f]{64}$"
-        },
-        "description": "Ed25519 public key (64 hex). Account identity.",
-        "example": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+          "description": "Account identity; signs the request.",
+          "pattern": "^[0-9a-f]{64}$",
+          "minLength": 64,
+          "maxLength": 64
+        }
       },
       "DeviceId": {
         "name": "X-LastDB-Device-Id",
         "in": "header",
         "required": true,
         "schema": {
-          "$ref": "#/components/schemas/Uuid"
-        },
-        "description": "Registered device UUID for this request.",
-        "example": "11111111-1111-4111-8111-111111111111"
+          "type": "string",
+          "format": "uuid",
+          "description": "Device bookkeeping id."
+        }
       },
       "IssuedAt": {
         "name": "X-LastDB-Issued-At",
@@ -1099,10 +1110,10 @@
         "required": true,
         "schema": {
           "type": "string",
-          "pattern": "^[0-9]+$"
-        },
-        "description": "Unix milliseconds when the signature was made.",
-        "example": "1730000000000"
+          "description": "Unix ms decimal.",
+          "pattern": "^[0-9]+$",
+          "maxLength": 20
+        }
       },
       "Nonce": {
         "name": "X-LastDB-Nonce",
@@ -1110,10 +1121,11 @@
         "required": true,
         "schema": {
           "type": "string",
-          "pattern": "^[0-9a-f]{64}$"
-        },
-        "description": "32 random bytes as 64 hex; single-use per node key.",
-        "example": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          "description": "32 random bytes as 64 hex; single-use.",
+          "pattern": "^[0-9a-f]{64}$",
+          "minLength": 64,
+          "maxLength": 64
+        }
       },
       "Signature": {
         "name": "X-LastDB-Signature",
@@ -1121,18 +1133,13 @@
         "required": true,
         "schema": {
           "type": "string",
+          "description": "base64url (no pad) of 64-byte Ed25519 signature.",
           "minLength": 86,
           "maxLength": 88
-        },
-        "description": "base64url (no pad) of 64-byte Ed25519 signature.",
-        "example": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        }
       }
     },
     "schemas": {
-      "Uuid": {
-        "type": "string",
-        "format": "uuid"
-      },
       "Error": {
         "type": "object",
         "required": [
@@ -1142,90 +1149,1564 @@
         "additionalProperties": false,
         "properties": {
           "code": {
-            "type": "string"
+            "type": "string",
+            "enum": [
+              "unauthorized",
+              "forbidden",
+              "invalid_request",
+              "not_found",
+              "conflict",
+              "rate_limited",
+              "upgrade_required",
+              "cursor_expired",
+              "predecessor_conflict",
+              "batch_too_large",
+              "payment_required"
+            ],
+            "description": "Closed error code set for v3."
           },
           "field": {
-            "type": "string"
+            "type": "string",
+            "description": "Dot-path of the offending field, e.g. request.signature, grants.any.role",
+            "minLength": 1,
+            "maxLength": 128
           },
           "minimum_version": {
-            "type": "integer"
+            "type": "integer",
+            "minimum": 3,
+            "description": "Present when code is upgrade_required"
           }
-        }
+        },
+        "description": "Standard error body"
+      },
+      "Uuid": {
+        "type": "string",
+        "format": "uuid",
+        "description": "UUID"
       },
       "Hex64": {
         "type": "string",
-        "pattern": "^[0-9a-f]{64}$"
+        "description": "Ed25519 public key or SHA-256 digest (64 lowercase hex)",
+        "pattern": "^[0-9a-f]{64}$",
+        "minLength": 64,
+        "maxLength": 64
       },
-      "FetchIntent": {
+      "OpaqueCursor": {
         "type": "string",
-        "enum": [
-          "mutations_since",
-          "snapshot",
-          "file"
-        ]
+        "description": "Opaque pagination / log cursor (wraps delivery_seq today). Max 256.",
+        "minLength": 1,
+        "maxLength": 256,
+        "title": "OpaqueCursor"
       },
-      "FetchArgs": {
+      "OpaqueFileHandle": {
+        "type": "string",
+        "description": "Opaque file identity (today BlobPath). Max 512.",
+        "minLength": 1,
+        "maxLength": 512,
+        "title": "OpaqueFileHandle"
+      },
+      "OpaquePartHandle": {
+        "type": "string",
+        "description": "Opaque snapshot part / grant slot. Max 256.",
+        "minLength": 1,
+        "maxLength": 256,
+        "title": "OpaquePartHandle"
+      },
+      "OpaqueTicket": {
+        "type": "string",
+        "description": "Opaque upload/prepare ticket. Max 256.",
+        "minLength": 1,
+        "maxLength": 256,
+        "title": "OpaqueTicket"
+      },
+      "UploadUrl": {
+        "type": "string",
+        "description": "Presigned upload URL (today UploadGrant.url ≤8192).",
+        "format": "uri",
+        "maxLength": 8192
+      },
+      "PaymentUrl": {
+        "type": "string",
+        "description": "Short-lived single-use signed payment page URL.",
+        "format": "uri",
+        "maxLength": 8192
+      },
+      "Base64Url": {
+        "type": "string",
+        "description": "URL-safe base64, no padding (payload_b64 today).",
+        "pattern": "^[A-Za-z0-9_-]+$",
+        "minLength": 1,
+        "maxLength": 131072
+      },
+      "Base64Std": {
+        "type": "string",
+        "description": "Standard base64 (delivery ciphertext today).",
+        "pattern": "^[A-Za-z0-9+/]+=*$",
+        "minLength": 1,
+        "maxLength": 262144
+      },
+      "GrantGrantee": {
         "oneOf": [
           {
-            "type": "object",
-            "required": [],
-            "additionalProperties": false,
-            "properties": {
-              "cursor": {
-                "type": "string"
-              },
-              "limit": {
-                "type": "integer",
-                "minimum": 1,
-                "maximum": 90
-              }
-            },
-            "description": "mutations_since"
+            "type": "string",
+            "description": "Member node public key",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
           },
           {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "restore_point_id": {
-                "type": "string"
-              },
-              "part_handle": {
-                "type": "string"
-              }
-            },
-            "description": "snapshot"
-          },
-          {
-            "type": "object",
-            "required": [
-              "file_handle",
-              "offset",
-              "length"
-            ],
-            "additionalProperties": false,
-            "properties": {
-              "file_handle": {
-                "type": "string"
-              },
-              "offset": {
-                "type": "integer",
-                "minimum": 0
-              },
-              "length": {
-                "type": "integer",
-                "minimum": 1
-              }
-            },
-            "description": "file"
+            "type": "string",
+            "const": "any",
+            "description": "Public-read grantee (grant#any). role must be reader."
           }
         ]
       },
-      "FetchResult": {
-        "type": "object",
-        "additionalProperties": true,
-        "description": "Typed by intent; see design doc."
+      "GrantRole": {
+        "type": "string",
+        "enum": [
+          "writer",
+          "submit",
+          "reader"
+        ],
+        "description": "writer → push lands direct; submit → proposal; reader → read only. grantee any: reader only."
       },
-      "FetchEnvelope": {
+      "StreamKind": {
+        "type": "string",
+        "enum": [
+          "direct",
+          "proposal"
+        ],
+        "description": "Which log stream an entry belongs to / landed on."
+      },
+      "IncorporatedFrom": {
+        "type": "object",
+        "required": [
+          "node_public_key",
+          "device_id",
+          "writer_seq"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "node_public_key": {
+            "type": "string",
+            "description": "Ed25519 public key or SHA-256 digest (64 lowercase hex)",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "device_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Source device"
+          },
+          "writer_seq": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Source writer sequence"
+          }
+        },
+        "description": "Publisher re-append of an accepted proposal (EntryWire.incorporated_from)."
+      },
+      "MutationEntryIn": {
+        "type": "object",
+        "required": [
+          "writer_seq",
+          "authored_at_ms",
+          "namespace",
+          "payload_b64"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "writer_seq": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Gap-free per (node, device) writer sequence (EntryWire.writer_seq)."
+          },
+          "authored_at_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Unix ms authored_at_ms"
+          },
+          "namespace": {
+            "type": "string",
+            "description": "Mutation namespace",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "incorporated_from": {
+            "$ref": "#/components/schemas/IncorporatedFrom"
+          },
+          "payload_b64": {
+            "$ref": "#/components/schemas/Base64Url",
+            "description": "URL-safe base64 envelope. Cap aligned with BODY_LIMIT 96 KiB decoded (contributions) / record limits."
+          }
+        }
+      },
+      "MutationEntryOut": {
+        "type": "object",
+        "required": [
+          "delivery_seq",
+          "accepted_at_ms",
+          "stream",
+          "node_public_key",
+          "device_id",
+          "writer_seq",
+          "authored_at_ms",
+          "namespace",
+          "payload_b64"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "delivery_seq": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Service delivery sequence (StoredEntryWire)."
+          },
+          "accepted_at_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Unix ms when ExeMem accepted the entry."
+          },
+          "stream": {
+            "$ref": "#/components/schemas/StreamKind"
+          },
+          "node_public_key": {
+            "type": "string",
+            "description": "Author node key",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "device_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Author device"
+          },
+          "writer_seq": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Author writer_seq"
+          },
+          "authored_at_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Unix ms"
+          },
+          "namespace": {
+            "type": "string",
+            "description": "Mutation namespace",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "incorporated_from": {
+            "$ref": "#/components/schemas/IncorporatedFrom"
+          },
+          "payload_b64": {
+            "$ref": "#/components/schemas/Base64Url"
+          }
+        },
+        "description": "One listed mutation (StoredEntryWire + stream tag)."
+      },
+      "FetchMutationsSinceArgs": {
+        "type": "object",
+        "required": [],
+        "additionalProperties": false,
+        "properties": {
+          "cursor": {
+            "$ref": "#/components/schemas/OpaqueCursor",
+            "description": "Omit on first page (today after=0)."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Page size (LIST_PAGE_LIMIT).",
+            "maximum": 90
+          }
+        },
+        "description": "fetch/mutations_since — mutation-log/list (+ inbox/list for publisher)."
+      },
+      "FetchMutationsSinceResult": {
+        "type": "object",
+        "required": [
+          "cursor",
+          "mutations"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "cursor": {
+            "$ref": "#/components/schemas/OpaqueCursor",
+            "description": "Next-page cursor (today next delivery_seq)."
+          },
+          "mutations": {
+            "type": "array",
+            "maxItems": 90,
+            "items": {
+              "$ref": "#/components/schemas/MutationEntryOut"
+            }
+          }
+        }
+      },
+      "FetchSnapshotDescribeArgs": {
+        "type": "object",
+        "required": [
+          "stage"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "stage": {
+            "type": "string",
+            "const": "describe"
+          },
+          "restore_point_id": {
+            "type": "string",
+            "description": "Optional snapshot_id (SHA-256 of Manifest). Omit for latest.",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          }
+        },
+        "description": "fetch/snapshot stage describe — snapshot/bytes action read."
+      },
+      "FetchSnapshotDescribeResult": {
+        "type": "object",
+        "required": [
+          "stage"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "stage": {
+            "type": "string",
+            "const": "describe"
+          },
+          "restore_point_id": {
+            "type": "string",
+            "description": "Present when a snapshot exists.",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "through": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Delivery seq covered by the snapshot (Manifest.through)."
+          },
+          "file_count": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Number of files in the manifest."
+          },
+          "name": {
+            "type": "string",
+            "description": "Native DB name when present on Manifest.",
+            "maxLength": 256
+          }
+        }
+      },
+      "FetchSnapshotPartArgs": {
+        "type": "object",
+        "required": [
+          "stage",
+          "restore_point_id",
+          "part_handle"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "stage": {
+            "type": "string",
+            "const": "part"
+          },
+          "restore_point_id": {
+            "type": "string",
+            "description": "snapshot_id",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "part_handle": {
+            "$ref": "#/components/schemas/OpaquePartHandle",
+            "description": "Opaque handle for a download grant page/slot (today offset index)."
+          }
+        },
+        "description": "fetch/snapshot stage part — snapshot/bytes action download."
+      },
+      "FetchSnapshotPartResult": {
+        "type": "object",
+        "required": [
+          "stage",
+          "download_url",
+          "headers"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "stage": {
+            "type": "string",
+            "const": "part"
+          },
+          "download_url": {
+            "type": "string",
+            "description": "Presigned GET URL for this part.",
+            "format": "uri",
+            "maxLength": 8192
+          },
+          "headers": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "maxLength": 1024
+            },
+            "description": "Header map for the GET (today grant.headers). Max 32 entries implied by page.",
+            "maxProperties": 32
+          }
+        }
+      },
+      "FetchSnapshotArgs": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/FetchSnapshotDescribeArgs"
+          },
+          {
+            "$ref": "#/components/schemas/FetchSnapshotPartArgs"
+          }
+        ],
+        "description": "Discriminated by stage."
+      },
+      "FetchSnapshotResult": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/FetchSnapshotDescribeResult"
+          },
+          {
+            "$ref": "#/components/schemas/FetchSnapshotPartResult"
+          }
+        ]
+      },
+      "FetchFileArgs": {
+        "type": "object",
+        "required": [
+          "file_handle",
+          "offset",
+          "length"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "file_handle": {
+            "$ref": "#/components/schemas/OpaqueFileHandle"
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Byte offset into the object (OBJECT_RANGE capped)."
+          },
+          "length": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Requested length. Max 180 KiB (OBJECT_RANGE).",
+            "maximum": 184320
+          }
+        },
+        "description": "fetch/file — mutation-log/delivery/object."
+      },
+      "FetchFileResult": {
+        "type": "object",
+        "required": [
+          "total_bytes",
+          "offset",
+          "length",
+          "ciphertext_b64"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "total_bytes": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Full object size (delivery ObjectBody.bytes)."
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Start of this range."
+          },
+          "length": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Bytes returned (≤180 KiB).",
+            "maximum": 184320
+          },
+          "ciphertext_b64": {
+            "$ref": "#/components/schemas/Base64Std",
+            "description": "Standard base64 ciphertext for this range."
+          }
+        }
+      },
+      "PushMutationsArgs": {
+        "type": "object",
+        "required": [
+          "entries"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "entries": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 90,
+            "items": {
+              "$ref": "#/components/schemas/MutationEntryIn"
+            },
+            "description": "Writer device is X-LastDB-Device-Id (not in body)."
+          }
+        },
+        "description": "push/mutations — mutation-log/append (direct or proposal by grant)."
+      },
+      "PushMutationsResult": {
+        "type": "object",
+        "required": [
+          "landed",
+          "cursor",
+          "accepted",
+          "next_writer_seq"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "landed": {
+            "$ref": "#/components/schemas/StreamKind"
+          },
+          "cursor": {
+            "$ref": "#/components/schemas/OpaqueCursor",
+            "description": "Tip cursor after accept (from delivery_seqs)."
+          },
+          "accepted": {
+            "type": "array",
+            "maxItems": 90,
+            "items": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "delivery_seq assigned"
+            },
+            "description": "Empty when result was duplicate today."
+          },
+          "next_writer_seq": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Next writer_seq for this device (AppendResponse.next_seq)."
+          },
+          "duplicate": {
+            "type": "boolean",
+            "description": "True when append was a duplicate (today result=duplicate)."
+          }
+        }
+      },
+      "SnapshotFileEntry": {
+        "type": "object",
+        "required": [
+          "path",
+          "destination",
+          "bytes",
+          "sha256"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Relative path within snapshot (≤512 B, ≤8 components).",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "destination": {
+            "type": "string",
+            "enum": [
+              "r2",
+              "b2"
+            ],
+            "description": "Storage destination (FileEntry.destination)."
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Exact file length."
+          },
+          "sha256": {
+            "type": "string",
+            "description": "File content digest.",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          }
+        }
+      },
+      "PushSnapshotPrepareArgs": {
+        "type": "object",
+        "required": [
+          "stage",
+          "files"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "stage": {
+            "type": "string",
+            "const": "prepare"
+          },
+          "files": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 32,
+            "items": {
+              "$ref": "#/components/schemas/SnapshotFileEntry"
+            }
+          },
+          "upload_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Optional; ExeMem may assign if omitted (today client sends Id)."
+          }
+        }
+      },
+      "PushSnapshotPrepareResult": {
+        "type": "object",
+        "required": [
+          "stage",
+          "upload_id",
+          "parts"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "stage": {
+            "type": "string",
+            "const": "prepare"
+          },
+          "upload_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Upload attempt id."
+          },
+          "parts": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 32,
+            "items": {
+              "type": "object",
+              "required": [
+                "part_handle",
+                "upload_url",
+                "headers"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "part_handle": {
+                  "$ref": "#/components/schemas/OpaquePartHandle"
+                },
+                "upload_url": {
+                  "$ref": "#/components/schemas/UploadUrl"
+                },
+                "headers": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string",
+                    "maxLength": 1024
+                  },
+                  "maxProperties": 32,
+                  "description": "PUT headers for this part."
+                }
+              }
+            }
+          }
+        },
+        "description": "Client PUTs each file to upload_url (not this API)."
+      },
+      "PushSnapshotPublishArgs": {
+        "type": "object",
+        "required": [
+          "stage",
+          "upload_id",
+          "through",
+          "files"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "stage": {
+            "type": "string",
+            "const": "publish"
+          },
+          "upload_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "UUID"
+          },
+          "through": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Manifest.through delivery_seq covered."
+          },
+          "files": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 4096,
+            "items": {
+              "$ref": "#/components/schemas/SnapshotFileEntry"
+            }
+          },
+          "name": {
+            "type": "string",
+            "description": "Optional native DB name on Manifest.",
+            "maxLength": 256
+          },
+          "previous": {
+            "type": "string",
+            "description": "Optional previous snapshot digest.",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "advance_cutoff": {
+            "type": "boolean",
+            "description": "Today advance_cutoff optional flag."
+          }
+        }
+      },
+      "PushSnapshotPublishResult": {
+        "type": "object",
+        "required": [
+          "stage",
+          "restore_point_id"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "stage": {
+            "type": "string",
+            "const": "publish"
+          },
+          "restore_point_id": {
+            "type": "string",
+            "description": "snapshot_id = SHA-256 of canonical Manifest.",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          }
+        }
+      },
+      "PushSnapshotArgs": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/PushSnapshotPrepareArgs"
+          },
+          {
+            "$ref": "#/components/schemas/PushSnapshotPublishArgs"
+          }
+        ]
+      },
+      "PushSnapshotResult": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/PushSnapshotPrepareResult"
+          },
+          {
+            "$ref": "#/components/schemas/PushSnapshotPublishResult"
+          }
+        ]
+      },
+      "PushFilePrepareArgs": {
+        "type": "object",
+        "required": [
+          "stage",
+          "bytes",
+          "sha256"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "stage": {
+            "type": "string",
+            "const": "prepare"
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Exact object length (BlobBytes prepare)."
+          },
+          "sha256": {
+            "type": "string",
+            "description": "Object SHA-256.",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "file_handle": {
+            "$ref": "#/components/schemas/OpaqueFileHandle",
+            "description": "Optional opaque path; omit to let ExeMem assign."
+          }
+        }
+      },
+      "PushFilePrepareUploadResult": {
+        "type": "object",
+        "required": [
+          "stage",
+          "status",
+          "file_handle",
+          "ticket",
+          "upload_url",
+          "expires_at_ms"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "stage": {
+            "type": "string",
+            "const": "prepare"
+          },
+          "status": {
+            "type": "string",
+            "const": "upload"
+          },
+          "file_handle": {
+            "$ref": "#/components/schemas/OpaqueFileHandle"
+          },
+          "ticket": {
+            "$ref": "#/components/schemas/OpaqueTicket"
+          },
+          "upload_url": {
+            "$ref": "#/components/schemas/UploadUrl"
+          },
+          "expires_at_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "UploadGrant.expires_ms."
+          }
+        }
+      },
+      "PushFilePrepareVerifiedResult": {
+        "type": "object",
+        "required": [
+          "stage",
+          "status",
+          "file_handle"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "stage": {
+            "type": "string",
+            "const": "prepare"
+          },
+          "status": {
+            "type": "string",
+            "const": "already_verified"
+          },
+          "file_handle": {
+            "$ref": "#/components/schemas/OpaqueFileHandle"
+          }
+        }
+      },
+      "PushFilePrepareResult": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/PushFilePrepareUploadResult"
+          },
+          {
+            "$ref": "#/components/schemas/PushFilePrepareVerifiedResult"
+          }
+        ]
+      },
+      "PushFileCompleteArgs": {
+        "type": "object",
+        "required": [
+          "stage",
+          "file_handle",
+          "bytes",
+          "sha256"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "stage": {
+            "type": "string",
+            "const": "complete"
+          },
+          "file_handle": {
+            "$ref": "#/components/schemas/OpaqueFileHandle"
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Exact length."
+          },
+          "sha256": {
+            "type": "string",
+            "description": "Ed25519 public key or SHA-256 digest (64 lowercase hex)",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "ticket": {
+            "$ref": "#/components/schemas/OpaqueTicket"
+          }
+        }
+      },
+      "PushFileCompleteResult": {
+        "type": "object",
+        "required": [
+          "stage",
+          "file_handle",
+          "status"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "stage": {
+            "type": "string",
+            "const": "complete"
+          },
+          "file_handle": {
+            "$ref": "#/components/schemas/OpaqueFileHandle"
+          },
+          "status": {
+            "type": "string",
+            "const": "verified",
+            "description": "complete response status verified."
+          }
+        }
+      },
+      "PushFileArgs": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/PushFilePrepareArgs"
+          },
+          {
+            "$ref": "#/components/schemas/PushFileCompleteArgs"
+          }
+        ]
+      },
+      "PushFileResult": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/PushFilePrepareResult"
+          },
+          {
+            "$ref": "#/components/schemas/PushFileCompleteResult"
+          }
+        ]
+      },
+      "ManageCreateArgs": {
+        "type": "object",
+        "required": [
+          "kind"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "personal",
+              "shareable"
+            ],
+            "description": "Native create-database kind."
+          },
+          "name": {
+            "type": "string",
+            "description": "Publication name (required for shareable today via spec).",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "schema_version": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Publication schema version (spec.version today)."
+          }
+        },
+        "description": "manage/create — mutation-log/create-database. database_id is in the envelope."
+      },
+      "ManageCreateResult": {
+        "type": "object",
+        "required": [
+          "state",
+          "public_read"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "state": {
+            "type": "string",
+            "const": "native",
+            "description": "NativeDatabase.state."
+          },
+          "public_read": {
+            "type": "boolean",
+            "description": "False at create (no grant#any yet)."
+          }
+        }
+      },
+      "ManageGrantEntry": {
+        "type": "object",
+        "required": [
+          "grantee",
+          "role"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "grantee": {
+            "$ref": "#/components/schemas/GrantGrantee"
+          },
+          "role": {
+            "$ref": "#/components/schemas/GrantRole"
+          }
+        }
+      },
+      "ManageGrantArgs": {
+        "type": "object",
+        "required": [
+          "grants"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "grants": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 98,
+            "items": {
+              "$ref": "#/components/schemas/ManageGrantEntry"
+            },
+            "description": "MEMBER_SET_MAX=98. any → reader only."
+          }
+        }
+      },
+      "ManageGrantResult": {
+        "type": "object",
+        "required": [
+          "ok"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "True on success."
+          }
+        }
+      },
+      "ManageRevokeArgs": {
+        "type": "object",
+        "required": [
+          "grantees"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "grantees": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 98,
+            "items": {
+              "$ref": "#/components/schemas/GrantGrantee"
+            },
+            "description": "Revoke any turns public read off."
+          }
+        }
+      },
+      "ManageRevokeResult": {
+        "type": "object",
+        "required": [
+          "ok"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "True on success."
+          }
+        }
+      },
+      "ManageAccessArgs": {
+        "type": "object",
+        "required": [],
+        "additionalProperties": false,
+        "properties": {},
+        "description": "manage/access — no mutation_id (Tom). Membership + public_read for caller."
+      },
+      "ManageAccessResult": {
+        "type": "object",
+        "required": [
+          "role",
+          "level",
+          "public"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "role": {
+            "type": "string",
+            "enum": [
+              "publisher",
+              "member",
+              "public",
+              "none"
+            ],
+            "description": "Caller's relationship. public = reading via grant#any without a per-key grant. none = no access."
+          },
+          "level": {
+            "type": "string",
+            "enum": [
+              "read",
+              "submit",
+              "write"
+            ],
+            "description": "Effective write/read level. publisher → write. member from grant role. public → read."
+          },
+          "public": {
+            "type": "boolean",
+            "description": "Publisher only: true when grant#any is active. Members/public omit or false."
+          },
+          "expires_at_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Optional capability expiry if ExeMem sets one (none on wire today)."
+          }
+        }
+      },
+      "ManageDeleteArgs": {
+        "type": "object",
+        "required": [],
+        "additionalProperties": false,
+        "properties": {},
+        "description": "Publisher reclaim of all cloud data."
+      },
+      "ManageDeleteResult": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "done",
+              "accepted"
+            ],
+            "description": "done = finished; accepted = async reclaim started."
+          }
+        }
+      },
+      "AccountRegisterArgs": {
+        "type": "object",
+        "required": [],
+        "additionalProperties": false,
+        "properties": {},
+        "description": "First device = header Device-Id."
+      },
+      "AccountRegisterResult": {
+        "type": "object",
+        "required": [
+          "ok",
+          "account_id"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "True."
+          },
+          "account_id": {
+            "type": "string",
+            "description": "Account id (today user_hash = 32 hex).",
+            "pattern": "^[0-9a-f]{32}$",
+            "minLength": 32,
+            "maxLength": 32
+          }
+        }
+      },
+      "AccountPaymentArgs": {
+        "type": "object",
+        "required": [],
+        "additionalProperties": false,
+        "properties": {},
+        "description": "Returns signed payment_url."
+      },
+      "AccountPaymentResult": {
+        "type": "object",
+        "required": [
+          "payment_url",
+          "expires_at_ms"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "payment_url": {
+            "$ref": "#/components/schemas/PaymentUrl"
+          },
+          "expires_at_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Unix ms when the link expires."
+          }
+        }
+      },
+      "AccountDeactivateArgs": {
+        "type": "object",
+        "required": [],
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "AccountDeactivateResult": {
+        "type": "object",
+        "required": [
+          "ok",
+          "status"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "True."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "done",
+              "accepted"
+            ]
+          }
+        }
+      },
+      "AccountAddDeviceArgs": {
+        "type": "object",
+        "required": [],
+        "additionalProperties": false,
+        "properties": {},
+        "description": "New device = header Device-Id; node-key signature for existing account."
+      },
+      "AccountAddDeviceResult": {
+        "type": "object",
+        "required": [
+          "ok",
+          "device_id"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "True."
+          },
+          "device_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Echo of the enrolled header device."
+          }
+        }
+      },
+      "AccountRemoveDeviceArgs": {
+        "type": "object",
+        "required": [
+          "device_id"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "device_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Device to remove from the bookkeeping list."
+          }
+        }
+      },
+      "AccountRemoveDeviceResult": {
+        "type": "object",
+        "required": [
+          "ok"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "description": "True."
+          }
+        }
+      },
+      "AccountDatabasesArgs": {
+        "type": "object",
+        "required": [],
+        "additionalProperties": false,
+        "properties": {
+          "cursor": {
+            "$ref": "#/components/schemas/OpaqueCursor"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Page size.",
+            "maximum": 90
+          }
+        }
+      },
+      "AccountDatabaseRow": {
+        "type": "object",
+        "required": [
+          "database_id",
+          "role"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "UUID"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "publisher",
+              "writer",
+              "submit",
+              "reader"
+            ]
+          }
+        }
+      },
+      "AccountDatabasesResult": {
+        "type": "object",
+        "required": [
+          "databases"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "cursor": {
+            "$ref": "#/components/schemas/OpaqueCursor",
+            "description": "Omit when no further page."
+          },
+          "databases": {
+            "type": "array",
+            "maxItems": 90,
+            "items": {
+              "$ref": "#/components/schemas/AccountDatabaseRow"
+            }
+          }
+        }
+      },
+      "AccountDeviceRow": {
+        "type": "object",
+        "required": [
+          "device_id"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "device_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "UUID"
+          },
+          "added_at_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "When registered; omit if ExeMem has not stored it (not on wire today)."
+          }
+        }
+      },
+      "AccountStatusArgs": {
+        "type": "object",
+        "required": [],
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "AccountStatusResult": {
+        "type": "object",
+        "required": [
+          "paid",
+          "storage_used_bytes",
+          "devices"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "paid": {
+            "type": "boolean",
+            "description": "Active paid plan (payments/status active today)."
+          },
+          "storage_used_bytes": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Cloud bytes charged. Not on wire today — ExeMem must report."
+          },
+          "devices": {
+            "type": "array",
+            "maxItems": 256,
+            "items": {
+              "$ref": "#/components/schemas/AccountDeviceRow"
+            }
+          }
+        }
+      },
+      "MaintProvisionArgs": {
+        "type": "object",
+        "required": [
+          "public_key",
+          "device_id",
+          "database_id_version"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "public_key": {
+            "type": "string",
+            "description": "Attempt node public key.",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "device_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "UUID"
+          },
+          "database_id_version": {
+            "type": "integer",
+            "enum": [
+              1,
+              2
+            ],
+            "description": "Database id scheme version."
+          }
+        }
+      },
+      "MaintProvisionResult": {
+        "type": "object",
+        "required": [
+          "account_id",
+          "account_generation",
+          "database_id"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "account_id": {
+            "type": "string",
+            "description": "32 hex account id.",
+            "pattern": "^[0-9a-f]{32}$",
+            "minLength": 32,
+            "maxLength": 32
+          },
+          "account_generation": {
+            "type": "string",
+            "description": "Decimal generation string (today always \"1\").",
+            "pattern": "^[0-9]+$",
+            "maxLength": 32
+          },
+          "database_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "UUID"
+          }
+        }
+      },
+      "MaintRunArgs": {
+        "type": "object",
+        "required": [
+          "run_id",
+          "run_attempt"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "description": "CI run id.",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "run_attempt": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "CI run attempt."
+          }
+        },
+        "description": "status / retire shared args."
+      },
+      "MaintStatusResult": {
+        "type": "object",
+        "required": [
+          "phase",
+          "account_id",
+          "account_generation",
+          "database_id",
+          "retry_after_ms",
+          "released_bytes"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "phase": {
+            "type": "string",
+            "enum": [
+              "open",
+              "retiring",
+              "complete"
+            ]
+          },
+          "account_id": {
+            "type": "string",
+            "description": "",
+            "pattern": "^[0-9a-f]{32}$",
+            "minLength": 32,
+            "maxLength": 32
+          },
+          "account_generation": {
+            "type": "string",
+            "description": "",
+            "pattern": "^[0-9]+$",
+            "maxLength": 32
+          },
+          "database_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "UUID"
+          },
+          "retry_after_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "0…GRANT_TTL_MS (900000).",
+            "maximum": 900000
+          },
+          "released_bytes": {
+            "type": "string",
+            "description": "Decimal string bytes released; nonzero only when complete.",
+            "pattern": "^[0-9]+$",
+            "maxLength": 32
+          }
+        }
+      },
+      "MaintRetireResult": {
+        "$ref": "#/components/schemas/MaintStatusResult"
+      },
+      "MaintInspectArgs": {
+        "type": "object",
+        "required": [
+          "through"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "through": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Inspect depth 1…32.",
+            "maximum": 32
+          }
+        }
+      },
+      "MaintInspectResult": {
+        "type": "object",
+        "required": [
+          "database_id",
+          "entries",
+          "facts"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "UUID"
+          },
+          "entries": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "maxLength": 4096
+            },
+            "description": "Keys e# + 20 digits; ≤ through entries.",
+            "maxProperties": 32
+          },
+          "facts": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "maxLength": 4096
+            },
+            "description": "Keys write#…; ≤256 facts.",
+            "maxProperties": 256
+          }
+        }
+      },
+      "Fetch_mutations_since_Req": {
         "type": "object",
         "required": [
           "database_id",
@@ -1235,22 +2716,20 @@
         "additionalProperties": false,
         "properties": {
           "database_id": {
-            "$ref": "#/components/schemas/Uuid"
+            "type": "string",
+            "format": "uuid",
+            "description": "Database id (node-chosen on create)"
           },
           "intent": {
             "type": "string",
-            "enum": [
-              "mutations_since",
-              "snapshot",
-              "file"
-            ]
+            "const": "mutations_since"
           },
           "args": {
-            "$ref": "#/components/schemas/FetchArgs"
+            "$ref": "#/components/schemas/FetchMutationsSinceArgs"
           }
         }
       },
-      "FetchResultEnvelope": {
+      "Fetch_mutations_since_Res": {
         "type": "object",
         "required": [
           "database_id",
@@ -1260,18 +2739,150 @@
         "additionalProperties": false,
         "properties": {
           "database_id": {
-            "$ref": "#/components/schemas/Uuid"
+            "type": "string",
+            "format": "uuid",
+            "description": "Database id"
           },
           "intent": {
             "type": "string",
-            "enum": [
-              "mutations_since",
-              "snapshot",
-              "file"
-            ]
+            "const": "mutations_since"
           },
           "result": {
-            "$ref": "#/components/schemas/FetchResult"
+            "$ref": "#/components/schemas/FetchMutationsSinceResult"
+          }
+        }
+      },
+      "Fetch_snapshot_Req": {
+        "type": "object",
+        "required": [
+          "database_id",
+          "intent",
+          "args"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Database id (node-chosen on create)"
+          },
+          "intent": {
+            "type": "string",
+            "const": "snapshot"
+          },
+          "args": {
+            "$ref": "#/components/schemas/FetchSnapshotArgs"
+          }
+        }
+      },
+      "Fetch_snapshot_Res": {
+        "type": "object",
+        "required": [
+          "database_id",
+          "intent",
+          "result"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Database id"
+          },
+          "intent": {
+            "type": "string",
+            "const": "snapshot"
+          },
+          "result": {
+            "$ref": "#/components/schemas/FetchSnapshotResult"
+          }
+        }
+      },
+      "Fetch_file_Req": {
+        "type": "object",
+        "required": [
+          "database_id",
+          "intent",
+          "args"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Database id (node-chosen on create)"
+          },
+          "intent": {
+            "type": "string",
+            "const": "file"
+          },
+          "args": {
+            "$ref": "#/components/schemas/FetchFileArgs"
+          }
+        }
+      },
+      "Fetch_file_Res": {
+        "type": "object",
+        "required": [
+          "database_id",
+          "intent",
+          "result"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Database id"
+          },
+          "intent": {
+            "type": "string",
+            "const": "file"
+          },
+          "result": {
+            "$ref": "#/components/schemas/FetchFileResult"
+          }
+        }
+      },
+      "FetchEnvelope": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Fetch_mutations_since_Req"
+          },
+          {
+            "$ref": "#/components/schemas/Fetch_snapshot_Req"
+          },
+          {
+            "$ref": "#/components/schemas/Fetch_file_Req"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "intent",
+          "mapping": {
+            "mutations_since": "#/components/schemas/Fetch_mutations_since_Req",
+            "snapshot": "#/components/schemas/Fetch_snapshot_Req",
+            "file": "#/components/schemas/Fetch_file_Req"
+          }
+        }
+      },
+      "FetchResultEnvelope": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Fetch_mutations_since_Res"
+          },
+          {
+            "$ref": "#/components/schemas/Fetch_snapshot_Res"
+          },
+          {
+            "$ref": "#/components/schemas/Fetch_file_Res"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "intent",
+          "mapping": {
+            "mutations_since": "#/components/schemas/Fetch_mutations_since_Res",
+            "snapshot": "#/components/schemas/Fetch_snapshot_Res",
+            "file": "#/components/schemas/Fetch_file_Res"
           }
         }
       },
@@ -1288,7 +2899,8 @@
               "$ref": "#/components/schemas/FetchEnvelope"
             }
           }
-        ]
+        ],
+        "description": "Single envelope or batch (max 90). One signature over whole body."
       },
       "FetchResponseBody": {
         "oneOf": [
@@ -1303,90 +2915,10 @@
               "$ref": "#/components/schemas/FetchResultEnvelope"
             }
           }
-        ]
+        ],
+        "description": "Single envelope or batch (max 90). One signature over whole body."
       },
-      "PushArgs": {
-        "oneOf": [
-          {
-            "type": "object",
-            "required": [
-              "entries"
-            ],
-            "additionalProperties": false,
-            "properties": {
-              "entries": {
-                "type": "array",
-                "minItems": 1,
-                "maxItems": 90,
-                "items": {
-                  "type": "object",
-                  "required": [
-                    "mutation_id",
-                    "payload"
-                  ],
-                  "additionalProperties": false,
-                  "properties": {
-                    "mutation_id": {
-                      "type": "string"
-                    },
-                    "payload": {
-                      "type": "object"
-                    }
-                  }
-                }
-              }
-            },
-            "description": "mutations — writer device is X-LastDB-Device-Id"
-          },
-          {
-            "type": "object",
-            "required": [
-              "stage"
-            ],
-            "additionalProperties": true,
-            "properties": {
-              "stage": {
-                "type": "string",
-                "enum": [
-                  "prepare",
-                  "upload",
-                  "publish"
-                ]
-              },
-              "ticket": {
-                "type": "string"
-              }
-            },
-            "description": "snapshot"
-          },
-          {
-            "type": "object",
-            "required": [
-              "stage"
-            ],
-            "additionalProperties": true,
-            "properties": {
-              "stage": {
-                "type": "string",
-                "enum": [
-                  "prepare",
-                  "upload",
-                  "commit"
-                ]
-              },
-              "ticket": {
-                "type": "string"
-              }
-            },
-            "description": "file"
-          }
-        ]
-      },
-      "PushResult": {
-        "type": "object",
-        "additionalProperties": true
-      },
-      "PushEnvelope": {
+      "Push_mutations_Req": {
         "type": "object",
         "required": [
           "database_id",
@@ -1396,22 +2928,20 @@
         "additionalProperties": false,
         "properties": {
           "database_id": {
-            "$ref": "#/components/schemas/Uuid"
+            "type": "string",
+            "format": "uuid",
+            "description": "Database id (node-chosen on create)"
           },
           "intent": {
             "type": "string",
-            "enum": [
-              "mutations",
-              "snapshot",
-              "file"
-            ]
+            "const": "mutations"
           },
           "args": {
-            "$ref": "#/components/schemas/PushArgs"
+            "$ref": "#/components/schemas/PushMutationsArgs"
           }
         }
       },
-      "PushResultEnvelope": {
+      "Push_mutations_Res": {
         "type": "object",
         "required": [
           "database_id",
@@ -1421,18 +2951,150 @@
         "additionalProperties": false,
         "properties": {
           "database_id": {
-            "$ref": "#/components/schemas/Uuid"
+            "type": "string",
+            "format": "uuid",
+            "description": "Database id"
           },
           "intent": {
             "type": "string",
-            "enum": [
-              "mutations",
-              "snapshot",
-              "file"
-            ]
+            "const": "mutations"
           },
           "result": {
-            "$ref": "#/components/schemas/PushResult"
+            "$ref": "#/components/schemas/PushMutationsResult"
+          }
+        }
+      },
+      "Push_snapshot_Req": {
+        "type": "object",
+        "required": [
+          "database_id",
+          "intent",
+          "args"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Database id (node-chosen on create)"
+          },
+          "intent": {
+            "type": "string",
+            "const": "snapshot"
+          },
+          "args": {
+            "$ref": "#/components/schemas/PushSnapshotArgs"
+          }
+        }
+      },
+      "Push_snapshot_Res": {
+        "type": "object",
+        "required": [
+          "database_id",
+          "intent",
+          "result"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Database id"
+          },
+          "intent": {
+            "type": "string",
+            "const": "snapshot"
+          },
+          "result": {
+            "$ref": "#/components/schemas/PushSnapshotResult"
+          }
+        }
+      },
+      "Push_file_Req": {
+        "type": "object",
+        "required": [
+          "database_id",
+          "intent",
+          "args"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Database id (node-chosen on create)"
+          },
+          "intent": {
+            "type": "string",
+            "const": "file"
+          },
+          "args": {
+            "$ref": "#/components/schemas/PushFileArgs"
+          }
+        }
+      },
+      "Push_file_Res": {
+        "type": "object",
+        "required": [
+          "database_id",
+          "intent",
+          "result"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Database id"
+          },
+          "intent": {
+            "type": "string",
+            "const": "file"
+          },
+          "result": {
+            "$ref": "#/components/schemas/PushFileResult"
+          }
+        }
+      },
+      "PushEnvelope": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Push_mutations_Req"
+          },
+          {
+            "$ref": "#/components/schemas/Push_snapshot_Req"
+          },
+          {
+            "$ref": "#/components/schemas/Push_file_Req"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "intent",
+          "mapping": {
+            "mutations": "#/components/schemas/Push_mutations_Req",
+            "snapshot": "#/components/schemas/Push_snapshot_Req",
+            "file": "#/components/schemas/Push_file_Req"
+          }
+        }
+      },
+      "PushResultEnvelope": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Push_mutations_Res"
+          },
+          {
+            "$ref": "#/components/schemas/Push_snapshot_Res"
+          },
+          {
+            "$ref": "#/components/schemas/Push_file_Res"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "intent",
+          "mapping": {
+            "mutations": "#/components/schemas/Push_mutations_Res",
+            "snapshot": "#/components/schemas/Push_snapshot_Res",
+            "file": "#/components/schemas/Push_file_Res"
           }
         }
       },
@@ -1449,7 +3111,8 @@
               "$ref": "#/components/schemas/PushEnvelope"
             }
           }
-        ]
+        ],
+        "description": "Single envelope or batch (max 90). One signature over whole body."
       },
       "PushResponseBody": {
         "oneOf": [
@@ -1464,180 +3127,10 @@
               "$ref": "#/components/schemas/PushResultEnvelope"
             }
           }
-        ]
-      },
-      "GrantGrantee": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/Hex64"
-          },
-          {
-            "type": "string",
-            "const": "any",
-            "description": "Public-read grant (grant#any). role must be reader; writer/submit → invalid_request / grants.any.role"
-          }
-        ]
-      },
-      "ManageGrantEntry": {
-        "type": "object",
-        "required": [
-          "grantee",
-          "role"
         ],
-        "additionalProperties": false,
-        "properties": {
-          "grantee": {
-            "$ref": "#/components/schemas/GrantGrantee"
-          },
-          "role": {
-            "type": "string",
-            "enum": [
-              "writer",
-              "submit",
-              "reader"
-            ],
-            "description": "writer → push lands direct; submit → proposal; reader → read only. Grantee any: reader only (Decision 30–31)."
-          }
-        }
+        "description": "Single envelope or batch (max 90). One signature over whole body."
       },
-      "ManageArgs": {
-        "oneOf": [
-          {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {},
-            "description": "create — no rules/settings body"
-          },
-          {
-            "type": "object",
-            "required": [
-              "grants"
-            ],
-            "additionalProperties": false,
-            "properties": {
-              "grants": {
-                "type": "array",
-                "minItems": 1,
-                "items": {
-                  "$ref": "#/components/schemas/ManageGrantEntry"
-                }
-              }
-            },
-            "description": "grant — includes public read via grantee any"
-          },
-          {
-            "type": "object",
-            "required": [
-              "grantees"
-            ],
-            "additionalProperties": false,
-            "properties": {
-              "grantees": {
-                "type": "array",
-                "minItems": 1,
-                "items": {
-                  "$ref": "#/components/schemas/GrantGrantee"
-                },
-                "description": "Revoke any turns public read off"
-              }
-            },
-            "description": "revoke"
-          },
-          {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "mutation_id": {
-                "type": "string"
-              }
-            },
-            "description": "access"
-          },
-          {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {},
-            "description": "delete"
-          }
-        ]
-      },
-      "ManageResult": {
-        "oneOf": [
-          {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "access": {
-                "type": "object",
-                "required": [
-                  "public_read"
-                ],
-                "additionalProperties": true,
-                "properties": {
-                  "public_read": {
-                    "type": "boolean"
-                  },
-                  "state": {
-                    "type": "string"
-                  }
-                }
-              }
-            },
-            "description": "create"
-          },
-          {
-            "type": "object",
-            "required": [
-              "ok"
-            ],
-            "additionalProperties": false,
-            "properties": {
-              "ok": {
-                "type": "boolean"
-              }
-            },
-            "description": "grant / revoke"
-          },
-          {
-            "type": "object",
-            "required": [
-              "public_read"
-            ],
-            "additionalProperties": true,
-            "properties": {
-              "public_read": {
-                "type": "boolean",
-                "description": "True when grant#any is active"
-              },
-              "state": {
-                "type": "string"
-              },
-              "mutation_id": {
-                "type": "string"
-              }
-            },
-            "description": "access — publisher sees public_read"
-          },
-          {
-            "type": "object",
-            "required": [
-              "status"
-            ],
-            "additionalProperties": false,
-            "properties": {
-              "status": {
-                "type": "string",
-                "enum": [
-                  "done",
-                  "accepted"
-                ]
-              }
-            },
-            "description": "delete"
-          }
-        ]
-      },
-      "ManageEnvelope": {
+      "Manage_create_Req": {
         "type": "object",
         "required": [
           "database_id",
@@ -1647,24 +3140,20 @@
         "additionalProperties": false,
         "properties": {
           "database_id": {
-            "$ref": "#/components/schemas/Uuid"
+            "type": "string",
+            "format": "uuid",
+            "description": "Database id (node-chosen on create)"
           },
           "intent": {
             "type": "string",
-            "enum": [
-              "create",
-              "grant",
-              "revoke",
-              "access",
-              "delete"
-            ]
+            "const": "create"
           },
           "args": {
-            "$ref": "#/components/schemas/ManageArgs"
+            "$ref": "#/components/schemas/ManageCreateArgs"
           }
         }
       },
-      "ManageResultEnvelope": {
+      "Manage_create_Res": {
         "type": "object",
         "required": [
           "database_id",
@@ -1674,20 +3163,258 @@
         "additionalProperties": false,
         "properties": {
           "database_id": {
-            "$ref": "#/components/schemas/Uuid"
+            "type": "string",
+            "format": "uuid",
+            "description": "Database id"
           },
           "intent": {
             "type": "string",
-            "enum": [
-              "create",
-              "grant",
-              "revoke",
-              "access",
-              "delete"
-            ]
+            "const": "create"
           },
           "result": {
-            "$ref": "#/components/schemas/ManageResult"
+            "$ref": "#/components/schemas/ManageCreateResult"
+          }
+        }
+      },
+      "Manage_grant_Req": {
+        "type": "object",
+        "required": [
+          "database_id",
+          "intent",
+          "args"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Database id (node-chosen on create)"
+          },
+          "intent": {
+            "type": "string",
+            "const": "grant"
+          },
+          "args": {
+            "$ref": "#/components/schemas/ManageGrantArgs"
+          }
+        }
+      },
+      "Manage_grant_Res": {
+        "type": "object",
+        "required": [
+          "database_id",
+          "intent",
+          "result"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Database id"
+          },
+          "intent": {
+            "type": "string",
+            "const": "grant"
+          },
+          "result": {
+            "$ref": "#/components/schemas/ManageGrantResult"
+          }
+        }
+      },
+      "Manage_revoke_Req": {
+        "type": "object",
+        "required": [
+          "database_id",
+          "intent",
+          "args"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Database id (node-chosen on create)"
+          },
+          "intent": {
+            "type": "string",
+            "const": "revoke"
+          },
+          "args": {
+            "$ref": "#/components/schemas/ManageRevokeArgs"
+          }
+        }
+      },
+      "Manage_revoke_Res": {
+        "type": "object",
+        "required": [
+          "database_id",
+          "intent",
+          "result"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Database id"
+          },
+          "intent": {
+            "type": "string",
+            "const": "revoke"
+          },
+          "result": {
+            "$ref": "#/components/schemas/ManageRevokeResult"
+          }
+        }
+      },
+      "Manage_access_Req": {
+        "type": "object",
+        "required": [
+          "database_id",
+          "intent",
+          "args"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Database id (node-chosen on create)"
+          },
+          "intent": {
+            "type": "string",
+            "const": "access"
+          },
+          "args": {
+            "$ref": "#/components/schemas/ManageAccessArgs"
+          }
+        }
+      },
+      "Manage_access_Res": {
+        "type": "object",
+        "required": [
+          "database_id",
+          "intent",
+          "result"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Database id"
+          },
+          "intent": {
+            "type": "string",
+            "const": "access"
+          },
+          "result": {
+            "$ref": "#/components/schemas/ManageAccessResult"
+          }
+        }
+      },
+      "Manage_delete_Req": {
+        "type": "object",
+        "required": [
+          "database_id",
+          "intent",
+          "args"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Database id (node-chosen on create)"
+          },
+          "intent": {
+            "type": "string",
+            "const": "delete"
+          },
+          "args": {
+            "$ref": "#/components/schemas/ManageDeleteArgs"
+          }
+        }
+      },
+      "Manage_delete_Res": {
+        "type": "object",
+        "required": [
+          "database_id",
+          "intent",
+          "result"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Database id"
+          },
+          "intent": {
+            "type": "string",
+            "const": "delete"
+          },
+          "result": {
+            "$ref": "#/components/schemas/ManageDeleteResult"
+          }
+        }
+      },
+      "ManageEnvelope": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Manage_create_Req"
+          },
+          {
+            "$ref": "#/components/schemas/Manage_grant_Req"
+          },
+          {
+            "$ref": "#/components/schemas/Manage_revoke_Req"
+          },
+          {
+            "$ref": "#/components/schemas/Manage_access_Req"
+          },
+          {
+            "$ref": "#/components/schemas/Manage_delete_Req"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "intent",
+          "mapping": {
+            "create": "#/components/schemas/Manage_create_Req",
+            "grant": "#/components/schemas/Manage_grant_Req",
+            "revoke": "#/components/schemas/Manage_revoke_Req",
+            "access": "#/components/schemas/Manage_access_Req",
+            "delete": "#/components/schemas/Manage_delete_Req"
+          }
+        }
+      },
+      "ManageResultEnvelope": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Manage_create_Res"
+          },
+          {
+            "$ref": "#/components/schemas/Manage_grant_Res"
+          },
+          {
+            "$ref": "#/components/schemas/Manage_revoke_Res"
+          },
+          {
+            "$ref": "#/components/schemas/Manage_access_Res"
+          },
+          {
+            "$ref": "#/components/schemas/Manage_delete_Res"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "intent",
+          "mapping": {
+            "create": "#/components/schemas/Manage_create_Res",
+            "grant": "#/components/schemas/Manage_grant_Res",
+            "revoke": "#/components/schemas/Manage_revoke_Res",
+            "access": "#/components/schemas/Manage_access_Res",
+            "delete": "#/components/schemas/Manage_delete_Res"
           }
         }
       },
@@ -1704,7 +3431,8 @@
               "$ref": "#/components/schemas/ManageEnvelope"
             }
           }
-        ]
+        ],
+        "description": "Single envelope or batch (max 90). One signature over whole body."
       },
       "ManageResponseBody": {
         "oneOf": [
@@ -1719,256 +3447,10 @@
               "$ref": "#/components/schemas/ManageResultEnvelope"
             }
           }
-        ]
-      },
-      "AccountDatabaseRole": {
-        "type": "string",
-        "enum": [
-          "publisher",
-          "writer",
-          "submit",
-          "reader"
         ],
-        "description": "publisher = owns the DB; writer/submit/reader = active member grant (submit → proposal landed; writer → direct)."
+        "description": "Single envelope or batch (max 90). One signature over whole body."
       },
-      "AccountDatabaseRow": {
-        "type": "object",
-        "required": [
-          "database_id",
-          "role"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "database_id": {
-            "$ref": "#/components/schemas/Uuid"
-          },
-          "role": {
-            "$ref": "#/components/schemas/AccountDatabaseRole"
-          }
-        }
-      },
-      "AccountDeviceRow": {
-        "type": "object",
-        "required": [
-          "device_id"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "device_id": {
-            "$ref": "#/components/schemas/Uuid"
-          },
-          "added_at_ms": {
-            "type": "integer",
-            "minimum": 0,
-            "description": "Unix ms when the device was registered. Omit when ExeMem has not stored it (not on today's register wire)."
-          }
-        }
-      },
-      "AccountArgs": {
-        "oneOf": [
-          {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {},
-            "description": "register — device is X-LastDB-Device-Id"
-          },
-          {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {},
-            "description": "payment — result is payment_url (short-lived single-use signed link) + expires_at_ms"
-          },
-          {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {},
-            "description": "deactivate"
-          },
-          {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {},
-            "description": "add_device — new device is X-LastDB-Device-Id; node-key signature for an existing account is enough (no body proof; unknown-device 401 waived for this intent)"
-          },
-          {
-            "type": "object",
-            "required": [
-              "device_id"
-            ],
-            "additionalProperties": false,
-            "properties": {
-              "device_id": {
-                "$ref": "#/components/schemas/Uuid"
-              }
-            },
-            "description": "remove_device"
-          },
-          {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "cursor": {
-                "type": "string",
-                "description": "Opaque page token; omit on first page"
-              },
-              "limit": {
-                "type": "integer",
-                "minimum": 1,
-                "maximum": 90
-              }
-            },
-            "description": "databases — ExeMem reverse index of owned + granted DBs (not available as a single call today)"
-          },
-          {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {},
-            "description": "status — paid, storage_used_bytes, devices"
-          }
-        ]
-      },
-      "AccountResult": {
-        "oneOf": [
-          {
-            "type": "object",
-            "required": [
-              "ok",
-              "account_id"
-            ],
-            "additionalProperties": false,
-            "properties": {
-              "ok": {
-                "type": "boolean"
-              },
-              "account_id": {
-                "$ref": "#/components/schemas/Uuid"
-              }
-            },
-            "description": "register"
-          },
-          {
-            "type": "object",
-            "required": [
-              "payment_url",
-              "expires_at_ms"
-            ],
-            "additionalProperties": false,
-            "properties": {
-              "payment_url": {
-                "type": "string",
-                "format": "uri",
-                "description": "Short-lived, single-use, signed link to the hosted payment page (browser has no node key)."
-              },
-              "expires_at_ms": {
-                "type": "integer",
-                "minimum": 0
-              }
-            },
-            "description": "payment"
-          },
-          {
-            "type": "object",
-            "required": [
-              "ok",
-              "status"
-            ],
-            "additionalProperties": false,
-            "properties": {
-              "ok": {
-                "type": "boolean"
-              },
-              "status": {
-                "type": "string",
-                "enum": [
-                  "done",
-                  "accepted"
-                ]
-              }
-            },
-            "description": "deactivate"
-          },
-          {
-            "type": "object",
-            "required": [
-              "ok",
-              "device_id"
-            ],
-            "additionalProperties": false,
-            "properties": {
-              "ok": {
-                "type": "boolean"
-              },
-              "device_id": {
-                "$ref": "#/components/schemas/Uuid"
-              }
-            },
-            "description": "add_device"
-          },
-          {
-            "type": "object",
-            "required": [
-              "ok"
-            ],
-            "additionalProperties": false,
-            "properties": {
-              "ok": {
-                "type": "boolean"
-              }
-            },
-            "description": "remove_device"
-          },
-          {
-            "type": "object",
-            "required": [
-              "databases"
-            ],
-            "additionalProperties": false,
-            "properties": {
-              "cursor": {
-                "type": "string",
-                "description": "Next page token; omit when done"
-              },
-              "databases": {
-                "type": "array",
-                "maxItems": 90,
-                "items": {
-                  "$ref": "#/components/schemas/AccountDatabaseRow"
-                }
-              }
-            },
-            "description": "databases"
-          },
-          {
-            "type": "object",
-            "required": [
-              "paid",
-              "storage_used_bytes",
-              "devices"
-            ],
-            "additionalProperties": false,
-            "properties": {
-              "paid": {
-                "type": "boolean",
-                "description": "Active paid plan. Today: payments/status active (or unpaid → payment.subscription / PAID_ACCOUNT_REQUIRED)."
-              },
-              "storage_used_bytes": {
-                "type": "integer",
-                "minimum": 0,
-                "description": "Cloud bytes charged to this account. Not exposed on today's wire — ExeMem must report it. No account storage limit is exposed today, so no limit field."
-              },
-              "devices": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/AccountDeviceRow"
-                },
-                "description": "Registered devices. No list API today; added_at_ms when ExeMem stores it."
-              }
-            },
-            "description": "status"
-          }
-        ]
-      },
-      "AccountEnvelope": {
+      "Account_register_Req": {
         "type": "object",
         "required": [
           "intent",
@@ -1978,22 +3460,14 @@
         "properties": {
           "intent": {
             "type": "string",
-            "enum": [
-              "register",
-              "payment",
-              "deactivate",
-              "add_device",
-              "remove_device",
-              "databases",
-              "status"
-            ]
+            "const": "register"
           },
           "args": {
-            "$ref": "#/components/schemas/AccountArgs"
+            "$ref": "#/components/schemas/AccountRegisterArgs"
           }
         }
       },
-      "AccountResultEnvelope": {
+      "Account_register_Res": {
         "type": "object",
         "required": [
           "intent",
@@ -2003,18 +3477,288 @@
         "properties": {
           "intent": {
             "type": "string",
-            "enum": [
-              "register",
-              "payment",
-              "deactivate",
-              "add_device",
-              "remove_device",
-              "databases",
-              "status"
-            ]
+            "const": "register"
           },
           "result": {
-            "$ref": "#/components/schemas/AccountResult"
+            "$ref": "#/components/schemas/AccountRegisterResult"
+          }
+        }
+      },
+      "Account_payment_Req": {
+        "type": "object",
+        "required": [
+          "intent",
+          "args"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "payment"
+          },
+          "args": {
+            "$ref": "#/components/schemas/AccountPaymentArgs"
+          }
+        }
+      },
+      "Account_payment_Res": {
+        "type": "object",
+        "required": [
+          "intent",
+          "result"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "payment"
+          },
+          "result": {
+            "$ref": "#/components/schemas/AccountPaymentResult"
+          }
+        }
+      },
+      "Account_deactivate_Req": {
+        "type": "object",
+        "required": [
+          "intent",
+          "args"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "deactivate"
+          },
+          "args": {
+            "$ref": "#/components/schemas/AccountDeactivateArgs"
+          }
+        }
+      },
+      "Account_deactivate_Res": {
+        "type": "object",
+        "required": [
+          "intent",
+          "result"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "deactivate"
+          },
+          "result": {
+            "$ref": "#/components/schemas/AccountDeactivateResult"
+          }
+        }
+      },
+      "Account_add_device_Req": {
+        "type": "object",
+        "required": [
+          "intent",
+          "args"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "add_device"
+          },
+          "args": {
+            "$ref": "#/components/schemas/AccountAddDeviceArgs"
+          }
+        }
+      },
+      "Account_add_device_Res": {
+        "type": "object",
+        "required": [
+          "intent",
+          "result"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "add_device"
+          },
+          "result": {
+            "$ref": "#/components/schemas/AccountAddDeviceResult"
+          }
+        }
+      },
+      "Account_remove_device_Req": {
+        "type": "object",
+        "required": [
+          "intent",
+          "args"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "remove_device"
+          },
+          "args": {
+            "$ref": "#/components/schemas/AccountRemoveDeviceArgs"
+          }
+        }
+      },
+      "Account_remove_device_Res": {
+        "type": "object",
+        "required": [
+          "intent",
+          "result"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "remove_device"
+          },
+          "result": {
+            "$ref": "#/components/schemas/AccountRemoveDeviceResult"
+          }
+        }
+      },
+      "Account_databases_Req": {
+        "type": "object",
+        "required": [
+          "intent",
+          "args"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "databases"
+          },
+          "args": {
+            "$ref": "#/components/schemas/AccountDatabasesArgs"
+          }
+        }
+      },
+      "Account_databases_Res": {
+        "type": "object",
+        "required": [
+          "intent",
+          "result"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "databases"
+          },
+          "result": {
+            "$ref": "#/components/schemas/AccountDatabasesResult"
+          }
+        }
+      },
+      "Account_status_Req": {
+        "type": "object",
+        "required": [
+          "intent",
+          "args"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "status"
+          },
+          "args": {
+            "$ref": "#/components/schemas/AccountStatusArgs"
+          }
+        }
+      },
+      "Account_status_Res": {
+        "type": "object",
+        "required": [
+          "intent",
+          "result"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "status"
+          },
+          "result": {
+            "$ref": "#/components/schemas/AccountStatusResult"
+          }
+        }
+      },
+      "AccountEnvelope": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Account_register_Req"
+          },
+          {
+            "$ref": "#/components/schemas/Account_payment_Req"
+          },
+          {
+            "$ref": "#/components/schemas/Account_deactivate_Req"
+          },
+          {
+            "$ref": "#/components/schemas/Account_add_device_Req"
+          },
+          {
+            "$ref": "#/components/schemas/Account_remove_device_Req"
+          },
+          {
+            "$ref": "#/components/schemas/Account_databases_Req"
+          },
+          {
+            "$ref": "#/components/schemas/Account_status_Req"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "intent",
+          "mapping": {
+            "register": "#/components/schemas/Account_register_Req",
+            "payment": "#/components/schemas/Account_payment_Req",
+            "deactivate": "#/components/schemas/Account_deactivate_Req",
+            "add_device": "#/components/schemas/Account_add_device_Req",
+            "remove_device": "#/components/schemas/Account_remove_device_Req",
+            "databases": "#/components/schemas/Account_databases_Req",
+            "status": "#/components/schemas/Account_status_Req"
+          }
+        }
+      },
+      "AccountResultEnvelope": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Account_register_Res"
+          },
+          {
+            "$ref": "#/components/schemas/Account_payment_Res"
+          },
+          {
+            "$ref": "#/components/schemas/Account_deactivate_Res"
+          },
+          {
+            "$ref": "#/components/schemas/Account_add_device_Res"
+          },
+          {
+            "$ref": "#/components/schemas/Account_remove_device_Res"
+          },
+          {
+            "$ref": "#/components/schemas/Account_databases_Res"
+          },
+          {
+            "$ref": "#/components/schemas/Account_status_Res"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "intent",
+          "mapping": {
+            "register": "#/components/schemas/Account_register_Res",
+            "payment": "#/components/schemas/Account_payment_Res",
+            "deactivate": "#/components/schemas/Account_deactivate_Res",
+            "add_device": "#/components/schemas/Account_add_device_Res",
+            "remove_device": "#/components/schemas/Account_remove_device_Res",
+            "databases": "#/components/schemas/Account_databases_Res",
+            "status": "#/components/schemas/Account_status_Res"
           }
         }
       },
@@ -2031,7 +3775,8 @@
               "$ref": "#/components/schemas/AccountEnvelope"
             }
           }
-        ]
+        ],
+        "description": "Single envelope or batch (max 90). One signature over whole body."
       },
       "AccountResponseBody": {
         "oneOf": [
@@ -2046,17 +3791,10 @@
               "$ref": "#/components/schemas/AccountResultEnvelope"
             }
           }
-        ]
+        ],
+        "description": "Single envelope or batch (max 90). One signature over whole body."
       },
-      "MaintenanceArgs": {
-        "type": "object",
-        "additionalProperties": true
-      },
-      "MaintenanceResult": {
-        "type": "object",
-        "additionalProperties": true
-      },
-      "MaintenanceEnvelope": {
+      "Maintenance_snapshot_proof_provision_Req": {
         "type": "object",
         "required": [
           "intent",
@@ -2066,19 +3804,14 @@
         "properties": {
           "intent": {
             "type": "string",
-            "enum": [
-              "snapshot_proof_provision",
-              "snapshot_proof_retire",
-              "snapshot_proof_status",
-              "snapshot_proof_inspect"
-            ]
+            "const": "snapshot_proof_provision"
           },
           "args": {
-            "$ref": "#/components/schemas/MaintenanceArgs"
+            "$ref": "#/components/schemas/MaintProvisionArgs"
           }
         }
       },
-      "MaintenanceResultEnvelope": {
+      "Maintenance_snapshot_proof_provision_Res": {
         "type": "object",
         "required": [
           "intent",
@@ -2088,15 +3821,162 @@
         "properties": {
           "intent": {
             "type": "string",
-            "enum": [
-              "snapshot_proof_provision",
-              "snapshot_proof_retire",
-              "snapshot_proof_status",
-              "snapshot_proof_inspect"
-            ]
+            "const": "snapshot_proof_provision"
           },
           "result": {
-            "$ref": "#/components/schemas/MaintenanceResult"
+            "$ref": "#/components/schemas/MaintProvisionResult"
+          }
+        }
+      },
+      "Maintenance_snapshot_proof_status_Req": {
+        "type": "object",
+        "required": [
+          "intent",
+          "args"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "snapshot_proof_status"
+          },
+          "args": {
+            "$ref": "#/components/schemas/MaintRunArgs"
+          }
+        }
+      },
+      "Maintenance_snapshot_proof_status_Res": {
+        "type": "object",
+        "required": [
+          "intent",
+          "result"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "snapshot_proof_status"
+          },
+          "result": {
+            "$ref": "#/components/schemas/MaintStatusResult"
+          }
+        }
+      },
+      "Maintenance_snapshot_proof_retire_Req": {
+        "type": "object",
+        "required": [
+          "intent",
+          "args"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "snapshot_proof_retire"
+          },
+          "args": {
+            "$ref": "#/components/schemas/MaintRunArgs"
+          }
+        }
+      },
+      "Maintenance_snapshot_proof_retire_Res": {
+        "type": "object",
+        "required": [
+          "intent",
+          "result"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "snapshot_proof_retire"
+          },
+          "result": {
+            "$ref": "#/components/schemas/MaintRetireResult"
+          }
+        }
+      },
+      "Maintenance_snapshot_proof_inspect_Req": {
+        "type": "object",
+        "required": [
+          "intent",
+          "args"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "snapshot_proof_inspect"
+          },
+          "args": {
+            "$ref": "#/components/schemas/MaintInspectArgs"
+          }
+        }
+      },
+      "Maintenance_snapshot_proof_inspect_Res": {
+        "type": "object",
+        "required": [
+          "intent",
+          "result"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "snapshot_proof_inspect"
+          },
+          "result": {
+            "$ref": "#/components/schemas/MaintInspectResult"
+          }
+        }
+      },
+      "MaintenanceEnvelope": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Maintenance_snapshot_proof_provision_Req"
+          },
+          {
+            "$ref": "#/components/schemas/Maintenance_snapshot_proof_status_Req"
+          },
+          {
+            "$ref": "#/components/schemas/Maintenance_snapshot_proof_retire_Req"
+          },
+          {
+            "$ref": "#/components/schemas/Maintenance_snapshot_proof_inspect_Req"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "intent",
+          "mapping": {
+            "snapshot_proof_provision": "#/components/schemas/Maintenance_snapshot_proof_provision_Req",
+            "snapshot_proof_status": "#/components/schemas/Maintenance_snapshot_proof_status_Req",
+            "snapshot_proof_retire": "#/components/schemas/Maintenance_snapshot_proof_retire_Req",
+            "snapshot_proof_inspect": "#/components/schemas/Maintenance_snapshot_proof_inspect_Req"
+          }
+        }
+      },
+      "MaintenanceResultEnvelope": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Maintenance_snapshot_proof_provision_Res"
+          },
+          {
+            "$ref": "#/components/schemas/Maintenance_snapshot_proof_status_Res"
+          },
+          {
+            "$ref": "#/components/schemas/Maintenance_snapshot_proof_retire_Res"
+          },
+          {
+            "$ref": "#/components/schemas/Maintenance_snapshot_proof_inspect_Res"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "intent",
+          "mapping": {
+            "snapshot_proof_provision": "#/components/schemas/Maintenance_snapshot_proof_provision_Res",
+            "snapshot_proof_status": "#/components/schemas/Maintenance_snapshot_proof_status_Res",
+            "snapshot_proof_retire": "#/components/schemas/Maintenance_snapshot_proof_retire_Res",
+            "snapshot_proof_inspect": "#/components/schemas/Maintenance_snapshot_proof_inspect_Res"
           }
         }
       },
@@ -2113,7 +3993,8 @@
               "$ref": "#/components/schemas/MaintenanceEnvelope"
             }
           }
-        ]
+        ],
+        "description": "Single envelope or batch (max 90). One signature over whole body."
       },
       "MaintenanceResponseBody": {
         "oneOf": [
@@ -2128,7 +4009,8 @@
               "$ref": "#/components/schemas/MaintenanceResultEnvelope"
             }
           }
-        ]
+        ],
+        "description": "Single envelope or batch (max 90). One signature over whole body."
       }
     }
   }
