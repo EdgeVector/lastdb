@@ -35,43 +35,34 @@ The pin lint never checks the next cloud against the last stable node (#1799).
 POST /api/cloud/v3/fetch
 POST /api/cloud/v3/push
 POST /api/cloud/v3/manage
+POST /api/cloud/v3/account
+POST /api/cloud/v3/maintenance
 ```
 
 ### Standard envelope (Decision 16)
 
-Every fetch / push / manage body uses one shape. `database_id` and `intent`
-are never redefined per intent. Auth stays in headers and the LastDBNode
-token — not in the envelope.
-
-**Request**
+**Product** (fetch / push / manage) — always includes `database_id`:
 
 ```json
-{
-  "database_id": "<uuid>",
-  "intent": "<closed enum for this action>",
-  "args": { }
-}
+{ "database_id": "<uuid>", "intent": "<enum>", "args": { } }
+→ { "database_id": "<uuid>", "intent": "<same>", "result": { } }
 ```
 
-**Response (200)**
+**Account / maintenance** — no `database_id` (Decision 18):
 
 ```json
-{
-  "database_id": "<uuid>",
-  "intent": "<same>",
-  "result": { }
-}
+{ "intent": "<enum>", "args": { } }
+→ { "intent": "<same>", "result": { } }
 ```
 
-**Errors** stay `{ "code", "field" }` (+ `minimum_version` on 426).
+Auth stays in headers and tokens — not in the envelope. Errors stay
+`{ "code", "field" }` (+ `minimum_version` on 426).
 
-`manage`/`create` uses the same envelope: the **node chooses** `database_id`
-(UUID) today (`native.rs` `CreateBody` / `CloudLog::open` require a UUID) and
-sends it; ExeMem does not allocate the id.
+`manage`/`create` uses the product envelope: the **node chooses**
+`database_id` (UUID) today (`native.rs` `CreateBody`) and sends it.
 
-OpenAPI: shared envelope fields plus per-intent `args` / `result` schemas,
-tagged by `intent` (`oneOf` + discriminator). The request body is a further
-`oneOf` of a single envelope or an array of envelopes (Decision 17).
+OpenAPI: per-intent `args` / `result`, tagged by `intent`; request body is
+`oneOf` envelope or array of envelopes (Decision 17) where batching applies.
 
 ### Batching (Decision 17)
 
@@ -114,10 +105,12 @@ Over **90** items → whole-request `{ "code": "batch_too_large", "field": "batc
 | `fetch` | `mutations_since`, `snapshot`, `file` |
 | `push` | `mutations`, `snapshot`, `file` |
 | `manage` | `create`, `grant`, `revoke`, `access`, `delete` |
+| `account` | `enroll_start`, `enroll_finish`, `login_start`, `login_finish`, `register`, `status`, `key_create`, `key_list`, `key_revoke`, `payment_setup_intent`, `payment_customer_session`, `payment_methods`, `payment_detach_method`, `payment_status`, `payment_checkout`, `payment_portal` |
+| `maintenance` | `snapshot_proof_provision`, `snapshot_proof_retire`, `snapshot_proof_status`, `snapshot_proof_inspect` |
 
-**Added:** `manage`/`access` — members poll grant state every sync turn.
-**Added:** `manage`/`delete` — publisher deletes the database and all cloud
-data to reclaim storage (Decision 15).
+**Added earlier:** `manage`/`access`, `manage`/`delete`.
+**Added (Decision 18):** `account`, `maintenance` — fold former auth/developer
+URLs and DEV snapshot-proof into the same action+intent model.
 
 ## Examples (one per action)
 
@@ -249,8 +242,10 @@ data to reclaim storage (Decision 15).
 4. Signed `grant#<node key>` — **no list, no revision**.
 5. **No** protocol header on auth-service.
 6. Live OpenAPI under **`cloud_backup_protocol/`**.
-7. DEV snapshot-proof stays, marked **`x-lastdb-environment: dev`** (lastdb CI).
-8. Action-based `fetch` / `push` / `manage` only.
+7. DEV snapshot-proof stays, marked **`x-lastdb-environment: dev`** (lastdb CI);
+   lives under **`maintenance`** (Decision 18).
+8. Action-based surface: `fetch` / `push` / `manage` (+ `account` /
+   `maintenance` in Decision 18).
 9. `push`/`mutations`: no `kind`; `landed` from grant.
 10. `fetch`/`mutations_since`: publisher sees direct+proposal; receivers direct
     only; accept = publisher push; entries tagged `stream`.
@@ -273,6 +268,44 @@ data to reclaim storage (Decision 15).
     for that action only. Independent per-item results/errors; HTTP 200 for a
     processed batch. Max **90** items; request ≤ 256 KiB; response ≤ 8 MiB with
     per-item `batch_too_large` when the response budget is exhausted.
+18. **`account` and `maintenance` actions.** Former `/api/auth/*`,
+    `/api/developer/*`, and DEV snapshot-proof become intents under
+    `POST /api/cloud/v3/account` and `POST /api/cloud/v3/maintenance`.
+    Same envelope style **without** `database_id`. One intent namespace even if
+    deploy splits hosts behind the ExeMem HTTP API gateway (node today calls
+    `exemem_api_url_for` for both `/api/auth/*` and `/api/developer/*`).
+    **No protocol header on `account`** (extends Decision 5). **Protocol
+    header on `maintenance`** (storage DEV tooling). Payments are Stripe
+    pass-through inside `result.stripe` (and typed status fields).
+    `enroll_*` / `login_*` must not be batched (challenge/response).
+
+## Account and maintenance
+
+### Hosts
+
+| Intents | Today’s paths (node) | Host |
+|---|---|---|
+| `register`, payments, keys, status | `/api/auth/cli/register`, `/api/auth/payments/*`, `/api/developer/api-keys` | Same ExeMem API base URL |
+| `enroll_*`, `login_*` | prior auth-service surface | Same action; gateway may route to auth Lambda |
+| `snapshot_proof_*` | `/api/cloud/backups/v2/dev-snapshot-proof` | ExeMem storage; now `maintenance` |
+
+No second request shape. Gateway may fan intents to different Lambdas.
+
+### Account batching
+
+Allowed for `register`, `status`, `key_*`, `payment_*`. **Rejected** for
+`enroll_start` / `enroll_finish` / `login_start` / `login_finish` (whole-request
+`{ "code":"batch_not_allowed", "field":"batch.items" }` if the array contains
+any of those).
+
+### Maintenance — considered and rejected
+
+| Candidate | Verdict |
+|---|---|
+| DEV snapshot-proof | **Keep** — lastdb CI (`snapshot_attempt_account.py`) |
+| Node `/health`, `/api/version` | **Reject** — local UDS only, not cloud |
+| Reclaim / retention / `*_dev` cleanup | **Reject** — ExeMem-internal (Decision 13) |
+| Payment / keys | **Reject here** — under `account` |
 
 ## Intent args and results
 
@@ -340,6 +373,30 @@ vs part.)
 
 Publisher only. Deletes all cloud data for `database_id`.
 
+### account (no `database_id`)
+
+| intent | args (summary) | result (summary) |
+|---|---|---|
+| `enroll_start` / `login_start` | `{}` | `challenge`, `session` |
+| `enroll_finish` / `login_finish` | `session`, `credential` | `ok`, `account_id?` |
+| `register` | `public_key`, `timestamp`, `signature`, `device_id` | `ok`, `api_key`, `account_id` |
+| `status` | `{}` | `ok`, `account_id`, `configured`, … |
+| `key_create` | `{}` | `key`, `prefix`, `created_at` |
+| `key_list` | `{}` | `keys[]` |
+| `key_revoke` | `prefix` | `ok`, `revoked` |
+| `payment_setup_intent` / `payment_customer_session` / `payment_methods` / `payment_checkout` / `payment_portal` | (see OpenAPI) | Stripe pass-through in `stripe` |
+| `payment_detach_method` | `method_id` | Stripe pass-through |
+| `payment_status` | `{}` | typed subscription flags (CLI today) |
+
+### maintenance (DEV-only)
+
+| intent | args | result |
+|---|---|---|
+| `snapshot_proof_provision` | `proof_id?` | `ok`, `proof_id` |
+| `snapshot_proof_retire` | `proof_id` | `ok` |
+| `snapshot_proof_status` | `proof_id` | `ok`, `status` |
+| `snapshot_proof_inspect` | `proof_id` | `ok`, `detail?` |
+
 ## Use cases
 
 | Use case | Intent |
@@ -389,24 +446,24 @@ Publisher only. Deletes all cloud data for `database_id`.
 | `…/share/members/get` / `list` | dropped |
 | `…/share/members/read` | `manage`/`access` |
 | `…/share/members/settings/*` | `rules` on create/grant; read via access |
-| `…/dev-snapshot-proof/{op}` | `dev/snapshot-proof` |
-
-## DEV snapshot-proof
-
-`POST /api/cloud/v3/dev/snapshot-proof` — `provision` / `retire` / `status` /
-`inspect`. Marked `x-lastdb-environment: dev`. Kept for lastdb CI. Uses its
-own body (proof ids); not the product envelope.
+| `…/dev-snapshot-proof/{op}` | `maintenance` / `snapshot_proof_*` |
+| `/api/auth/enroll/*`, `/api/auth/login/*` | `account` / `enroll_*`, `login_*` |
+| `/api/auth/cli/register` | `account` / `register` |
+| `/api/developer/register`, `/api/developer/status` | `account` / `register`, `status` |
+| `/api/developer/api-keys` (and keys/*) | `account` / `key_*` |
+| `/api/developer/payments/*`, `/api/auth/payments/*` | `account` / `payment_*` |
 
 ## Auth
 
 | Scheme | Where |
 |---|---|
-| `accountBearer` | auth-service |
-| `apiKey` | `manage`/`create`, `push`/`file` |
-| `lastDbNode` | signed storage actions |
-| `githubOidc` | DEV snapshot-proof |
+| `accountBearer` | `account` (enrollment / session bearer) |
+| `apiKey` | `account` key ops; today also `manage`/`create` and `push`/`file` (open Q) |
+| `lastDbNode` | fetch / push / manage |
+| `githubOidc` | `maintenance` snapshot-proof |
 
-`X-LastDB-Cloud-Protocol: 3` on storage actions. Not on auth-service.
+`X-LastDB-Cloud-Protocol: 3` on **fetch / push / manage / maintenance**.
+**Not** on **account**.
 
 ## Errors
 
@@ -430,4 +487,10 @@ stable released node (#1799). No unit tests.
 
 ## Open questions for Tom
 
-None.
+1. **Does `manage`/`create` and `push`/`file` still need `em_` `X-API-Key` on
+   top of `LastDBNode`?** Code today always sends both for create
+   (`log_sync/http.rs`) and blob upload (`SignedBlobClient`). The node token
+   already binds path + body + account scope.
+   **Recommend:** drop the `X-API-Key` requirement once `LastDBNode` is proven
+   to carry account binding for billing/abuse checks; until then keep dual-auth
+   as today. Prefer one credential for product storage calls.

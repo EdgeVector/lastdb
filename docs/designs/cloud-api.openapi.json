@@ -3,12 +3,12 @@
   "info": {
     "title": "ExeMem Cloud API",
     "version": "3.0.0-design",
-    "description": "Design-only. Product calls use envelope {database_id, intent, args|result} or a JSON array of envelopes (max 90; request \u2264256KiB; response \u22648MiB). Eleven intents on fetch/push/manage. No ops endpoint. Live home: cloud_backup_protocol/cloud-api.openapi.json."
+    "description": "Design-only. Product: fetch/push/manage with {database_id,intent,args}. Account: {intent,args} without database_id, no protocol header. Maintenance: DEV snapshot-proof. Batching max 90. Live home: cloud_backup_protocol/cloud-api.openapi.json."
   },
   "servers": [
     {
       "url": "https://api.exemem.example",
-      "description": "Placeholder"
+      "description": "ExeMem HTTP API (storage + account gateway)"
     }
   ],
   "tags": [
@@ -22,184 +22,28 @@
       "name": "manage"
     },
     {
-      "name": "dev"
+      "name": "account",
+      "description": "Identity/keys/payments; no protocol header"
     },
     {
-      "name": "auth-service"
+      "name": "maintenance",
+      "description": "DEV-only operational intents"
     }
   ],
   "paths": {
-    "/api/auth/enroll/finish": {
+    "/api/cloud/v3/account": {
       "post": {
-        "operationId": "authEnrollFinish",
-        "summary": "Finish enroll",
+        "operationId": "cloudAccount",
+        "summary": "Account",
         "tags": [
-          "auth-service"
-        ],
-        "description": "Auth-service. Out of scope. No protocol header.",
-        "security": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/EnrollFinishRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/EnrollFinishResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "$ref": "#/components/responses/Error"
-          },
-          "403": {
-            "$ref": "#/components/responses/Error"
-          }
-        }
-      }
-    },
-    "/api/auth/enroll/start": {
-      "post": {
-        "operationId": "authEnrollStart",
-        "summary": "Start enroll",
-        "tags": [
-          "auth-service"
-        ],
-        "description": "Auth-service. Out of scope. No protocol header.",
-        "security": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/EnrollStartRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/EnrollStartResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "$ref": "#/components/responses/Error"
-          },
-          "403": {
-            "$ref": "#/components/responses/Error"
-          }
-        }
-      }
-    },
-    "/api/auth/login/finish": {
-      "post": {
-        "operationId": "authLoginFinish",
-        "summary": "Finish login",
-        "tags": [
-          "auth-service"
-        ],
-        "description": "Auth-service. Out of scope. No protocol header.",
-        "security": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/LoginFinishRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/LoginFinishResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "$ref": "#/components/responses/Error"
-          },
-          "403": {
-            "$ref": "#/components/responses/Error"
-          }
-        }
-      }
-    },
-    "/api/auth/login/start": {
-      "post": {
-        "operationId": "authLoginStart",
-        "summary": "Start login",
-        "tags": [
-          "auth-service"
-        ],
-        "description": "Auth-service. Out of scope. No protocol header.",
-        "security": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/LoginStartRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/LoginStartResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "$ref": "#/components/responses/Error"
-          },
-          "403": {
-            "$ref": "#/components/responses/Error"
-          }
-        }
-      }
-    },
-    "/api/cloud/v3/dev/snapshot-proof": {
-      "post": {
-        "operationId": "devSnapshotProof",
-        "summary": "DEV snapshot-proof",
-        "tags": [
-          "dev"
+          "account"
         ],
         "security": [
           {
-            "githubOidc": []
-          }
-        ],
-        "parameters": [
+            "accountBearer": []
+          },
           {
-            "$ref": "#/components/parameters/CloudProtocol"
+            "apiKey": []
           }
         ],
         "requestBody": {
@@ -207,7 +51,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/DevSnapshotProofRequest"
+                "$ref": "#/components/schemas/AccountRequest"
               }
             }
           }
@@ -218,7 +62,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/DevSnapshotProofResponse"
+                  "$ref": "#/components/schemas/AccountResponse"
                 }
               }
             }
@@ -228,13 +72,9 @@
           },
           "403": {
             "$ref": "#/components/responses/Error"
-          },
-          "426": {
-            "$ref": "#/components/responses/UpgradeRequired"
           }
         },
-        "description": "lastdb CI. Not the product envelope.",
-        "x-lastdb-environment": "dev"
+        "description": "Identity, keys, payments. No database_id. No protocol header (Decision 5/18). Host: ExeMem HTTP API (today /api/auth/* and /api/developer/* on the same base URL). enroll_*/login_* must not be batched."
       }
     },
     "/api/cloud/v3/fetch": {
@@ -247,11 +87,6 @@
         "security": [
           {
             "lastDbNode": []
-          }
-        ],
-        "parameters": [
-          {
-            "$ref": "#/components/parameters/CloudProtocol"
           }
         ],
         "requestBody": {
@@ -285,7 +120,64 @@
             "$ref": "#/components/responses/UpgradeRequired"
           }
         },
-        "description": "Envelope {database_id, intent, args}. Intents: mutations_since, snapshot, file."
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CloudProtocol"
+          }
+        ],
+        "description": "Product reads. Envelope with database_id. Protocol header required."
+      }
+    },
+    "/api/cloud/v3/maintenance": {
+      "post": {
+        "operationId": "cloudMaintenance",
+        "summary": "Maintenance",
+        "tags": [
+          "maintenance"
+        ],
+        "security": [
+          {
+            "githubOidc": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MaintenanceRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MaintenanceResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Error"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error"
+          },
+          "426": {
+            "$ref": "#/components/responses/UpgradeRequired"
+          }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CloudProtocol"
+          }
+        ],
+        "description": "Operational non-database calls. DEV snapshot-proof only today. Protocol header required. x-lastdb-environment:dev.",
+        "x-lastdb-environment": "dev"
       }
     },
     "/api/cloud/v3/manage": {
@@ -301,11 +193,6 @@
           },
           {
             "lastDbNode": []
-          }
-        ],
-        "parameters": [
-          {
-            "$ref": "#/components/parameters/CloudProtocol"
           }
         ],
         "requestBody": {
@@ -339,7 +226,12 @@
             "$ref": "#/components/responses/UpgradeRequired"
           }
         },
-        "description": "Envelope {database_id, intent, args}. Intents: create, grant, revoke, access, delete."
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CloudProtocol"
+          }
+        ],
+        "description": "create|grant|revoke|access|delete."
       }
     },
     "/api/cloud/v3/push": {
@@ -355,11 +247,6 @@
           },
           {
             "lastDbNode": []
-          }
-        ],
-        "parameters": [
-          {
-            "$ref": "#/components/parameters/CloudProtocol"
           }
         ],
         "requestBody": {
@@ -393,386 +280,12 @@
             "$ref": "#/components/responses/UpgradeRequired"
           }
         },
-        "description": "Envelope {database_id, intent, args}. Intents: mutations, snapshot, file."
-      }
-    },
-    "/api/developer/keys/create": {
-      "post": {
-        "operationId": "developerKeysCreate",
-        "summary": "Create API key",
-        "tags": [
-          "auth-service"
-        ],
-        "description": "Auth-service. Out of scope. No protocol header.",
-        "security": [
+        "parameters": [
           {
-            "accountBearer": []
+            "$ref": "#/components/parameters/CloudProtocol"
           }
         ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/KeysCreateRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/KeysCreateResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "$ref": "#/components/responses/Error"
-          },
-          "403": {
-            "$ref": "#/components/responses/Error"
-          }
-        }
-      }
-    },
-    "/api/developer/keys/list": {
-      "post": {
-        "operationId": "developerKeysList",
-        "summary": "List API keys",
-        "tags": [
-          "auth-service"
-        ],
-        "description": "Auth-service. Out of scope. No protocol header.",
-        "security": [
-          {
-            "accountBearer": []
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/KeysListRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/KeysListResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "$ref": "#/components/responses/Error"
-          },
-          "403": {
-            "$ref": "#/components/responses/Error"
-          }
-        }
-      }
-    },
-    "/api/developer/keys/revoke": {
-      "post": {
-        "operationId": "developerKeysRevoke",
-        "summary": "Revoke API key",
-        "tags": [
-          "auth-service"
-        ],
-        "description": "Auth-service. Out of scope. No protocol header.",
-        "security": [
-          {
-            "accountBearer": []
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/KeysRevokeRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/KeysRevokeResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "$ref": "#/components/responses/Error"
-          },
-          "403": {
-            "$ref": "#/components/responses/Error"
-          }
-        }
-      }
-    },
-    "/api/developer/payments/customer-session": {
-      "post": {
-        "operationId": "paymentsCustomerSession",
-        "summary": "Customer session",
-        "tags": [
-          "auth-service"
-        ],
-        "description": "Auth-service. Out of scope. No protocol header.",
-        "security": [
-          {
-            "accountBearer": []
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PaymentSessionRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PaymentSessionResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "$ref": "#/components/responses/Error"
-          },
-          "403": {
-            "$ref": "#/components/responses/Error"
-          }
-        }
-      }
-    },
-    "/api/developer/payments/methods": {
-      "post": {
-        "operationId": "paymentsMethods",
-        "summary": "List payment methods",
-        "tags": [
-          "auth-service"
-        ],
-        "description": "Auth-service. Out of scope. No protocol header.",
-        "security": [
-          {
-            "accountBearer": []
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PaymentMethodsRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PaymentMethodsResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "$ref": "#/components/responses/Error"
-          },
-          "403": {
-            "$ref": "#/components/responses/Error"
-          }
-        }
-      }
-    },
-    "/api/developer/payments/methods/detach": {
-      "post": {
-        "operationId": "paymentsDetach",
-        "summary": "Detach payment method",
-        "tags": [
-          "auth-service"
-        ],
-        "description": "Auth-service. Out of scope. No protocol header.",
-        "security": [
-          {
-            "accountBearer": []
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PaymentDetachRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PaymentDetachResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "$ref": "#/components/responses/Error"
-          },
-          "403": {
-            "$ref": "#/components/responses/Error"
-          }
-        }
-      }
-    },
-    "/api/developer/payments/setup-intent": {
-      "post": {
-        "operationId": "paymentsSetupIntent",
-        "summary": "Payment setup intent",
-        "tags": [
-          "auth-service"
-        ],
-        "description": "Auth-service. Out of scope. No protocol header.",
-        "security": [
-          {
-            "accountBearer": []
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PaymentSetupRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PaymentSetupResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "$ref": "#/components/responses/Error"
-          },
-          "403": {
-            "$ref": "#/components/responses/Error"
-          }
-        }
-      }
-    },
-    "/api/developer/register": {
-      "post": {
-        "operationId": "developerRegister",
-        "summary": "Register developer",
-        "tags": [
-          "auth-service"
-        ],
-        "description": "Auth-service. Out of scope. No protocol header.",
-        "security": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/DeveloperRegisterRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DeveloperRegisterResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "$ref": "#/components/responses/Error"
-          },
-          "403": {
-            "$ref": "#/components/responses/Error"
-          }
-        }
-      }
-    },
-    "/api/developer/status": {
-      "post": {
-        "operationId": "developerStatus",
-        "summary": "Developer status",
-        "tags": [
-          "auth-service"
-        ],
-        "description": "Auth-service. Out of scope. No protocol header.",
-        "security": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/DeveloperStatusRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DeveloperStatusResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "$ref": "#/components/responses/Error"
-          },
-          "403": {
-            "$ref": "#/components/responses/Error"
-          }
-        }
+        "description": "Product writes. Dual-auth open question for create/file; see design doc."
       }
     }
   },
@@ -785,7 +298,8 @@
         "schema": {
           "type": "integer",
           "const": 3
-        }
+        },
+        "description": "Required on fetch/push/manage/maintenance. Not on account."
       }
     },
     "securitySchemes": {
@@ -959,1161 +473,21 @@
           }
         }
       },
-      "EmptyArgs": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [],
-        "properties": {}
-      },
-      "FetchMutationsSinceArgs": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [],
-        "properties": {
-          "cursor": {
-            "type": "string"
-          },
-          "limit": {
-            "type": "integer",
-            "minimum": 1
-          }
-        }
-      },
-      "FetchMutationsSinceResult": {
+      "ItemError": {
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "cursor",
-          "mutations"
+          "code",
+          "field"
         ],
         "properties": {
-          "cursor": {
+          "code": {
             "type": "string"
           },
-          "mutations": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Mutation"
-            }
-          }
-        }
-      },
-      "FetchSnapshotArgs": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [],
-        "properties": {
-          "restore_point_id": {
-            "type": "string"
-          },
-          "part_handle": {
+          "field": {
             "type": "string"
           }
         }
-      },
-      "FetchSnapshotDescribeResult": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "kind",
-          "restore_point_id",
-          "part_handles"
-        ],
-        "properties": {
-          "kind": {
-            "type": "string",
-            "const": "describe"
-          },
-          "restore_point_id": {
-            "type": "string"
-          },
-          "part_handles": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          }
-        }
-      },
-      "FetchSnapshotPartResult": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "kind",
-          "part_handle",
-          "bytes_b64",
-          "length"
-        ],
-        "properties": {
-          "kind": {
-            "type": "string",
-            "const": "part"
-          },
-          "part_handle": {
-            "type": "string"
-          },
-          "bytes_b64": {
-            "type": "string"
-          },
-          "length": {
-            "type": "integer",
-            "minimum": 0
-          }
-        }
-      },
-      "FetchSnapshotResult": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/FetchSnapshotDescribeResult"
-          },
-          {
-            "$ref": "#/components/schemas/FetchSnapshotPartResult"
-          }
-        ],
-        "discriminator": {
-          "propertyName": "kind",
-          "mapping": {
-            "describe": "#/components/schemas/FetchSnapshotDescribeResult",
-            "part": "#/components/schemas/FetchSnapshotPartResult"
-          }
-        }
-      },
-      "FetchFileArgs": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "file_handle",
-          "offset",
-          "length"
-        ],
-        "properties": {
-          "file_handle": {
-            "type": "string"
-          },
-          "offset": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "length": {
-            "type": "integer",
-            "minimum": 1
-          }
-        }
-      },
-      "FetchFileResult": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "file_handle",
-          "offset",
-          "length",
-          "bytes_b64"
-        ],
-        "properties": {
-          "file_handle": {
-            "type": "string"
-          },
-          "offset": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "length": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "bytes_b64": {
-            "type": "string"
-          }
-        }
-      },
-      "Fetch_mutations_since_Request": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "database_id",
-          "intent",
-          "args"
-        ],
-        "properties": {
-          "database_id": {
-            "type": "string",
-            "description": "UUID. Node-chosen on create."
-          },
-          "intent": {
-            "type": "string",
-            "const": "mutations_since"
-          },
-          "args": {
-            "$ref": "#/components/schemas/FetchMutationsSinceArgs"
-          }
-        }
-      },
-      "Fetch_mutations_since_Response": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "database_id",
-          "intent",
-          "result"
-        ],
-        "properties": {
-          "database_id": {
-            "type": "string"
-          },
-          "intent": {
-            "type": "string",
-            "const": "mutations_since"
-          },
-          "result": {
-            "$ref": "#/components/schemas/FetchMutationsSinceResult"
-          }
-        }
-      },
-      "Fetch_snapshot_Request": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "database_id",
-          "intent",
-          "args"
-        ],
-        "properties": {
-          "database_id": {
-            "type": "string",
-            "description": "UUID. Node-chosen on create."
-          },
-          "intent": {
-            "type": "string",
-            "const": "snapshot"
-          },
-          "args": {
-            "$ref": "#/components/schemas/FetchSnapshotArgs"
-          }
-        }
-      },
-      "Fetch_snapshot_Response": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "database_id",
-          "intent",
-          "result"
-        ],
-        "properties": {
-          "database_id": {
-            "type": "string"
-          },
-          "intent": {
-            "type": "string",
-            "const": "snapshot"
-          },
-          "result": {
-            "$ref": "#/components/schemas/FetchSnapshotResult"
-          }
-        }
-      },
-      "Fetch_file_Request": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "database_id",
-          "intent",
-          "args"
-        ],
-        "properties": {
-          "database_id": {
-            "type": "string",
-            "description": "UUID. Node-chosen on create."
-          },
-          "intent": {
-            "type": "string",
-            "const": "file"
-          },
-          "args": {
-            "$ref": "#/components/schemas/FetchFileArgs"
-          }
-        }
-      },
-      "Fetch_file_Response": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "database_id",
-          "intent",
-          "result"
-        ],
-        "properties": {
-          "database_id": {
-            "type": "string"
-          },
-          "intent": {
-            "type": "string",
-            "const": "file"
-          },
-          "result": {
-            "$ref": "#/components/schemas/FetchFileResult"
-          }
-        }
-      },
-      "FetchRequest": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/FetchEnvelope"
-          },
-          {
-            "$ref": "#/components/schemas/FetchBatchRequest"
-          }
-        ],
-        "description": "Single envelope or array of envelopes (Decision 17)."
-      },
-      "FetchResponse": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/FetchEnvelopeResult"
-          },
-          {
-            "$ref": "#/components/schemas/FetchBatchResponse"
-          }
-        ],
-        "description": "Single result envelope or array matching the request shape."
-      },
-      "PushMutationsArgs": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "device_id",
-          "entries"
-        ],
-        "properties": {
-          "device_id": {
-            "type": "string"
-          },
-          "entries": {
-            "type": "array",
-            "minItems": 1,
-            "items": {
-              "$ref": "#/components/schemas/MutationEntry"
-            }
-          }
-        }
-      },
-      "PushMutationsResult": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "landed",
-          "cursor",
-          "accepted"
-        ],
-        "properties": {
-          "landed": {
-            "type": "string",
-            "enum": [
-              "direct",
-              "proposal"
-            ]
-          },
-          "cursor": {
-            "type": "string"
-          },
-          "accepted": {
-            "type": "integer",
-            "minimum": 0
-          }
-        }
-      },
-      "PushSnapshotArgs": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "stage"
-        ],
-        "properties": {
-          "stage": {
-            "type": "string",
-            "enum": [
-              "prepare",
-              "publish"
-            ]
-          },
-          "ticket": {
-            "type": "string"
-          },
-          "restore_point_id": {
-            "type": "string"
-          }
-        }
-      },
-      "PushSnapshotResult": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "stage",
-          "ticket"
-        ],
-        "properties": {
-          "stage": {
-            "type": "string",
-            "enum": [
-              "prepare",
-              "publish"
-            ]
-          },
-          "ticket": {
-            "type": "string"
-          },
-          "restore_point_id": {
-            "type": "string"
-          },
-          "upload_url": {
-            "type": "string"
-          }
-        }
-      },
-      "PushFileArgs": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "stage"
-        ],
-        "properties": {
-          "stage": {
-            "type": "string",
-            "enum": [
-              "begin",
-              "complete"
-            ]
-          },
-          "ticket": {
-            "type": "string"
-          },
-          "size_bytes": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "content_sha256": {
-            "type": "string"
-          }
-        }
-      },
-      "PushFileResult": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "stage",
-          "ticket"
-        ],
-        "properties": {
-          "stage": {
-            "type": "string",
-            "enum": [
-              "begin",
-              "complete"
-            ]
-          },
-          "ticket": {
-            "type": "string"
-          },
-          "file_handle": {
-            "type": "string"
-          },
-          "upload_url": {
-            "type": "string"
-          },
-          "max_range_bytes": {
-            "type": "integer",
-            "minimum": 1
-          }
-        }
-      },
-      "Push_mutations_Request": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "database_id",
-          "intent",
-          "args"
-        ],
-        "properties": {
-          "database_id": {
-            "type": "string",
-            "description": "UUID. Node-chosen on create."
-          },
-          "intent": {
-            "type": "string",
-            "const": "mutations"
-          },
-          "args": {
-            "$ref": "#/components/schemas/PushMutationsArgs"
-          }
-        }
-      },
-      "Push_mutations_Response": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "database_id",
-          "intent",
-          "result"
-        ],
-        "properties": {
-          "database_id": {
-            "type": "string"
-          },
-          "intent": {
-            "type": "string",
-            "const": "mutations"
-          },
-          "result": {
-            "$ref": "#/components/schemas/PushMutationsResult"
-          }
-        }
-      },
-      "Push_snapshot_Request": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "database_id",
-          "intent",
-          "args"
-        ],
-        "properties": {
-          "database_id": {
-            "type": "string",
-            "description": "UUID. Node-chosen on create."
-          },
-          "intent": {
-            "type": "string",
-            "const": "snapshot"
-          },
-          "args": {
-            "$ref": "#/components/schemas/PushSnapshotArgs"
-          }
-        }
-      },
-      "Push_snapshot_Response": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "database_id",
-          "intent",
-          "result"
-        ],
-        "properties": {
-          "database_id": {
-            "type": "string"
-          },
-          "intent": {
-            "type": "string",
-            "const": "snapshot"
-          },
-          "result": {
-            "$ref": "#/components/schemas/PushSnapshotResult"
-          }
-        }
-      },
-      "Push_file_Request": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "database_id",
-          "intent",
-          "args"
-        ],
-        "properties": {
-          "database_id": {
-            "type": "string",
-            "description": "UUID. Node-chosen on create."
-          },
-          "intent": {
-            "type": "string",
-            "const": "file"
-          },
-          "args": {
-            "$ref": "#/components/schemas/PushFileArgs"
-          }
-        }
-      },
-      "Push_file_Response": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "database_id",
-          "intent",
-          "result"
-        ],
-        "properties": {
-          "database_id": {
-            "type": "string"
-          },
-          "intent": {
-            "type": "string",
-            "const": "file"
-          },
-          "result": {
-            "$ref": "#/components/schemas/PushFileResult"
-          }
-        }
-      },
-      "PushRequest": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/PushEnvelope"
-          },
-          {
-            "$ref": "#/components/schemas/PushBatchRequest"
-          }
-        ],
-        "description": "Single envelope or array of envelopes (Decision 17)."
-      },
-      "PushResponse": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/PushEnvelopeResult"
-          },
-          {
-            "$ref": "#/components/schemas/PushBatchResponse"
-          }
-        ],
-        "description": "Single result envelope or array matching the request shape."
-      },
-      "ManageCreateArgs": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [],
-        "properties": {
-          "rules": {
-            "$ref": "#/components/schemas/SignedRules"
-          }
-        }
-      },
-      "ManageCreateResult": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [],
-        "properties": {
-          "access": {
-            "$ref": "#/components/schemas/AccessInfo"
-          }
-        }
-      },
-      "ManageGrantArgs": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "grants"
-        ],
-        "properties": {
-          "grants": {
-            "type": "array",
-            "minItems": 1,
-            "items": {
-              "$ref": "#/components/schemas/GrantEntry"
-            }
-          },
-          "rules": {
-            "$ref": "#/components/schemas/SignedRules"
-          }
-        }
-      },
-      "ManageGrantResult": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "ok"
-        ],
-        "properties": {
-          "ok": {
-            "type": "boolean"
-          },
-          "access": {
-            "$ref": "#/components/schemas/AccessInfo"
-          }
-        }
-      },
-      "ManageRevokeArgs": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "node_keys"
-        ],
-        "properties": {
-          "node_keys": {
-            "type": "array",
-            "minItems": 1,
-            "items": {
-              "type": "string"
-            }
-          }
-        }
-      },
-      "ManageRevokeResult": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "ok"
-        ],
-        "properties": {
-          "ok": {
-            "type": "boolean"
-          }
-        }
-      },
-      "ManageAccessArgs": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [],
-        "properties": {
-          "mutation_id": {
-            "type": "string"
-          }
-        }
-      },
-      "ManageAccessResult": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "state"
-        ],
-        "properties": {
-          "state": {
-            "type": "string",
-            "enum": [
-              "active",
-              "revoked",
-              "absent"
-            ]
-          },
-          "role": {
-            "type": "string"
-          },
-          "signed_grant": {
-            "type": "string"
-          },
-          "contribution_status": {
-            "type": "string",
-            "enum": [
-              "submitted",
-              "published",
-              "unknown"
-            ],
-            "description": "No discarded: silent rejection (Decision 11)."
-          }
-        }
-      },
-      "ManageDeleteArgs": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [],
-        "properties": {}
-      },
-      "ManageDeleteResult": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "status"
-        ],
-        "properties": {
-          "status": {
-            "type": "string",
-            "enum": [
-              "done",
-              "accepted"
-            ],
-            "description": "done = deleted now; accepted = ExeMem will finish asynchronously."
-          }
-        }
-      },
-      "Manage_create_Request": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "database_id",
-          "intent",
-          "args"
-        ],
-        "properties": {
-          "database_id": {
-            "type": "string",
-            "description": "UUID. Node-chosen on create."
-          },
-          "intent": {
-            "type": "string",
-            "const": "create"
-          },
-          "args": {
-            "$ref": "#/components/schemas/ManageCreateArgs"
-          }
-        }
-      },
-      "Manage_create_Response": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "database_id",
-          "intent",
-          "result"
-        ],
-        "properties": {
-          "database_id": {
-            "type": "string"
-          },
-          "intent": {
-            "type": "string",
-            "const": "create"
-          },
-          "result": {
-            "$ref": "#/components/schemas/ManageCreateResult"
-          }
-        }
-      },
-      "Manage_grant_Request": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "database_id",
-          "intent",
-          "args"
-        ],
-        "properties": {
-          "database_id": {
-            "type": "string",
-            "description": "UUID. Node-chosen on create."
-          },
-          "intent": {
-            "type": "string",
-            "const": "grant"
-          },
-          "args": {
-            "$ref": "#/components/schemas/ManageGrantArgs"
-          }
-        }
-      },
-      "Manage_grant_Response": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "database_id",
-          "intent",
-          "result"
-        ],
-        "properties": {
-          "database_id": {
-            "type": "string"
-          },
-          "intent": {
-            "type": "string",
-            "const": "grant"
-          },
-          "result": {
-            "$ref": "#/components/schemas/ManageGrantResult"
-          }
-        }
-      },
-      "Manage_revoke_Request": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "database_id",
-          "intent",
-          "args"
-        ],
-        "properties": {
-          "database_id": {
-            "type": "string",
-            "description": "UUID. Node-chosen on create."
-          },
-          "intent": {
-            "type": "string",
-            "const": "revoke"
-          },
-          "args": {
-            "$ref": "#/components/schemas/ManageRevokeArgs"
-          }
-        }
-      },
-      "Manage_revoke_Response": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "database_id",
-          "intent",
-          "result"
-        ],
-        "properties": {
-          "database_id": {
-            "type": "string"
-          },
-          "intent": {
-            "type": "string",
-            "const": "revoke"
-          },
-          "result": {
-            "$ref": "#/components/schemas/ManageRevokeResult"
-          }
-        }
-      },
-      "Manage_access_Request": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "database_id",
-          "intent",
-          "args"
-        ],
-        "properties": {
-          "database_id": {
-            "type": "string",
-            "description": "UUID. Node-chosen on create."
-          },
-          "intent": {
-            "type": "string",
-            "const": "access"
-          },
-          "args": {
-            "$ref": "#/components/schemas/ManageAccessArgs"
-          }
-        }
-      },
-      "Manage_access_Response": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "database_id",
-          "intent",
-          "result"
-        ],
-        "properties": {
-          "database_id": {
-            "type": "string"
-          },
-          "intent": {
-            "type": "string",
-            "const": "access"
-          },
-          "result": {
-            "$ref": "#/components/schemas/ManageAccessResult"
-          }
-        }
-      },
-      "Manage_delete_Request": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "database_id",
-          "intent",
-          "args"
-        ],
-        "properties": {
-          "database_id": {
-            "type": "string",
-            "description": "UUID. Node-chosen on create."
-          },
-          "intent": {
-            "type": "string",
-            "const": "delete"
-          },
-          "args": {
-            "$ref": "#/components/schemas/ManageDeleteArgs"
-          }
-        }
-      },
-      "Manage_delete_Response": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "database_id",
-          "intent",
-          "result"
-        ],
-        "properties": {
-          "database_id": {
-            "type": "string"
-          },
-          "intent": {
-            "type": "string",
-            "const": "delete"
-          },
-          "result": {
-            "$ref": "#/components/schemas/ManageDeleteResult"
-          }
-        }
-      },
-      "ManageRequest": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/ManageEnvelope"
-          },
-          {
-            "$ref": "#/components/schemas/ManageBatchRequest"
-          }
-        ],
-        "description": "Single envelope or array of envelopes (Decision 17)."
-      },
-      "ManageResponse": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/ManageEnvelopeResult"
-          },
-          {
-            "$ref": "#/components/schemas/ManageBatchResponse"
-          }
-        ],
-        "description": "Single result envelope or array matching the request shape."
-      },
-      "CloudRequestEnvelope": {
-        "type": "object",
-        "description": "Standard product request shape (Decision 16). Per-action requests are tagged unions of this form.",
-        "additionalProperties": false,
-        "required": [
-          "database_id",
-          "intent",
-          "args"
-        ],
-        "properties": {
-          "database_id": {
-            "type": "string"
-          },
-          "intent": {
-            "type": "string"
-          },
-          "args": {
-            "type": "object"
-          }
-        }
-      },
-      "CloudResponseEnvelope": {
-        "type": "object",
-        "description": "Standard product response shape (Decision 16).",
-        "additionalProperties": false,
-        "required": [
-          "database_id",
-          "intent",
-          "result"
-        ],
-        "properties": {
-          "database_id": {
-            "type": "string"
-          },
-          "intent": {
-            "type": "string"
-          },
-          "result": {
-            "type": "object"
-          }
-        }
-      },
-      "DevProvision": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "provision"
-          },
-          "proof_id": {
-            "type": "string"
-          }
-        },
-        "x-lastdb-environment": "dev"
-      },
-      "DevRetire": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "retire"
-          },
-          "proof_id": {
-            "type": "string"
-          }
-        },
-        "x-lastdb-environment": "dev"
-      },
-      "DevStatus": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "status"
-          },
-          "proof_id": {
-            "type": "string"
-          }
-        },
-        "x-lastdb-environment": "dev"
-      },
-      "DevInspect": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "inspect"
-          },
-          "proof_id": {
-            "type": "string"
-          }
-        },
-        "x-lastdb-environment": "dev"
-      },
-      "DevSnapshotProofRequest": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/DevProvision"
-          },
-          {
-            "$ref": "#/components/schemas/DevRetire"
-          },
-          {
-            "$ref": "#/components/schemas/DevStatus"
-          },
-          {
-            "$ref": "#/components/schemas/DevInspect"
-          }
-        ],
-        "discriminator": {
-          "propertyName": "intent",
-          "mapping": {
-            "provision": "#/components/schemas/DevProvision",
-            "retire": "#/components/schemas/DevRetire",
-            "status": "#/components/schemas/DevStatus",
-            "inspect": "#/components/schemas/DevInspect"
-          }
-        }
-      },
-      "DevSnapshotProofResponse": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string"
-          },
-          "proof_id": {
-            "type": "string"
-          },
-          "ok": {
-            "type": "boolean"
-          }
-        },
-        "x-lastdb-environment": "dev"
       },
       "ErrorBody": {
         "type": "object",
@@ -2157,178 +531,80 @@
           }
         }
       },
-      "DeveloperRegisterRequest": {
+      "Fetch_mutations_since_Args": {
         "type": "object",
-        "additionalProperties": true,
-        "description": "Auth-service. Out of scope for product schema strictness.",
-        "x-lastdb-scope": "auth-service-out-of-scope"
+        "additionalProperties": false,
+        "required": [],
+        "properties": {
+          "cursor": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
       },
-      "DeveloperRegisterResponse": {
-        "type": "object",
-        "additionalProperties": true,
-        "description": "Auth-service. Out of scope for product schema strictness.",
-        "x-lastdb-scope": "auth-service-out-of-scope"
-      },
-      "DeveloperStatusRequest": {
-        "type": "object",
-        "additionalProperties": true,
-        "description": "Auth-service. Out of scope for product schema strictness.",
-        "x-lastdb-scope": "auth-service-out-of-scope"
-      },
-      "DeveloperStatusResponse": {
-        "type": "object",
-        "additionalProperties": true,
-        "description": "Auth-service. Out of scope for product schema strictness.",
-        "x-lastdb-scope": "auth-service-out-of-scope"
-      },
-      "KeysCreateRequest": {
-        "type": "object",
-        "additionalProperties": true,
-        "description": "Auth-service. Out of scope for product schema strictness.",
-        "x-lastdb-scope": "auth-service-out-of-scope"
-      },
-      "KeysCreateResponse": {
-        "type": "object",
-        "additionalProperties": true,
-        "description": "Auth-service. Out of scope for product schema strictness.",
-        "x-lastdb-scope": "auth-service-out-of-scope"
-      },
-      "KeysListRequest": {
-        "type": "object",
-        "additionalProperties": true,
-        "description": "Auth-service. Out of scope for product schema strictness.",
-        "x-lastdb-scope": "auth-service-out-of-scope"
-      },
-      "KeysListResponse": {
-        "type": "object",
-        "additionalProperties": true,
-        "description": "Auth-service. Out of scope for product schema strictness.",
-        "x-lastdb-scope": "auth-service-out-of-scope"
-      },
-      "KeysRevokeRequest": {
-        "type": "object",
-        "additionalProperties": true,
-        "description": "Auth-service. Out of scope for product schema strictness.",
-        "x-lastdb-scope": "auth-service-out-of-scope"
-      },
-      "KeysRevokeResponse": {
-        "type": "object",
-        "additionalProperties": true,
-        "description": "Auth-service. Out of scope for product schema strictness.",
-        "x-lastdb-scope": "auth-service-out-of-scope"
-      },
-      "PaymentSetupRequest": {
-        "type": "object",
-        "additionalProperties": true,
-        "description": "Auth-service. Out of scope for product schema strictness.",
-        "x-lastdb-scope": "auth-service-out-of-scope"
-      },
-      "PaymentSetupResponse": {
-        "type": "object",
-        "additionalProperties": true,
-        "description": "Auth-service. Out of scope for product schema strictness.",
-        "x-lastdb-scope": "auth-service-out-of-scope"
-      },
-      "PaymentMethodsRequest": {
-        "type": "object",
-        "additionalProperties": true,
-        "description": "Auth-service. Out of scope for product schema strictness.",
-        "x-lastdb-scope": "auth-service-out-of-scope"
-      },
-      "PaymentMethodsResponse": {
-        "type": "object",
-        "additionalProperties": true,
-        "description": "Auth-service. Out of scope for product schema strictness.",
-        "x-lastdb-scope": "auth-service-out-of-scope"
-      },
-      "PaymentDetachRequest": {
-        "type": "object",
-        "additionalProperties": true,
-        "description": "Auth-service. Out of scope for product schema strictness.",
-        "x-lastdb-scope": "auth-service-out-of-scope"
-      },
-      "PaymentDetachResponse": {
-        "type": "object",
-        "additionalProperties": true,
-        "description": "Auth-service. Out of scope for product schema strictness.",
-        "x-lastdb-scope": "auth-service-out-of-scope"
-      },
-      "PaymentSessionRequest": {
-        "type": "object",
-        "additionalProperties": true,
-        "description": "Auth-service. Out of scope for product schema strictness.",
-        "x-lastdb-scope": "auth-service-out-of-scope"
-      },
-      "PaymentSessionResponse": {
-        "type": "object",
-        "additionalProperties": true,
-        "description": "Auth-service. Out of scope for product schema strictness.",
-        "x-lastdb-scope": "auth-service-out-of-scope"
-      },
-      "EnrollStartRequest": {
-        "type": "object",
-        "additionalProperties": true,
-        "description": "Auth-service. Out of scope for product schema strictness.",
-        "x-lastdb-scope": "auth-service-out-of-scope"
-      },
-      "EnrollStartResponse": {
-        "type": "object",
-        "additionalProperties": true,
-        "description": "Auth-service. Out of scope for product schema strictness.",
-        "x-lastdb-scope": "auth-service-out-of-scope"
-      },
-      "EnrollFinishRequest": {
-        "type": "object",
-        "additionalProperties": true,
-        "description": "Auth-service. Out of scope for product schema strictness.",
-        "x-lastdb-scope": "auth-service-out-of-scope"
-      },
-      "EnrollFinishResponse": {
-        "type": "object",
-        "additionalProperties": true,
-        "description": "Auth-service. Out of scope for product schema strictness.",
-        "x-lastdb-scope": "auth-service-out-of-scope"
-      },
-      "LoginStartRequest": {
-        "type": "object",
-        "additionalProperties": true,
-        "description": "Auth-service. Out of scope for product schema strictness.",
-        "x-lastdb-scope": "auth-service-out-of-scope"
-      },
-      "LoginStartResponse": {
-        "type": "object",
-        "additionalProperties": true,
-        "description": "Auth-service. Out of scope for product schema strictness.",
-        "x-lastdb-scope": "auth-service-out-of-scope"
-      },
-      "LoginFinishRequest": {
-        "type": "object",
-        "additionalProperties": true,
-        "description": "Auth-service. Out of scope for product schema strictness.",
-        "x-lastdb-scope": "auth-service-out-of-scope"
-      },
-      "LoginFinishResponse": {
-        "type": "object",
-        "additionalProperties": true,
-        "description": "Auth-service. Out of scope for product schema strictness.",
-        "x-lastdb-scope": "auth-service-out-of-scope"
-      },
-      "ItemError": {
+      "Fetch_mutations_since_Result": {
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "code",
-          "field"
+          "cursor",
+          "mutations"
         ],
         "properties": {
-          "code": {
+          "cursor": {
             "type": "string"
           },
-          "field": {
-            "type": "string"
+          "mutations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Mutation"
+            }
           }
-        },
-        "description": "Per-item error inside a 200 batch response."
+        }
+      },
+      "Fetch_mutations_since_Request": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "database_id",
+          "intent",
+          "args"
+        ],
+        "properties": {
+          "database_id": {
+            "type": "string"
+          },
+          "intent": {
+            "type": "string",
+            "const": "mutations_since"
+          },
+          "args": {
+            "$ref": "#/components/schemas/Fetch_mutations_since_Args"
+          }
+        }
+      },
+      "Fetch_mutations_since_Response": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "database_id",
+          "intent",
+          "result"
+        ],
+        "properties": {
+          "database_id": {
+            "type": "string"
+          },
+          "intent": {
+            "type": "string",
+            "const": "mutations_since"
+          },
+          "result": {
+            "$ref": "#/components/schemas/Fetch_mutations_since_Result"
+          }
+        }
       },
       "Fetch_mutations_since_ErrorItem": {
         "type": "object",
@@ -2351,6 +627,115 @@
           }
         }
       },
+      "Fetch_snapshot_Args": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {
+          "restore_point_id": {
+            "type": "string"
+          },
+          "part_handle": {
+            "type": "string"
+          }
+        }
+      },
+      "Fetch_snapshot_Result": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "restore_point_id",
+              "part_handles"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "describe"
+              },
+              "restore_point_id": {
+                "type": "string"
+              },
+              "part_handles": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "part_handle",
+              "bytes_b64",
+              "length"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "part"
+              },
+              "part_handle": {
+                "type": "string"
+              },
+              "bytes_b64": {
+                "type": "string"
+              },
+              "length": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          }
+        ]
+      },
+      "Fetch_snapshot_Request": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "database_id",
+          "intent",
+          "args"
+        ],
+        "properties": {
+          "database_id": {
+            "type": "string"
+          },
+          "intent": {
+            "type": "string",
+            "const": "snapshot"
+          },
+          "args": {
+            "$ref": "#/components/schemas/Fetch_snapshot_Args"
+          }
+        }
+      },
+      "Fetch_snapshot_Response": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "database_id",
+          "intent",
+          "result"
+        ],
+        "properties": {
+          "database_id": {
+            "type": "string"
+          },
+          "intent": {
+            "type": "string",
+            "const": "snapshot"
+          },
+          "result": {
+            "$ref": "#/components/schemas/Fetch_snapshot_Result"
+          }
+        }
+      },
       "Fetch_snapshot_ErrorItem": {
         "type": "object",
         "additionalProperties": false,
@@ -2369,6 +754,96 @@
           },
           "error": {
             "$ref": "#/components/schemas/ItemError"
+          }
+        }
+      },
+      "Fetch_file_Args": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "file_handle",
+          "offset",
+          "length"
+        ],
+        "properties": {
+          "file_handle": {
+            "type": "string"
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "length": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "Fetch_file_Result": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "file_handle",
+          "offset",
+          "length",
+          "bytes_b64"
+        ],
+        "properties": {
+          "file_handle": {
+            "type": "string"
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "length": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "bytes_b64": {
+            "type": "string"
+          }
+        }
+      },
+      "Fetch_file_Request": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "database_id",
+          "intent",
+          "args"
+        ],
+        "properties": {
+          "database_id": {
+            "type": "string"
+          },
+          "intent": {
+            "type": "string",
+            "const": "file"
+          },
+          "args": {
+            "$ref": "#/components/schemas/Fetch_file_Args"
+          }
+        }
+      },
+      "Fetch_file_Response": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "database_id",
+          "intent",
+          "result"
+        ],
+        "properties": {
+          "database_id": {
+            "type": "string"
+          },
+          "intent": {
+            "type": "string",
+            "const": "file"
+          },
+          "result": {
+            "$ref": "#/components/schemas/Fetch_file_Result"
           }
         }
       },
@@ -2442,7 +917,7 @@
         "items": {
           "$ref": "#/components/schemas/FetchEnvelope"
         },
-        "description": "Up to 90 envelopes for this action (Decision 17)."
+        "description": "Up to 90 envelopes (Decision 17)."
       },
       "FetchBatchItemResponse": {
         "oneOf": [
@@ -2450,22 +925,21 @@
             "$ref": "#/components/schemas/Fetch_mutations_since_Response"
           },
           {
-            "$ref": "#/components/schemas/Fetch_mutations_since_ErrorItem"
-          },
-          {
             "$ref": "#/components/schemas/Fetch_snapshot_Response"
-          },
-          {
-            "$ref": "#/components/schemas/Fetch_snapshot_ErrorItem"
           },
           {
             "$ref": "#/components/schemas/Fetch_file_Response"
           },
           {
+            "$ref": "#/components/schemas/Fetch_mutations_since_ErrorItem"
+          },
+          {
+            "$ref": "#/components/schemas/Fetch_snapshot_ErrorItem"
+          },
+          {
             "$ref": "#/components/schemas/Fetch_file_ErrorItem"
           }
-        ],
-        "description": "Success envelope or {database_id, intent, error}."
+        ]
       },
       "FetchBatchResponse": {
         "type": "array",
@@ -2473,8 +947,115 @@
         "maxItems": 90,
         "items": {
           "$ref": "#/components/schemas/FetchBatchItemResponse"
-        },
-        "description": "Same order as the request. HTTP 200 for a processed batch."
+        }
+      },
+      "FetchRequest": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/FetchEnvelope"
+          },
+          {
+            "$ref": "#/components/schemas/FetchBatchRequest"
+          }
+        ],
+        "description": "Single envelope or array (Decision 17)."
+      },
+      "FetchResponse": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/FetchEnvelopeResult"
+          },
+          {
+            "$ref": "#/components/schemas/FetchBatchResponse"
+          }
+        ]
+      },
+      "Push_mutations_Args": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "device_id",
+          "entries"
+        ],
+        "properties": {
+          "device_id": {
+            "type": "string"
+          },
+          "entries": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/components/schemas/MutationEntry"
+            }
+          }
+        }
+      },
+      "Push_mutations_Result": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "landed",
+          "cursor",
+          "accepted"
+        ],
+        "properties": {
+          "landed": {
+            "type": "string",
+            "enum": [
+              "direct",
+              "proposal"
+            ]
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "accepted": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "Push_mutations_Request": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "database_id",
+          "intent",
+          "args"
+        ],
+        "properties": {
+          "database_id": {
+            "type": "string"
+          },
+          "intent": {
+            "type": "string",
+            "const": "mutations"
+          },
+          "args": {
+            "$ref": "#/components/schemas/Push_mutations_Args"
+          }
+        }
+      },
+      "Push_mutations_Response": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "database_id",
+          "intent",
+          "result"
+        ],
+        "properties": {
+          "database_id": {
+            "type": "string"
+          },
+          "intent": {
+            "type": "string",
+            "const": "mutations"
+          },
+          "result": {
+            "$ref": "#/components/schemas/Push_mutations_Result"
+          }
+        }
       },
       "Push_mutations_ErrorItem": {
         "type": "object",
@@ -2497,6 +1078,96 @@
           }
         }
       },
+      "Push_snapshot_Args": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "stage"
+        ],
+        "properties": {
+          "stage": {
+            "type": "string",
+            "enum": [
+              "prepare",
+              "publish"
+            ]
+          },
+          "ticket": {
+            "type": "string"
+          },
+          "restore_point_id": {
+            "type": "string"
+          }
+        }
+      },
+      "Push_snapshot_Result": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "stage",
+          "ticket"
+        ],
+        "properties": {
+          "stage": {
+            "type": "string",
+            "enum": [
+              "prepare",
+              "publish"
+            ]
+          },
+          "ticket": {
+            "type": "string"
+          },
+          "restore_point_id": {
+            "type": "string"
+          },
+          "upload_url": {
+            "type": "string"
+          }
+        }
+      },
+      "Push_snapshot_Request": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "database_id",
+          "intent",
+          "args"
+        ],
+        "properties": {
+          "database_id": {
+            "type": "string"
+          },
+          "intent": {
+            "type": "string",
+            "const": "snapshot"
+          },
+          "args": {
+            "$ref": "#/components/schemas/Push_snapshot_Args"
+          }
+        }
+      },
+      "Push_snapshot_Response": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "database_id",
+          "intent",
+          "result"
+        ],
+        "properties": {
+          "database_id": {
+            "type": "string"
+          },
+          "intent": {
+            "type": "string",
+            "const": "snapshot"
+          },
+          "result": {
+            "$ref": "#/components/schemas/Push_snapshot_Result"
+          }
+        }
+      },
       "Push_snapshot_ErrorItem": {
         "type": "object",
         "additionalProperties": false,
@@ -2515,6 +1186,104 @@
           },
           "error": {
             "$ref": "#/components/schemas/ItemError"
+          }
+        }
+      },
+      "Push_file_Args": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "stage"
+        ],
+        "properties": {
+          "stage": {
+            "type": "string",
+            "enum": [
+              "begin",
+              "complete"
+            ]
+          },
+          "ticket": {
+            "type": "string"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "content_sha256": {
+            "type": "string"
+          }
+        }
+      },
+      "Push_file_Result": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "stage",
+          "ticket"
+        ],
+        "properties": {
+          "stage": {
+            "type": "string",
+            "enum": [
+              "begin",
+              "complete"
+            ]
+          },
+          "ticket": {
+            "type": "string"
+          },
+          "file_handle": {
+            "type": "string"
+          },
+          "upload_url": {
+            "type": "string"
+          },
+          "max_range_bytes": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "Push_file_Request": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "database_id",
+          "intent",
+          "args"
+        ],
+        "properties": {
+          "database_id": {
+            "type": "string"
+          },
+          "intent": {
+            "type": "string",
+            "const": "file"
+          },
+          "args": {
+            "$ref": "#/components/schemas/Push_file_Args"
+          }
+        }
+      },
+      "Push_file_Response": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "database_id",
+          "intent",
+          "result"
+        ],
+        "properties": {
+          "database_id": {
+            "type": "string"
+          },
+          "intent": {
+            "type": "string",
+            "const": "file"
+          },
+          "result": {
+            "$ref": "#/components/schemas/Push_file_Result"
           }
         }
       },
@@ -2588,7 +1357,7 @@
         "items": {
           "$ref": "#/components/schemas/PushEnvelope"
         },
-        "description": "Up to 90 envelopes for this action (Decision 17)."
+        "description": "Up to 90 envelopes (Decision 17)."
       },
       "PushBatchItemResponse": {
         "oneOf": [
@@ -2596,22 +1365,21 @@
             "$ref": "#/components/schemas/Push_mutations_Response"
           },
           {
-            "$ref": "#/components/schemas/Push_mutations_ErrorItem"
-          },
-          {
             "$ref": "#/components/schemas/Push_snapshot_Response"
-          },
-          {
-            "$ref": "#/components/schemas/Push_snapshot_ErrorItem"
           },
           {
             "$ref": "#/components/schemas/Push_file_Response"
           },
           {
+            "$ref": "#/components/schemas/Push_mutations_ErrorItem"
+          },
+          {
+            "$ref": "#/components/schemas/Push_snapshot_ErrorItem"
+          },
+          {
             "$ref": "#/components/schemas/Push_file_ErrorItem"
           }
-        ],
-        "description": "Success envelope or {database_id, intent, error}."
+        ]
       },
       "PushBatchResponse": {
         "type": "array",
@@ -2619,8 +1387,90 @@
         "maxItems": 90,
         "items": {
           "$ref": "#/components/schemas/PushBatchItemResponse"
-        },
-        "description": "Same order as the request. HTTP 200 for a processed batch."
+        }
+      },
+      "PushRequest": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/PushEnvelope"
+          },
+          {
+            "$ref": "#/components/schemas/PushBatchRequest"
+          }
+        ],
+        "description": "Single envelope or array (Decision 17)."
+      },
+      "PushResponse": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/PushEnvelopeResult"
+          },
+          {
+            "$ref": "#/components/schemas/PushBatchResponse"
+          }
+        ]
+      },
+      "Manage_create_Args": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {
+          "rules": {
+            "$ref": "#/components/schemas/SignedRules"
+          }
+        }
+      },
+      "Manage_create_Result": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {
+          "access": {
+            "$ref": "#/components/schemas/AccessInfo"
+          }
+        }
+      },
+      "Manage_create_Request": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "database_id",
+          "intent",
+          "args"
+        ],
+        "properties": {
+          "database_id": {
+            "type": "string"
+          },
+          "intent": {
+            "type": "string",
+            "const": "create"
+          },
+          "args": {
+            "$ref": "#/components/schemas/Manage_create_Args"
+          }
+        }
+      },
+      "Manage_create_Response": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "database_id",
+          "intent",
+          "result"
+        ],
+        "properties": {
+          "database_id": {
+            "type": "string"
+          },
+          "intent": {
+            "type": "string",
+            "const": "create"
+          },
+          "result": {
+            "$ref": "#/components/schemas/Manage_create_Result"
+          }
+        }
       },
       "Manage_create_ErrorItem": {
         "type": "object",
@@ -2640,6 +1490,82 @@
           },
           "error": {
             "$ref": "#/components/schemas/ItemError"
+          }
+        }
+      },
+      "Manage_grant_Args": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "grants"
+        ],
+        "properties": {
+          "grants": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/components/schemas/GrantEntry"
+            }
+          },
+          "rules": {
+            "$ref": "#/components/schemas/SignedRules"
+          }
+        }
+      },
+      "Manage_grant_Result": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ok"
+        ],
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "access": {
+            "$ref": "#/components/schemas/AccessInfo"
+          }
+        }
+      },
+      "Manage_grant_Request": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "database_id",
+          "intent",
+          "args"
+        ],
+        "properties": {
+          "database_id": {
+            "type": "string"
+          },
+          "intent": {
+            "type": "string",
+            "const": "grant"
+          },
+          "args": {
+            "$ref": "#/components/schemas/Manage_grant_Args"
+          }
+        }
+      },
+      "Manage_grant_Response": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "database_id",
+          "intent",
+          "result"
+        ],
+        "properties": {
+          "database_id": {
+            "type": "string"
+          },
+          "intent": {
+            "type": "string",
+            "const": "grant"
+          },
+          "result": {
+            "$ref": "#/components/schemas/Manage_grant_Result"
           }
         }
       },
@@ -2664,6 +1590,76 @@
           }
         }
       },
+      "Manage_revoke_Args": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "node_keys"
+        ],
+        "properties": {
+          "node_keys": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "Manage_revoke_Result": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ok"
+        ],
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          }
+        }
+      },
+      "Manage_revoke_Request": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "database_id",
+          "intent",
+          "args"
+        ],
+        "properties": {
+          "database_id": {
+            "type": "string"
+          },
+          "intent": {
+            "type": "string",
+            "const": "revoke"
+          },
+          "args": {
+            "$ref": "#/components/schemas/Manage_revoke_Args"
+          }
+        }
+      },
+      "Manage_revoke_Response": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "database_id",
+          "intent",
+          "result"
+        ],
+        "properties": {
+          "database_id": {
+            "type": "string"
+          },
+          "intent": {
+            "type": "string",
+            "const": "revoke"
+          },
+          "result": {
+            "$ref": "#/components/schemas/Manage_revoke_Result"
+          }
+        }
+      },
       "Manage_revoke_ErrorItem": {
         "type": "object",
         "additionalProperties": false,
@@ -2685,6 +1681,89 @@
           }
         }
       },
+      "Manage_access_Args": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {
+          "mutation_id": {
+            "type": "string"
+          }
+        }
+      },
+      "Manage_access_Result": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "state"
+        ],
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "active",
+              "revoked",
+              "absent"
+            ]
+          },
+          "role": {
+            "type": "string"
+          },
+          "signed_grant": {
+            "type": "string"
+          },
+          "contribution_status": {
+            "type": "string",
+            "enum": [
+              "submitted",
+              "published",
+              "unknown"
+            ]
+          }
+        }
+      },
+      "Manage_access_Request": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "database_id",
+          "intent",
+          "args"
+        ],
+        "properties": {
+          "database_id": {
+            "type": "string"
+          },
+          "intent": {
+            "type": "string",
+            "const": "access"
+          },
+          "args": {
+            "$ref": "#/components/schemas/Manage_access_Args"
+          }
+        }
+      },
+      "Manage_access_Response": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "database_id",
+          "intent",
+          "result"
+        ],
+        "properties": {
+          "database_id": {
+            "type": "string"
+          },
+          "intent": {
+            "type": "string",
+            "const": "access"
+          },
+          "result": {
+            "$ref": "#/components/schemas/Manage_access_Result"
+          }
+        }
+      },
       "Manage_access_ErrorItem": {
         "type": "object",
         "additionalProperties": false,
@@ -2703,6 +1782,70 @@
           },
           "error": {
             "$ref": "#/components/schemas/ItemError"
+          }
+        }
+      },
+      "Manage_delete_Args": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {}
+      },
+      "Manage_delete_Result": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "done",
+              "accepted"
+            ]
+          }
+        }
+      },
+      "Manage_delete_Request": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "database_id",
+          "intent",
+          "args"
+        ],
+        "properties": {
+          "database_id": {
+            "type": "string"
+          },
+          "intent": {
+            "type": "string",
+            "const": "delete"
+          },
+          "args": {
+            "$ref": "#/components/schemas/Manage_delete_Args"
+          }
+        }
+      },
+      "Manage_delete_Response": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "database_id",
+          "intent",
+          "result"
+        ],
+        "properties": {
+          "database_id": {
+            "type": "string"
+          },
+          "intent": {
+            "type": "string",
+            "const": "delete"
+          },
+          "result": {
+            "$ref": "#/components/schemas/Manage_delete_Result"
           }
         }
       },
@@ -2792,7 +1935,7 @@
         "items": {
           "$ref": "#/components/schemas/ManageEnvelope"
         },
-        "description": "Up to 90 envelopes for this action (Decision 17)."
+        "description": "Up to 90 envelopes (Decision 17)."
       },
       "ManageBatchItemResponse": {
         "oneOf": [
@@ -2800,34 +1943,33 @@
             "$ref": "#/components/schemas/Manage_create_Response"
           },
           {
-            "$ref": "#/components/schemas/Manage_create_ErrorItem"
-          },
-          {
             "$ref": "#/components/schemas/Manage_grant_Response"
-          },
-          {
-            "$ref": "#/components/schemas/Manage_grant_ErrorItem"
           },
           {
             "$ref": "#/components/schemas/Manage_revoke_Response"
           },
           {
-            "$ref": "#/components/schemas/Manage_revoke_ErrorItem"
-          },
-          {
             "$ref": "#/components/schemas/Manage_access_Response"
-          },
-          {
-            "$ref": "#/components/schemas/Manage_access_ErrorItem"
           },
           {
             "$ref": "#/components/schemas/Manage_delete_Response"
           },
           {
+            "$ref": "#/components/schemas/Manage_create_ErrorItem"
+          },
+          {
+            "$ref": "#/components/schemas/Manage_grant_ErrorItem"
+          },
+          {
+            "$ref": "#/components/schemas/Manage_revoke_ErrorItem"
+          },
+          {
+            "$ref": "#/components/schemas/Manage_access_ErrorItem"
+          },
+          {
             "$ref": "#/components/schemas/Manage_delete_ErrorItem"
           }
-        ],
-        "description": "Success envelope or {database_id, intent, error}."
+        ]
       },
       "ManageBatchResponse": {
         "type": "array",
@@ -2835,9 +1977,2267 @@
         "maxItems": 90,
         "items": {
           "$ref": "#/components/schemas/ManageBatchItemResponse"
+        }
+      },
+      "ManageRequest": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/ManageEnvelope"
+          },
+          {
+            "$ref": "#/components/schemas/ManageBatchRequest"
+          }
+        ],
+        "description": "Single envelope or array (Decision 17)."
+      },
+      "ManageResponse": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/ManageEnvelopeResult"
+          },
+          {
+            "$ref": "#/components/schemas/ManageBatchResponse"
+          }
+        ]
+      },
+      "Account_enroll_start_Args": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {}
+      },
+      "Account_enroll_start_Result": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {
+          "challenge": {
+            "type": "string"
+          },
+          "session": {
+            "type": "string"
+          }
+        }
+      },
+      "Account_enroll_start_Request": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intent",
+          "args"
+        ],
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "enroll_start"
+          },
+          "args": {
+            "$ref": "#/components/schemas/Account_enroll_start_Args"
+          }
+        }
+      },
+      "Account_enroll_start_Response": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intent",
+          "result"
+        ],
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "enroll_start"
+          },
+          "result": {
+            "$ref": "#/components/schemas/Account_enroll_start_Result"
+          }
+        }
+      },
+      "Account_enroll_start_ErrorItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intent",
+          "error"
+        ],
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "enroll_start"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ItemError"
+          }
+        }
+      },
+      "Account_enroll_finish_Args": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "session",
+          "credential"
+        ],
+        "properties": {
+          "session": {
+            "type": "string"
+          },
+          "credential": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "response"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "response": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "clientDataJSON": {
+                    "type": "string"
+                  },
+                  "authenticatorData": {
+                    "type": "string"
+                  },
+                  "signature": {
+                    "type": "string"
+                  },
+                  "userHandle": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "Account_enroll_finish_Result": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ok"
+        ],
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "account_id": {
+            "type": "string"
+          }
+        }
+      },
+      "Account_enroll_finish_Request": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intent",
+          "args"
+        ],
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "enroll_finish"
+          },
+          "args": {
+            "$ref": "#/components/schemas/Account_enroll_finish_Args"
+          }
+        }
+      },
+      "Account_enroll_finish_Response": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intent",
+          "result"
+        ],
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "enroll_finish"
+          },
+          "result": {
+            "$ref": "#/components/schemas/Account_enroll_finish_Result"
+          }
+        }
+      },
+      "Account_enroll_finish_ErrorItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intent",
+          "error"
+        ],
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "enroll_finish"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ItemError"
+          }
+        }
+      },
+      "Account_login_start_Args": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {}
+      },
+      "Account_login_start_Result": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {
+          "challenge": {
+            "type": "string"
+          },
+          "session": {
+            "type": "string"
+          }
+        }
+      },
+      "Account_login_start_Request": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intent",
+          "args"
+        ],
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "login_start"
+          },
+          "args": {
+            "$ref": "#/components/schemas/Account_login_start_Args"
+          }
+        }
+      },
+      "Account_login_start_Response": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intent",
+          "result"
+        ],
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "login_start"
+          },
+          "result": {
+            "$ref": "#/components/schemas/Account_login_start_Result"
+          }
+        }
+      },
+      "Account_login_start_ErrorItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intent",
+          "error"
+        ],
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "login_start"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ItemError"
+          }
+        }
+      },
+      "Account_login_finish_Args": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "session",
+          "credential"
+        ],
+        "properties": {
+          "session": {
+            "type": "string"
+          },
+          "credential": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "response"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "response": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "clientDataJSON": {
+                    "type": "string"
+                  },
+                  "authenticatorData": {
+                    "type": "string"
+                  },
+                  "signature": {
+                    "type": "string"
+                  },
+                  "userHandle": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "Account_login_finish_Result": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ok"
+        ],
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "account_id": {
+            "type": "string"
+          }
+        }
+      },
+      "Account_login_finish_Request": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intent",
+          "args"
+        ],
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "login_finish"
+          },
+          "args": {
+            "$ref": "#/components/schemas/Account_login_finish_Args"
+          }
+        }
+      },
+      "Account_login_finish_Response": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intent",
+          "result"
+        ],
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "login_finish"
+          },
+          "result": {
+            "$ref": "#/components/schemas/Account_login_finish_Result"
+          }
+        }
+      },
+      "Account_login_finish_ErrorItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intent",
+          "error"
+        ],
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "login_finish"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ItemError"
+          }
+        }
+      },
+      "Account_register_Args": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "public_key",
+          "timestamp",
+          "signature",
+          "device_id"
+        ],
+        "properties": {
+          "public_key": {
+            "type": "string"
+          },
+          "timestamp": {
+            "type": "integer"
+          },
+          "signature": {
+            "type": "string"
+          },
+          "device_id": {
+            "type": "string"
+          }
+        }
+      },
+      "Account_register_Result": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ok",
+          "api_key",
+          "account_id"
+        ],
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "api_key": {
+            "type": "string"
+          },
+          "account_id": {
+            "type": "string"
+          }
+        }
+      },
+      "Account_register_Request": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intent",
+          "args"
+        ],
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "register"
+          },
+          "args": {
+            "$ref": "#/components/schemas/Account_register_Args"
+          }
+        }
+      },
+      "Account_register_Response": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intent",
+          "result"
+        ],
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "register"
+          },
+          "result": {
+            "$ref": "#/components/schemas/Account_register_Result"
+          }
+        }
+      },
+      "Account_register_ErrorItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intent",
+          "error"
+        ],
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "register"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ItemError"
+          }
+        }
+      },
+      "Account_status_Args": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {}
+      },
+      "Account_status_Result": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ok",
+          "account_id",
+          "configured"
+        ],
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "account_id": {
+            "type": "string"
+          },
+          "configured": {
+            "type": "boolean"
+          },
+          "environment": {
+            "type": "string"
+          }
+        }
+      },
+      "Account_status_Request": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intent",
+          "args"
+        ],
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "status"
+          },
+          "args": {
+            "$ref": "#/components/schemas/Account_status_Args"
+          }
+        }
+      },
+      "Account_status_Response": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intent",
+          "result"
+        ],
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "status"
+          },
+          "result": {
+            "$ref": "#/components/schemas/Account_status_Result"
+          }
+        }
+      },
+      "Account_status_ErrorItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intent",
+          "error"
+        ],
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "status"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ItemError"
+          }
+        }
+      },
+      "Account_key_create_Args": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {}
+      },
+      "Account_key_create_Result": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "key",
+          "prefix",
+          "created_at"
+        ],
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "prefix": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "integer"
+          }
+        }
+      },
+      "Account_key_create_Request": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intent",
+          "args"
+        ],
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "key_create"
+          },
+          "args": {
+            "$ref": "#/components/schemas/Account_key_create_Args"
+          }
+        }
+      },
+      "Account_key_create_Response": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intent",
+          "result"
+        ],
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "key_create"
+          },
+          "result": {
+            "$ref": "#/components/schemas/Account_key_create_Result"
+          }
+        }
+      },
+      "Account_key_create_ErrorItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intent",
+          "error"
+        ],
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "key_create"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ItemError"
+          }
+        }
+      },
+      "Account_key_list_Args": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {}
+      },
+      "Account_key_list_Result": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "keys"
+        ],
+        "properties": {
+          "keys": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "prefix",
+                "created_at"
+              ],
+              "properties": {
+                "prefix": {
+                  "type": "string"
+                },
+                "created_at": {
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        }
+      },
+      "Account_key_list_Request": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intent",
+          "args"
+        ],
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "key_list"
+          },
+          "args": {
+            "$ref": "#/components/schemas/Account_key_list_Args"
+          }
+        }
+      },
+      "Account_key_list_Response": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intent",
+          "result"
+        ],
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "key_list"
+          },
+          "result": {
+            "$ref": "#/components/schemas/Account_key_list_Result"
+          }
+        }
+      },
+      "Account_key_list_ErrorItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intent",
+          "error"
+        ],
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "key_list"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ItemError"
+          }
+        }
+      },
+      "Account_key_revoke_Args": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "prefix"
+        ],
+        "properties": {
+          "prefix": {
+            "type": "string"
+          }
+        }
+      },
+      "Account_key_revoke_Result": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ok",
+          "revoked"
+        ],
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "revoked": {
+            "type": "boolean"
+          }
+        }
+      },
+      "Account_key_revoke_Request": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intent",
+          "args"
+        ],
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "key_revoke"
+          },
+          "args": {
+            "$ref": "#/components/schemas/Account_key_revoke_Args"
+          }
+        }
+      },
+      "Account_key_revoke_Response": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intent",
+          "result"
+        ],
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "key_revoke"
+          },
+          "result": {
+            "$ref": "#/components/schemas/Account_key_revoke_Result"
+          }
+        }
+      },
+      "Account_key_revoke_ErrorItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intent",
+          "error"
+        ],
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "key_revoke"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ItemError"
+          }
+        }
+      },
+      "Account_payment_setup_intent_Args": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {}
+      },
+      "Account_payment_setup_intent_Result": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "stripe"
+        ],
+        "properties": {
+          "stripe": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "Opaque Stripe pass-through fields ExeMem does not interpret beyond forwarding.",
+            "properties": {
+              "client_secret": {
+                "type": "string"
+              },
+              "customer_session_client_secret": {
+                "type": "string"
+              },
+              "setup_intent_id": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              },
+              "methods": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "brand": {
+                      "type": "string"
+                    },
+                    "last4": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "Account_payment_setup_intent_Request": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intent",
+          "args"
+        ],
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "payment_setup_intent"
+          },
+          "args": {
+            "$ref": "#/components/schemas/Account_payment_setup_intent_Args"
+          }
+        }
+      },
+      "Account_payment_setup_intent_Response": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intent",
+          "result"
+        ],
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "payment_setup_intent"
+          },
+          "result": {
+            "$ref": "#/components/schemas/Account_payment_setup_intent_Result"
+          }
+        }
+      },
+      "Account_payment_setup_intent_ErrorItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intent",
+          "error"
+        ],
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "payment_setup_intent"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ItemError"
+          }
+        }
+      },
+      "Account_payment_customer_session_Args": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {}
+      },
+      "Account_payment_customer_session_Result": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "stripe"
+        ],
+        "properties": {
+          "stripe": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "Opaque Stripe pass-through fields ExeMem does not interpret beyond forwarding.",
+            "properties": {
+              "client_secret": {
+                "type": "string"
+              },
+              "customer_session_client_secret": {
+                "type": "string"
+              },
+              "setup_intent_id": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              },
+              "methods": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "brand": {
+                      "type": "string"
+                    },
+                    "last4": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "Account_payment_customer_session_Request": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intent",
+          "args"
+        ],
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "payment_customer_session"
+          },
+          "args": {
+            "$ref": "#/components/schemas/Account_payment_customer_session_Args"
+          }
+        }
+      },
+      "Account_payment_customer_session_Response": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intent",
+          "result"
+        ],
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "payment_customer_session"
+          },
+          "result": {
+            "$ref": "#/components/schemas/Account_payment_customer_session_Result"
+          }
+        }
+      },
+      "Account_payment_customer_session_ErrorItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intent",
+          "error"
+        ],
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "payment_customer_session"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ItemError"
+          }
+        }
+      },
+      "Account_payment_methods_Args": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {}
+      },
+      "Account_payment_methods_Result": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "stripe"
+        ],
+        "properties": {
+          "stripe": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "Opaque Stripe pass-through fields ExeMem does not interpret beyond forwarding.",
+            "properties": {
+              "client_secret": {
+                "type": "string"
+              },
+              "customer_session_client_secret": {
+                "type": "string"
+              },
+              "setup_intent_id": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              },
+              "methods": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "brand": {
+                      "type": "string"
+                    },
+                    "last4": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "Account_payment_methods_Request": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intent",
+          "args"
+        ],
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "payment_methods"
+          },
+          "args": {
+            "$ref": "#/components/schemas/Account_payment_methods_Args"
+          }
+        }
+      },
+      "Account_payment_methods_Response": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intent",
+          "result"
+        ],
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "payment_methods"
+          },
+          "result": {
+            "$ref": "#/components/schemas/Account_payment_methods_Result"
+          }
+        }
+      },
+      "Account_payment_methods_ErrorItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intent",
+          "error"
+        ],
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "payment_methods"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ItemError"
+          }
+        }
+      },
+      "Account_payment_detach_method_Args": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "method_id"
+        ],
+        "properties": {
+          "method_id": {
+            "type": "string"
+          }
+        }
+      },
+      "Account_payment_detach_method_Result": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "stripe"
+        ],
+        "properties": {
+          "stripe": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "Opaque Stripe pass-through fields ExeMem does not interpret beyond forwarding.",
+            "properties": {
+              "client_secret": {
+                "type": "string"
+              },
+              "customer_session_client_secret": {
+                "type": "string"
+              },
+              "setup_intent_id": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              },
+              "methods": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "brand": {
+                      "type": "string"
+                    },
+                    "last4": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "Account_payment_detach_method_Request": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intent",
+          "args"
+        ],
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "payment_detach_method"
+          },
+          "args": {
+            "$ref": "#/components/schemas/Account_payment_detach_method_Args"
+          }
+        }
+      },
+      "Account_payment_detach_method_Response": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intent",
+          "result"
+        ],
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "payment_detach_method"
+          },
+          "result": {
+            "$ref": "#/components/schemas/Account_payment_detach_method_Result"
+          }
+        }
+      },
+      "Account_payment_detach_method_ErrorItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intent",
+          "error"
+        ],
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "payment_detach_method"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ItemError"
+          }
+        }
+      },
+      "Account_payment_status_Args": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {}
+      },
+      "Account_payment_status_Result": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "account_id",
+          "configured",
+          "status",
+          "can_checkout",
+          "can_manage",
+          "review_required"
+        ],
+        "properties": {
+          "account_id": {
+            "type": "string"
+          },
+          "configured": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string"
+          },
+          "can_checkout": {
+            "type": "boolean"
+          },
+          "can_manage": {
+            "type": "boolean"
+          },
+          "review_required": {
+            "type": "boolean"
+          }
+        }
+      },
+      "Account_payment_status_Request": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intent",
+          "args"
+        ],
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "payment_status"
+          },
+          "args": {
+            "$ref": "#/components/schemas/Account_payment_status_Args"
+          }
+        }
+      },
+      "Account_payment_status_Response": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intent",
+          "result"
+        ],
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "payment_status"
+          },
+          "result": {
+            "$ref": "#/components/schemas/Account_payment_status_Result"
+          }
+        }
+      },
+      "Account_payment_status_ErrorItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intent",
+          "error"
+        ],
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "payment_status"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ItemError"
+          }
+        }
+      },
+      "Account_payment_checkout_Args": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {}
+      },
+      "Account_payment_checkout_Result": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "stripe"
+        ],
+        "properties": {
+          "stripe": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "Opaque Stripe pass-through fields ExeMem does not interpret beyond forwarding.",
+            "properties": {
+              "client_secret": {
+                "type": "string"
+              },
+              "customer_session_client_secret": {
+                "type": "string"
+              },
+              "setup_intent_id": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              },
+              "methods": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "brand": {
+                      "type": "string"
+                    },
+                    "last4": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "Account_payment_checkout_Request": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intent",
+          "args"
+        ],
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "payment_checkout"
+          },
+          "args": {
+            "$ref": "#/components/schemas/Account_payment_checkout_Args"
+          }
+        }
+      },
+      "Account_payment_checkout_Response": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intent",
+          "result"
+        ],
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "payment_checkout"
+          },
+          "result": {
+            "$ref": "#/components/schemas/Account_payment_checkout_Result"
+          }
+        }
+      },
+      "Account_payment_checkout_ErrorItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intent",
+          "error"
+        ],
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "payment_checkout"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ItemError"
+          }
+        }
+      },
+      "Account_payment_portal_Args": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {}
+      },
+      "Account_payment_portal_Result": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "stripe"
+        ],
+        "properties": {
+          "stripe": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "Opaque Stripe pass-through fields ExeMem does not interpret beyond forwarding.",
+            "properties": {
+              "client_secret": {
+                "type": "string"
+              },
+              "customer_session_client_secret": {
+                "type": "string"
+              },
+              "setup_intent_id": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              },
+              "methods": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "brand": {
+                      "type": "string"
+                    },
+                    "last4": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "Account_payment_portal_Request": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intent",
+          "args"
+        ],
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "payment_portal"
+          },
+          "args": {
+            "$ref": "#/components/schemas/Account_payment_portal_Args"
+          }
+        }
+      },
+      "Account_payment_portal_Response": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intent",
+          "result"
+        ],
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "payment_portal"
+          },
+          "result": {
+            "$ref": "#/components/schemas/Account_payment_portal_Result"
+          }
+        }
+      },
+      "Account_payment_portal_ErrorItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intent",
+          "error"
+        ],
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "payment_portal"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ItemError"
+          }
+        }
+      },
+      "AccountEnvelope": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Account_enroll_start_Request"
+          },
+          {
+            "$ref": "#/components/schemas/Account_enroll_finish_Request"
+          },
+          {
+            "$ref": "#/components/schemas/Account_login_start_Request"
+          },
+          {
+            "$ref": "#/components/schemas/Account_login_finish_Request"
+          },
+          {
+            "$ref": "#/components/schemas/Account_register_Request"
+          },
+          {
+            "$ref": "#/components/schemas/Account_status_Request"
+          },
+          {
+            "$ref": "#/components/schemas/Account_key_create_Request"
+          },
+          {
+            "$ref": "#/components/schemas/Account_key_list_Request"
+          },
+          {
+            "$ref": "#/components/schemas/Account_key_revoke_Request"
+          },
+          {
+            "$ref": "#/components/schemas/Account_payment_setup_intent_Request"
+          },
+          {
+            "$ref": "#/components/schemas/Account_payment_customer_session_Request"
+          },
+          {
+            "$ref": "#/components/schemas/Account_payment_methods_Request"
+          },
+          {
+            "$ref": "#/components/schemas/Account_payment_detach_method_Request"
+          },
+          {
+            "$ref": "#/components/schemas/Account_payment_status_Request"
+          },
+          {
+            "$ref": "#/components/schemas/Account_payment_checkout_Request"
+          },
+          {
+            "$ref": "#/components/schemas/Account_payment_portal_Request"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "intent",
+          "mapping": {
+            "enroll_start": "#/components/schemas/Account_enroll_start_Request",
+            "enroll_finish": "#/components/schemas/Account_enroll_finish_Request",
+            "login_start": "#/components/schemas/Account_login_start_Request",
+            "login_finish": "#/components/schemas/Account_login_finish_Request",
+            "register": "#/components/schemas/Account_register_Request",
+            "status": "#/components/schemas/Account_status_Request",
+            "key_create": "#/components/schemas/Account_key_create_Request",
+            "key_list": "#/components/schemas/Account_key_list_Request",
+            "key_revoke": "#/components/schemas/Account_key_revoke_Request",
+            "payment_setup_intent": "#/components/schemas/Account_payment_setup_intent_Request",
+            "payment_customer_session": "#/components/schemas/Account_payment_customer_session_Request",
+            "payment_methods": "#/components/schemas/Account_payment_methods_Request",
+            "payment_detach_method": "#/components/schemas/Account_payment_detach_method_Request",
+            "payment_status": "#/components/schemas/Account_payment_status_Request",
+            "payment_checkout": "#/components/schemas/Account_payment_checkout_Request",
+            "payment_portal": "#/components/schemas/Account_payment_portal_Request"
+          }
+        }
+      },
+      "AccountEnvelopeResult": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Account_enroll_start_Response"
+          },
+          {
+            "$ref": "#/components/schemas/Account_enroll_finish_Response"
+          },
+          {
+            "$ref": "#/components/schemas/Account_login_start_Response"
+          },
+          {
+            "$ref": "#/components/schemas/Account_login_finish_Response"
+          },
+          {
+            "$ref": "#/components/schemas/Account_register_Response"
+          },
+          {
+            "$ref": "#/components/schemas/Account_status_Response"
+          },
+          {
+            "$ref": "#/components/schemas/Account_key_create_Response"
+          },
+          {
+            "$ref": "#/components/schemas/Account_key_list_Response"
+          },
+          {
+            "$ref": "#/components/schemas/Account_key_revoke_Response"
+          },
+          {
+            "$ref": "#/components/schemas/Account_payment_setup_intent_Response"
+          },
+          {
+            "$ref": "#/components/schemas/Account_payment_customer_session_Response"
+          },
+          {
+            "$ref": "#/components/schemas/Account_payment_methods_Response"
+          },
+          {
+            "$ref": "#/components/schemas/Account_payment_detach_method_Response"
+          },
+          {
+            "$ref": "#/components/schemas/Account_payment_status_Response"
+          },
+          {
+            "$ref": "#/components/schemas/Account_payment_checkout_Response"
+          },
+          {
+            "$ref": "#/components/schemas/Account_payment_portal_Response"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "intent",
+          "mapping": {
+            "enroll_start": "#/components/schemas/Account_enroll_start_Response",
+            "enroll_finish": "#/components/schemas/Account_enroll_finish_Response",
+            "login_start": "#/components/schemas/Account_login_start_Response",
+            "login_finish": "#/components/schemas/Account_login_finish_Response",
+            "register": "#/components/schemas/Account_register_Response",
+            "status": "#/components/schemas/Account_status_Response",
+            "key_create": "#/components/schemas/Account_key_create_Response",
+            "key_list": "#/components/schemas/Account_key_list_Response",
+            "key_revoke": "#/components/schemas/Account_key_revoke_Response",
+            "payment_setup_intent": "#/components/schemas/Account_payment_setup_intent_Response",
+            "payment_customer_session": "#/components/schemas/Account_payment_customer_session_Response",
+            "payment_methods": "#/components/schemas/Account_payment_methods_Response",
+            "payment_detach_method": "#/components/schemas/Account_payment_detach_method_Response",
+            "payment_status": "#/components/schemas/Account_payment_status_Response",
+            "payment_checkout": "#/components/schemas/Account_payment_checkout_Response",
+            "payment_portal": "#/components/schemas/Account_payment_portal_Response"
+          }
+        }
+      },
+      "AccountBatchRequest": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 90,
+        "items": {
+          "$ref": "#/components/schemas/AccountEnvelope"
         },
-        "description": "Same order as the request. HTTP 200 for a processed batch."
+        "description": "Up to 90 envelopes (Decision 17)."
+      },
+      "AccountBatchItemResponse": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Account_enroll_start_Response"
+          },
+          {
+            "$ref": "#/components/schemas/Account_enroll_finish_Response"
+          },
+          {
+            "$ref": "#/components/schemas/Account_login_start_Response"
+          },
+          {
+            "$ref": "#/components/schemas/Account_login_finish_Response"
+          },
+          {
+            "$ref": "#/components/schemas/Account_register_Response"
+          },
+          {
+            "$ref": "#/components/schemas/Account_status_Response"
+          },
+          {
+            "$ref": "#/components/schemas/Account_key_create_Response"
+          },
+          {
+            "$ref": "#/components/schemas/Account_key_list_Response"
+          },
+          {
+            "$ref": "#/components/schemas/Account_key_revoke_Response"
+          },
+          {
+            "$ref": "#/components/schemas/Account_payment_setup_intent_Response"
+          },
+          {
+            "$ref": "#/components/schemas/Account_payment_customer_session_Response"
+          },
+          {
+            "$ref": "#/components/schemas/Account_payment_methods_Response"
+          },
+          {
+            "$ref": "#/components/schemas/Account_payment_detach_method_Response"
+          },
+          {
+            "$ref": "#/components/schemas/Account_payment_status_Response"
+          },
+          {
+            "$ref": "#/components/schemas/Account_payment_checkout_Response"
+          },
+          {
+            "$ref": "#/components/schemas/Account_payment_portal_Response"
+          },
+          {
+            "$ref": "#/components/schemas/Account_enroll_start_ErrorItem"
+          },
+          {
+            "$ref": "#/components/schemas/Account_enroll_finish_ErrorItem"
+          },
+          {
+            "$ref": "#/components/schemas/Account_login_start_ErrorItem"
+          },
+          {
+            "$ref": "#/components/schemas/Account_login_finish_ErrorItem"
+          },
+          {
+            "$ref": "#/components/schemas/Account_register_ErrorItem"
+          },
+          {
+            "$ref": "#/components/schemas/Account_status_ErrorItem"
+          },
+          {
+            "$ref": "#/components/schemas/Account_key_create_ErrorItem"
+          },
+          {
+            "$ref": "#/components/schemas/Account_key_list_ErrorItem"
+          },
+          {
+            "$ref": "#/components/schemas/Account_key_revoke_ErrorItem"
+          },
+          {
+            "$ref": "#/components/schemas/Account_payment_setup_intent_ErrorItem"
+          },
+          {
+            "$ref": "#/components/schemas/Account_payment_customer_session_ErrorItem"
+          },
+          {
+            "$ref": "#/components/schemas/Account_payment_methods_ErrorItem"
+          },
+          {
+            "$ref": "#/components/schemas/Account_payment_detach_method_ErrorItem"
+          },
+          {
+            "$ref": "#/components/schemas/Account_payment_status_ErrorItem"
+          },
+          {
+            "$ref": "#/components/schemas/Account_payment_checkout_ErrorItem"
+          },
+          {
+            "$ref": "#/components/schemas/Account_payment_portal_ErrorItem"
+          }
+        ]
+      },
+      "AccountBatchResponse": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 90,
+        "items": {
+          "$ref": "#/components/schemas/AccountBatchItemResponse"
+        }
+      },
+      "AccountRequest": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/AccountEnvelope"
+          },
+          {
+            "$ref": "#/components/schemas/AccountBatchRequest"
+          }
+        ],
+        "description": "Single envelope or array (Decision 17)."
+      },
+      "AccountResponse": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/AccountEnvelopeResult"
+          },
+          {
+            "$ref": "#/components/schemas/AccountBatchResponse"
+          }
+        ]
+      },
+      "Maintenance_snapshot_proof_provision_Args": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {
+          "proof_id": {
+            "type": "string"
+          }
+        },
+        "x-lastdb-environment": "dev"
+      },
+      "Maintenance_snapshot_proof_provision_Result": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ok",
+          "proof_id"
+        ],
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "proof_id": {
+            "type": "string"
+          }
+        },
+        "x-lastdb-environment": "dev"
+      },
+      "Maintenance_snapshot_proof_provision_Request": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intent",
+          "args"
+        ],
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "snapshot_proof_provision"
+          },
+          "args": {
+            "$ref": "#/components/schemas/Maintenance_snapshot_proof_provision_Args"
+          }
+        },
+        "x-lastdb-environment": "dev"
+      },
+      "Maintenance_snapshot_proof_provision_Response": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intent",
+          "result"
+        ],
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "snapshot_proof_provision"
+          },
+          "result": {
+            "$ref": "#/components/schemas/Maintenance_snapshot_proof_provision_Result"
+          }
+        },
+        "x-lastdb-environment": "dev"
+      },
+      "Maintenance_snapshot_proof_provision_ErrorItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intent",
+          "error"
+        ],
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "snapshot_proof_provision"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ItemError"
+          }
+        },
+        "x-lastdb-environment": "dev"
+      },
+      "Maintenance_snapshot_proof_retire_Args": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "proof_id"
+        ],
+        "properties": {
+          "proof_id": {
+            "type": "string"
+          }
+        },
+        "x-lastdb-environment": "dev"
+      },
+      "Maintenance_snapshot_proof_retire_Result": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ok"
+        ],
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          }
+        },
+        "x-lastdb-environment": "dev"
+      },
+      "Maintenance_snapshot_proof_retire_Request": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intent",
+          "args"
+        ],
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "snapshot_proof_retire"
+          },
+          "args": {
+            "$ref": "#/components/schemas/Maintenance_snapshot_proof_retire_Args"
+          }
+        },
+        "x-lastdb-environment": "dev"
+      },
+      "Maintenance_snapshot_proof_retire_Response": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intent",
+          "result"
+        ],
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "snapshot_proof_retire"
+          },
+          "result": {
+            "$ref": "#/components/schemas/Maintenance_snapshot_proof_retire_Result"
+          }
+        },
+        "x-lastdb-environment": "dev"
+      },
+      "Maintenance_snapshot_proof_retire_ErrorItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intent",
+          "error"
+        ],
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "snapshot_proof_retire"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ItemError"
+          }
+        },
+        "x-lastdb-environment": "dev"
+      },
+      "Maintenance_snapshot_proof_status_Args": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "proof_id"
+        ],
+        "properties": {
+          "proof_id": {
+            "type": "string"
+          }
+        },
+        "x-lastdb-environment": "dev"
+      },
+      "Maintenance_snapshot_proof_status_Result": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ok",
+          "status"
+        ],
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string"
+          },
+          "proof_id": {
+            "type": "string"
+          }
+        },
+        "x-lastdb-environment": "dev"
+      },
+      "Maintenance_snapshot_proof_status_Request": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intent",
+          "args"
+        ],
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "snapshot_proof_status"
+          },
+          "args": {
+            "$ref": "#/components/schemas/Maintenance_snapshot_proof_status_Args"
+          }
+        },
+        "x-lastdb-environment": "dev"
+      },
+      "Maintenance_snapshot_proof_status_Response": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intent",
+          "result"
+        ],
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "snapshot_proof_status"
+          },
+          "result": {
+            "$ref": "#/components/schemas/Maintenance_snapshot_proof_status_Result"
+          }
+        },
+        "x-lastdb-environment": "dev"
+      },
+      "Maintenance_snapshot_proof_status_ErrorItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intent",
+          "error"
+        ],
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "snapshot_proof_status"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ItemError"
+          }
+        },
+        "x-lastdb-environment": "dev"
+      },
+      "Maintenance_snapshot_proof_inspect_Args": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "proof_id"
+        ],
+        "properties": {
+          "proof_id": {
+            "type": "string"
+          }
+        },
+        "x-lastdb-environment": "dev"
+      },
+      "Maintenance_snapshot_proof_inspect_Result": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ok"
+        ],
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "proof_id": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "through": {
+                "type": "integer"
+              },
+              "databases": {
+                "type": "integer"
+              }
+            }
+          }
+        },
+        "x-lastdb-environment": "dev"
+      },
+      "Maintenance_snapshot_proof_inspect_Request": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intent",
+          "args"
+        ],
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "snapshot_proof_inspect"
+          },
+          "args": {
+            "$ref": "#/components/schemas/Maintenance_snapshot_proof_inspect_Args"
+          }
+        },
+        "x-lastdb-environment": "dev"
+      },
+      "Maintenance_snapshot_proof_inspect_Response": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intent",
+          "result"
+        ],
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "snapshot_proof_inspect"
+          },
+          "result": {
+            "$ref": "#/components/schemas/Maintenance_snapshot_proof_inspect_Result"
+          }
+        },
+        "x-lastdb-environment": "dev"
+      },
+      "Maintenance_snapshot_proof_inspect_ErrorItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intent",
+          "error"
+        ],
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "snapshot_proof_inspect"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ItemError"
+          }
+        },
+        "x-lastdb-environment": "dev"
+      },
+      "MaintenanceEnvelope": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Maintenance_snapshot_proof_provision_Request"
+          },
+          {
+            "$ref": "#/components/schemas/Maintenance_snapshot_proof_retire_Request"
+          },
+          {
+            "$ref": "#/components/schemas/Maintenance_snapshot_proof_status_Request"
+          },
+          {
+            "$ref": "#/components/schemas/Maintenance_snapshot_proof_inspect_Request"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "intent",
+          "mapping": {
+            "snapshot_proof_provision": "#/components/schemas/Maintenance_snapshot_proof_provision_Request",
+            "snapshot_proof_retire": "#/components/schemas/Maintenance_snapshot_proof_retire_Request",
+            "snapshot_proof_status": "#/components/schemas/Maintenance_snapshot_proof_status_Request",
+            "snapshot_proof_inspect": "#/components/schemas/Maintenance_snapshot_proof_inspect_Request"
+          }
+        }
+      },
+      "MaintenanceEnvelopeResult": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Maintenance_snapshot_proof_provision_Response"
+          },
+          {
+            "$ref": "#/components/schemas/Maintenance_snapshot_proof_retire_Response"
+          },
+          {
+            "$ref": "#/components/schemas/Maintenance_snapshot_proof_status_Response"
+          },
+          {
+            "$ref": "#/components/schemas/Maintenance_snapshot_proof_inspect_Response"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "intent",
+          "mapping": {
+            "snapshot_proof_provision": "#/components/schemas/Maintenance_snapshot_proof_provision_Response",
+            "snapshot_proof_retire": "#/components/schemas/Maintenance_snapshot_proof_retire_Response",
+            "snapshot_proof_status": "#/components/schemas/Maintenance_snapshot_proof_status_Response",
+            "snapshot_proof_inspect": "#/components/schemas/Maintenance_snapshot_proof_inspect_Response"
+          }
+        }
+      },
+      "MaintenanceBatchRequest": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 90,
+        "items": {
+          "$ref": "#/components/schemas/MaintenanceEnvelope"
+        },
+        "description": "Up to 90 envelopes (Decision 17)."
+      },
+      "MaintenanceBatchItemResponse": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Maintenance_snapshot_proof_provision_Response"
+          },
+          {
+            "$ref": "#/components/schemas/Maintenance_snapshot_proof_retire_Response"
+          },
+          {
+            "$ref": "#/components/schemas/Maintenance_snapshot_proof_status_Response"
+          },
+          {
+            "$ref": "#/components/schemas/Maintenance_snapshot_proof_inspect_Response"
+          },
+          {
+            "$ref": "#/components/schemas/Maintenance_snapshot_proof_provision_ErrorItem"
+          },
+          {
+            "$ref": "#/components/schemas/Maintenance_snapshot_proof_retire_ErrorItem"
+          },
+          {
+            "$ref": "#/components/schemas/Maintenance_snapshot_proof_status_ErrorItem"
+          },
+          {
+            "$ref": "#/components/schemas/Maintenance_snapshot_proof_inspect_ErrorItem"
+          }
+        ]
+      },
+      "MaintenanceBatchResponse": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 90,
+        "items": {
+          "$ref": "#/components/schemas/MaintenanceBatchItemResponse"
+        }
+      },
+      "MaintenanceRequest": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/MaintenanceEnvelope"
+          },
+          {
+            "$ref": "#/components/schemas/MaintenanceBatchRequest"
+          }
+        ],
+        "description": "Single envelope or array (Decision 17)."
+      },
+      "MaintenanceResponse": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/MaintenanceEnvelopeResult"
+          },
+          {
+            "$ref": "#/components/schemas/MaintenanceBatchResponse"
+          }
+        ]
       }
+    },
+    "x-lastdb-batch": {
+      "max_items": 90,
+      "max_request_bytes": 262144,
+      "max_response_bytes": 8388608
     },
     "responses": {
       "Error": {
@@ -2860,12 +4260,6 @@
           }
         }
       }
-    },
-    "x-lastdb-batch": {
-      "max_items": 90,
-      "max_request_bytes": 262144,
-      "max_response_bytes": 8388608,
-      "overflow": "per-item batch_too_large on batch.response"
     }
   }
 }
