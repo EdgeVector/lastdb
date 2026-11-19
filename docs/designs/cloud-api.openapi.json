@@ -3,7 +3,7 @@
   "info": {
     "title": "LastDB ExeMem Cloud API",
     "version": "3.0.0-design",
-    "description": "ExeMem Cloud API v3 (minimal signed history). Local AcceptEntry; device chains; append-only never-trimmed logs; no snapshots; role-reduction cutoffs; checked Lamport; presigned blob GET only. See relay-protocol.md."
+    "description": "ExeMem Cloud API v3 (minimal signed history). Local AcceptEntry; seen_heads by hash from any stream; checked Lamport; whole-record LWW; append-only logs; no snapshots; no resolve; publisher heads for hidden-entry detection. See relay-protocol.md."
   },
   "servers": [
     {
@@ -320,11 +320,11 @@
                           "prev_hash": "0000000000000000000000000000000000000000000000000000000000000000",
                           "authored_at_ms": 1730000000000,
                           "lamport": 1,
-                          "seen_publisher_heads": [],
                           "stream": "direct",
                           "namespace": "default",
                           "payload_b64": "AQID",
-                          "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+                          "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                          "seen_heads": []
                         }
                       ]
                     }
@@ -542,12 +542,12 @@
                         "prev_hash": "0000000000000000000000000000000000000000000000000000000000000000",
                         "authored_at_ms": 1730000000000,
                         "lamport": 1,
-                        "seen_publisher_heads": [],
                         "namespace": "birth",
                         "owner": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
                         "db_salt": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
                         "birth_signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-                        "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+                        "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                        "seen_heads": []
                       }
                     }
                   }
@@ -602,11 +602,11 @@
                           "prev_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
                           "authored_at_ms": 1730000001000,
                           "lamport": 2,
-                          "seen_publisher_heads": [],
                           "namespace": "grant",
                           "grantee": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
                           "role": "write",
-                          "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+                          "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                          "seen_heads": []
                         }
                       ]
                     }
@@ -628,7 +628,6 @@
                           "prev_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
                           "authored_at_ms": 1730000002000,
                           "lamport": 3,
-                          "seen_publisher_heads": [],
                           "namespace": "grant",
                           "grantee": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
                           "role": "revoked",
@@ -639,7 +638,8 @@
                               "entry_hash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
                             }
                           ],
-                          "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+                          "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                          "seen_heads": []
                         }
                       ]
                     }
@@ -1366,13 +1366,9 @@
             "$ref": "#/components/schemas/RelaysEntry"
           },
           {
-            "$ref": "#/components/schemas/ResolveEntry"
-          },
-          {
             "$ref": "#/components/schemas/BirthEntry"
           }
-        ],
-        "description": "push/mutations signed entry"
+        ]
       },
       "PushMutationsArgs": {
         "type": "object",
@@ -3577,13 +3573,14 @@
           "prev_hash",
           "authored_at_ms",
           "lamport",
-          "seen_publisher_heads",
+          "seen_heads",
           "signature",
           "stream",
           "namespace",
           "payload_b64"
         ],
         "additionalProperties": false,
+        "description": "lastdb-mutation-v1; stream=proposal for proposals",
         "properties": {
           "kind": {
             "type": "string",
@@ -3617,18 +3614,16 @@
           },
           "authored_at_ms": {
             "type": "integer",
-            "minimum": 0
+            "minimum": 0,
+            "description": "Display-only wall clock"
           },
           "lamport": {
             "type": "integer",
-            "minimum": 1
+            "minimum": 1,
+            "description": "1 + max(prev lamport, lamports of seen_heads entries)"
           },
-          "seen_publisher_heads": {
-            "type": "array",
-            "maxItems": 256,
-            "items": {
-              "$ref": "#/components/schemas/DeviceHead"
-            }
+          "seen_heads": {
+            "$ref": "#/components/schemas/SeenHeads"
           },
           "signature": {
             "type": "string",
@@ -3679,7 +3674,7 @@
               "prev_hash",
               "authored_at_ms",
               "lamport",
-              "seen_publisher_heads",
+              "seen_heads",
               "signature",
               "namespace",
               "grantee",
@@ -3720,18 +3715,16 @@
               },
               "authored_at_ms": {
                 "type": "integer",
-                "minimum": 0
+                "minimum": 0,
+                "description": "Display-only wall clock"
               },
               "lamport": {
                 "type": "integer",
-                "minimum": 1
+                "minimum": 1,
+                "description": "1 + max(prev lamport, lamports of seen_heads entries)"
               },
-              "seen_publisher_heads": {
-                "type": "array",
-                "maxItems": 256,
-                "items": {
-                  "$ref": "#/components/schemas/DeviceHead"
-                }
+              "seen_heads": {
+                "$ref": "#/components/schemas/SeenHeads"
               },
               "signature": {
                 "type": "string",
@@ -3764,14 +3757,14 @@
               "prev_hash",
               "authored_at_ms",
               "lamport",
-              "seen_publisher_heads",
+              "seen_heads",
               "signature",
               "namespace",
               "grantee",
               "role"
             ],
             "additionalProperties": false,
-            "description": "Member write grant (no cutoffs)",
+            "description": "Member write grant",
             "properties": {
               "kind": {
                 "type": "string",
@@ -3805,18 +3798,16 @@
               },
               "authored_at_ms": {
                 "type": "integer",
-                "minimum": 0
+                "minimum": 0,
+                "description": "Display-only wall clock"
               },
               "lamport": {
                 "type": "integer",
-                "minimum": 1
+                "minimum": 1,
+                "description": "1 + max(prev lamport, lamports of seen_heads entries)"
               },
-              "seen_publisher_heads": {
-                "type": "array",
-                "maxItems": 256,
-                "items": {
-                  "$ref": "#/components/schemas/DeviceHead"
-                }
+              "seen_heads": {
+                "$ref": "#/components/schemas/SeenHeads"
               },
               "signature": {
                 "type": "string",
@@ -3851,7 +3842,7 @@
               "prev_hash",
               "authored_at_ms",
               "lamport",
-              "seen_publisher_heads",
+              "seen_heads",
               "signature",
               "namespace",
               "grantee",
@@ -3859,7 +3850,7 @@
               "cutoffs"
             ],
             "additionalProperties": false,
-            "description": "Role reduction or non-write grant; cutoffs required",
+            "description": "Role reduction; cutoffs required",
             "properties": {
               "kind": {
                 "type": "string",
@@ -3893,18 +3884,16 @@
               },
               "authored_at_ms": {
                 "type": "integer",
-                "minimum": 0
+                "minimum": 0,
+                "description": "Display-only wall clock"
               },
               "lamport": {
                 "type": "integer",
-                "minimum": 1
+                "minimum": 1,
+                "description": "1 + max(prev lamport, lamports of seen_heads entries)"
               },
-              "seen_publisher_heads": {
-                "type": "array",
-                "maxItems": 256,
-                "items": {
-                  "$ref": "#/components/schemas/DeviceHead"
-                }
+              "seen_heads": {
+                "$ref": "#/components/schemas/SeenHeads"
               },
               "signature": {
                 "type": "string",
@@ -3960,9 +3949,6 @@
           },
           {
             "$ref": "#/components/schemas/RelaysEntry"
-          },
-          {
-            "$ref": "#/components/schemas/ResolveEntry"
           }
         ]
       },
@@ -3974,6 +3960,7 @@
           "entry_hash"
         ],
         "additionalProperties": false,
+        "description": "Tip used in publisher heads entries",
         "properties": {
           "device_id": {
             "type": "string",
@@ -4027,12 +4014,13 @@
           "prev_hash",
           "authored_at_ms",
           "lamport",
-          "seen_publisher_heads",
+          "seen_heads",
           "signature",
           "namespace",
           "publisher_heads"
         ],
         "additionalProperties": false,
+        "description": "lastdb-heads-v1; hidden-entry detection across devices/People",
         "properties": {
           "kind": {
             "type": "string",
@@ -4066,18 +4054,16 @@
           },
           "authored_at_ms": {
             "type": "integer",
-            "minimum": 0
+            "minimum": 0,
+            "description": "Display-only wall clock"
           },
           "lamport": {
             "type": "integer",
-            "minimum": 1
+            "minimum": 1,
+            "description": "1 + max(prev lamport, lamports of seen_heads entries)"
           },
-          "seen_publisher_heads": {
-            "type": "array",
-            "maxItems": 256,
-            "items": {
-              "$ref": "#/components/schemas/DeviceHead"
-            }
+          "seen_heads": {
+            "$ref": "#/components/schemas/SeenHeads"
           },
           "signature": {
             "type": "string",
@@ -4099,99 +4085,6 @@
           }
         }
       },
-      "ResolveEntry": {
-        "type": "object",
-        "required": [
-          "kind",
-          "database_id",
-          "node_key",
-          "device_id",
-          "writer_seq",
-          "prev_hash",
-          "authored_at_ms",
-          "lamport",
-          "seen_publisher_heads",
-          "signature",
-          "namespace",
-          "node_key_conflict",
-          "device_id_conflict",
-          "chosen_entry_hash"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "kind": {
-            "type": "string",
-            "const": "resolve"
-          },
-          "database_id": {
-            "type": "string",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          },
-          "node_key": {
-            "type": "string",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          },
-          "device_id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "writer_seq": {
-            "type": "integer",
-            "minimum": 1
-          },
-          "prev_hash": {
-            "type": "string",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          },
-          "authored_at_ms": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "lamport": {
-            "type": "integer",
-            "minimum": 1
-          },
-          "seen_publisher_heads": {
-            "type": "array",
-            "maxItems": 256,
-            "items": {
-              "$ref": "#/components/schemas/DeviceHead"
-            }
-          },
-          "signature": {
-            "type": "string",
-            "pattern": "^[A-Za-z0-9_-]{86}$",
-            "minLength": 86,
-            "maxLength": 86
-          },
-          "namespace": {
-            "type": "string",
-            "const": "resolve"
-          },
-          "node_key_conflict": {
-            "type": "string",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          },
-          "device_id_conflict": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "chosen_entry_hash": {
-            "type": "string",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          }
-        }
-      },
       "BirthEntry": {
         "type": "object",
         "required": [
@@ -4203,7 +4096,7 @@
           "prev_hash",
           "authored_at_ms",
           "lamport",
-          "seen_publisher_heads",
+          "seen_heads",
           "signature",
           "namespace",
           "db_salt",
@@ -4244,18 +4137,16 @@
           },
           "authored_at_ms": {
             "type": "integer",
-            "minimum": 0
+            "minimum": 0,
+            "description": "Display-only wall clock"
           },
           "lamport": {
             "type": "integer",
-            "minimum": 1
+            "minimum": 1,
+            "description": "1 + max(prev lamport, lamports of seen_heads entries)"
           },
-          "seen_publisher_heads": {
-            "type": "array",
-            "maxItems": 256,
-            "items": {
-              "$ref": "#/components/schemas/DeviceHead"
-            }
+          "seen_heads": {
+            "$ref": "#/components/schemas/SeenHeads"
           },
           "signature": {
             "type": "string",
@@ -4298,13 +4189,12 @@
           "prev_hash",
           "authored_at_ms",
           "lamport",
-          "seen_publisher_heads",
+          "seen_heads",
           "signature",
           "namespace",
           "sha256"
         ],
         "additionalProperties": false,
-        "description": "lastdb-blob-delete-v1; publisher; relays may drop blob bytes",
         "properties": {
           "kind": {
             "type": "string",
@@ -4338,18 +4228,16 @@
           },
           "authored_at_ms": {
             "type": "integer",
-            "minimum": 0
+            "minimum": 0,
+            "description": "Display-only wall clock"
           },
           "lamport": {
             "type": "integer",
-            "minimum": 1
+            "minimum": 1,
+            "description": "1 + max(prev lamport, lamports of seen_heads entries)"
           },
-          "seen_publisher_heads": {
-            "type": "array",
-            "maxItems": 256,
-            "items": {
-              "$ref": "#/components/schemas/DeviceHead"
-            }
+          "seen_heads": {
+            "$ref": "#/components/schemas/SeenHeads"
           },
           "signature": {
             "type": "string",
@@ -4365,8 +4253,7 @@
             "type": "string",
             "pattern": "^[0-9a-f]{64}$",
             "minLength": 64,
-            "maxLength": 64,
-            "description": "Blob digest to reclaim"
+            "maxLength": 64
           }
         }
       },
@@ -4381,13 +4268,12 @@
           "prev_hash",
           "authored_at_ms",
           "lamport",
-          "seen_publisher_heads",
+          "seen_heads",
           "signature",
           "namespace",
           "relays"
         ],
         "additionalProperties": false,
-        "description": "lastdb-relays-v1",
         "properties": {
           "kind": {
             "type": "string",
@@ -4421,18 +4307,16 @@
           },
           "authored_at_ms": {
             "type": "integer",
-            "minimum": 0
+            "minimum": 0,
+            "description": "Display-only wall clock"
           },
           "lamport": {
             "type": "integer",
-            "minimum": 1
+            "minimum": 1,
+            "description": "1 + max(prev lamport, lamports of seen_heads entries)"
           },
-          "seen_publisher_heads": {
-            "type": "array",
-            "maxItems": 256,
-            "items": {
-              "$ref": "#/components/schemas/DeviceHead"
-            }
+          "seen_heads": {
+            "$ref": "#/components/schemas/SeenHeads"
           },
           "signature": {
             "type": "string",
@@ -4464,6 +4348,18 @@
             }
           }
         }
+      },
+      "SeenHeads": {
+        "type": "array",
+        "maxItems": 256,
+        "items": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "minLength": 64,
+          "maxLength": 64,
+          "description": "entry_hash of an accepted entry from any stream"
+        },
+        "description": "Sorted ascending; every hash must be held+accepted or entry stays pending"
       }
     }
   }

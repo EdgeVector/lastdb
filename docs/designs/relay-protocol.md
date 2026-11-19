@@ -32,10 +32,11 @@ Batching/caps match cloud-api. Auth: `nodeSignature` +
 ### `log.append` / `log.read`
 
 Store key `(database_id, node_key, device_id, writer_seq)`. Entries:
-`birth`|`data`|`grant`|`blob_delete`|`heads`|`relays`|`resolve`.
+`birth`|`data`|`grant`|`blob_delete`|`heads`|`relays`.
 
 Read by device chain from `from_seq` (default 1) or opaque delivery cursor
-(pagination only; never expires). Nodes run `AcceptEntry` on read.
+(pagination only; never expires). Nodes run `AcceptEntry` on read
+(pending until `seen_heads` deps arrive).
 
 ### `blob.put` / `blob.get`
 
@@ -58,9 +59,11 @@ verified `blob_delete` for that digest, get may return `not_found`.
 ## Discovery and failover
 
 Publisher-signed `relays` entry; People bootstraps first URL. Nodes may
-append and read across several relays; compare publisher-signed heads;
-switch with no migration. A relay that serves a shorter or forked log is
-detected by head/hash-chain compare — no snapshot involvement.
+append and read across several relays; compare publisher-signed `heads`
+(and tip hashes); switch with no migration. A relay that withholds an
+entry cited by `seen_heads` or `heads` is detected when the dependency
+never arrives — no snapshot involvement. Equivocation freezes that stream;
+recovery is a new `device_id`, not a relay feature.
 
 ## Defaults
 
@@ -72,6 +75,7 @@ detected by head/hash-chain compare — no snapshot involvement.
 | Log GC | Never |
 | Blob GC | Only after chain `blob_delete` |
 | Download | Presigned URL only |
+| Fork recovery | New `device_id` (frozen stream; no resolve) |
 | Accounts | Not required on relay |
 
 ## CI conformance

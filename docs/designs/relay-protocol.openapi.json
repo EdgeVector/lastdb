@@ -3,7 +3,7 @@
   "info": {
     "title": "LastDB relay protocol",
     "version": "1.0.0-design",
-    "description": "Append-only never-trimmed log; content-addressed blobs; presigned GET only. No snapshots. Anti-spam/quota only. Acceptance is AcceptEntry on nodes."
+    "description": "Append-only never-trimmed log; blobs; presigned GET only. No snapshots. Nodes AcceptEntry with seen_heads deps. Anti-spam/quota only."
   },
   "paths": {
     "/relay/v1/log/append": {
@@ -346,7 +346,7 @@
       },
       "SignedEntry": {
         "type": "object",
-        "description": "Opaque signed entry; store key (database_id,node_key,device_id,writer_seq).",
+        "description": "Opaque signed entry; store key (database_id,node_key,device_id,writer_seq). seen_heads may cite any stream by hash.",
         "required": [
           "kind",
           "database_id",
@@ -366,8 +366,7 @@
               "grant",
               "blob_delete",
               "heads",
-              "relays",
-              "resolve"
+              "relays"
             ]
           },
           "database_id": {
