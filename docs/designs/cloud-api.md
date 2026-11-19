@@ -21,23 +21,31 @@ not authorize.
 |---|---|
 | Availability | Order, completeness, acceptance, integrity |
 
-**Logs are append-only and never trimmed.** Relays never delete log
-entries. There are **no snapshots**. File blobs may be reclaimed only after
-a publisher-signed `blob_delete` chain entry; readers treat a deleted blob
-as intentionally gone.
+**Logs are append-only in normal operation** (no GC trim). There are **no
+snapshots**. File blobs may be reclaimed after a publisher-signed
+`blob_delete` chain entry; readers treat a deleted blob as intentionally
+gone. Product erase is separate: `manage`/`delete` erases that database’s
+relay logs and blobs (the `database_id` stays tombstoned);
+`account`/`deactivate` erases everything that publisher has in ExeMem and
+on the relay (logs, blobs, account), cancels subscriptions, and retires
+the key.
 
 ### Acceptance (local node rule)
 
 **Acceptance is a local node rule.** Relays neither enforce nor know about
-it. Optional relay checks are anti-spam/quota only.
+it. Optional relay checks are anti-spam/quota only. ExeMem/relay errors
+cover auth/signature, `payment_required`, quota/rate limits, `not_found`,
+and bad request — **not** grant authorization (`forbidden` / `grant.*`).
 
 **Role changes live only in the chain.** Every grant and every role
-reduction (including revoke), with its per-device cutoff heads, is a signed
-`grant`-kind entry on a publisher device chain. **No side channel** — not
+reduction (including revoke) is a signed `grant`-kind entry on a publisher
+device chain. **Cutoffs are required only when a grant lowers an existing
+role or revokes**; a first grant carries none. **No side channel** — not
 on the relay surface, not in ExeMem rows, not in People. People may carry
 **signed heads for comparison only**. Any relay/ExeMem grant cache is
 **derived from the chain**, optional, never authoritative. A grant/revoke
-seen only off-chain **must be ignored**.
+seen only off-chain **must be ignored**. Access is derived locally from
+the chain (no `manage`/`access`).
 
 `AcceptEntry(E, S) → accept | pending | reject` — `S` is the node’s
 verified history for `E.database_id`:
@@ -163,7 +171,7 @@ Wire `signature`: base64url, 64 bytes.
 |---|---|---|
 | `birth` | birth material in chain | First publisher-device entry (`writer_seq=1`) |
 | `data` | `lastdb-mutation-v1` | `stream` direct\|proposal; payload; optional file / incorporation / grant_at |
-| `grant` | `lastdb-grant-v1` | grantee, role; **cutoffs required on any role reduction** |
+| `grant` | `lastdb-grant-v1` | grantee, role; **cutoffs only when lowering/revoking** (not on first grant) |
 | `blob_delete` | `lastdb-blob-delete-v1` | publisher; names blob `sha256` |
 | `heads` | `lastdb-heads-v1` | publisher tip vector for hidden-entry detection |
 | `relays` | `lastdb-relays-v1` | publisher-signed relay URL list |
@@ -187,7 +195,8 @@ Member direct write `W` with `grant_at = G` and `seen_heads = H`:
 
 ### Role-reduction cutoffs
 
-Every `grant` that **lowers** a member’s role carries per-device cutoffs:
+Every `grant` that **lowers** a member’s existing role (or revokes) carries
+per-device cutoffs. A **first grant** does not.
 
 - `write → submit` or `write → read`
 - `submit → read`
@@ -200,7 +209,8 @@ cutoff are rejected regardless of `seen_heads`. `any` is read-only.
 ### Blob delete
 
 Publisher `blob_delete` names blob `sha256`. Relays may drop those bytes.
-Logs are never deleted.
+Normal operation never GC-trims logs; product `delete` / `deactivate`
+erase storage as below.
 
 ## Restore, new device, and local state
 
@@ -240,13 +250,21 @@ Batch 1–90; req ≤256 KiB; resp ≤8 MiB.
 |---|---|
 | `fetch` | `mutations_since`, `file` |
 | `push` | `mutations`, `file` |
-| `manage` | `create`, `grant`, `revoke`, `access`, `delete` |
+| `manage` | `create`, `grant`, `revoke`, `delete` |
 | `account` | `register`, `payment`, `deactivate`, `add_device`, `remove_device`, `databases`, `status` |
 
 `manage`/`grant` and `revoke` append signed `grant` entries (transport
-sugar). `manage`/`create` = full signed `BirthEntry`. `manage`/`access` =
-non-authoritative UX. `manage`/`delete` = ExeMem product tombstone; logs
-stay.
+sugar). `manage`/`create` = full signed `BirthEntry`. There is **no**
+`manage`/`access` — access is derived locally from the chain.
+`manage`/`delete` erases that database’s relay logs and blobs; the
+`database_id` stays tombstoned.
+
+### Account service
+
+`account`/`deactivate` erases everything that publisher has in ExeMem and
+on the relay (logs, blobs, account), cancels subscriptions, and retires
+the key. The **app registry** is a separate ExeMem service outside this
+API (not designed here).
 
 `fetch`/`file` and relay `blob.get` return **exactly one** download path:
 a **presigned URL**. Push result has **no** `landed` field.
@@ -285,11 +303,13 @@ Publisher pays. Lapsed: reads work; push/grant/create →
 10. Publisher sees direct+proposal; receivers direct only; acceptance =
     publisher incorporation. Proposals are flagged `data` entries.
 11. Silent rejections — no discard call.
-12. Access under manage; no share-settings / `rules`.
-13. **Superseded by 44–45.** Logs never trimmed; blob reclaim via
-    `blob_delete` only.
-14. **Superseded by 44.** Proposals never deleted.
-15. `manage`/`delete` — ExeMem product reclaim / tombstone.
+12. **Superseded by 46.** No `manage`/`access`; access from the chain;
+    no share-settings / `rules`.
+13. **Superseded by 44–45.** No GC trim; blob reclaim via `blob_delete`;
+    product erase via `delete` / `deactivate`.
+14. **Superseded by 44.** Proposals never deleted by GC.
+15. **Superseded by 46.** `manage`/`delete` erases that DB’s relay logs
+    and blobs; `database_id` stays tombstoned.
 16. Envelope `{database_id?, intent, args|result}`.
 17. Batching; caps above; per-item errors.
 18. Account surface as listed; no login; no `em_` keys.
@@ -297,7 +317,8 @@ Publisher pays. Lapsed: reads work; push/grant/create →
 20. Ed25519 `nodeSignature`.
 21. No per-device keys; new `device_id` starts a new stream (also the fork
     recovery path).
-22. App-registry publish requires paid ExeMem account.
+22. **Superseded by 46.** App registry is a separate ExeMem service
+    outside this API.
 23. `payment` → short-lived signed `payment_url`.
 24. `register` rate-limited per IP.
 25. Lose all devices + phrase → account gone.
@@ -314,19 +335,26 @@ Publisher pays. Lapsed: reads work; push/grant/create →
 36. Self-certifying `database_id`; tombstones; no db-key rotation.
 37. **Superseded by 45.** No snapshots; no `cursor_expired`.
 38. Publisher pays; lapsed rules as above.
-39. `deactivate`: cancel subs; tombstone owned DBs; retire key.
+39. **Superseded by 46.** `deactivate`: erase all publisher ExeMem/relay
+    data; cancel subs; retire key.
 40. Devices: `remove_device` bookkeeping; cap 256.
 41. Delivery cursors are pagination only.
 42. Writer signatures + device streams; local write model (sign, apply,
     outbox); `AcceptEntry` with any-stream `seen_heads` by hash; checked
     Lamport; whole-record LWW; no checkpoints; no `landed`; no `resolve`.
-43. Signed grants; cutoffs on every role reduction; revoke-wins ties;
-    publisher `heads` for hidden-entry detection; no side channel.
-44. Append-only logs; proposals never deleted; blob delete via chain.
+43. Signed grants; cutoffs **only** when lowering/revoking (not on first
+    grant); revoke-wins ties; publisher `heads` for hidden-entry
+    detection; no side channel.
+44. Append-only logs in normal operation; proposals not GC-deleted; blob
+    delete via chain; product erase via `delete` / `deactivate`.
 45. No snapshots. Restore = full log replay. Local store = state + stream
     heads + grants + per-record positions + outbox. Bootstrap replaces
     unsigned cloud data. Fork freezes the stream; continue on a new
     `device_id`.
+46. No server grant 403s. No `manage`/`access`. `delete` erases that DB’s
+    relay logs/blobs (id tombstoned). `deactivate` erases all publisher
+    ExeMem/relay data, cancels subscriptions, retires the key. App
+    registry is outside this API.
 
 ### Defaults
 
@@ -343,16 +371,19 @@ Publisher pays. Lapsed: reads work; push/grant/create →
 
 ## Server errors (HTTP)
 
+ExeMem/relay cover auth/signature, `payment_required`, quota/rate limits,
+`not_found`, and bad request. **No** server-side `forbidden` / `grant.*`.
+
 | HTTP | code | fields |
 |---|---|---|
-| 400 | `invalid_request` | arg paths, `grants.any.role`, `birth_signature`, `cursor` |
+| 400 | `invalid_request` | arg paths, `birth_signature`, `cursor` |
 | 400 | `batch_too_large` | `batch.response` |
 | 401 | `unauthorized` | `request.*`, `device.*`, `account.retired` |
 | 403 | `payment_required` | `payment.subscription` |
 | 404 | `not_found` | `database.*`, `file_handle`, `blob.sha256` |
 | 409 | `conflict` | `database.id`, `account.exists`, `device.*`, `entries.writer_seq`, `file.unverified` |
 | 426 | `upgrade_required` | `request.protocol` |
-| 429 | `rate_limited` | `account.register`, `read.public` |
+| 429 | `rate_limited` | `account.register`, `read.public`, relay quota |
 
 ### Node-side signals
 

@@ -14,8 +14,12 @@ Acceptance is **local** (`AcceptEntry`). Relays only store and serve.
 signed chain entries. Any grant cache for anti-spam is derived, optional,
 never authoritative. People carries signed heads for comparison only.
 
-**No snapshots.** File blobs may be dropped only after a publisher
-`blob_delete` chain entry. All other relay policy is anti-spam / quota.
+**No snapshots.** File blobs may be dropped after a publisher
+`blob_delete` chain entry. Product erase: ExeMem `manage`/`delete` erases
+that database’s logs and blobs on the relay (`database_id` stays
+tombstoned); `account`/`deactivate` erases all of that publisher’s relay
+data. All other relay policy is anti-spam / quota — **no** grant
+authorization (`forbidden` / `grant.*`).
 
 ## Surface
 
@@ -50,11 +54,12 @@ verified `blob_delete` for that digest, get may return `not_found`.
 |---|---|
 | `push`/`mutations`, `fetch`/`mutations_since` | `log.*` |
 | `push`/`file`, `fetch`/`file` | `blob.*` |
-| `manage`/`grant`, `revoke`, `access` | out — `log.append` of signed grants |
+| `manage`/`grant`, `revoke` | out — `log.append` of signed grants |
 | `manage`/`create` | `log.append` of signed `BirthEntry` |
-| `manage`/`delete` | ExeMem product tombstone only; log stays |
-| `account/*` | not protocol |
-| former `snapshot` / `retention` / snapshot_proof | **removed** |
+| `manage`/`delete` | Erase that DB’s relay logs + blobs; id tombstoned |
+| `account`/`deactivate` | Erase all publisher relay data (ExeMem-driven) |
+| `account/*` (other) | not protocol |
+| former `manage`/`access`, `snapshot`, `retention` | **removed** |
 
 ## Discovery and failover
 
@@ -72,11 +77,18 @@ recovery is a new `device_id`, not a relay feature.
 | Reference relay | In `lastdb` for CI |
 | Public `grant#any` reads | Open on every conforming relay |
 | Relay list | Publisher-signed `relays` + People |
-| Log GC | Never |
-| Blob GC | Only after chain `blob_delete` |
+| Log GC | Never (product erase via delete/deactivate only) |
+| Blob GC | After chain `blob_delete`, or product erase |
 | Download | Presigned URL only |
 | Fork recovery | New `device_id` (frozen stream; no resolve) |
 | Accounts | Not required on relay |
+| Grant checks | None on the relay |
+
+## Errors
+
+Auth/signature (`unauthorized`), `payment_required` (when billed through
+the relay), quota/rate limits (**429** `rate_limited`), `not_found`, and
+bad request (`invalid_request`). No `forbidden` / `grant.*`.
 
 ## CI conformance
 

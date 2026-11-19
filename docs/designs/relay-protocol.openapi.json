@@ -3,7 +3,7 @@
   "info": {
     "title": "LastDB relay protocol",
     "version": "1.0.0-design",
-    "description": "Append-only never-trimmed log; blobs; presigned GET only. No snapshots. Nodes AcceptEntry with seen_heads deps. Anti-spam/quota only."
+    "description": "Append-only never-trimmed log (except product delete/deactivate erase); blobs; presigned GET only. No snapshots. Nodes AcceptEntry with seen_heads deps. Anti-spam/quota only \u2014 no grant authorization. Errors: auth/signature, payment_required, quota/rate limits, not_found, bad request."
   },
   "paths": {
     "/relay/v1/log/append": {
@@ -56,6 +56,24 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "quota / rate limit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "rate_limited": {
+                    "value": {
+                      "code": "rate_limited",
+                      "field": "quota"
+                    }
+                  }
                 }
               }
             }
@@ -116,6 +134,24 @@
                 }
               }
             }
+          },
+          "429": {
+            "description": "quota / rate limit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "rate_limited": {
+                    "value": {
+                      "code": "rate_limited",
+                      "field": "quota"
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -170,6 +206,24 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "quota / rate limit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "rate_limited": {
+                    "value": {
+                      "code": "rate_limited",
+                      "field": "quota"
+                    }
+                  }
                 }
               }
             }
@@ -237,6 +291,24 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "quota / rate limit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "rate_limited": {
+                    "value": {
+                      "code": "rate_limited",
+                      "field": "quota"
+                    }
+                  }
                 }
               }
             }
@@ -323,7 +395,6 @@
             "type": "string",
             "enum": [
               "unauthorized",
-              "forbidden",
               "invalid_request",
               "not_found",
               "conflict",

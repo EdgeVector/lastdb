@@ -3,7 +3,7 @@
   "info": {
     "title": "LastDB ExeMem Cloud API",
     "version": "3.0.0-design",
-    "description": "ExeMem Cloud API v3 (minimal signed history). Local AcceptEntry; seen_heads by hash from any stream; checked Lamport; whole-record LWW; append-only logs; no snapshots; no resolve; publisher heads for hidden-entry detection. See relay-protocol.md."
+    "description": "ExeMem Cloud API v3 (minimal signed history). Local AcceptEntry; seen_heads by hash from any stream; checked Lamport; whole-record LWW; no snapshots; no resolve; no manage/access; no server grant 403s; publisher heads for hidden-entry detection; delete/deactivate product erase. See relay-protocol.md."
   },
   "servers": [
     {
@@ -27,10 +27,6 @@
     },
     {
       "name": "account"
-    },
-    {
-      "name": "maintenance",
-      "description": "DEV-only; no batching"
     }
   ],
   "paths": {
@@ -142,19 +138,13 @@
             }
           },
           "403": {
-            "description": "grant.* / payment.subscription",
+            "description": "payment_required",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 },
                 "examples": {
-                  "forbidden": {
-                    "value": {
-                      "code": "forbidden",
-                      "field": "example"
-                    }
-                  },
                   "payment_required": {
                     "value": {
                       "code": "payment_required",
@@ -364,19 +354,13 @@
             }
           },
           "403": {
-            "description": "grant.* / payment.subscription",
+            "description": "payment_required",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 },
                 "examples": {
-                  "forbidden": {
-                    "value": {
-                      "code": "forbidden",
-                      "field": "example"
-                    }
-                  },
                   "payment_required": {
                     "value": {
                       "code": "payment_required",
@@ -492,7 +476,7 @@
           "manage"
         ],
         "summary": "Manage",
-        "description": "create (db_salt+birth_signature) | grant | revoke | access | delete. Public read via grantee any / role read.",
+        "description": "create (db_salt+birth_signature) | grant | revoke | delete. Public read via grantee any / role read. Access is derived locally from the chain (no manage/access). delete erases that database's relay logs and blobs; database_id stays tombstoned.",
         "operationId": "cloudManage",
         "security": [
           {
@@ -550,13 +534,6 @@
                         "seen_heads": []
                       }
                     }
-                  }
-                },
-                "access": {
-                  "value": {
-                    "database_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                    "intent": "access",
-                    "args": {}
                   }
                 },
                 "grant_any": {
@@ -657,22 +634,7 @@
                 "schema": {
                   "$ref": "#/components/schemas/ManageResponseBody"
                 },
-                "examples": {
-                  "access": {
-                    "value": {
-                      "database_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                      "intent": "access",
-                      "result": {
-                        "role": "publisher",
-                        "level": "write",
-                        "public_read": true,
-                        "owner": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-                        "db_salt": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
-                        "birth_signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
-                      }
-                    }
-                  }
-                }
+                "examples": {}
               }
             }
           },
@@ -695,19 +657,13 @@
             }
           },
           "403": {
-            "description": "grant.* / payment.subscription",
+            "description": "payment_required",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 },
                 "examples": {
-                  "forbidden": {
-                    "value": {
-                      "code": "forbidden",
-                      "field": "example"
-                    }
-                  },
                   "payment_required": {
                     "value": {
                       "code": "payment_required",
@@ -823,7 +779,7 @@
           "account"
         ],
         "summary": "Account",
-        "description": "No protocol header. register/payment/deactivate/add_device/remove_device/databases/status.",
+        "description": "No protocol header. register/payment/deactivate/add_device/remove_device/databases/status. deactivate erases everything that publisher has in ExeMem and on the relay (logs, blobs, account), cancels subscriptions, and retires the key. The app registry is a separate ExeMem service outside this API.",
         "operationId": "cloudAccount",
         "security": [
           {
@@ -903,19 +859,13 @@
             }
           },
           "403": {
-            "description": "grant.* / payment.subscription",
+            "description": "payment_required",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 },
                 "examples": {
-                  "forbidden": {
-                    "value": {
-                      "code": "forbidden",
-                      "field": "example"
-                    }
-                  },
                   "payment_required": {
                     "value": {
                       "code": "payment_required",
@@ -1015,12 +965,6 @@
         "in": "header",
         "name": "X-LastDB-Signature",
         "description": "Ed25519 over POST\\n<path>\\n<protocol|->\\n<node key>\\n<device id>\\n<issued-at>\\n<nonce>\\n<body sha256 hex>. Skew \u00b160s. Companion headers required."
-      },
-      "githubOidc": {
-        "type": "http",
-        "scheme": "bearer",
-        "bearerFormat": "JWT",
-        "description": "GitHub Actions OIDC for DEV maintenance."
       }
     },
     "parameters": {
@@ -1105,7 +1049,6 @@
             "type": "string",
             "enum": [
               "unauthorized",
-              "forbidden",
               "invalid_request",
               "not_found",
               "conflict",
@@ -1857,166 +1800,6 @@
           }
         }
       },
-      "MaintProvisionArgs": {
-        "type": "object",
-        "required": [
-          "node_key",
-          "device_id",
-          "database_id",
-          "db_salt",
-          "birth_signature"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "node_key": {
-            "type": "string",
-            "description": "64 lowercase hex",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          },
-          "device_id": {
-            "type": "string",
-            "format": "uuid",
-            "description": "UUID"
-          },
-          "database_id": {
-            "type": "string",
-            "description": "64 lowercase hex",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          },
-          "db_salt": {
-            "type": "string",
-            "description": "64 lowercase hex",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          },
-          "birth_signature": {
-            "type": "string",
-            "description": "",
-            "pattern": "^[A-Za-z0-9_-]+$",
-            "minLength": 1,
-            "maxLength": 88
-          }
-        }
-      },
-      "MaintProvisionResult": {
-        "type": "object",
-        "required": [],
-        "additionalProperties": false,
-        "properties": {},
-        "description": "Empty object"
-      },
-      "MaintRunArgs": {
-        "type": "object",
-        "required": [
-          "run_id",
-          "run_attempt"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "run_id": {
-            "type": "string",
-            "description": "",
-            "minLength": 1,
-            "maxLength": 128
-          },
-          "run_attempt": {
-            "type": "integer",
-            "minimum": 1,
-            "description": ""
-          }
-        }
-      },
-      "MaintStatusResult": {
-        "type": "object",
-        "required": [
-          "phase",
-          "database_id"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "phase": {
-            "type": "string",
-            "enum": [
-              "open",
-              "retiring",
-              "complete"
-            ]
-          },
-          "database_id": {
-            "type": "string",
-            "description": "64 lowercase hex",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          },
-          "retry_after_ms": {
-            "type": "integer",
-            "minimum": 0,
-            "description": "",
-            "maximum": 900000
-          },
-          "released_bytes": {
-            "type": "string",
-            "description": "Decimal string",
-            "pattern": "^[0-9]+$",
-            "maxLength": 32
-          }
-        }
-      },
-      "MaintInspectArgs": {
-        "type": "object",
-        "required": [
-          "through"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "through": {
-            "type": "integer",
-            "minimum": 1,
-            "description": "",
-            "maximum": 32
-          }
-        }
-      },
-      "MaintInspectResult": {
-        "type": "object",
-        "required": [
-          "database_id",
-          "entries",
-          "facts"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "database_id": {
-            "type": "string",
-            "description": "64 lowercase hex",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          },
-          "entries": {
-            "type": "object",
-            "additionalProperties": {
-              "type": "string",
-              "maxLength": 4096
-            },
-            "maxProperties": 32
-          },
-          "facts": {
-            "type": "object",
-            "additionalProperties": {
-              "type": "string",
-              "maxLength": 4096
-            },
-            "maxProperties": 256
-          }
-        }
-      },
       "Fetch_mutations_since_Ok": {
         "type": "object",
         "required": [
@@ -2726,91 +2509,6 @@
           }
         ]
       },
-      "Manage_access_Ok": {
-        "type": "object",
-        "required": [
-          "database_id",
-          "intent",
-          "result"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "database_id": {
-            "type": "string",
-            "description": "Database Ed25519 public key",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          },
-          "intent": {
-            "type": "string",
-            "const": "access"
-          },
-          "result": {
-            "$ref": "#/components/schemas/ManageAccessResult"
-          }
-        }
-      },
-      "Manage_access_Req": {
-        "type": "object",
-        "required": [
-          "database_id",
-          "intent",
-          "args"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "database_id": {
-            "type": "string",
-            "description": "Database Ed25519 public key",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          },
-          "intent": {
-            "type": "string",
-            "const": "access"
-          },
-          "args": {
-            "$ref": "#/components/schemas/ManageAccessArgs"
-          }
-        }
-      },
-      "Manage_access_Err": {
-        "type": "object",
-        "required": [
-          "intent",
-          "error"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "database_id": {
-            "type": "string",
-            "description": "Database id when known",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          },
-          "intent": {
-            "type": "string",
-            "const": "access"
-          },
-          "error": {
-            "$ref": "#/components/schemas/Error"
-          }
-        },
-        "description": "Per-item batch error"
-      },
-      "Manage_access_Item": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/Manage_access_Ok"
-          },
-          {
-            "$ref": "#/components/schemas/Manage_access_Err"
-          }
-        ]
-      },
       "Manage_delete_Ok": {
         "type": "object",
         "required": [
@@ -2834,7 +2532,8 @@
           "result": {
             "$ref": "#/components/schemas/ManageDeleteResult"
           }
-        }
+        },
+        "description": "Database erased from relay storage; id remains tombstoned."
       },
       "Manage_delete_Req": {
         "type": "object",
@@ -2859,7 +2558,8 @@
           "args": {
             "$ref": "#/components/schemas/ManageDeleteArgs"
           }
-        }
+        },
+        "description": "Erase this database's relay logs and blobs; database_id stays tombstoned."
       },
       "Manage_delete_Err": {
         "type": "object",
@@ -2908,9 +2608,6 @@
             "$ref": "#/components/schemas/Manage_revoke_Req"
           },
           {
-            "$ref": "#/components/schemas/Manage_access_Req"
-          },
-          {
             "$ref": "#/components/schemas/Manage_delete_Req"
           }
         ],
@@ -2920,7 +2617,6 @@
             "create": "#/components/schemas/Manage_create_Req",
             "grant": "#/components/schemas/Manage_grant_Req",
             "revoke": "#/components/schemas/Manage_revoke_Req",
-            "access": "#/components/schemas/Manage_access_Req",
             "delete": "#/components/schemas/Manage_delete_Req"
           }
         }
@@ -2935,9 +2631,6 @@
           },
           {
             "$ref": "#/components/schemas/Manage_revoke_Item"
-          },
-          {
-            "$ref": "#/components/schemas/Manage_access_Item"
           },
           {
             "$ref": "#/components/schemas/Manage_delete_Item"
@@ -3113,7 +2806,8 @@
           "result": {
             "$ref": "#/components/schemas/AccountDeactivateResult"
           }
-        }
+        },
+        "description": "Publisher account deactivated; data erased; key retired."
       },
       "Account_deactivate_Req": {
         "type": "object",
@@ -3130,7 +2824,8 @@
           "args": {
             "$ref": "#/components/schemas/AccountDeactivateArgs"
           }
-        }
+        },
+        "description": "Erase all publisher data in ExeMem and on the relay; cancel subscriptions; retire the key."
       },
       "Account_deactivate_Err": {
         "type": "object",
@@ -3500,22 +3195,6 @@
           }
         ]
       },
-      "MaintenanceEnvelope": {
-        "oneOf": [],
-        "discriminator": {
-          "propertyName": "intent",
-          "mapping": {}
-        }
-      },
-      "MaintenanceResultItem": {
-        "oneOf": []
-      },
-      "MaintenanceRequestBody": {
-        "$ref": "#/components/schemas/MaintenanceEnvelope"
-      },
-      "MaintenanceResponseBody": {
-        "$ref": "#/components/schemas/MaintenanceResultItem"
-      },
       "MutationFileRef": {
         "type": "object",
         "required": [
@@ -3764,7 +3443,7 @@
               "role"
             ],
             "additionalProperties": false,
-            "description": "Member write grant",
+            "description": "Member grant that does not lower an existing role (first grant or raise). Cutoffs are not required.",
             "properties": {
               "kind": {
                 "type": "string",
@@ -3827,7 +3506,11 @@
               },
               "role": {
                 "type": "string",
-                "const": "write"
+                "enum": [
+                  "read",
+                  "submit",
+                  "write"
+                ]
               }
             }
           },
@@ -3850,7 +3533,7 @@
               "cutoffs"
             ],
             "additionalProperties": false,
-            "description": "Role reduction; cutoffs required",
+            "description": "Role reduction or revoke; cutoffs required. Cutoffs are not used on a first grant.",
             "properties": {
               "kind": {
                 "type": "string",
