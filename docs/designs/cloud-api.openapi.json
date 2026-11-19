@@ -602,7 +602,7 @@
     "/api/cloud/v3/account": {
       "post": {
         "summary": "Account",
-        "description": "Body is one envelope or an array of envelopes (max 90). Request ≤ 256 KiB; response ≤ 8 MiB (per-item batch_too_large). One Ed25519 signature covers the whole body. No Cloud-Protocol header. Intents: register, payment, deactivate, add_device, remove_device. No login; no API keys. No per-device keys (Decision 21). register rate-limited → 429 rate_limited / account.register. payment → signed payment_url. App registry publish requires a paid ExeMem account.",
+        "description": "Body is one envelope or an array of envelopes (max 90). Request ≤ 256 KiB; response ≤ 8 MiB (per-item batch_too_large). One Ed25519 signature covers the whole body. No Cloud-Protocol header. Intents: register, payment, deactivate, add_device, remove_device, databases, status. No login; no API keys; no per-device keys; no node-key rotation. register rate-limited → 429 rate_limited / account.register. payment → signed payment_url. databases: paginated owned/granted DBs for sync discovery. status: paid, storage_used_bytes, devices. App registry publish requires a paid ExeMem account.",
         "operationId": "cloudAccount",
         "security": [
           {
@@ -657,6 +657,22 @@
                     "intent": "payment",
                     "args": {}
                   }
+                },
+                "databases": {
+                  "summary": "Page of DBs this node key owns or is granted",
+                  "value": {
+                    "intent": "databases",
+                    "args": {
+                      "limit": 50
+                    }
+                  }
+                },
+                "status": {
+                  "summary": "Paid state, storage used, registered devices",
+                  "value": {
+                    "intent": "status",
+                    "args": {}
+                  }
                 }
               }
             }
@@ -686,6 +702,39 @@
                       "result": {
                         "payment_url": "https://pay.example/s/opaque-single-use",
                         "expires_at_ms": 1730000300000
+                      }
+                    }
+                  },
+                  "databases": {
+                    "value": {
+                      "intent": "databases",
+                      "result": {
+                        "cursor": "next-opaque",
+                        "databases": [
+                          {
+                            "database_id": "22222222-2222-4222-8222-222222222222",
+                            "role": "publisher"
+                          },
+                          {
+                            "database_id": "44444444-4444-4444-8444-444444444444",
+                            "role": "reader"
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  "status": {
+                    "value": {
+                      "intent": "status",
+                      "result": {
+                        "paid": true,
+                        "storage_used_bytes": 1048576,
+                        "devices": [
+                          {
+                            "device_id": "11111111-1111-4111-8111-111111111111",
+                            "added_at_ms": 1730000000000
+                          }
+                        ]
                       }
                     }
                   }
@@ -1545,6 +1594,48 @@
           }
         ]
       },
+      "AccountDatabaseRole": {
+        "type": "string",
+        "enum": [
+          "publisher",
+          "writer",
+          "reader"
+        ],
+        "description": "publisher = owns the DB; writer/reader = active member grant (today's ShareMemberRole Submit/Read)."
+      },
+      "AccountDatabaseRow": {
+        "type": "object",
+        "required": [
+          "database_id",
+          "role"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "role": {
+            "$ref": "#/components/schemas/AccountDatabaseRole"
+          }
+        }
+      },
+      "AccountDeviceRow": {
+        "type": "object",
+        "required": [
+          "device_id"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "device_id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "added_at_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Unix ms when the device was registered. Omit when ExeMem has not stored it (not on today's register wire)."
+          }
+        }
+      },
       "AccountArgs": {
         "oneOf": [
           {
@@ -1594,6 +1685,28 @@
               }
             },
             "description": "remove_device"
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "cursor": {
+                "type": "string",
+                "description": "Opaque page token; omit on first page"
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 90
+              }
+            },
+            "description": "databases — ExeMem reverse index of owned + granted DBs (not available as a single call today)"
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {},
+            "description": "status — paid, storage_used_bytes, devices"
           }
         ]
       },
@@ -1686,6 +1799,55 @@
               }
             },
             "description": "remove_device"
+          },
+          {
+            "type": "object",
+            "required": [
+              "databases"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "cursor": {
+                "type": "string",
+                "description": "Next page token; omit when done"
+              },
+              "databases": {
+                "type": "array",
+                "maxItems": 90,
+                "items": {
+                  "$ref": "#/components/schemas/AccountDatabaseRow"
+                }
+              }
+            },
+            "description": "databases"
+          },
+          {
+            "type": "object",
+            "required": [
+              "paid",
+              "storage_used_bytes",
+              "devices"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "paid": {
+                "type": "boolean",
+                "description": "Active paid plan. Today: payments/status active (or unpaid → payment.subscription / PAID_ACCOUNT_REQUIRED)."
+              },
+              "storage_used_bytes": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Cloud bytes charged to this account. Not exposed on today's wire — ExeMem must report it. No account storage limit is exposed today, so no limit field."
+              },
+              "devices": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/AccountDeviceRow"
+                },
+                "description": "Registered devices. No list API today; added_at_ms when ExeMem stores it."
+              }
+            },
+            "description": "status"
           }
         ]
       },
@@ -1704,7 +1866,9 @@
               "payment",
               "deactivate",
               "add_device",
-              "remove_device"
+              "remove_device",
+              "databases",
+              "status"
             ]
           },
           "args": {
@@ -1727,7 +1891,9 @@
               "payment",
               "deactivate",
               "add_device",
-              "remove_device"
+              "remove_device",
+              "databases",
+              "status"
             ]
           },
           "result": {

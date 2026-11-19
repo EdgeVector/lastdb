@@ -68,7 +68,7 @@ Errors: `{ "code", "field" }` (+ `minimum_version` on 426).
 | `fetch` | `mutations_since`, `snapshot`, `file` |
 | `push` | `mutations`, `snapshot`, `file` |
 | `manage` | `create`, `grant`, `revoke`, `access`, `delete` |
-| `account` | `register`, `payment`, `deactivate`, `add_device`, `remove_device` |
+| `account` | `register`, `payment`, `deactivate`, `add_device`, `remove_device`, `databases`, `status` |
 | `maintenance` | `snapshot_proof_provision`, `snapshot_proof_retire`, `snapshot_proof_status`, `snapshot_proof_inspect` |
 
 ## Node identity and signing (Decisions 19–20)
@@ -132,8 +132,8 @@ boundary. ExeMem authenticates the node key, not a per-device credential.
 **Accepted risk (Tom):** a stolen device that holds the node private key has
 full account access (“If the laptop is stolen, then basically anything can be
 accessible”). Removing the device id after theft stops that machine from being
-listed as active; it does **not** revoke the key. Rotation or a new account is
-the only way to cut off a compromised node key.
+listed as active; it does **not** revoke the key. There is **no node-key
+rotation** (Decision 28). A compromised node key means a **new account**.
 
 ### Device registration vs request device
 
@@ -211,10 +211,10 @@ body (array or single).
 16. Standard body envelope `{database_id?, intent, args|result}`.
 17. **Batching** — single or array; caps above.
 18. **`account`**: `register`, `payment`, `deactivate`, `add_device`,
-    `remove_device`. **No login.** Node key is identity. **No developer
-    accounts / no `em_` API keys.** Auth-service enroll/login/passkey routes
-    are **removed from this API surface** (not called by lastdb_node; if
-    People still needs them they are People-only).
+    `remove_device`, `databases`, `status`. **No login.** Node key is
+    identity. **No developer accounts / no `em_` API keys.** Auth-service
+    enroll/login/passkey routes are **removed from this API surface** (not
+    called by lastdb_node; if People still needs them they are People-only).
 19. Every node request carries **node public key** and **device id** in signed
     headers.
 20. Every node request is **Ed25519-signed** with the node private key under
@@ -234,6 +234,15 @@ body (array or single).
     `{ "code":"rate_limited", "field":"account.register" }`.
 25. **Accepted risk:** with no login, losing **all** devices **and** the
     24-word recovery phrase means losing the account. **No reset.**
+26. **`account`/`databases`**: paginated list (opaque cursor) of databases this
+    node key owns or has been granted, each with `database_id` and the node’s
+    role (`publisher`, or member `writer`/`reader`). Used by a new or recovered
+    device to learn what to sync.
+27. **`account`/`status`**: payment/plan state (`paid`), cloud storage used,
+    and registered devices. No invite/claim slots. `deactivate` semantics
+    unchanged.
+28. **No node-key rotation.** A compromised node key is remedied only by a
+    **new account**.
 
 ## Account
 
@@ -244,15 +253,52 @@ body (array or single).
 | `deactivate` | `{}` | `ok`, `status` (`done`\|`accepted`) |
 | `add_device` | `device_id` (new), `proof` | `ok`, `device_id` |
 | `remove_device` | `device_id` | `ok` |
+| `databases` | `cursor?`, `limit?` | `cursor`, `databases[]` (`database_id`, `role`) |
+| `status` | `{}` | `paid`, `storage_used_bytes`, `devices[]` |
 
 `register` may return `429` `rate_limited` / `account.register`. App-registry
 publish and other paid features unlock only after payment succeeds via the
 hosted page opened from `payment_url`.
 
+### `databases` — role and ExeMem source
+
+Each row: `{ "database_id": "<uuid>", "role": "publisher" | "writer" | "reader" }`.
+`publisher` = this node key owns the database (create-time account key).
+`writer` / `reader` = active member grant (maps today’s wire `Submit` /
+`Read` on `ShareMemberRole`).
+
+**Today:** ExeMem has **no** reverse index from node key → databases. Every
+membership path needs a known `database_id`:
+
+- Owned: `POST …/mutation-log/create-database` creates one id; no account-wide
+  owned list.
+- Granted: `…/share/members/{get,list,read}` are per-database (`grant#<node
+  key>` inside one DB — Decision 4). Publisher-only `members/list` pages
+  members of one DB, not DBs of one member.
+- Local node discovery (`GET /api/databases`) is home-local only
+  (`docs/app-api.md`: no cloud call lists every accessible database).
+
+**ExeMem must add** an account-scoped reverse index (owned + granted rows) to
+serve `account`/`databases`. Until then this intent cannot be implemented from
+existing list APIs alone.
+
+Pagination: opaque `cursor` (omit on first page); `limit` default/max aligned
+with batch caps (max **90**). Response `cursor` is the next page token (omit
+or empty when done).
+
+### `status` — fields and ExeMem source
+
+| Field | Meaning | Today |
+|---|---|---|
+| `paid` | boolean — active paid plan | Yes — auth-service `GET /api/auth/payments/status` (`status == "active"`, or unpaid gate `payment.subscription` / `PAID_ACCOUNT_REQUIRED`) |
+| `storage_used_bytes` | uint — cloud bytes charged to this account | **Not exposed** — ExeMem must start reporting it; no account usage API on the wire today |
+| storage limit | — | **None exposed today** — omit from the result (do not invent a limit) |
+| `devices[]` | `{ device_id, added_at_ms? }` | Register exists (`POST /api/auth/cli/register`); **no device list** and **no `added_at`** on the wire today. ExeMem must list registered devices; include `added_at_ms` when stored |
+
 Second device: an existing device (or recovery phrase) produces `proof`; the
 new device calls `add_device` with that proof and must hold the **same** node
 private key. Connect codes and 24-word recovery stay as in the Social design —
-opaque `proof` here.
+opaque `proof` here. After recovery, call `databases` (then sync) and `status`.
 
 ## Maintenance
 
@@ -285,7 +331,9 @@ DEV snapshot-proof only (`githubOidc`). Considered and rejected: local
 | Ignore proposal | silent; ExeMem deletes after fetch cursor advances |
 | File / snapshot | `push`/`file`, `fetch`/`file`, `push`/`snapshot`, `fetch`/`snapshot` |
 | Grant / revoke / rules / access | `manage`/`grant`, `revoke`, `access` |
-| Register account / devices / pay / deactivate | `account`/* |
+| Register account / devices / pay / deactivate | `account`/`register`, `add_device`, `remove_device`, `payment`, `deactivate` |
+| New/recovered device: find DBs to sync | `account`/`databases` |
+| Account paid state, storage used, devices | `account`/`status` |
 | DEV snapshot-proof | `maintenance`/* |
 | Reclaim/retention jobs | ExeMem-internal |
 
@@ -343,5 +391,6 @@ stable released node (#1799). No unit tests.
 ## Open questions for Tom
 
 None. Dual `em_` key auth is resolved by Decision 18/20. Per-device keys,
-payment browser handoff, register rate limit, paid registry publish, and
-account-loss risk are Decisions 21–25.
+payment browser handoff, register rate limit, paid registry publish,
+account-loss risk, `databases`/`status`, and no key rotation are Decisions
+21–28.
