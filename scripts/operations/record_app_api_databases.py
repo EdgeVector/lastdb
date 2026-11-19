@@ -283,7 +283,7 @@ def compare(node, sock, method, path, owner_body, extension_body):
         require(ext_status == owner_status and reply == json.loads(raw),
                 f"{method} share success differs: owner {owner_status} extension {ext_status}")
         return owner_status, ext_status
-    body = owner_body(raw)
+    body = parsed_owner(raw)
     require(owner_status == 409 and body.get("ok") is False
             and body.get("error") == "no_cloud_account" and body.get("message") == NO_ACCOUNT,
             f"{method} share owner {owner_status} {body!r}")
@@ -344,7 +344,7 @@ def error_code(status):
     return CODES.get(status, "internal")
 
 
-def owner_body(raw):
+def parsed_owner(raw):
     text = raw.decode("utf-8", "replace") if isinstance(raw, (bytes, bytearray)) else (raw or "")
     try:
         value = json.loads(text) if text else {}
