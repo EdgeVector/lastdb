@@ -65,6 +65,7 @@ pub(super) async fn read_signed(
     let Ok(store) = registered_share::receiver_store(host, &share.id).await else {
         return error_response(503, "database store is unavailable", ctx);
     };
+    crate::log_sync::note_receiver(share.id.as_str(), &store);
     let response = host
         .with_records(
             store,

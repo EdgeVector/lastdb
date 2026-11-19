@@ -124,6 +124,7 @@ async fn finish(host: &Host, id: &Id, dir: &Path) -> Result<(), String> {
     let store = registered_share::receiver_store(host, id)
         .await
         .map_err(|error| error.to_string())?;
+    super::super::note_receiver(id.as_str(), &store);
     store
         .db_ops()
         .native_runtime()

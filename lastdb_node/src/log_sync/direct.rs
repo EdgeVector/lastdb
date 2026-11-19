@@ -64,6 +64,7 @@ pub(super) async fn received_store(
     let store = registered_share::receiver_store(host, &share.id)
         .await
         .ok()?;
+    super::note_receiver(database_id, &store);
     Some((
         store,
         key,

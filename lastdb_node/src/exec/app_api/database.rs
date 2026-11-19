@@ -116,9 +116,8 @@ async fn write_received<T>(
         .await
         .map_err(|_| HostError::new(503, STORE_UNAVAILABLE))?;
     let result = host.with_records(Arc::clone(&store), future).await;
-    // The open recorded the cursor before this write. Record it again after.
-    let status = crate::accepted_writes::status(&store.db_ops().native_runtime());
-    crate::log_sync::note_spool(share.id.as_str(), status.head, status.acked);
+    // The write may have moved the spool. Record the cursor the list reads.
+    crate::log_sync::note_receiver(share.id.as_str(), &store);
     result
 }
 
@@ -133,6 +132,7 @@ async fn read_received<T>(
     let store = registered_share::receiver_store(host, &share.id)
         .await
         .map_err(|_| HostError::new(503, STORE_UNAVAILABLE))?;
+    crate::log_sync::note_receiver(share.id.as_str(), &store);
     let result = host.with_records(store, future).await;
     if !durable(host, share) {
         return Err(HostError::new(503, NOT_DURABLE));

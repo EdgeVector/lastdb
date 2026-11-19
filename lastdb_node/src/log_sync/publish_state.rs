@@ -148,6 +148,12 @@ pub(crate) fn note_spool(database_id: &str, head: u64, acked: u64) {
     slots().entry(database_id.to_owned()).or_default().pending = Some(head.saturating_sub(acked));
 }
 
+/// Record the spool of a store this path already opened. The list reads it.
+pub(crate) fn note_receiver(database_id: &str, store: &fold_db::fold_db_core::FoldDB) {
+    let status = crate::accepted_writes::status(&store.db_ops().native_runtime());
+    note_spool(database_id, status.head, status.acked);
+}
+
 /// Publish report for one received database. A registration that is not a
 /// signed log has no spool, so `pending` is 0. Otherwise `pending` is null
 /// until [`note_spool`] has run in this process.
