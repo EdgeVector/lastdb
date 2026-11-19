@@ -3,7 +3,7 @@
   "info": {
     "title": "LastDB ExeMem Cloud API",
     "version": "3.0.0-design",
-    "description": "ExeMem Cloud API v3 (minimal signed history). Local AcceptEntry; device chains; append-only logs; role-reduction cutoffs; checked Lamport; snapshots non-authoritative; presigned GET only. See relay-protocol.md."
+    "description": "ExeMem Cloud API v3 (minimal signed history). Local AcceptEntry; device chains; append-only never-trimmed logs; no snapshots; role-reduction cutoffs; checked Lamport; presigned blob GET only. See relay-protocol.md."
   },
   "servers": [
     {
@@ -40,7 +40,7 @@
           "fetch"
         ],
         "summary": "Fetch",
-        "description": "mutations_since | snapshot | file. Presigned GET for files. Anyone under grant#any (rate-limited read.public).",
+        "description": "mutations_since | file. Presigned GET for files. Anyone under grant#any (rate-limited read.public).",
         "operationId": "cloudFetch",
         "security": [
           {
@@ -190,7 +190,7 @@
             }
           },
           "404": {
-            "description": "database.id|deleted / file_handle / restore_point_id / snapshot_upload",
+            "description": "database.id|deleted / file_handle",
             "content": {
               "application/json": {
                 "schema": {
@@ -218,12 +218,6 @@
                   "conflict": {
                     "value": {
                       "code": "conflict",
-                      "field": "example"
-                    }
-                  },
-                  "cursor_expired": {
-                    "value": {
-                      "code": "cursor_expired",
                       "field": "example"
                     }
                   }
@@ -276,7 +270,7 @@
           "push"
         ],
         "summary": "Push",
-        "description": "mutations | file begin/commit | snapshot begin/commit. Node PUTs between begin and commit.",
+        "description": "mutations | file begin/commit. Node PUTs between begin and commit. No snapshots.",
         "operationId": "cloudPush",
         "security": [
           {
@@ -418,7 +412,7 @@
             }
           },
           "404": {
-            "description": "database.id|deleted / file_handle / restore_point_id / snapshot_upload",
+            "description": "database.id|deleted / file_handle",
             "content": {
               "application/json": {
                 "schema": {
@@ -446,12 +440,6 @@
                   "conflict": {
                     "value": {
                       "code": "conflict",
-                      "field": "example"
-                    }
-                  },
-                  "cursor_expired": {
-                    "value": {
-                      "code": "cursor_expired",
                       "field": "example"
                     }
                   }
@@ -755,7 +743,7 @@
             }
           },
           "404": {
-            "description": "database.id|deleted / file_handle / restore_point_id / snapshot_upload",
+            "description": "database.id|deleted / file_handle",
             "content": {
               "application/json": {
                 "schema": {
@@ -783,12 +771,6 @@
                   "conflict": {
                     "value": {
                       "code": "conflict",
-                      "field": "example"
-                    }
-                  },
-                  "cursor_expired": {
-                    "value": {
-                      "code": "cursor_expired",
                       "field": "example"
                     }
                   }
@@ -969,7 +951,7 @@
             }
           },
           "404": {
-            "description": "database.id|deleted / file_handle / restore_point_id / snapshot_upload",
+            "description": "database.id|deleted / file_handle",
             "content": {
               "application/json": {
                 "schema": {
@@ -999,12 +981,6 @@
                       "code": "conflict",
                       "field": "example"
                     }
-                  },
-                  "cursor_expired": {
-                    "value": {
-                      "code": "cursor_expired",
-                      "field": "example"
-                    }
                   }
                 }
               }
@@ -1021,96 +997,6 @@
                   "rate_limited": {
                     "value": {
                       "code": "rate_limited",
-                      "field": "example"
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/cloud/v3/maintenance": {
-      "post": {
-        "tags": [
-          "maintenance"
-        ],
-        "summary": "Maintenance (DEV)",
-        "description": "Single envelope only. githubOidc.",
-        "operationId": "cloudMaintenance",
-        "security": [
-          {
-            "githubOidc": []
-          }
-        ],
-        "parameters": [
-          {
-            "$ref": "#/components/parameters/CloudProtocol"
-          }
-        ],
-        "x-lastdb-environment": "dev",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/MaintenanceRequestBody"
-              },
-              "examples": {
-                "status": {
-                  "value": {
-                    "intent": "snapshot_proof_status",
-                    "args": {
-                      "run_id": "1",
-                      "run_attempt": 1
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/MaintenanceResponseBody"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not DEV / bad OIDC",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                },
-                "examples": {
-                  "forbidden": {
-                    "value": {
-                      "code": "forbidden",
-                      "field": "example"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "426": {
-            "description": "request.protocol",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                },
-                "examples": {
-                  "upgrade_required": {
-                    "value": {
-                      "code": "upgrade_required",
                       "field": "example"
                     }
                   }
@@ -1225,7 +1111,6 @@
               "conflict",
               "rate_limited",
               "upgrade_required",
-              "cursor_expired",
               "batch_too_large",
               "payment_required"
             ]
@@ -1266,12 +1151,6 @@
       "OpaqueFileHandle": {
         "type": "string",
         "description": "Opaque file handle",
-        "minLength": 1,
-        "maxLength": 256
-      },
-      "OpaqueSnapshotUpload": {
-        "type": "string",
-        "description": "Opaque snapshot upload session",
         "minLength": 1,
         "maxLength": 256
       },
@@ -1409,50 +1288,6 @@
             "items": {
               "$ref": "#/components/schemas/MutationOut"
             }
-          }
-        }
-      },
-      "FetchSnapshotArgs": {
-        "type": "object",
-        "required": [],
-        "additionalProperties": false,
-        "properties": {
-          "restore_point_id": {
-            "type": "string",
-            "description": "Omit for latest",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          }
-        }
-      },
-      "FetchSnapshotResult": {
-        "type": "object",
-        "required": [
-          "restore_point_id",
-          "manifest",
-          "cursor",
-          "held_until_ms"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "restore_point_id": {
-            "type": "string",
-            "description": "64 lowercase hex",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          },
-          "manifest": {
-            "$ref": "#/components/schemas/OpaqueFileHandle"
-          },
-          "cursor": {
-            "$ref": "#/components/schemas/OpaqueCursor"
-          },
-          "held_until_ms": {
-            "type": "integer",
-            "minimum": 0,
-            "description": "Hold deadline (1 h from call)"
           }
         }
       },
@@ -1662,160 +1497,6 @@
           },
           {
             "$ref": "#/components/schemas/PushFileCommitResult"
-          }
-        ]
-      },
-      "SnapshotFileSpec": {
-        "type": "object",
-        "required": [
-          "bytes",
-          "sha256"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "bytes": {
-            "type": "integer",
-            "minimum": 1,
-            "description": ""
-          },
-          "sha256": {
-            "type": "string",
-            "description": "64 lowercase hex",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          }
-        }
-      },
-      "SnapshotFileBegun": {
-        "type": "object",
-        "required": [
-          "file_handle"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "file_handle": {
-            "$ref": "#/components/schemas/OpaqueFileHandle"
-          },
-          "upload": {
-            "$ref": "#/components/schemas/Upload"
-          }
-        }
-      },
-      "PushSnapshotBeginArgs": {
-        "type": "object",
-        "required": [
-          "stage",
-          "files"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "stage": {
-            "type": "string",
-            "const": "begin"
-          },
-          "snapshot_upload": {
-            "$ref": "#/components/schemas/OpaqueSnapshotUpload"
-          },
-          "files": {
-            "type": "array",
-            "minItems": 1,
-            "maxItems": 32,
-            "items": {
-              "$ref": "#/components/schemas/SnapshotFileSpec"
-            }
-          }
-        }
-      },
-      "PushSnapshotBeginResult": {
-        "type": "object",
-        "required": [
-          "stage",
-          "snapshot_upload",
-          "files"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "stage": {
-            "type": "string",
-            "const": "begin"
-          },
-          "snapshot_upload": {
-            "$ref": "#/components/schemas/OpaqueSnapshotUpload"
-          },
-          "files": {
-            "type": "array",
-            "minItems": 1,
-            "maxItems": 32,
-            "items": {
-              "$ref": "#/components/schemas/SnapshotFileBegun"
-            }
-          }
-        }
-      },
-      "PushSnapshotCommitArgs": {
-        "type": "object",
-        "required": [
-          "stage",
-          "snapshot_upload",
-          "manifest",
-          "cursor"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "stage": {
-            "type": "string",
-            "const": "commit"
-          },
-          "snapshot_upload": {
-            "$ref": "#/components/schemas/OpaqueSnapshotUpload"
-          },
-          "manifest": {
-            "$ref": "#/components/schemas/OpaqueFileHandle"
-          },
-          "cursor": {
-            "$ref": "#/components/schemas/OpaqueCursor"
-          }
-        }
-      },
-      "PushSnapshotCommitResult": {
-        "type": "object",
-        "required": [
-          "stage",
-          "restore_point_id"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "stage": {
-            "type": "string",
-            "const": "commit"
-          },
-          "restore_point_id": {
-            "type": "string",
-            "description": "sha256 of manifest file",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          }
-        }
-      },
-      "PushSnapshotArgs": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/PushSnapshotBeginArgs"
-          },
-          {
-            "$ref": "#/components/schemas/PushSnapshotCommitArgs"
-          }
-        ]
-      },
-      "PushSnapshotResult": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/PushSnapshotBeginResult"
-          },
-          {
-            "$ref": "#/components/schemas/PushSnapshotCommitResult"
           }
         ]
       },
@@ -2425,91 +2106,6 @@
           }
         ]
       },
-      "Fetch_snapshot_Ok": {
-        "type": "object",
-        "required": [
-          "database_id",
-          "intent",
-          "result"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "database_id": {
-            "type": "string",
-            "description": "Database Ed25519 public key",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          },
-          "intent": {
-            "type": "string",
-            "const": "snapshot"
-          },
-          "result": {
-            "$ref": "#/components/schemas/FetchSnapshotResult"
-          }
-        }
-      },
-      "Fetch_snapshot_Req": {
-        "type": "object",
-        "required": [
-          "database_id",
-          "intent",
-          "args"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "database_id": {
-            "type": "string",
-            "description": "Database Ed25519 public key",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          },
-          "intent": {
-            "type": "string",
-            "const": "snapshot"
-          },
-          "args": {
-            "$ref": "#/components/schemas/FetchSnapshotArgs"
-          }
-        }
-      },
-      "Fetch_snapshot_Err": {
-        "type": "object",
-        "required": [
-          "intent",
-          "error"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "database_id": {
-            "type": "string",
-            "description": "Database id when known",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          },
-          "intent": {
-            "type": "string",
-            "const": "snapshot"
-          },
-          "error": {
-            "$ref": "#/components/schemas/Error"
-          }
-        },
-        "description": "Per-item batch error"
-      },
-      "Fetch_snapshot_Item": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/Fetch_snapshot_Ok"
-          },
-          {
-            "$ref": "#/components/schemas/Fetch_snapshot_Err"
-          }
-        ]
-      },
       "Fetch_file_Ok": {
         "type": "object",
         "required": [
@@ -2601,9 +2197,6 @@
             "$ref": "#/components/schemas/Fetch_mutations_since_Req"
           },
           {
-            "$ref": "#/components/schemas/Fetch_snapshot_Req"
-          },
-          {
             "$ref": "#/components/schemas/Fetch_file_Req"
           }
         ],
@@ -2611,7 +2204,6 @@
           "propertyName": "intent",
           "mapping": {
             "mutations_since": "#/components/schemas/Fetch_mutations_since_Req",
-            "snapshot": "#/components/schemas/Fetch_snapshot_Req",
             "file": "#/components/schemas/Fetch_file_Req"
           }
         }
@@ -2620,9 +2212,6 @@
         "oneOf": [
           {
             "$ref": "#/components/schemas/Fetch_mutations_since_Item"
-          },
-          {
-            "$ref": "#/components/schemas/Fetch_snapshot_Item"
           },
           {
             "$ref": "#/components/schemas/Fetch_file_Item"
@@ -2829,91 +2418,6 @@
           }
         ]
       },
-      "Push_snapshot_Ok": {
-        "type": "object",
-        "required": [
-          "database_id",
-          "intent",
-          "result"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "database_id": {
-            "type": "string",
-            "description": "Database Ed25519 public key",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          },
-          "intent": {
-            "type": "string",
-            "const": "snapshot"
-          },
-          "result": {
-            "$ref": "#/components/schemas/PushSnapshotResult"
-          }
-        }
-      },
-      "Push_snapshot_Req": {
-        "type": "object",
-        "required": [
-          "database_id",
-          "intent",
-          "args"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "database_id": {
-            "type": "string",
-            "description": "Database Ed25519 public key",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          },
-          "intent": {
-            "type": "string",
-            "const": "snapshot"
-          },
-          "args": {
-            "$ref": "#/components/schemas/PushSnapshotArgs"
-          }
-        }
-      },
-      "Push_snapshot_Err": {
-        "type": "object",
-        "required": [
-          "intent",
-          "error"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "database_id": {
-            "type": "string",
-            "description": "Database id when known",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          },
-          "intent": {
-            "type": "string",
-            "const": "snapshot"
-          },
-          "error": {
-            "$ref": "#/components/schemas/Error"
-          }
-        },
-        "description": "Per-item batch error"
-      },
-      "Push_snapshot_Item": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/Push_snapshot_Ok"
-          },
-          {
-            "$ref": "#/components/schemas/Push_snapshot_Err"
-          }
-        ]
-      },
       "PushEnvelope": {
         "oneOf": [
           {
@@ -2921,17 +2425,13 @@
           },
           {
             "$ref": "#/components/schemas/Push_file_Req"
-          },
-          {
-            "$ref": "#/components/schemas/Push_snapshot_Req"
           }
         ],
         "discriminator": {
           "propertyName": "intent",
           "mapping": {
             "mutations": "#/components/schemas/Push_mutations_Req",
-            "file": "#/components/schemas/Push_file_Req",
-            "snapshot": "#/components/schemas/Push_snapshot_Req"
+            "file": "#/components/schemas/Push_file_Req"
           }
         }
       },
@@ -2942,9 +2442,6 @@
           },
           {
             "$ref": "#/components/schemas/Push_file_Item"
-          },
-          {
-            "$ref": "#/components/schemas/Push_snapshot_Item"
           }
         ]
       },
@@ -4007,294 +3504,15 @@
           }
         ]
       },
-      "Maintenance_snapshot_proof_provision_Ok": {
-        "type": "object",
-        "required": [
-          "intent",
-          "result"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "snapshot_proof_provision"
-          },
-          "result": {
-            "$ref": "#/components/schemas/MaintProvisionResult"
-          }
-        }
-      },
-      "Maintenance_snapshot_proof_provision_Req": {
-        "type": "object",
-        "required": [
-          "intent",
-          "args"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "snapshot_proof_provision"
-          },
-          "args": {
-            "$ref": "#/components/schemas/MaintProvisionArgs"
-          }
-        }
-      },
-      "Maintenance_snapshot_proof_provision_Err": {
-        "type": "object",
-        "required": [
-          "intent",
-          "error"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "snapshot_proof_provision"
-          },
-          "error": {
-            "$ref": "#/components/schemas/Error"
-          }
-        },
-        "description": "Per-item batch error"
-      },
-      "Maintenance_snapshot_proof_provision_Item": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/Maintenance_snapshot_proof_provision_Ok"
-          },
-          {
-            "$ref": "#/components/schemas/Maintenance_snapshot_proof_provision_Err"
-          }
-        ]
-      },
-      "Maintenance_snapshot_proof_status_Ok": {
-        "type": "object",
-        "required": [
-          "intent",
-          "result"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "snapshot_proof_status"
-          },
-          "result": {
-            "$ref": "#/components/schemas/MaintStatusResult"
-          }
-        }
-      },
-      "Maintenance_snapshot_proof_status_Req": {
-        "type": "object",
-        "required": [
-          "intent",
-          "args"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "snapshot_proof_status"
-          },
-          "args": {
-            "$ref": "#/components/schemas/MaintRunArgs"
-          }
-        }
-      },
-      "Maintenance_snapshot_proof_status_Err": {
-        "type": "object",
-        "required": [
-          "intent",
-          "error"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "snapshot_proof_status"
-          },
-          "error": {
-            "$ref": "#/components/schemas/Error"
-          }
-        },
-        "description": "Per-item batch error"
-      },
-      "Maintenance_snapshot_proof_status_Item": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/Maintenance_snapshot_proof_status_Ok"
-          },
-          {
-            "$ref": "#/components/schemas/Maintenance_snapshot_proof_status_Err"
-          }
-        ]
-      },
-      "Maintenance_snapshot_proof_retire_Ok": {
-        "type": "object",
-        "required": [
-          "intent",
-          "result"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "snapshot_proof_retire"
-          },
-          "result": {
-            "$ref": "#/components/schemas/MaintStatusResult"
-          }
-        }
-      },
-      "Maintenance_snapshot_proof_retire_Req": {
-        "type": "object",
-        "required": [
-          "intent",
-          "args"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "snapshot_proof_retire"
-          },
-          "args": {
-            "$ref": "#/components/schemas/MaintRunArgs"
-          }
-        }
-      },
-      "Maintenance_snapshot_proof_retire_Err": {
-        "type": "object",
-        "required": [
-          "intent",
-          "error"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "snapshot_proof_retire"
-          },
-          "error": {
-            "$ref": "#/components/schemas/Error"
-          }
-        },
-        "description": "Per-item batch error"
-      },
-      "Maintenance_snapshot_proof_retire_Item": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/Maintenance_snapshot_proof_retire_Ok"
-          },
-          {
-            "$ref": "#/components/schemas/Maintenance_snapshot_proof_retire_Err"
-          }
-        ]
-      },
-      "Maintenance_snapshot_proof_inspect_Ok": {
-        "type": "object",
-        "required": [
-          "intent",
-          "result"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "snapshot_proof_inspect"
-          },
-          "result": {
-            "$ref": "#/components/schemas/MaintInspectResult"
-          }
-        }
-      },
-      "Maintenance_snapshot_proof_inspect_Req": {
-        "type": "object",
-        "required": [
-          "intent",
-          "args"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "snapshot_proof_inspect"
-          },
-          "args": {
-            "$ref": "#/components/schemas/MaintInspectArgs"
-          }
-        }
-      },
-      "Maintenance_snapshot_proof_inspect_Err": {
-        "type": "object",
-        "required": [
-          "intent",
-          "error"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "snapshot_proof_inspect"
-          },
-          "error": {
-            "$ref": "#/components/schemas/Error"
-          }
-        },
-        "description": "Per-item batch error"
-      },
-      "Maintenance_snapshot_proof_inspect_Item": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/Maintenance_snapshot_proof_inspect_Ok"
-          },
-          {
-            "$ref": "#/components/schemas/Maintenance_snapshot_proof_inspect_Err"
-          }
-        ]
-      },
       "MaintenanceEnvelope": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/Maintenance_snapshot_proof_provision_Req"
-          },
-          {
-            "$ref": "#/components/schemas/Maintenance_snapshot_proof_status_Req"
-          },
-          {
-            "$ref": "#/components/schemas/Maintenance_snapshot_proof_retire_Req"
-          },
-          {
-            "$ref": "#/components/schemas/Maintenance_snapshot_proof_inspect_Req"
-          }
-        ],
+        "oneOf": [],
         "discriminator": {
           "propertyName": "intent",
-          "mapping": {
-            "snapshot_proof_provision": "#/components/schemas/Maintenance_snapshot_proof_provision_Req",
-            "snapshot_proof_status": "#/components/schemas/Maintenance_snapshot_proof_status_Req",
-            "snapshot_proof_retire": "#/components/schemas/Maintenance_snapshot_proof_retire_Req",
-            "snapshot_proof_inspect": "#/components/schemas/Maintenance_snapshot_proof_inspect_Req"
-          }
+          "mapping": {}
         }
       },
       "MaintenanceResultItem": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/Maintenance_snapshot_proof_provision_Item"
-          },
-          {
-            "$ref": "#/components/schemas/Maintenance_snapshot_proof_status_Item"
-          },
-          {
-            "$ref": "#/components/schemas/Maintenance_snapshot_proof_retire_Item"
-          },
-          {
-            "$ref": "#/components/schemas/Maintenance_snapshot_proof_inspect_Item"
-          }
-        ]
+        "oneOf": []
       },
       "MaintenanceRequestBody": {
         "$ref": "#/components/schemas/MaintenanceEnvelope"

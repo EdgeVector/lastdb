@@ -3,12 +3,12 @@
   "info": {
     "title": "LastDB relay protocol",
     "version": "1.0.0-design",
-    "description": "Append-only log; content-addressed blobs/snapshots; presigned GET only. No retention.request. Acceptance is AcceptEntry on nodes."
+    "description": "Append-only never-trimmed log; content-addressed blobs; presigned GET only. No snapshots. Anti-spam/quota only. Acceptance is AcceptEntry on nodes."
   },
   "paths": {
     "/relay/v1/log/append": {
       "post": {
-        "summary": "Append signed log entries (append-only)",
+        "summary": "Append signed log entries (append-only, never trimmed)",
         "parameters": [
           {
             "$ref": "#/components/parameters/NodeKey"
@@ -65,7 +65,7 @@
     },
     "/relay/v1/log/read": {
       "post": {
-        "summary": "Read signed log entries",
+        "summary": "Read signed log entries from seq 1 or cursor",
         "parameters": [
           {
             "$ref": "#/components/parameters/NodeKey"
@@ -243,120 +243,6 @@
           }
         }
       }
-    },
-    "/relay/v1/snapshot/put": {
-      "post": {
-        "summary": "Put snapshot (non-authoritative)",
-        "parameters": [
-          {
-            "$ref": "#/components/parameters/NodeKey"
-          },
-          {
-            "$ref": "#/components/parameters/DeviceId"
-          },
-          {
-            "$ref": "#/components/parameters/IssuedAt"
-          },
-          {
-            "$ref": "#/components/parameters/Nonce"
-          },
-          {
-            "$ref": "#/components/parameters/Signature"
-          },
-          {
-            "$ref": "#/components/parameters/RelayProtocol"
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SnapshotPutBody"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SnapshotPutResult"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "request auth",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/relay/v1/snapshot/get": {
-      "post": {
-        "summary": "Get snapshot via presigned URL only",
-        "parameters": [
-          {
-            "$ref": "#/components/parameters/NodeKey"
-          },
-          {
-            "$ref": "#/components/parameters/DeviceId"
-          },
-          {
-            "$ref": "#/components/parameters/IssuedAt"
-          },
-          {
-            "$ref": "#/components/parameters/Nonce"
-          },
-          {
-            "$ref": "#/components/parameters/Signature"
-          },
-          {
-            "$ref": "#/components/parameters/RelayProtocol"
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SnapshotGetBody"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SnapshotGetResult"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "request auth",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          }
-        }
-      }
     }
   },
   "components": {
@@ -458,26 +344,9 @@
           }
         }
       },
-      "DatabaseId": {
-        "type": "string",
-        "pattern": "^[0-9a-f]{64}$",
-        "minLength": 64,
-        "maxLength": 64
-      },
-      "Sha256Hex": {
-        "type": "string",
-        "pattern": "^[0-9a-f]{64}$",
-        "minLength": 64,
-        "maxLength": 64
-      },
-      "OpaqueCursor": {
-        "type": "string",
-        "minLength": 1,
-        "maxLength": 256
-      },
       "SignedEntry": {
         "type": "object",
-        "description": "Opaque signed entry; store key (database_id,node_key,device_id,writer_seq). Full schemas in cloud-api.openapi.json.",
+        "description": "Opaque signed entry; store key (database_id,node_key,device_id,writer_seq).",
         "required": [
           "kind",
           "database_id",
@@ -672,7 +541,10 @@
             "minimum": 1
           },
           "cursor": {
-            "$ref": "#/components/schemas/OpaqueCursor"
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "description": "Pagination only; never expires"
           },
           "limit": {
             "type": "integer",
@@ -689,7 +561,9 @@
         "additionalProperties": false,
         "properties": {
           "cursor": {
-            "$ref": "#/components/schemas/OpaqueCursor"
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
           },
           "entries": {
             "type": "array",
@@ -774,215 +648,6 @@
             "pattern": "^[0-9a-f]{64}$",
             "minLength": 64,
             "maxLength": 64
-          },
-          "sha256": {
-            "type": "string",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          }
-        }
-      },
-      "SnapshotPutBody": {
-        "type": "object",
-        "required": [
-          "database_id",
-          "stage"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "database_id": {
-            "type": "string",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          },
-          "stage": {
-            "type": "string",
-            "enum": [
-              "begin",
-              "commit"
-            ]
-          },
-          "snapshot_upload": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 256
-          },
-          "manifest_sha256": {
-            "type": "string",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          },
-          "covered_heads": {
-            "type": "array",
-            "maxItems": 4096,
-            "items": {
-              "type": "object",
-              "required": [
-                "node_key",
-                "device_id",
-                "writer_seq",
-                "entry_hash"
-              ],
-              "additionalProperties": false,
-              "properties": {
-                "node_key": {
-                  "type": "string",
-                  "pattern": "^[0-9a-f]{64}$",
-                  "minLength": 64,
-                  "maxLength": 64
-                },
-                "device_id": {
-                  "type": "string",
-                  "format": "uuid"
-                },
-                "writer_seq": {
-                  "type": "integer",
-                  "minimum": 1
-                },
-                "entry_hash": {
-                  "type": "string",
-                  "pattern": "^[0-9a-f]{64}$",
-                  "minLength": 64,
-                  "maxLength": 64
-                }
-              }
-            }
-          }
-        }
-      },
-      "SnapshotPutResult": {
-        "type": "object",
-        "required": [
-          "stage"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "stage": {
-            "type": "string",
-            "enum": [
-              "begin",
-              "commit"
-            ]
-          },
-          "snapshot_upload": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 256
-          },
-          "restore_point_id": {
-            "type": "string",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          }
-        }
-      },
-      "SnapshotGetBody": {
-        "type": "object",
-        "required": [
-          "database_id"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "database_id": {
-            "type": "string",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          },
-          "restore_point_id": {
-            "type": "string",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          }
-        }
-      },
-      "SnapshotGetResult": {
-        "type": "object",
-        "required": [
-          "restore_point_id",
-          "manifest_sha256",
-          "url",
-          "headers",
-          "expires_at_ms",
-          "bytes",
-          "sha256"
-        ],
-        "additionalProperties": false,
-        "description": "Presigned URL only; covered_heads for restore verify",
-        "properties": {
-          "restore_point_id": {
-            "type": "string",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          },
-          "manifest_sha256": {
-            "type": "string",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          },
-          "covered_heads": {
-            "type": "array",
-            "maxItems": 4096,
-            "items": {
-              "type": "object",
-              "required": [
-                "node_key",
-                "device_id",
-                "writer_seq",
-                "entry_hash"
-              ],
-              "additionalProperties": false,
-              "properties": {
-                "node_key": {
-                  "type": "string",
-                  "pattern": "^[0-9a-f]{64}$",
-                  "minLength": 64,
-                  "maxLength": 64
-                },
-                "device_id": {
-                  "type": "string",
-                  "format": "uuid"
-                },
-                "writer_seq": {
-                  "type": "integer",
-                  "minimum": 1
-                },
-                "entry_hash": {
-                  "type": "string",
-                  "pattern": "^[0-9a-f]{64}$",
-                  "minLength": 64,
-                  "maxLength": 64
-                }
-              }
-            }
-          },
-          "url": {
-            "type": "string",
-            "format": "uri",
-            "maxLength": 8192
-          },
-          "headers": {
-            "type": "object",
-            "additionalProperties": {
-              "type": "string",
-              "maxLength": 1024
-            },
-            "maxProperties": 32
-          },
-          "expires_at_ms": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "bytes": {
-            "type": "integer",
-            "minimum": 1
           },
           "sha256": {
             "type": "string",

@@ -21,10 +21,10 @@ not authorize.
 |---|---|
 | Availability | Order, completeness, acceptance, integrity |
 
-**Logs are append-only.** Relays never delete log entries. Snapshots are a
-**restore-speed optimization only** — never trusted or authoritative.
-File blobs may be reclaimed only after a publisher-signed `blob_delete`
-chain entry; readers treat a deleted blob as intentionally gone.
+**Logs are append-only and never trimmed.** Relays never delete log
+entries. There are **no snapshots**. File blobs may be reclaimed only after
+a publisher-signed `blob_delete` chain entry; readers treat a deleted blob
+as intentionally gone.
 
 ### Acceptance (local node rule)
 
@@ -63,9 +63,7 @@ history for `E.database_id`:
 
 **Canonical merge:** all accepted entries sorted by
 `(lamport, node_key, device_id)`. At equal Lamport for grants to the same
-grantee, **`revoked` wins**; among non-revoked equal-lamport role sets,
-the lower privilege wins when comparing reductions already in the chain
-(fold in merge order; equal-lamport revoke still wins).
+grantee, **`revoked` wins**.
 
 **Publisher-signed heads:** each device tip is signed (the tip entry).
 Nodes compare publisher heads across own devices and via People. On
@@ -89,10 +87,10 @@ silently disagree once heads meet.
 4. Local `AcceptEntry` + merge `(lamport, node_key, device_id)`; tie →
    revoke wins.
 5. Publisher signs heads; nodes compare; stop on mismatch.
-6. **No checkpoints.** Member direct write is final once it passes the
-   grant-window against the publisher state it binds.
+6. **No checkpoints. No snapshots.** Member direct write is final once it
+   passes the grant-window against the publisher state it binds.
 7. Proposals count only after publisher **incorporation**.
-8. **Append-only logs.** Snapshots optimize restore only.
+8. **Append-only, never-trimmed logs.**
 
 ### Device chains
 
@@ -160,24 +158,6 @@ cutoff 0.
 
 `any` is read-only (`role` must be `read`).
 
-**Guarantee:** after a reader has the reduction **in the chain**, nothing
-new past the cutoff from that member is accepted.
-
-### Snapshots (restore speed only)
-
-Logs are never GC’d. A snapshot is **not** authoritative.
-
-1. Publisher builds a snapshot from its merged state and records the
-   **per-device heads** it covers.
-2. Uploads the snapshot bytes like a blob (`restore_point_id` =
-   sha256(manifest)).
-3. A new device fetches the snapshot **and the full log**, verifies every
-   chain from `writer_seq = 1` / birth, checks that replaying the log up to
-   the recorded heads **equals** the snapshot, then applies only entries
-   past those heads.
-4. The device may defer the replay check and run it in the background, but
-   the check **must complete**. A mismatched snapshot is rejected.
-
 ### Blob delete
 
 Publisher signs `blob_delete` naming blob `sha256`. Relays may then drop
@@ -188,6 +168,45 @@ intentionally gone. **Log entries are never deleted.**
 
 Publisher `resolve` entry names chosen `(node_key, device_id, entry_hash)`.
 Fillable gaps buffer and resume without resolution.
+
+## Restore, new device, and local state
+
+**There are no snapshots and no `cursor_expired`.** Delivery cursors are
+optional pagination aids only; they never expire as a restore path.
+
+**Restore / new device / new member:**
+
+1. Discover a relay (People bootstrap + publisher `relays` entry).
+2. `log.read` every device chain from `writer_seq = 1` (birth first on a
+   publisher device).
+3. Run `AcceptEntry` on each entry; merge by `(lamport, node_key,
+   device_id)`; replay into materialized state.
+4. Fetch file blobs **lazily** by content hash via `blob.get` (presigned
+   URL) when needed.
+
+**Local nodes need not retain full history.** After replay they keep:
+
+- materialized database state, and
+- for each `(node_key, device_id)`: latest head `(entry_hash, writer_seq,
+  lamport)`, and
+- folded **grant state** (including cutoffs),
+
+which is enough to validate the next entry on that chain. They may discard
+older entry bodies locally; the relay retains the append-only log.
+
+## Bootstrap (existing databases)
+
+No migration and no dual path. To move an existing database onto this
+contract:
+
+1. A publisher device appends a `BirthEntry` (`writer_seq = 1`).
+2. It then emits the current materialized state as ordinary signed
+   `data` mutations (records and blob refs) on its device chain.
+3. Members receive **fresh** `grant` entries on the publisher chain.
+4. Old unsigned cloud data is **replaced**, not kept alongside.
+
+One signed history from birth forward; readers ignore any pre-bootstrap
+unsigned store.
 
 ## Shape
 
@@ -200,22 +219,20 @@ Product: `{database_id, intent, args|result}`. Account/maintenance: no
 
 | Action | Intents |
 |---|---|
-| `fetch` | `mutations_since`, `snapshot`, `file` |
-| `push` | `mutations`, `file`, `snapshot` |
+| `fetch` | `mutations_since`, `file` |
+| `push` | `mutations`, `file` |
 | `manage` | `create`, `grant`, `revoke`, `access`, `delete` |
 | `account` | `register`, `payment`, `deactivate`, `add_device`, `remove_device`, `databases`, `status` |
-| `maintenance` | snapshot_proof_* (DEV, `githubOidc`, no batch) |
+| `maintenance` | (none in this design — former snapshot_proof_* removed) |
 
 `manage`/`grant` and `manage`/`revoke` append signed `grant` entries to
 the chain (transport sugar). `manage`/`create` body is the full signed
 `BirthEntry`. `manage`/`access` is non-authoritative UX only.
-`manage`/`delete` is publisher reclaim of the database product record
-(ExeMem); it does **not** delete append-only log bytes on relays (see
-relay tombstone/policy separately if ExeMem stops serving a DB).
+`manage`/`delete` is publisher reclaim of the ExeMem product record; relay
+logs stay append-only.
 
-`fetch`/`file` and relay `blob.get` / `snapshot.get` return **exactly one**
-download path: a **presigned URL** (plus headers / expiry / size / sha256).
-No inline byte alternative.
+`fetch`/`file` and relay `blob.get` return **exactly one** download path: a
+**presigned URL** (plus headers / expiry / size / sha256).
 
 Stream is in the signed entry; push result has **no** `landed` field.
 
@@ -240,30 +257,28 @@ into `S` first.
 ## Requirements (Decision 38)
 
 Publisher pays for storage and transfer. Lapsed: reads work;
-push/grant/create/snapshot → `payment_required`; delete always allowed.
+push/grant/create → `payment_required`; delete always allowed.
 
 ## Decisions (explicit)
 
 1. Protocol **v3**.
 2. Version in header + signature material; no body `version`.
 3. **426** `upgrade_required` + `minimum_version` (not on account).
-4. **Superseded by 43.** Grants are publisher-signed chain entries (not
-   request-only ACL).
+4. **Superseded by 43.** Grants are publisher-signed chain entries.
 5. No protocol header on **account**.
 6. Live OpenAPI under `cloud_backup_protocol/` when shipped.
-7. DEV snapshot-proof under `maintenance`, `x-lastdb-environment: dev`.
-8. Actions: `fetch` / `push` / `manage` / `account` / `maintenance`.
-9. **Superseded by 42.** Stream is signed on the entry; no server
-   `landed` from door grant.
+7. **Superseded by 45.** DEV snapshot-proof maintenance intents **removed**
+   (no snapshots).
+8. Actions: `fetch` / `push` / `manage` / `account` (maintenance empty here).
+9. **Superseded by 42.** Stream is signed on the entry; no server `landed`.
 10. `fetch`/`mutations_since`: publisher sees direct+proposal; receivers
     direct only; acceptance = publisher incorporation.
 11. Silent rejections — no discard call.
 12. Access under manage; no share-settings / `rules`.
-13. **Superseded by 44.** Logs are append-only; no ExeMem-internal log
-    deletion / retention of chain entries. Blob reclaim via signed
-    `blob_delete` only.
+13. **Superseded by 44–45.** Logs append-only and never trimmed; no log
+    retention/GC; blob reclaim via `blob_delete` only.
 14. **Superseded by 44.** Proposals are chain entries and are **never**
-    deleted (no cursor-based proposal GC).
+    deleted.
 15. `manage`/`delete` — publisher product reclaim / tombstone on ExeMem.
 16. Envelope `{database_id?, intent, args|result}`.
 17. Batching — single or array; caps above; per-item errors.
@@ -271,8 +286,8 @@ push/grant/create/snapshot → `payment_required`; delete always allowed.
     `remove_device`, `databases`, `status`. No login. No `em_` API keys.
 19. Node public key + device id in signed headers.
 20. Ed25519 `nodeSignature` for all node traffic.
-21. No per-device keys. Device id is bookkeeping. Stolen device + node key
-    = full access (accepted risk); may mint new device chains.
+21. No per-device keys. Stolen device + node key = full access; may mint
+    new device chains.
 22. App-registry publish requires a paid ExeMem account.
 23. `payment` → short-lived single-use signed `payment_url`.
 24. `register` rate-limited per IP.
@@ -281,28 +296,30 @@ push/grant/create/snapshot → `payment_required`; delete always allowed.
 27. `account`/`status`: paid, storage, transfer, devices.
 28. No node-key rotation.
 29. Connect / invites / joins are People-app only.
-30. No `rules` / share-settings. Defaults: members-only read without `any`;
-    write vs proposal from grants; publisher always direct.
+30. No `rules` / share-settings.
 31. **Superseded by 43.** Public read = signed `grant` `any` / `read` only.
-32. Device rule: account keys need registered device; account-less skip.
-    Public fetch rate-limited `read.public`; publisher pays.
-33. Upload `begin`/`commit`; downloads = presigned GET only.
+32. Device rule + public `read.public` rate limit; publisher pays.
+33. File upload `begin`/`commit`; downloads = presigned GET only.
 34. Create = full signed `BirthEntry` (chained birth).
 35. Levels: `read` | `submit` | `write` (+ signed reductions / `revoked`).
 36. Self-certifying derived `database_id`. Tombstones. No db-key rotation.
-37. **Superseded by 44** for logs. Snapshot is restore optimization with
-    recorded heads + mandatory replay verify. No client `advance_cutoff`.
-38. Publisher pays; lapsed rules as above.
+37. **Superseded by 45.** No snapshots, no `advance_cutoff`, no
+    restore-from-snapshot, no `cursor_expired`.
+38. Publisher pays; lapsed: reads work; push/grant/create →
+    `payment_required`; delete always allowed.
 39. `deactivate`: cancel subs; tombstone owned DBs; retire key.
 40. Devices: `remove_device` bookkeeping; cap 256.
-41. Delivery cursors are pagination only, not canonical order.
+41. Delivery cursors are pagination only; they do not expire as a restore
+    mechanism.
 42. Writer signatures + device chains; local `AcceptEntry`; checked
     Lamport; no checkpoints; no `landed`.
 43. Signed grants on publisher chains; cutoffs on every role reduction;
     merge + revoke-wins; publisher heads via devices/People; no side
     channel.
-44. **Append-only logs.** Snapshots non-authoritative. Blob delete via
-    chain entry. Proposals never deleted.
+44. Append-only logs; proposals never deleted; blob delete via chain entry.
+45. **No snapshots.** Restore = full log replay from birth; local store =
+    materialized state + per-device heads + grant state. Bootstrap replaces
+    old unsigned cloud data with signed mutations (no dual path).
 
 ### Defaults
 
@@ -314,6 +331,7 @@ push/grant/create/snapshot → `payment_required`; delete always allowed.
 | Relay list | Publisher-signed `relays`; People bootstraps |
 | Birth | First chained publisher-device entry |
 | Fork resolution | Publisher `resolve` entry |
+| Downloads | Presigned URL only |
 
 ## Server errors (HTTP)
 
@@ -323,15 +341,12 @@ push/grant/create/snapshot → `payment_required`; delete always allowed.
 | 400 | `batch_too_large` | `batch.response` |
 | 401 | `unauthorized` | `request.*`, `device.*`, `account.retired` |
 | 403 | `payment_required` | `payment.subscription` |
-| 404 | `not_found` | `database.*`, `file_handle`, `restore_point_id`, `blob.sha256`, `snapshot_upload` |
+| 404 | `not_found` | `database.*`, `file_handle`, `blob.sha256` |
 | 409 | `conflict` | `database.id`, `account.exists`, `device.*`, `entries.writer_seq`, `file.unverified` |
-| 409 | `cursor_expired` | `cursor` |
 | 426 | `upgrade_required` | `request.protocol` |
 | 429 | `rate_limited` | `account.register`, `read.public` |
 
-No server `403` `grant.absent` / `grant.role` — authorization is
-`AcceptEntry` on the node. Optional relay anti-spam may still refuse
-appends as policy (`forbidden` / `relay.policy` on the relay protocol).
+No server `403` `grant.absent` / `grant.role`. No `cursor_expired`.
 
 ### Node-side signals (not server error fields)
 
@@ -346,22 +361,26 @@ Lamport / signature rejects — local only.
 4. One-device equivocation: `history.equivocation`.
 5. Multi-device offline same seq: **not** equivocation.
 6. Forged grant: cannot authorize.
-7. **Backdated write after revoke** (cutoff in chain): reject.
-8. **Backdated write after downgrade** (e.g. write→read with cutoffs):
-   reject regardless of `seen_publisher_heads`.
+7. Backdated write after revoke (cutoff in chain): reject.
+8. Backdated write after downgrade: reject regardless of
+   `seen_publisher_heads`.
 9. Write that had seen a reduction in `seen_publisher_heads`: reject.
 10. Side-channel grant/revoke ignored.
-11. **Inflated lamport:** reject.
-12. **Snapshot ≠ replay** up to recorded heads: reject.
-13. Bad signature: device chain stops.
-14. Reordered delivery → same merge.
-15. Divergent publisher heads → stop advance.
-16. Withheld reduction detected by head compare.
+11. Inflated lamport: reject.
+12. Bad signature: device chain stops.
+13. Reordered delivery → same merge.
+14. Divergent publisher heads → stop advance.
+15. Withheld reduction detected by head compare.
+16. **Bootstrap:** publisher BirthEntry + state mutations; replay equals
+    source materialized state; members need fresh grants; no dual path with
+    old unsigned data.
+17. **Restore from start:** new device fetches every chain from seq 1,
+    `AcceptEntry` + merge + replay; lazy blob fetch by hash.
 
 ## Build work
 
-**Relay/ExeMem:** append-only log store; optional anti-spam; presigned GET
-only for blobs/snapshots; account service ExeMem-specific.
+**Relay/ExeMem:** append-only log store; blob put/get (presigned);
+optional anti-spam/quota; account service ExeMem-specific.
 
-**Node:** `AcceptEntry` (incl. Lamport + cutoffs); snapshot replay verify;
-head compare; birth; incorporation; blob_delete handling.
+**Node:** `AcceptEntry`; full-log restore; keep heads + grant state;
+bootstrap emit; head compare; birth; incorporation; blob_delete handling.

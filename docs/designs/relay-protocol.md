@@ -10,14 +10,12 @@ account/billing service. No dual paths, fallback, or unit tests.
 ## Trust
 
 Acceptance is **local** (`AcceptEntry`). Relays only store and serve.
-**Logs are append-only** — relays never delete log entries. Grants/revokes
-exist only as signed chain entries; no revoke intent or index. Any grant
-cache for anti-spam is derived, optional, never authoritative. People
-carries signed heads for comparison only.
+**Logs are append-only and never trimmed.** Grants/revokes exist only as
+signed chain entries. Any grant cache for anti-spam is derived, optional,
+never authoritative. People carries signed heads for comparison only.
 
-Snapshots are a restore-speed optimization, never authoritative (see
-`cloud-api.md`). File blobs may be dropped only after a publisher
-`blob_delete` chain entry.
+**No snapshots.** File blobs may be dropped only after a publisher
+`blob_delete` chain entry. All other relay policy is anti-spam / quota.
 
 ## Surface
 
@@ -26,34 +24,24 @@ POST /relay/v1/log/append
 POST /relay/v1/log/read
 POST /relay/v1/blob/put
 POST /relay/v1/blob/get
-POST /relay/v1/snapshot/put
-POST /relay/v1/snapshot/get
 ```
 
-No `retention.request`. Batching/caps match cloud-api. Auth:
-`nodeSignature` + `X-LastDB-Relay-Protocol: 1`.
+Batching/caps match cloud-api. Auth: `nodeSignature` +
+`X-LastDB-Relay-Protocol: 1`.
 
 ### `log.append` / `log.read`
 
 Store key `(database_id, node_key, device_id, writer_seq)`. Entries:
 `birth`|`data`|`grant`|`blob_delete`|`heads`|`relays`|`resolve`.
 
-Read by device chain or opaque delivery cursor (not canonical order).
-Nodes run `AcceptEntry` on read.
+Read by device chain from `from_seq` (default 1) or opaque delivery cursor
+(pagination only; never expires). Nodes run `AcceptEntry` on read.
 
 ### `blob.put` / `blob.get`
 
 Content-addressed by sha256. **`blob.get` returns exactly one download
 path: a presigned URL** (plus headers, expiry, bytes, sha256). After a
-verified `blob_delete` for that digest, get may return `not_found`;
-readers treat it as intentionally gone.
-
-### `snapshot.put` / `snapshot.get`
-
-Publisher uploads snapshot bytes (manifest digest = `restore_point_id`)
-and records covered per-device heads in the snapshot metadata.
-**`snapshot.get` returns exactly one download path: a presigned URL.**
-Nodes must still fetch the full log and verify replay (`cloud-api.md`).
+verified `blob_delete` for that digest, get may return `not_found`.
 
 ## v3 map
 
@@ -61,16 +49,18 @@ Nodes must still fetch the full log and verify replay (`cloud-api.md`).
 |---|---|
 | `push`/`mutations`, `fetch`/`mutations_since` | `log.*` |
 | `push`/`file`, `fetch`/`file` | `blob.*` |
-| `push`/`snapshot`, `fetch`/`snapshot` | `snapshot.*` |
 | `manage`/`grant`, `revoke`, `access` | out — `log.append` of signed grants |
 | `manage`/`create` | `log.append` of signed `BirthEntry` |
 | `manage`/`delete` | ExeMem product tombstone only; log stays |
-| `account/*`, `maintenance/*` | not protocol |
+| `account/*` | not protocol |
+| former `snapshot` / `retention` / snapshot_proof | **removed** |
 
 ## Discovery and failover
 
-Publisher-signed `relays` entry; People bootstraps first URL. Multi-relay
-push/read; compare heads; switch with no migration.
+Publisher-signed `relays` entry; People bootstraps first URL. Nodes may
+append and read across several relays; compare publisher-signed heads;
+switch with no migration. A relay that serves a shorter or forked log is
+detected by head/hash-chain compare — no snapshot involvement.
 
 ## Defaults
 
@@ -87,5 +77,5 @@ push/read; compare heads; switch with no migration.
 ## CI conformance
 
 Same scenarios as `cloud-api.md` against ExeMem and the in-repo reference
-relay (failover, fork/withhold, snapshot mismatch, lamport, cutoffs).
-Account paths ExeMem-only.
+relay, including failover, fork/withhold, bootstrap replay equals source,
+and restore-from-start. Account paths ExeMem-only.
