@@ -1,6 +1,7 @@
 //! Publisher grant, revoke, and invitation sealing for one shared database.
 //! Decided state: docs/designs/shared-database-mutation-logs.md (mutation log, proposal log, share settings).
 
+pub(crate) mod cloud_state;
 mod config;
 mod entries;
 mod exchange;

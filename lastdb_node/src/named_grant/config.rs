@@ -108,14 +108,14 @@ pub(super) fn unconfirmed_or_payment(error: &str) -> ConfigError {
 
 /// Classify a cloud failure by the database's current enrollment.
 /// This does not wait. `Unconfirmed` remains only when the database is enrolled.
-pub(super) fn cloud_failure(home: &Path, database_id: &str, error: &str) -> ConfigError {
+pub(crate) fn cloud_failure(home: &Path, database_id: &str, error: &str) -> ConfigError {
     if error == crate::cloud::PAYMENT_REQUIRED_MESSAGE {
         return ConfigError::PaymentRequired;
     }
-    match crate::log_sync::database_cloud_state(home, database_id) {
-        crate::log_sync::CloudState::NoAccount => ConfigError::NoAccount,
-        crate::log_sync::CloudState::Enrolling => ConfigError::Enrolling,
-        crate::log_sync::CloudState::Enrolled => ConfigError::Unconfirmed,
+    match super::cloud_state::database_cloud_state(home, database_id) {
+        super::cloud_state::CloudState::NoAccount => ConfigError::NoAccount,
+        super::cloud_state::CloudState::Enrolling => ConfigError::Enrolling,
+        super::cloud_state::CloudState::Enrolled => ConfigError::Unconfirmed,
     }
 }
 
@@ -295,9 +295,9 @@ async fn store_settings(
 
 fn settings_failure(home: &Path, database_id: &str, error: exchange::CloudRefusal) -> ConfigError {
     let payment = matches!(error, exchange::CloudRefusal::Payment);
-    match crate::log_sync::database_cloud_state(home, database_id) {
-        crate::log_sync::CloudState::NoAccount if !payment => ConfigError::NoAccount,
-        crate::log_sync::CloudState::Enrolling if !payment => ConfigError::Enrolling,
+    match super::cloud_state::database_cloud_state(home, database_id) {
+        super::cloud_state::CloudState::NoAccount if !payment => ConfigError::NoAccount,
+        super::cloud_state::CloudState::Enrolling if !payment => ConfigError::Enrolling,
         _ => service_refusal(error),
     }
 }
@@ -367,7 +367,7 @@ pub(crate) async fn lock_member(
 
 pub(super) async fn open(home: &Path) -> Result<PublisherSession, ConfigError> {
     PublisherSession::open(home).await.map_err(|error| {
-        if crate::log_sync::has_cloud_account(home) {
+        if super::cloud_state::has_cloud_account(home) {
             unconfirmed_or_payment(&error)
         } else {
             ConfigError::NoAccount
