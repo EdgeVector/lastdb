@@ -77,8 +77,63 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "arg paths / grants.any.role / batch.response, entries.signature, incorporated_from",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "invalid_request": {
+                    "value": {
+                      "code": "invalid_request",
+                      "field": "example"
+                    }
+                  },
+                  "batch_too_large": {
+                    "value": {
+                      "code": "batch_too_large",
+                      "field": "example"
+                    }
+                  },
+                  "grants_any_role": {
+                    "summary": "any grantee must be read",
+                    "value": {
+                      "code": "invalid_request",
+                      "field": "grants.any.role"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "request.protocol",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "upgrade_required": {
+                    "value": {
+                      "code": "upgrade_required",
+                      "field": "example"
+                    }
+                  }
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "nodeSignature": []
+          }
+        ],
+        "description": "Append signed log entries (append-only, never trimmed) Requires nodeSignature (node-key) auth."
       }
     },
     "/relay/v1/log/read": {
@@ -152,8 +207,59 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "arg paths / grants.any.role / batch.response, entries.signature, incorporated_from",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "invalid_request": {
+                    "value": {
+                      "code": "invalid_request",
+                      "field": "example"
+                    }
+                  },
+                  "batch_too_large": {
+                    "value": {
+                      "code": "batch_too_large",
+                      "field": "example"
+                    }
+                  },
+                  "grants_any_role": {
+                    "summary": "any grantee must be read",
+                    "value": {
+                      "code": "invalid_request",
+                      "field": "grants.any.role"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "request.protocol",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "upgrade_required": {
+                    "value": {
+                      "code": "upgrade_required",
+                      "field": "example"
+                    }
+                  }
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [],
+        "description": "Read signed log entries from seq 1 or cursor Reads of grant#any databases are open; other reads may use nodeSignature."
       }
     },
     "/relay/v1/blob/put": {
@@ -227,8 +333,63 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "arg paths / grants.any.role / batch.response, entries.signature, incorporated_from",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "invalid_request": {
+                    "value": {
+                      "code": "invalid_request",
+                      "field": "example"
+                    }
+                  },
+                  "batch_too_large": {
+                    "value": {
+                      "code": "batch_too_large",
+                      "field": "example"
+                    }
+                  },
+                  "grants_any_role": {
+                    "summary": "any grantee must be read",
+                    "value": {
+                      "code": "invalid_request",
+                      "field": "grants.any.role"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "request.protocol",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "upgrade_required": {
+                    "value": {
+                      "code": "upgrade_required",
+                      "field": "example"
+                    }
+                  }
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [
+          {
+            "nodeSignature": []
+          }
+        ],
+        "description": "Put blob Requires nodeSignature (node-key) auth."
       }
     },
     "/relay/v1/blob/get": {
@@ -312,8 +473,59 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "arg paths / grants.any.role / batch.response, entries.signature, incorporated_from",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "invalid_request": {
+                    "value": {
+                      "code": "invalid_request",
+                      "field": "example"
+                    }
+                  },
+                  "batch_too_large": {
+                    "value": {
+                      "code": "batch_too_large",
+                      "field": "example"
+                    }
+                  },
+                  "grants_any_role": {
+                    "summary": "any grantee must be read",
+                    "value": {
+                      "code": "invalid_request",
+                      "field": "grants.any.role"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "request.protocol",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "upgrade_required": {
+                    "value": {
+                      "code": "upgrade_required",
+                      "field": "example"
+                    }
+                  }
+                }
+              }
+            }
           }
-        }
+        },
+        "security": [],
+        "description": "Get blob via presigned URL only Reads of grant#any databases are open; other reads may use nodeSignature."
       }
     }
   },
@@ -726,6 +938,14 @@
             "maxLength": 64
           }
         }
+      }
+    },
+    "securitySchemes": {
+      "nodeSignature": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-LastDB-Signature",
+        "description": "Ed25519 over POST\\n<path>\\n<protocol>\\n<node key>\\n<device id>\\n<issued-at>\\n<nonce>\\n<body sha256 hex>. Skew \u00b160s. Companion headers required. Required for relay writes; reads of grant#any databases are open."
       }
     }
   }

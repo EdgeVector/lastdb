@@ -30,8 +30,9 @@ POST /relay/v1/blob/put
 POST /relay/v1/blob/get
 ```
 
-Batching/caps match cloud-api. Auth: `nodeSignature` +
-`X-LastDB-Relay-Protocol: 1`.
+Batching/caps match cloud-api. Writes require `nodeSignature` +
+`X-LastDB-Relay-Protocol: 1`. Reads of `grant#any` databases are open;
+other reads may still present `nodeSignature`.
 
 ### `log.append` / `log.read`
 
@@ -86,9 +87,17 @@ recovery is a new `device_id`, not a relay feature.
 
 ## Errors
 
-Auth/signature (`unauthorized`), `payment_required` (when billed through
-the relay), quota/rate limits (**429** `rate_limited`), `not_found`, and
-bad request (`invalid_request`). No `forbidden` / `grant.*`.
+| HTTP | code | notes |
+|---|---|---|
+| 400 | `invalid_request` | arg paths; `grants.any.role` (any must be read); signatures |
+| 400 | `batch_too_large` | batch caps |
+| 401 | `unauthorized` | auth/signature |
+| 404 | `not_found` | missing log/blob (incl. after `blob_delete`) |
+| 426 | `upgrade_required` | `request.protocol` |
+| 429 | `rate_limited` | quota / rate limits |
+
+`payment_required` when billed through the relay. No `forbidden` /
+`grant.*`.
 
 ## CI conformance
 

@@ -376,7 +376,7 @@ ExeMem/relay cover auth/signature, `payment_required`, quota/rate limits,
 
 | HTTP | code | fields |
 |---|---|---|
-| 400 | `invalid_request` | arg paths, `birth_signature`, `cursor` |
+| 400 | `invalid_request` | arg paths, `grants.any.role` (any must be read), `birth_signature`, `cursor` |
 | 400 | `batch_too_large` | `batch.response` |
 | 401 | `unauthorized` | `request.*`, `device.*`, `account.retired` |
 | 403 | `payment_required` | `payment.subscription` |
