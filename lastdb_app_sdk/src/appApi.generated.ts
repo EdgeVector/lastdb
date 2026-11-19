@@ -410,6 +410,7 @@ export interface DatabasesListRequest {
   invitation?: never;
   publisher?: never;
   database_id?: never;
+  link?: never;
   database?: never;
   include_full?: never;
   include_definition_ids?: never;
@@ -437,6 +438,7 @@ export interface DatabasesCreateRequest {
   invitation?: never;
   publisher?: never;
   database_id?: never;
+  link?: never;
   database?: never;
   include_full?: never;
   include_definition_ids?: never;
@@ -465,6 +467,35 @@ export interface DatabasesAcceptRequest {
   spec?: never;
   kind?: never;
   sharingMode?: never;
+  link?: never;
+  database?: never;
+  include_full?: never;
+  include_definition_ids?: never;
+  schema?: never;
+  intent?: never;
+  retention?: never;
+  app_id?: never;
+  config?: never;
+  contactCode?: never;
+  expectedNodeKey?: never;
+  expiresInHours?: never;
+  mutation?: never;
+  idempotency_key?: never;
+  mutationId?: never;
+}
+
+/** POST /api/databases/accept. link replaces invitation and publisher. This action has no database field. The token is opaque, not a URL. */
+export interface DatabasesAcceptLinkRequest {
+  action: 'accept';
+  /** Opaque lastdb-read-v1 token. */
+  link: string;
+  name?: string;
+  spec?: never;
+  kind?: never;
+  sharingMode?: never;
+  invitation?: never;
+  publisher?: never;
+  database_id?: never;
   database?: never;
   include_full?: never;
   include_definition_ids?: never;
@@ -493,6 +524,7 @@ export interface DatabasesSchemasRequest {
   invitation?: never;
   publisher?: never;
   database_id?: never;
+  link?: never;
   schema?: never;
   intent?: never;
   retention?: never;
@@ -522,6 +554,7 @@ export interface DatabasesDeclareRequest {
   invitation?: never;
   publisher?: never;
   database_id?: never;
+  link?: never;
   include_full?: never;
   include_definition_ids?: never;
   config?: never;
@@ -543,6 +576,7 @@ export interface DatabasesShareConfigRequest {
   invitation?: never;
   publisher?: never;
   database_id?: never;
+  link?: never;
   include_full?: never;
   include_definition_ids?: never;
   schema?: never;
@@ -569,6 +603,7 @@ export interface DatabasesSetShareConfigRequest {
   invitation?: never;
   publisher?: never;
   database_id?: never;
+  link?: never;
   include_full?: never;
   include_definition_ids?: never;
   schema?: never;
@@ -598,6 +633,7 @@ export interface DatabasesInviteRequest {
   invitation?: never;
   publisher?: never;
   database_id?: never;
+  link?: never;
   include_full?: never;
   include_definition_ids?: never;
   schema?: never;
@@ -605,6 +641,33 @@ export interface DatabasesInviteRequest {
   retention?: never;
   app_id?: never;
   config?: never;
+  mutation?: never;
+  idempotency_key?: never;
+  mutationId?: never;
+}
+
+/** POST /api/databases/{id}/share/link. The owner body is empty. The node does not read the share settings. */
+export interface DatabasesShareLinkRequest {
+  action: 'share_link';
+  database?: DatabaseSelector;
+  name?: never;
+  spec?: never;
+  kind?: never;
+  sharingMode?: never;
+  invitation?: never;
+  publisher?: never;
+  database_id?: never;
+  link?: never;
+  include_full?: never;
+  include_definition_ids?: never;
+  schema?: never;
+  intent?: never;
+  retention?: never;
+  app_id?: never;
+  config?: never;
+  contactCode?: never;
+  expectedNodeKey?: never;
+  expiresInHours?: never;
   mutation?: never;
   idempotency_key?: never;
   mutationId?: never;
@@ -624,6 +687,7 @@ export interface DatabasesSubmitRequest {
   invitation?: never;
   publisher?: never;
   database_id?: never;
+  link?: never;
   include_full?: never;
   include_definition_ids?: never;
   schema?: never;
@@ -648,6 +712,7 @@ export interface DatabasesStatusRequest {
   invitation?: never;
   publisher?: never;
   database_id?: never;
+  link?: never;
   include_full?: never;
   include_definition_ids?: never;
   schema?: never;
@@ -663,7 +728,7 @@ export interface DatabasesStatusRequest {
 }
 
 /** One action. A field from another action is invalid_request. */
-export type DatabasesRequest = DatabasesListRequest | DatabasesCreateRequest | DatabasesAcceptRequest | DatabasesSchemasRequest | DatabasesDeclareRequest | DatabasesShareConfigRequest | DatabasesSetShareConfigRequest | DatabasesInviteRequest | DatabasesSubmitRequest | DatabasesStatusRequest;
+export type DatabasesRequest = DatabasesListRequest | DatabasesCreateRequest | DatabasesAcceptRequest | DatabasesAcceptLinkRequest | DatabasesSchemasRequest | DatabasesDeclareRequest | DatabasesShareConfigRequest | DatabasesSetShareConfigRequest | DatabasesInviteRequest | DatabasesShareLinkRequest | DatabasesSubmitRequest | DatabasesStatusRequest;
 
 export interface DatabasesListReply {
   ok: boolean;
@@ -731,6 +796,15 @@ export interface DatabasesInviteReply {
   [key: string]: unknown;
 }
 
+/** The owner open read link envelope. link is one opaque token, not a URL. */
+export interface DatabasesShareLinkReply {
+  ok: boolean;
+  user_hash: string;
+  databaseId: string;
+  link: string;
+  [key: string]: unknown;
+}
+
 export interface DatabasesSubmitReply {
   ok: true;
   status: 'submitted';
@@ -748,7 +822,7 @@ export interface DatabasesStatusReply {
 }
 
 /** Success JSON for an action other than submit. submit answers 202. */
-export type DatabasesReply = DatabasesListReply | DatabasesDatabaseReply | DatabasesSchemasReply | DatabasesDeclareReply | DatabasesShareConfigReply | DatabasesShareUpdateReply | DatabasesInviteReply | DatabasesStatusReply;
+export type DatabasesReply = DatabasesListReply | DatabasesDatabaseReply | DatabasesSchemasReply | DatabasesDeclareReply | DatabasesShareConfigReply | DatabasesShareUpdateReply | DatabasesInviteReply | DatabasesShareLinkReply | DatabasesStatusReply;
 
 /** Maximum items 256. */
 export type ManifestNameList = string[];

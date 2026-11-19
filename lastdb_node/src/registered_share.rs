@@ -11,6 +11,7 @@ use cloud_backup_protocol::{v2::Stream, Digest, Id};
 use fold_db::crypto::E2eKeys;
 use fold_db::fold_db_core::FoldDB;
 use fold_db::storage::config::DatabaseConfig;
+use fold_db::storage::disk_pack::NODE_MARKER;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::ErrorKind;
@@ -18,19 +19,24 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use zeroize::{Zeroize, Zeroizing};
 
-const REGISTRY_LOCK: &str = "registry.lock";
+pub(crate) const REGISTRY_LOCK: &str = "registry.lock";
+/// Sync writes this when the publisher has no snapshot, so replay may open an empty store.
+pub(crate) const SNAPSHOT_ABSENT: &str = "snapshot-absent";
 const MAX_REGISTERED: usize = 32;
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct ManagedRegistration {
-    name: Option<String>,
+    pub(crate) name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    spec: Option<crate::profile::PublicationSpec>,
-    expires_ms: u64,
+    pub(crate) spec: Option<crate::profile::PublicationSpec>,
+    pub(crate) expires_ms: u64,
     /// Named-database signed log. Publication shares omit this.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub(crate) signed_log: bool,
+    /// Open read link. The registration has no sealed invitation.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub(crate) link: bool,
 }
 
 /// Local database registration. Public JSON contains only identifying and
@@ -49,6 +55,9 @@ pub(crate) struct RegisteredShare {
     /// Named-database signed log. Publication shares leave this false.
     #[serde(skip)]
     pub(crate) signed_log: bool,
+    /// Open read link. It has no member entry and does not submit.
+    #[serde(skip)]
+    pub(crate) link: bool,
 }
 
 impl RegisteredShare {
@@ -68,7 +77,7 @@ impl RegisteredShare {
 }
 
 impl ShareCache {
-    fn open_managed(home: &Path, create: bool) -> Result<Option<Self>> {
+    pub(crate) fn open_managed(home: &Path, create: bool) -> Result<Option<Self>> {
         let root = home.join(MANAGED_SHARE_DIRECTORY);
         if !create
             && matches!(fs::symlink_metadata(root), Err(e) if e.kind() == ErrorKind::NotFound)
@@ -161,6 +170,7 @@ impl ShareCache {
             spec: None,
             expires_ms: 0,
             signed_log: false,
+            link: false,
         });
         if let Some(name) = name {
             state.name = Some(name.to_owned());
@@ -183,7 +193,7 @@ impl ShareCache {
         describe(id, &registration)
     }
 
-    fn admit_name(&self, id: &Id, name: Option<&str>) -> Result<()> {
+    pub(crate) fn admit_name(&self, id: &Id, name: Option<&str>) -> Result<()> {
         let ids = self.managed_ids()?;
         if ids.len() == MAX_REGISTERED && !ids.contains(id) {
             return Err(ShareCacheError::Invalid("registry size"));
@@ -202,7 +212,7 @@ impl ShareCache {
     }
 }
 
-fn describe(id: &Id, registration: &Registration) -> Result<RegisteredShare> {
+pub(crate) fn describe(id: &Id, registration: &Registration) -> Result<RegisteredShare> {
     let state = registration
         .managed
         .as_ref()
@@ -217,6 +227,7 @@ fn describe(id: &Id, registration: &Registration) -> Result<RegisteredShare> {
         stream: registration.stream.clone(),
         environment: registration.environment,
         signed_log: state.signed_log,
+        link: state.link,
     })
 }
 
@@ -294,6 +305,10 @@ pub(crate) async fn receiver_store(host: &Host, id: &Id) -> Result<Arc<FoldDB>> 
     if let Some(store) = open.get(id.as_str()) {
         return Ok(Arc::clone(store));
     }
+    // A read must not create the node marker before sync installs the snapshot.
+    if !store_ready(&host.home, id)? {
+        return Err(ShareCacheError::Unavailable);
+    }
     let store = open_receiver(host, id, share.whole_database()).await?;
     open.insert(id.as_str().to_owned(), Arc::clone(&store));
     Ok(store)
@@ -318,15 +333,55 @@ async fn open_receiver(host: &Host, id: &Id, whole_database: bool) -> Result<Arc
     .map_err(|_| ShareCacheError::Unavailable)
 }
 
-fn content_keys(home: &Path, id: &Id) -> Result<E2eKeys> {
-    let opened = verified_invitation(home, id)?;
-    if opened.permission.stream().stream_id.as_str() != id.as_str() {
-        return Err(ShareCacheError::Invalid("stored invitation"));
+/// Content key for a received database.
+///
+/// An invitation registration opens the sealed invitation. A link registration
+/// returns the stored key. The pointer lock is not held across that open.
+pub(crate) fn content_material(home: &Path, id: &Id) -> Result<Zeroizing<[u8; 32]>> {
+    let cache = ShareCache::open_managed(home, false)?.ok_or(ShareCacheError::Unavailable)?;
+    let entry = cache.entry(id, false)?;
+    let pointer = entry.lock(Lock::PointerRead)?;
+    let (registration, _) = entry.load()?;
+    let registration = registration.ok_or(ShareCacheError::Unavailable)?;
+    cache.require_management(&registration)?;
+    if registration.has_invitation() {
+        drop(pointer);
+        let opened = cache.open_verified(id)?;
+        if opened.permission.stream().stream_id.as_str() != id.as_str() {
+            return Err(ShareCacheError::Invalid("stored invitation"));
+        }
+        return Ok(Zeroizing::new(*opened.publication_key));
     }
-    let mut key = Zeroizing::new(*opened.publication_key);
+    registration.link_key()
+}
+
+fn content_keys(home: &Path, id: &Id) -> Result<E2eKeys> {
+    let mut key = content_material(home, id)?;
     let keys = E2eKeys::from_content_key(*key).map_err(|_| ShareCacheError::Unavailable)?;
     key.zeroize();
     Ok(keys)
+}
+
+fn store_ready(home: &Path, id: &Id) -> Result<bool> {
+    let home = home
+        .canonicalize()
+        .map_err(|_| ShareCacheError::Unavailable)?;
+    let entry = home.join(MANAGED_SHARE_DIRECTORY).join(id.as_str());
+    if regular_file(&entry.join("log").join(NODE_MARKER))? {
+        return Ok(true);
+    }
+    regular_file(&entry.join(SNAPSHOT_ABSENT))
+}
+
+fn regular_file(path: &Path) -> Result<bool> {
+    match fs::symlink_metadata(path) {
+        Ok(meta) if meta.file_type().is_symlink() => {
+            Err(ShareCacheError::Invalid("database store"))
+        }
+        Ok(meta) => Ok(meta.is_file()),
+        Err(error) if error.kind() == ErrorKind::NotFound => Ok(false),
+        Err(_) => Err(ShareCacheError::Unavailable),
+    }
 }
 
 fn store_dirs(home: &Path, id: &Id) -> Result<PathBuf> {
