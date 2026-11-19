@@ -209,7 +209,8 @@ body (array or single).
 10. `fetch`/`mutations_since`: publisher sees direct+proposal; receivers direct
     only; accept = publisher push; entries tagged `stream`.
 11. **Silent rejections** — no discard call; node’s `Discarded` settle goes away.
-12. Link rules + access under **manage**.
+12. Access under **manage** (`manage`/`access`). No share-settings / `rules`
+    surface (Decision 30).
 13. Cleanup / retention **ExeMem-internal** — no public ops.
 14. Ingested proposals deletable when publisher fetch cursor advances.
 15. **`manage`/`delete`** — publisher reclaim of all cloud data.
@@ -241,8 +242,8 @@ body (array or single).
     24-word recovery phrase means losing the account. **No reset.**
 26. **`account`/`databases`**: paginated list (opaque cursor) of databases this
     node key owns or has been granted, each with `database_id` and the node’s
-    role (`publisher`, or member `writer`/`reader`). Used by a new or recovered
-    device to learn what to sync.
+    role (`publisher`, or member `writer`/`submit`/`reader`). Used by a new or
+    recovered device to learn what to sync.
 27. **`account`/`status`**: payment/plan state (`paid`), cloud storage used,
     and registered devices. `deactivate` semantics unchanged.
 28. **No node-key rotation.** A compromised node key is remedied only by a
@@ -252,6 +253,27 @@ body (array or single).
     rendezvous surface. `add_device` needs no body `proof`: a valid node-key
     signature for an existing account is enough, and the header device id is
     the new device (unknown-device 401 does not apply to this intent).
+30. **No `rules` / share-settings surface.** `manage`/`create` and
+    `manage`/`grant` take no settings body. `…/share/members/settings/*` is
+    **removed**. **Defaults with no `any` grant:** read is **members only**.
+    **Write:** decided per member by their signed grant — a grant that allows
+    direct writes lands as `direct`; a submit-level grant lands as `proposal`
+    (matches Decision 9 / push `landed`). The **publisher always writes
+    direct**.
+31. **Public read is a grant, not a setting.** `manage`/`grant` accepts
+    grantee **`any`** (reserved value in place of a node key) at **`reader`
+    only**. `any` can never get write or submit →
+    `{ "code":"invalid_request", "field":"grants.any.role" }`.
+    `manage`/`revoke` with `any` turns public read off. ExeMem stores a
+    publisher-signed **`grant#any`** entry like other grants.
+    **`manage`/`access`** reports public state to the publisher
+    (`public_read: true|false`).
+    **Fetch under `any`:** the reader still sends `nodeSignature` with **their
+    own** node key (and device headers). ExeMem allows **read** intents
+    (`fetch`/*) when `grant#any` is active, even if that node key has no
+    per-key grant. Push/manage still require a real membership grant.
+    Whether an **unregistered or unpaid** node key may read under `any` is
+    an open question (recommend **yes**, reads only).
 
 ## Account
 
@@ -325,10 +347,10 @@ DEV snapshot-proof only (`githubOidc`). Considered and rejected: local
 | `push`/`mutations` | `entries[]` (writer device = header) → `landed`, `cursor`, `accepted` |
 | `push`/`snapshot` | `stage`, `ticket?`, … → ticket / `upload_url?` |
 | `push`/`file` | `stage`, `ticket?`, … → `file_handle?` |
-| `manage`/`create` | `rules?` → `access?` |
-| `manage`/`grant` | `grants[]`, `rules?` → `ok` |
-| `manage`/`revoke` | `node_keys[]` → `ok` |
-| `manage`/`access` | `mutation_id?` → `state`, … |
+| `manage`/`create` | `{}` → `access?` (`public_read`, …) |
+| `manage`/`grant` | `grants[]` (`grantee` = node-key hex \| `any`, `role`) → `ok` |
+| `manage`/`revoke` | `grantees[]` (hex \| `any`) → `ok` |
+| `manage`/`access` | `mutation_id?` → `state`, `public_read`, … |
 | `manage`/`delete` | `{}` → `status` |
 
 ## Use cases
@@ -340,7 +362,7 @@ DEV snapshot-proof only (`githubOidc`). Considered and rejected: local
 | Read mutations (+ publisher proposals) | `fetch`/`mutations_since` |
 | Ignore proposal | silent; ExeMem deletes after fetch cursor advances |
 | File / snapshot | `push`/`file`, `fetch`/`file`, `push`/`snapshot`, `fetch`/`snapshot` |
-| Grant / revoke / rules / access | `manage`/`grant`, `revoke`, `access` |
+| Grant / revoke / access (incl. public read `any`) | `manage`/`grant`, `revoke`, `access` |
 | Register account / devices / pay / deactivate | `account`/`register`, `add_device`, `remove_device`, `payment`, `deactivate` |
 | New/recovered device: find DBs to sync | `account`/`databases` |
 | Account paid state, storage used, devices | `account`/`status` |
@@ -367,8 +389,10 @@ DEV snapshot-proof only (`githubOidc`). Considered and rejected: local
 | `…/snapshot/bytes` retention/reclaim/`*_dev` | ExeMem-internal |
 | `…/share/members/set` | `manage`/`grant` / `revoke` |
 | `…/share/members/get` / `list` | **removed** |
-| `…/share/members/read` | `manage`/`access` |
-| `…/share/members/settings/*` | `rules` on create/grant |
+| `…/share/members/read` | `manage`/`access` (includes `public_read`) |
+| `…/share/members/settings/*` | **removed** (Decision 30; no settings intent) |
+| `ShareSettings.read: anyone` | `manage`/`grant` with `grantee: "any"`, `role: "reader"` (`grant#any`) |
+| `lastdb-read-v1.` share links | Link still carries the **content key** (People delivers it). Cloud read auth is `grant#any` + the reader’s `nodeSignature`, not the old settings flag. |
 | `…/dev-snapshot-proof/{op}` | `maintenance` / `snapshot_proof_*` |
 | `/api/auth/enroll/*`, `/api/auth/login/*` | **removed** from this API |
 | `/api/auth/cli/register` | `account`/`register` |
@@ -400,10 +424,7 @@ stable released node (#1799). No unit tests.
 
 ## Open questions for Tom
 
-1. Keep or remove optional `rules` on `manage`/`create` and `manage`/`grant`?
-   **Recommend keep.** `rules` maps to today’s `ShareSettings`
-   (`read` / `write` / `member_writes`) — share transport and proposal policy —
-   not invites or claim slots. ExeMem still enforces `read`/`write`; LastDB
-   still uses `member_writes` on proposal settle. Removing People-side
-   connect/invite does not remove that need. (OpenAPI still types `rules` as a
-   loose object; tighten to ShareSettings fields in a follow-up if wanted.)
+1. Under `grant#any`, may an **unregistered** and/or **unpaid** node key
+   `fetch` (reads only)? **Recommend yes** — valid `nodeSignature` with their
+   own key is enough when `grant#any` is active; paid/register gates stay on
+   push/manage/account. Confirm or restrict.

@@ -420,7 +420,7 @@
     "/api/cloud/v3/manage": {
       "post": {
         "summary": "Manage",
-        "description": "Body is one envelope or an array of envelopes (max 90). Request ≤ 256 KiB; response ≤ 8 MiB (per-item batch_too_large). One Ed25519 signature covers the whole body. Intents: create, grant, revoke, access, delete.",
+        "description": "Body is one envelope or an array of envelopes (max 90). Request ≤ 256 KiB; response ≤ 8 MiB (per-item batch_too_large). One Ed25519 signature covers the whole body. Intents: create, grant, revoke, access, delete. No rules/settings. Public read = grant grantee any (reader only; stored as grant#any). any+writer/submit → 400 invalid_request / grants.any.role.",
         "operationId": "cloudManage",
         "security": [
           {
@@ -462,6 +462,40 @@
                     "args": {}
                   }
                 },
+                "grant_any": {
+                  "summary": "Enable public read (grant#any)",
+                  "value": {
+                    "database_id": "22222222-2222-4222-8222-222222222222",
+                    "intent": "grant",
+                    "args": {
+                      "grants": [
+                        {
+                          "grantee": "any",
+                          "role": "reader"
+                        }
+                      ]
+                    }
+                  }
+                },
+                "revoke_any": {
+                  "summary": "Turn public read off",
+                  "value": {
+                    "database_id": "22222222-2222-4222-8222-222222222222",
+                    "intent": "revoke",
+                    "args": {
+                      "grantees": [
+                        "any"
+                      ]
+                    }
+                  }
+                },
+                "access": {
+                  "value": {
+                    "database_id": "22222222-2222-4222-8222-222222222222",
+                    "intent": "access",
+                    "args": {}
+                  }
+                },
                 "delete": {
                   "value": {
                     "database_id": "22222222-2222-4222-8222-222222222222",
@@ -488,8 +522,19 @@
                       "intent": "create",
                       "result": {
                         "access": {
-                          "state": "ready"
+                          "state": "ready",
+                          "public_read": false
                         }
+                      }
+                    }
+                  },
+                  "access": {
+                    "value": {
+                      "database_id": "22222222-2222-4222-8222-222222222222",
+                      "intent": "access",
+                      "result": {
+                        "state": "ready",
+                        "public_read": true
                       }
                     }
                   }
@@ -1421,17 +1466,47 @@
           }
         ]
       },
+      "GrantGrantee": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Hex64"
+          },
+          {
+            "type": "string",
+            "const": "any",
+            "description": "Public-read grant (grant#any). role must be reader; writer/submit → invalid_request / grants.any.role"
+          }
+        ]
+      },
+      "ManageGrantEntry": {
+        "type": "object",
+        "required": [
+          "grantee",
+          "role"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "grantee": {
+            "$ref": "#/components/schemas/GrantGrantee"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "writer",
+              "submit",
+              "reader"
+            ],
+            "description": "writer → push lands direct; submit → proposal; reader → read only. Grantee any: reader only (Decision 30–31)."
+          }
+        }
+      },
       "ManageArgs": {
         "oneOf": [
           {
             "type": "object",
             "additionalProperties": false,
-            "properties": {
-              "rules": {
-                "type": "object"
-              }
-            },
-            "description": "create"
+            "properties": {},
+            "description": "create — no rules/settings body"
           },
           {
             "type": "object",
@@ -1442,45 +1517,28 @@
             "properties": {
               "grants": {
                 "type": "array",
+                "minItems": 1,
                 "items": {
-                  "type": "object",
-                  "required": [
-                    "node_key",
-                    "role"
-                  ],
-                  "properties": {
-                    "node_key": {
-                      "$ref": "#/components/schemas/Hex64"
-                    },
-                    "role": {
-                      "type": "string",
-                      "enum": [
-                        "publisher",
-                        "writer",
-                        "reader"
-                      ]
-                    }
-                  }
+                  "$ref": "#/components/schemas/ManageGrantEntry"
                 }
-              },
-              "rules": {
-                "type": "object"
               }
             },
-            "description": "grant"
+            "description": "grant — includes public read via grantee any"
           },
           {
             "type": "object",
             "required": [
-              "node_keys"
+              "grantees"
             ],
             "additionalProperties": false,
             "properties": {
-              "node_keys": {
+              "grantees": {
                 "type": "array",
+                "minItems": 1,
                 "items": {
-                  "$ref": "#/components/schemas/Hex64"
-                }
+                  "$ref": "#/components/schemas/GrantGrantee"
+                },
+                "description": "Revoke any turns public read off"
               }
             },
             "description": "revoke"
@@ -1504,8 +1562,80 @@
         ]
       },
       "ManageResult": {
-        "type": "object",
-        "additionalProperties": true
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "access": {
+                "type": "object",
+                "required": [
+                  "public_read"
+                ],
+                "additionalProperties": true,
+                "properties": {
+                  "public_read": {
+                    "type": "boolean"
+                  },
+                  "state": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "description": "create"
+          },
+          {
+            "type": "object",
+            "required": [
+              "ok"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "ok": {
+                "type": "boolean"
+              }
+            },
+            "description": "grant / revoke"
+          },
+          {
+            "type": "object",
+            "required": [
+              "public_read"
+            ],
+            "additionalProperties": true,
+            "properties": {
+              "public_read": {
+                "type": "boolean",
+                "description": "True when grant#any is active"
+              },
+              "state": {
+                "type": "string"
+              },
+              "mutation_id": {
+                "type": "string"
+              }
+            },
+            "description": "access — publisher sees public_read"
+          },
+          {
+            "type": "object",
+            "required": [
+              "status"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "done",
+                  "accepted"
+                ]
+              }
+            },
+            "description": "delete"
+          }
+        ]
       },
       "ManageEnvelope": {
         "type": "object",
@@ -1596,9 +1726,10 @@
         "enum": [
           "publisher",
           "writer",
+          "submit",
           "reader"
         ],
-        "description": "publisher = owns the DB; writer/reader = active member grant (today's ShareMemberRole Submit/Read)."
+        "description": "publisher = owns the DB; writer/submit/reader = active member grant (submit → proposal landed; writer → direct)."
       },
       "AccountDatabaseRow": {
         "type": "object",
