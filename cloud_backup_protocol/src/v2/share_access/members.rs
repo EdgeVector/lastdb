@@ -3,7 +3,7 @@
 use crate::primitives::exact_lower_hex;
 use crate::v2::limits;
 use crate::v2::{Stream, Version};
-use crate::{DecimalU64, Digest, Id, ProtocolError};
+use crate::{DecimalU64, Id, ProtocolError};
 use serde::{Deserialize, Deserializer, Serialize};
 
 const SIGNATURE_HEX_LEN: usize = 128;
