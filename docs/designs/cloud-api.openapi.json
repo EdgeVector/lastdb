@@ -1,14 +1,18 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "ExeMem Cloud API",
+    "title": "LastDB ExeMem Cloud API",
     "version": "3.0.0-design",
-    "description": "Design-only. Product: fetch/push/manage with {database_id,intent,args}. Account: {intent,args} without database_id, no protocol header. Maintenance: DEV snapshot-proof. Batching max 90. Live home: cloud_backup_protocol/cloud-api.openapi.json."
+    "description": "Design contract for cloud API v3. Node traffic uses Ed25519 `nodeSignature` headers (not bearer / API key). See docs/designs/cloud-api.md Decisions 19–20."
   },
   "servers": [
     {
-      "url": "https://api.exemem.example",
-      "description": "ExeMem HTTP API (storage + account gateway)"
+      "url": "https://{host}",
+      "variables": {
+        "host": {
+          "default": "api.example"
+        }
+      }
     }
   ],
   "tags": [
@@ -22,274 +26,948 @@
       "name": "manage"
     },
     {
-      "name": "account",
-      "description": "Identity/keys/payments; no protocol header"
+      "name": "account"
     },
     {
       "name": "maintenance",
-      "description": "DEV-only operational intents"
+      "description": "DEV-only; x-lastdb-environment: dev"
     }
   ],
   "paths": {
-    "/api/cloud/v3/account": {
-      "post": {
-        "operationId": "cloudAccount",
-        "summary": "Account",
-        "tags": [
-          "account"
-        ],
-        "security": [
-          {
-            "accountBearer": []
-          },
-          {
-            "apiKey": []
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/AccountRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AccountResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "$ref": "#/components/responses/Error"
-          },
-          "403": {
-            "$ref": "#/components/responses/Error"
-          }
-        },
-        "description": "Identity, keys, payments. No database_id. No protocol header (Decision 5/18). Host: ExeMem HTTP API (today /api/auth/* and /api/developer/* on the same base URL). enroll_*/login_* must not be batched."
-      }
-    },
     "/api/cloud/v3/fetch": {
       "post": {
-        "operationId": "cloudFetch",
         "summary": "Fetch",
-        "tags": [
-          "fetch"
-        ],
+        "description": "Body is one envelope or an array of envelopes (max 90). Request ≤ 256 KiB; response ≤ 8 MiB (per-item batch_too_large). One Ed25519 signature covers the whole body. Intents: mutations_since, snapshot, file.",
+        "operationId": "cloudFetch",
         "security": [
           {
-            "lastDbNode": []
+            "nodeSignature": []
           }
         ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/FetchRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/FetchResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "$ref": "#/components/responses/Error"
-          },
-          "403": {
-            "$ref": "#/components/responses/Error"
-          },
-          "426": {
-            "$ref": "#/components/responses/UpgradeRequired"
-          }
-        },
         "parameters": [
           {
             "$ref": "#/components/parameters/CloudProtocol"
+          },
+          {
+            "$ref": "#/components/parameters/NodeKey"
+          },
+          {
+            "$ref": "#/components/parameters/DeviceId"
+          },
+          {
+            "$ref": "#/components/parameters/IssuedAt"
+          },
+          {
+            "$ref": "#/components/parameters/Nonce"
+          },
+          {
+            "$ref": "#/components/parameters/Signature"
           }
         ],
-        "description": "Product reads. Envelope with database_id. Protocol header required."
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FetchRequestBody"
+              },
+              "examples": {
+                "mutations_since": {
+                  "summary": "Publisher or receiver mutation page",
+                  "value": {
+                    "database_id": "22222222-2222-4222-8222-222222222222",
+                    "intent": "mutations_since",
+                    "args": {
+                      "cursor": "opaque",
+                      "limit": 50
+                    }
+                  }
+                },
+                "file": {
+                  "summary": "Byte range of a file",
+                  "value": {
+                    "database_id": "22222222-2222-4222-8222-222222222222",
+                    "intent": "file",
+                    "args": {
+                      "file_handle": "opaque",
+                      "offset": 0,
+                      "length": 65536
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Processed (batch or single).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FetchResponseBody"
+                },
+                "examples": {
+                  "mutations_since": {
+                    "value": {
+                      "database_id": "22222222-2222-4222-8222-222222222222",
+                      "intent": "mutations_since",
+                      "result": {
+                        "cursor": "next",
+                        "mutations": [
+                          {
+                            "mutation_id": "m1",
+                            "stream": "direct",
+                            "payload": {}
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Bad, expired, or reused signature; unknown or revoked device. field is request.signature | request.issued_at | request.nonce | device.id | device.revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "unauthorized": {
+                    "value": {
+                      "code": "unauthorized",
+                      "field": "example"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request / batch overflow",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "invalid_request": {
+                    "value": {
+                      "code": "invalid_request",
+                      "field": "example"
+                    }
+                  },
+                  "batch_too_large": {
+                    "value": {
+                      "code": "batch_too_large",
+                      "field": "example"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not permitted for this grant/account",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "forbidden": {
+                    "value": {
+                      "code": "forbidden",
+                      "field": "example"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown resource",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "code": "not_found",
+                      "field": "example"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "Protocol too old; Error.minimum_version set",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "upgrade_required": {
+                    "value": {
+                      "code": "upgrade_required",
+                      "field": "example"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "fetch"
+        ]
+      }
+    },
+    "/api/cloud/v3/push": {
+      "post": {
+        "summary": "Push",
+        "description": "Body is one envelope or an array of envelopes (max 90). Request ≤ 256 KiB; response ≤ 8 MiB (per-item batch_too_large). One Ed25519 signature covers the whole body. Intents: mutations, snapshot, file. Writer device is the signed header.",
+        "operationId": "cloudPush",
+        "security": [
+          {
+            "nodeSignature": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CloudProtocol"
+          },
+          {
+            "$ref": "#/components/parameters/NodeKey"
+          },
+          {
+            "$ref": "#/components/parameters/DeviceId"
+          },
+          {
+            "$ref": "#/components/parameters/IssuedAt"
+          },
+          {
+            "$ref": "#/components/parameters/Nonce"
+          },
+          {
+            "$ref": "#/components/parameters/Signature"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PushRequestBody"
+              },
+              "examples": {
+                "mutations": {
+                  "summary": "Append or propose mutations",
+                  "value": {
+                    "database_id": "22222222-2222-4222-8222-222222222222",
+                    "intent": "mutations",
+                    "args": {
+                      "entries": [
+                        {
+                          "mutation_id": "m1",
+                          "payload": {
+                            "op": "set"
+                          }
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Processed (batch or single).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PushResponseBody"
+                },
+                "examples": {
+                  "mutations": {
+                    "value": {
+                      "database_id": "22222222-2222-4222-8222-222222222222",
+                      "intent": "mutations",
+                      "result": {
+                        "landed": "direct",
+                        "cursor": "c1",
+                        "accepted": [
+                          "m1"
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Bad, expired, or reused signature; unknown or revoked device. field is request.signature | request.issued_at | request.nonce | device.id | device.revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "unauthorized": {
+                    "value": {
+                      "code": "unauthorized",
+                      "field": "example"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request / batch overflow",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "invalid_request": {
+                    "value": {
+                      "code": "invalid_request",
+                      "field": "example"
+                    }
+                  },
+                  "batch_too_large": {
+                    "value": {
+                      "code": "batch_too_large",
+                      "field": "example"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not permitted for this grant/account",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "forbidden": {
+                    "value": {
+                      "code": "forbidden",
+                      "field": "example"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown resource",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "code": "not_found",
+                      "field": "example"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "Protocol too old; Error.minimum_version set",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "upgrade_required": {
+                    "value": {
+                      "code": "upgrade_required",
+                      "field": "example"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "push"
+        ]
+      }
+    },
+    "/api/cloud/v3/manage": {
+      "post": {
+        "summary": "Manage",
+        "description": "Body is one envelope or an array of envelopes (max 90). Request ≤ 256 KiB; response ≤ 8 MiB (per-item batch_too_large). One Ed25519 signature covers the whole body. Intents: create, grant, revoke, access, delete.",
+        "operationId": "cloudManage",
+        "security": [
+          {
+            "nodeSignature": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CloudProtocol"
+          },
+          {
+            "$ref": "#/components/parameters/NodeKey"
+          },
+          {
+            "$ref": "#/components/parameters/DeviceId"
+          },
+          {
+            "$ref": "#/components/parameters/IssuedAt"
+          },
+          {
+            "$ref": "#/components/parameters/Nonce"
+          },
+          {
+            "$ref": "#/components/parameters/Signature"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ManageRequestBody"
+              },
+              "examples": {
+                "create": {
+                  "value": {
+                    "database_id": "22222222-2222-4222-8222-222222222222",
+                    "intent": "create",
+                    "args": {}
+                  }
+                },
+                "delete": {
+                  "value": {
+                    "database_id": "22222222-2222-4222-8222-222222222222",
+                    "intent": "delete",
+                    "args": {}
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Processed (batch or single).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManageResponseBody"
+                },
+                "examples": {
+                  "create": {
+                    "value": {
+                      "database_id": "22222222-2222-4222-8222-222222222222",
+                      "intent": "create",
+                      "result": {
+                        "access": {
+                          "state": "ready"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Bad, expired, or reused signature; unknown or revoked device. field is request.signature | request.issued_at | request.nonce | device.id | device.revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "unauthorized": {
+                    "value": {
+                      "code": "unauthorized",
+                      "field": "example"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request / batch overflow",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "invalid_request": {
+                    "value": {
+                      "code": "invalid_request",
+                      "field": "example"
+                    }
+                  },
+                  "batch_too_large": {
+                    "value": {
+                      "code": "batch_too_large",
+                      "field": "example"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not permitted for this grant/account",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "forbidden": {
+                    "value": {
+                      "code": "forbidden",
+                      "field": "example"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown resource",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "code": "not_found",
+                      "field": "example"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "Protocol too old; Error.minimum_version set",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "upgrade_required": {
+                    "value": {
+                      "code": "upgrade_required",
+                      "field": "example"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "manage"
+        ]
+      }
+    },
+    "/api/cloud/v3/account": {
+      "post": {
+        "summary": "Account",
+        "description": "Body is one envelope or an array of envelopes (max 90). Request ≤ 256 KiB; response ≤ 8 MiB (per-item batch_too_large). One Ed25519 signature covers the whole body. No Cloud-Protocol header. Intents: register, payment, deactivate, add_device, remove_device. No login; no API keys. No per-device keys (Decision 21). register rate-limited → 429 rate_limited / account.register. payment → signed payment_url. App registry publish requires a paid ExeMem account.",
+        "operationId": "cloudAccount",
+        "security": [
+          {
+            "nodeSignature": []
+          }
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/NodeKey"
+          },
+          {
+            "$ref": "#/components/parameters/DeviceId"
+          },
+          {
+            "$ref": "#/components/parameters/IssuedAt"
+          },
+          {
+            "$ref": "#/components/parameters/Nonce"
+          },
+          {
+            "$ref": "#/components/parameters/Signature"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccountRequestBody"
+              },
+              "examples": {
+                "register": {
+                  "summary": "First device; device id is the signed header",
+                  "value": {
+                    "intent": "register",
+                    "args": {}
+                  }
+                },
+                "add_device": {
+                  "summary": "Header device authorizes; args.device_id is new",
+                  "value": {
+                    "intent": "add_device",
+                    "args": {
+                      "device_id": "33333333-3333-4333-8333-333333333333",
+                      "proof": "opaque-connect-or-recovery"
+                    }
+                  }
+                },
+                "payment": {
+                  "summary": "Returns a short-lived single-use signed payment URL",
+                  "value": {
+                    "intent": "payment",
+                    "args": {}
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Processed (batch or single).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountResponseBody"
+                },
+                "examples": {
+                  "register": {
+                    "value": {
+                      "intent": "register",
+                      "result": {
+                        "ok": true,
+                        "account_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+                      }
+                    }
+                  },
+                  "payment": {
+                    "value": {
+                      "intent": "payment",
+                      "result": {
+                        "payment_url": "https://pay.example/s/opaque-single-use",
+                        "expires_at_ms": 1730000300000
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Bad, expired, or reused signature; unknown or revoked device. field is request.signature | request.issued_at | request.nonce | device.id | device.revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "unauthorized": {
+                    "value": {
+                      "code": "unauthorized",
+                      "field": "example"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request / batch overflow",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "invalid_request": {
+                    "value": {
+                      "code": "invalid_request",
+                      "field": "example"
+                    }
+                  },
+                  "batch_too_large": {
+                    "value": {
+                      "code": "batch_too_large",
+                      "field": "example"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not permitted for this grant/account",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "forbidden": {
+                    "value": {
+                      "code": "forbidden",
+                      "field": "example"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown resource",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "code": "not_found",
+                      "field": "example"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "Protocol too old; Error.minimum_version set",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "upgrade_required": {
+                    "value": {
+                      "code": "upgrade_required",
+                      "field": "example"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "register rate limit; field account.register",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "rate_limited": {
+                    "value": {
+                      "code": "rate_limited",
+                      "field": "example"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "account"
+        ]
       }
     },
     "/api/cloud/v3/maintenance": {
       "post": {
+        "summary": "Maintenance (DEV)",
+        "description": "DEV snapshot-proof only. githubOidc. Not node-signed.",
         "operationId": "cloudMaintenance",
-        "summary": "Maintenance",
-        "tags": [
-          "maintenance"
-        ],
         "security": [
           {
             "githubOidc": []
           }
         ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/CloudProtocol"
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/MaintenanceRequest"
+                "$ref": "#/components/schemas/MaintenanceRequestBody"
+              },
+              "examples": {
+                "status": {
+                  "value": {
+                    "intent": "snapshot_proof_status",
+                    "args": {}
+                  }
+                }
               }
             }
           }
         },
         "responses": {
           "200": {
-            "description": "OK",
+            "description": "Processed (batch or single).",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/MaintenanceResponse"
+                  "$ref": "#/components/schemas/MaintenanceResponseBody"
+                },
+                "examples": {
+                  "status": {
+                    "value": {
+                      "intent": "snapshot_proof_status",
+                      "result": {
+                        "state": "idle"
+                      }
+                    }
+                  }
                 }
               }
             }
           },
-          "401": {
-            "$ref": "#/components/responses/Error"
+          "400": {
+            "description": "Bad request / batch overflow",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "invalid_request": {
+                    "value": {
+                      "code": "invalid_request",
+                      "field": "example"
+                    }
+                  },
+                  "batch_too_large": {
+                    "value": {
+                      "code": "batch_too_large",
+                      "field": "example"
+                    }
+                  }
+                }
+              }
+            }
           },
           "403": {
-            "$ref": "#/components/responses/Error"
+            "description": "Not DEV / bad OIDC",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "forbidden": {
+                    "value": {
+                      "code": "forbidden",
+                      "field": "example"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown resource",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "code": "not_found",
+                      "field": "example"
+                    }
+                  }
+                }
+              }
+            }
           },
           "426": {
-            "$ref": "#/components/responses/UpgradeRequired"
+            "description": "Protocol too old; Error.minimum_version set",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "upgrade_required": {
+                    "value": {
+                      "code": "upgrade_required",
+                      "field": "example"
+                    }
+                  }
+                }
+              }
+            }
           }
         },
-        "parameters": [
-          {
-            "$ref": "#/components/parameters/CloudProtocol"
-          }
+        "tags": [
+          "maintenance"
         ],
-        "description": "Operational non-database calls. DEV snapshot-proof only today. Protocol header required. x-lastdb-environment:dev.",
         "x-lastdb-environment": "dev"
-      }
-    },
-    "/api/cloud/v3/manage": {
-      "post": {
-        "operationId": "cloudManage",
-        "summary": "Manage",
-        "tags": [
-          "manage"
-        ],
-        "security": [
-          {
-            "apiKey": []
-          },
-          {
-            "lastDbNode": []
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ManageRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ManageResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "$ref": "#/components/responses/Error"
-          },
-          "403": {
-            "$ref": "#/components/responses/Error"
-          },
-          "426": {
-            "$ref": "#/components/responses/UpgradeRequired"
-          }
-        },
-        "parameters": [
-          {
-            "$ref": "#/components/parameters/CloudProtocol"
-          }
-        ],
-        "description": "create|grant|revoke|access|delete."
-      }
-    },
-    "/api/cloud/v3/push": {
-      "post": {
-        "operationId": "cloudPush",
-        "summary": "Push",
-        "tags": [
-          "push"
-        ],
-        "security": [
-          {
-            "apiKey": []
-          },
-          {
-            "lastDbNode": []
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PushRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PushResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "$ref": "#/components/responses/Error"
-          },
-          "403": {
-            "$ref": "#/components/responses/Error"
-          },
-          "426": {
-            "$ref": "#/components/responses/UpgradeRequired"
-          }
-        },
-        "parameters": [
-          {
-            "$ref": "#/components/parameters/CloudProtocol"
-          }
-        ],
-        "description": "Product writes. Dual-auth open question for create/file; see design doc."
       }
     }
   },
   "components": {
+    "securitySchemes": {
+      "nodeSignature": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-LastDB-Signature",
+        "description": "Ed25519 signature (base64url, no pad) over UTF-8 lines joined by newline: POST\\n<path>\\n<protocol|->\\n<node key hex>\\n<device id>\\n<issued-at ms>\\n<nonce hex>\\n<body sha256 hex>. Companion headers: X-LastDB-Node-Key, X-LastDB-Device-Id, X-LastDB-Issued-At, X-LastDB-Nonce. Clock skew ±5 minutes. Replaces LastDBNode bearer and X-API-Key. Bad signature → 401 field request.signature; expired → request.issued_at; reused nonce → request.nonce."
+      },
+      "githubOidc": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "GitHub Actions OIDC for DEV maintenance only."
+      }
+    },
     "parameters": {
       "CloudProtocol": {
         "name": "X-LastDB-Cloud-Protocol",
@@ -297,205 +975,80 @@
         "required": true,
         "schema": {
           "type": "integer",
-          "const": 3
+          "enum": [
+            3
+          ]
         },
-        "description": "Required on fetch/push/manage/maintenance. Not on account."
-      }
-    },
-    "securitySchemes": {
-      "accountBearer": {
-        "type": "http",
-        "scheme": "bearer"
+        "description": "Wire protocol version. Required on fetch/push/manage/maintenance. Not on account."
       },
-      "apiKey": {
-        "type": "apiKey",
+      "NodeKey": {
+        "name": "X-LastDB-Node-Key",
         "in": "header",
-        "name": "X-API-Key"
+        "required": true,
+        "schema": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "description": "Ed25519 public key (64 hex). Account identity.",
+        "example": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
       },
-      "lastDbNode": {
-        "type": "http",
-        "scheme": "bearer",
-        "bearerFormat": "LastDBNode"
+      "DeviceId": {
+        "name": "X-LastDB-Device-Id",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "$ref": "#/components/schemas/Uuid"
+        },
+        "description": "Registered device UUID for this request.",
+        "example": "11111111-1111-4111-8111-111111111111"
       },
-      "githubOidc": {
-        "type": "http",
-        "scheme": "bearer"
+      "IssuedAt": {
+        "name": "X-LastDB-Issued-At",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "pattern": "^[0-9]+$"
+        },
+        "description": "Unix milliseconds when the signature was made.",
+        "example": "1730000000000"
+      },
+      "Nonce": {
+        "name": "X-LastDB-Nonce",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "description": "32 random bytes as 64 hex; single-use per node key.",
+        "example": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "Signature": {
+        "name": "X-LastDB-Signature",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "minLength": 86,
+          "maxLength": 88
+        },
+        "description": "base64url (no pad) of 64-byte Ed25519 signature.",
+        "example": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
       }
     },
     "schemas": {
-      "IncorporatedFrom": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "node_key",
-          "device_id",
-          "writer_seq"
-        ],
-        "properties": {
-          "node_key": {
-            "type": "string"
-          },
-          "device_id": {
-            "type": "string"
-          },
-          "writer_seq": {
-            "type": "integer",
-            "minimum": 1
-          }
-        }
+      "Uuid": {
+        "type": "string",
+        "format": "uuid"
       },
-      "MutationEntry": {
+      "Error": {
         "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "writer_seq",
-          "authored_at_ms",
-          "namespace",
-          "payload_b64"
-        ],
-        "properties": {
-          "writer_seq": {
-            "type": "integer",
-            "minimum": 1
-          },
-          "authored_at_ms": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "namespace": {
-            "type": "string"
-          },
-          "payload_b64": {
-            "type": "string"
-          },
-          "incorporated_from": {
-            "$ref": "#/components/schemas/IncorporatedFrom"
-          }
-        }
-      },
-      "Mutation": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "stream",
-          "cursor",
-          "writer_node_key",
-          "device_id",
-          "writer_seq",
-          "authored_at_ms",
-          "namespace",
-          "payload_b64"
-        ],
-        "properties": {
-          "stream": {
-            "type": "string",
-            "enum": [
-              "direct",
-              "proposal"
-            ]
-          },
-          "cursor": {
-            "type": "string"
-          },
-          "writer_node_key": {
-            "type": "string"
-          },
-          "device_id": {
-            "type": "string"
-          },
-          "writer_seq": {
-            "type": "integer",
-            "minimum": 1
-          },
-          "authored_at_ms": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "namespace": {
-            "type": "string"
-          },
-          "payload_b64": {
-            "type": "string"
-          },
-          "incorporated_from": {
-            "$ref": "#/components/schemas/IncorporatedFrom"
-          }
-        }
-      },
-      "GrantEntry": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "node_key",
-          "signed_grant"
-        ],
-        "properties": {
-          "node_key": {
-            "type": "string"
-          },
-          "signed_grant": {
-            "type": "string"
-          }
-        }
-      },
-      "SignedRules": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "signed_rules"
-        ],
-        "properties": {
-          "signed_rules": {
-            "type": "string"
-          }
-        }
-      },
-      "AccessInfo": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "state"
-        ],
-        "properties": {
-          "state": {
-            "type": "string",
-            "enum": [
-              "active",
-              "revoked",
-              "absent"
-            ]
-          },
-          "role": {
-            "type": "string"
-          },
-          "signed_grant": {
-            "type": "string"
-          }
-        }
-      },
-      "ItemError": {
-        "type": "object",
-        "additionalProperties": false,
         "required": [
           "code",
           "field"
         ],
-        "properties": {
-          "code": {
-            "type": "string"
-          },
-          "field": {
-            "type": "string"
-          }
-        }
-      },
-      "ErrorBody": {
-        "type": "object",
         "additionalProperties": false,
-        "required": [
-          "code",
-          "field"
-        ],
         "properties": {
           "code": {
             "type": "string"
@@ -508,3757 +1061,791 @@
           }
         }
       },
-      "UpgradeRequiredBody": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "code",
-          "field",
-          "minimum_version"
-        ],
-        "properties": {
-          "code": {
-            "type": "string",
-            "const": "upgrade_required"
-          },
-          "field": {
-            "type": "string",
-            "const": "cloud.protocol"
-          },
-          "minimum_version": {
-            "type": "integer",
-            "const": 3
-          }
-        }
+      "Hex64": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$"
       },
-      "Fetch_mutations_since_Args": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [],
-        "properties": {
-          "cursor": {
-            "type": "string"
-          },
-          "limit": {
-            "type": "integer",
-            "minimum": 1
-          }
-        }
+      "FetchIntent": {
+        "type": "string",
+        "enum": [
+          "mutations_since",
+          "snapshot",
+          "file"
+        ]
       },
-      "Fetch_mutations_since_Result": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "cursor",
-          "mutations"
-        ],
-        "properties": {
-          "cursor": {
-            "type": "string"
-          },
-          "mutations": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Mutation"
-            }
-          }
-        }
-      },
-      "Fetch_mutations_since_Request": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "database_id",
-          "intent",
-          "args"
-        ],
-        "properties": {
-          "database_id": {
-            "type": "string"
-          },
-          "intent": {
-            "type": "string",
-            "const": "mutations_since"
-          },
-          "args": {
-            "$ref": "#/components/schemas/Fetch_mutations_since_Args"
-          }
-        }
-      },
-      "Fetch_mutations_since_Response": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "database_id",
-          "intent",
-          "result"
-        ],
-        "properties": {
-          "database_id": {
-            "type": "string"
-          },
-          "intent": {
-            "type": "string",
-            "const": "mutations_since"
-          },
-          "result": {
-            "$ref": "#/components/schemas/Fetch_mutations_since_Result"
-          }
-        }
-      },
-      "Fetch_mutations_since_ErrorItem": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "database_id",
-          "intent",
-          "error"
-        ],
-        "properties": {
-          "database_id": {
-            "type": "string"
-          },
-          "intent": {
-            "type": "string",
-            "const": "mutations_since"
-          },
-          "error": {
-            "$ref": "#/components/schemas/ItemError"
-          }
-        }
-      },
-      "Fetch_snapshot_Args": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [],
-        "properties": {
-          "restore_point_id": {
-            "type": "string"
-          },
-          "part_handle": {
-            "type": "string"
-          }
-        }
-      },
-      "Fetch_snapshot_Result": {
+      "FetchArgs": {
         "oneOf": [
           {
             "type": "object",
+            "required": [],
             "additionalProperties": false,
-            "required": [
-              "kind",
-              "restore_point_id",
-              "part_handles"
-            ],
             "properties": {
-              "kind": {
-                "type": "string",
-                "const": "describe"
+              "cursor": {
+                "type": "string"
               },
+              "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 90
+              }
+            },
+            "description": "mutations_since"
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
               "restore_point_id": {
                 "type": "string"
               },
-              "part_handles": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
+              "part_handle": {
+                "type": "string"
               }
-            }
+            },
+            "description": "snapshot"
           },
           {
             "type": "object",
-            "additionalProperties": false,
             "required": [
-              "kind",
-              "part_handle",
-              "bytes_b64",
+              "file_handle",
+              "offset",
               "length"
             ],
+            "additionalProperties": false,
             "properties": {
-              "kind": {
-                "type": "string",
-                "const": "part"
-              },
-              "part_handle": {
+              "file_handle": {
                 "type": "string"
               },
-              "bytes_b64": {
-                "type": "string"
+              "offset": {
+                "type": "integer",
+                "minimum": 0
               },
               "length": {
                 "type": "integer",
-                "minimum": 0
+                "minimum": 1
               }
-            }
+            },
+            "description": "file"
           }
         ]
       },
-      "Fetch_snapshot_Request": {
+      "FetchResult": {
         "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "database_id",
-          "intent",
-          "args"
-        ],
-        "properties": {
-          "database_id": {
-            "type": "string"
-          },
-          "intent": {
-            "type": "string",
-            "const": "snapshot"
-          },
-          "args": {
-            "$ref": "#/components/schemas/Fetch_snapshot_Args"
-          }
-        }
-      },
-      "Fetch_snapshot_Response": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "database_id",
-          "intent",
-          "result"
-        ],
-        "properties": {
-          "database_id": {
-            "type": "string"
-          },
-          "intent": {
-            "type": "string",
-            "const": "snapshot"
-          },
-          "result": {
-            "$ref": "#/components/schemas/Fetch_snapshot_Result"
-          }
-        }
-      },
-      "Fetch_snapshot_ErrorItem": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "database_id",
-          "intent",
-          "error"
-        ],
-        "properties": {
-          "database_id": {
-            "type": "string"
-          },
-          "intent": {
-            "type": "string",
-            "const": "snapshot"
-          },
-          "error": {
-            "$ref": "#/components/schemas/ItemError"
-          }
-        }
-      },
-      "Fetch_file_Args": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "file_handle",
-          "offset",
-          "length"
-        ],
-        "properties": {
-          "file_handle": {
-            "type": "string"
-          },
-          "offset": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "length": {
-            "type": "integer",
-            "minimum": 1
-          }
-        }
-      },
-      "Fetch_file_Result": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "file_handle",
-          "offset",
-          "length",
-          "bytes_b64"
-        ],
-        "properties": {
-          "file_handle": {
-            "type": "string"
-          },
-          "offset": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "length": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "bytes_b64": {
-            "type": "string"
-          }
-        }
-      },
-      "Fetch_file_Request": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "database_id",
-          "intent",
-          "args"
-        ],
-        "properties": {
-          "database_id": {
-            "type": "string"
-          },
-          "intent": {
-            "type": "string",
-            "const": "file"
-          },
-          "args": {
-            "$ref": "#/components/schemas/Fetch_file_Args"
-          }
-        }
-      },
-      "Fetch_file_Response": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "database_id",
-          "intent",
-          "result"
-        ],
-        "properties": {
-          "database_id": {
-            "type": "string"
-          },
-          "intent": {
-            "type": "string",
-            "const": "file"
-          },
-          "result": {
-            "$ref": "#/components/schemas/Fetch_file_Result"
-          }
-        }
-      },
-      "Fetch_file_ErrorItem": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "database_id",
-          "intent",
-          "error"
-        ],
-        "properties": {
-          "database_id": {
-            "type": "string"
-          },
-          "intent": {
-            "type": "string",
-            "const": "file"
-          },
-          "error": {
-            "$ref": "#/components/schemas/ItemError"
-          }
-        }
+        "additionalProperties": true,
+        "description": "Typed by intent; see design doc."
       },
       "FetchEnvelope": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/Fetch_mutations_since_Request"
-          },
-          {
-            "$ref": "#/components/schemas/Fetch_snapshot_Request"
-          },
-          {
-            "$ref": "#/components/schemas/Fetch_file_Request"
-          }
+        "type": "object",
+        "required": [
+          "database_id",
+          "intent",
+          "args"
         ],
-        "discriminator": {
-          "propertyName": "intent",
-          "mapping": {
-            "mutations_since": "#/components/schemas/Fetch_mutations_since_Request",
-            "snapshot": "#/components/schemas/Fetch_snapshot_Request",
-            "file": "#/components/schemas/Fetch_file_Request"
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "intent": {
+            "type": "string",
+            "enum": [
+              "mutations_since",
+              "snapshot",
+              "file"
+            ]
+          },
+          "args": {
+            "$ref": "#/components/schemas/FetchArgs"
           }
         }
       },
-      "FetchEnvelopeResult": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/Fetch_mutations_since_Response"
-          },
-          {
-            "$ref": "#/components/schemas/Fetch_snapshot_Response"
-          },
-          {
-            "$ref": "#/components/schemas/Fetch_file_Response"
-          }
+      "FetchResultEnvelope": {
+        "type": "object",
+        "required": [
+          "database_id",
+          "intent",
+          "result"
         ],
-        "discriminator": {
-          "propertyName": "intent",
-          "mapping": {
-            "mutations_since": "#/components/schemas/Fetch_mutations_since_Response",
-            "snapshot": "#/components/schemas/Fetch_snapshot_Response",
-            "file": "#/components/schemas/Fetch_file_Response"
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "intent": {
+            "type": "string",
+            "enum": [
+              "mutations_since",
+              "snapshot",
+              "file"
+            ]
+          },
+          "result": {
+            "$ref": "#/components/schemas/FetchResult"
           }
         }
       },
-      "FetchBatchRequest": {
-        "type": "array",
-        "minItems": 1,
-        "maxItems": 90,
-        "items": {
-          "$ref": "#/components/schemas/FetchEnvelope"
-        },
-        "description": "Up to 90 envelopes (Decision 17)."
-      },
-      "FetchBatchItemResponse": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/Fetch_mutations_since_Response"
-          },
-          {
-            "$ref": "#/components/schemas/Fetch_snapshot_Response"
-          },
-          {
-            "$ref": "#/components/schemas/Fetch_file_Response"
-          },
-          {
-            "$ref": "#/components/schemas/Fetch_mutations_since_ErrorItem"
-          },
-          {
-            "$ref": "#/components/schemas/Fetch_snapshot_ErrorItem"
-          },
-          {
-            "$ref": "#/components/schemas/Fetch_file_ErrorItem"
-          }
-        ]
-      },
-      "FetchBatchResponse": {
-        "type": "array",
-        "minItems": 1,
-        "maxItems": 90,
-        "items": {
-          "$ref": "#/components/schemas/FetchBatchItemResponse"
-        }
-      },
-      "FetchRequest": {
+      "FetchRequestBody": {
         "oneOf": [
           {
             "$ref": "#/components/schemas/FetchEnvelope"
           },
           {
-            "$ref": "#/components/schemas/FetchBatchRequest"
-          }
-        ],
-        "description": "Single envelope or array (Decision 17)."
-      },
-      "FetchResponse": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/FetchEnvelopeResult"
-          },
-          {
-            "$ref": "#/components/schemas/FetchBatchResponse"
-          }
-        ]
-      },
-      "Push_mutations_Args": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "device_id",
-          "entries"
-        ],
-        "properties": {
-          "device_id": {
-            "type": "string"
-          },
-          "entries": {
             "type": "array",
             "minItems": 1,
+            "maxItems": 90,
             "items": {
-              "$ref": "#/components/schemas/MutationEntry"
+              "$ref": "#/components/schemas/FetchEnvelope"
             }
-          }
-        }
-      },
-      "Push_mutations_Result": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "landed",
-          "cursor",
-          "accepted"
-        ],
-        "properties": {
-          "landed": {
-            "type": "string",
-            "enum": [
-              "direct",
-              "proposal"
-            ]
-          },
-          "cursor": {
-            "type": "string"
-          },
-          "accepted": {
-            "type": "integer",
-            "minimum": 0
-          }
-        }
-      },
-      "Push_mutations_Request": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "database_id",
-          "intent",
-          "args"
-        ],
-        "properties": {
-          "database_id": {
-            "type": "string"
-          },
-          "intent": {
-            "type": "string",
-            "const": "mutations"
-          },
-          "args": {
-            "$ref": "#/components/schemas/Push_mutations_Args"
-          }
-        }
-      },
-      "Push_mutations_Response": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "database_id",
-          "intent",
-          "result"
-        ],
-        "properties": {
-          "database_id": {
-            "type": "string"
-          },
-          "intent": {
-            "type": "string",
-            "const": "mutations"
-          },
-          "result": {
-            "$ref": "#/components/schemas/Push_mutations_Result"
-          }
-        }
-      },
-      "Push_mutations_ErrorItem": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "database_id",
-          "intent",
-          "error"
-        ],
-        "properties": {
-          "database_id": {
-            "type": "string"
-          },
-          "intent": {
-            "type": "string",
-            "const": "mutations"
-          },
-          "error": {
-            "$ref": "#/components/schemas/ItemError"
-          }
-        }
-      },
-      "Push_snapshot_Args": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "stage"
-        ],
-        "properties": {
-          "stage": {
-            "type": "string",
-            "enum": [
-              "prepare",
-              "publish"
-            ]
-          },
-          "ticket": {
-            "type": "string"
-          },
-          "restore_point_id": {
-            "type": "string"
-          }
-        }
-      },
-      "Push_snapshot_Result": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "stage",
-          "ticket"
-        ],
-        "properties": {
-          "stage": {
-            "type": "string",
-            "enum": [
-              "prepare",
-              "publish"
-            ]
-          },
-          "ticket": {
-            "type": "string"
-          },
-          "restore_point_id": {
-            "type": "string"
-          },
-          "upload_url": {
-            "type": "string"
-          }
-        }
-      },
-      "Push_snapshot_Request": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "database_id",
-          "intent",
-          "args"
-        ],
-        "properties": {
-          "database_id": {
-            "type": "string"
-          },
-          "intent": {
-            "type": "string",
-            "const": "snapshot"
-          },
-          "args": {
-            "$ref": "#/components/schemas/Push_snapshot_Args"
-          }
-        }
-      },
-      "Push_snapshot_Response": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "database_id",
-          "intent",
-          "result"
-        ],
-        "properties": {
-          "database_id": {
-            "type": "string"
-          },
-          "intent": {
-            "type": "string",
-            "const": "snapshot"
-          },
-          "result": {
-            "$ref": "#/components/schemas/Push_snapshot_Result"
-          }
-        }
-      },
-      "Push_snapshot_ErrorItem": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "database_id",
-          "intent",
-          "error"
-        ],
-        "properties": {
-          "database_id": {
-            "type": "string"
-          },
-          "intent": {
-            "type": "string",
-            "const": "snapshot"
-          },
-          "error": {
-            "$ref": "#/components/schemas/ItemError"
-          }
-        }
-      },
-      "Push_file_Args": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "stage"
-        ],
-        "properties": {
-          "stage": {
-            "type": "string",
-            "enum": [
-              "begin",
-              "complete"
-            ]
-          },
-          "ticket": {
-            "type": "string"
-          },
-          "size_bytes": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "content_sha256": {
-            "type": "string"
-          }
-        }
-      },
-      "Push_file_Result": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "stage",
-          "ticket"
-        ],
-        "properties": {
-          "stage": {
-            "type": "string",
-            "enum": [
-              "begin",
-              "complete"
-            ]
-          },
-          "ticket": {
-            "type": "string"
-          },
-          "file_handle": {
-            "type": "string"
-          },
-          "upload_url": {
-            "type": "string"
-          },
-          "max_range_bytes": {
-            "type": "integer",
-            "minimum": 1
-          }
-        }
-      },
-      "Push_file_Request": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "database_id",
-          "intent",
-          "args"
-        ],
-        "properties": {
-          "database_id": {
-            "type": "string"
-          },
-          "intent": {
-            "type": "string",
-            "const": "file"
-          },
-          "args": {
-            "$ref": "#/components/schemas/Push_file_Args"
-          }
-        }
-      },
-      "Push_file_Response": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "database_id",
-          "intent",
-          "result"
-        ],
-        "properties": {
-          "database_id": {
-            "type": "string"
-          },
-          "intent": {
-            "type": "string",
-            "const": "file"
-          },
-          "result": {
-            "$ref": "#/components/schemas/Push_file_Result"
-          }
-        }
-      },
-      "Push_file_ErrorItem": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "database_id",
-          "intent",
-          "error"
-        ],
-        "properties": {
-          "database_id": {
-            "type": "string"
-          },
-          "intent": {
-            "type": "string",
-            "const": "file"
-          },
-          "error": {
-            "$ref": "#/components/schemas/ItemError"
-          }
-        }
-      },
-      "PushEnvelope": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/Push_mutations_Request"
-          },
-          {
-            "$ref": "#/components/schemas/Push_snapshot_Request"
-          },
-          {
-            "$ref": "#/components/schemas/Push_file_Request"
-          }
-        ],
-        "discriminator": {
-          "propertyName": "intent",
-          "mapping": {
-            "mutations": "#/components/schemas/Push_mutations_Request",
-            "snapshot": "#/components/schemas/Push_snapshot_Request",
-            "file": "#/components/schemas/Push_file_Request"
-          }
-        }
-      },
-      "PushEnvelopeResult": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/Push_mutations_Response"
-          },
-          {
-            "$ref": "#/components/schemas/Push_snapshot_Response"
-          },
-          {
-            "$ref": "#/components/schemas/Push_file_Response"
-          }
-        ],
-        "discriminator": {
-          "propertyName": "intent",
-          "mapping": {
-            "mutations": "#/components/schemas/Push_mutations_Response",
-            "snapshot": "#/components/schemas/Push_snapshot_Response",
-            "file": "#/components/schemas/Push_file_Response"
-          }
-        }
-      },
-      "PushBatchRequest": {
-        "type": "array",
-        "minItems": 1,
-        "maxItems": 90,
-        "items": {
-          "$ref": "#/components/schemas/PushEnvelope"
-        },
-        "description": "Up to 90 envelopes (Decision 17)."
-      },
-      "PushBatchItemResponse": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/Push_mutations_Response"
-          },
-          {
-            "$ref": "#/components/schemas/Push_snapshot_Response"
-          },
-          {
-            "$ref": "#/components/schemas/Push_file_Response"
-          },
-          {
-            "$ref": "#/components/schemas/Push_mutations_ErrorItem"
-          },
-          {
-            "$ref": "#/components/schemas/Push_snapshot_ErrorItem"
-          },
-          {
-            "$ref": "#/components/schemas/Push_file_ErrorItem"
           }
         ]
       },
-      "PushBatchResponse": {
-        "type": "array",
-        "minItems": 1,
-        "maxItems": 90,
-        "items": {
-          "$ref": "#/components/schemas/PushBatchItemResponse"
+      "FetchResponseBody": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/FetchResultEnvelope"
+          },
+          {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 90,
+            "items": {
+              "$ref": "#/components/schemas/FetchResultEnvelope"
+            }
+          }
+        ]
+      },
+      "PushArgs": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "entries"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "entries": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 90,
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "mutation_id",
+                    "payload"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "mutation_id": {
+                      "type": "string"
+                    },
+                    "payload": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            },
+            "description": "mutations — writer device is X-LastDB-Device-Id"
+          },
+          {
+            "type": "object",
+            "required": [
+              "stage"
+            ],
+            "additionalProperties": true,
+            "properties": {
+              "stage": {
+                "type": "string",
+                "enum": [
+                  "prepare",
+                  "upload",
+                  "publish"
+                ]
+              },
+              "ticket": {
+                "type": "string"
+              }
+            },
+            "description": "snapshot"
+          },
+          {
+            "type": "object",
+            "required": [
+              "stage"
+            ],
+            "additionalProperties": true,
+            "properties": {
+              "stage": {
+                "type": "string",
+                "enum": [
+                  "prepare",
+                  "upload",
+                  "commit"
+                ]
+              },
+              "ticket": {
+                "type": "string"
+              }
+            },
+            "description": "file"
+          }
+        ]
+      },
+      "PushResult": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "PushEnvelope": {
+        "type": "object",
+        "required": [
+          "database_id",
+          "intent",
+          "args"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "intent": {
+            "type": "string",
+            "enum": [
+              "mutations",
+              "snapshot",
+              "file"
+            ]
+          },
+          "args": {
+            "$ref": "#/components/schemas/PushArgs"
+          }
         }
       },
-      "PushRequest": {
+      "PushResultEnvelope": {
+        "type": "object",
+        "required": [
+          "database_id",
+          "intent",
+          "result"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "intent": {
+            "type": "string",
+            "enum": [
+              "mutations",
+              "snapshot",
+              "file"
+            ]
+          },
+          "result": {
+            "$ref": "#/components/schemas/PushResult"
+          }
+        }
+      },
+      "PushRequestBody": {
         "oneOf": [
           {
             "$ref": "#/components/schemas/PushEnvelope"
           },
           {
-            "$ref": "#/components/schemas/PushBatchRequest"
-          }
-        ],
-        "description": "Single envelope or array (Decision 17)."
-      },
-      "PushResponse": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/PushEnvelopeResult"
-          },
-          {
-            "$ref": "#/components/schemas/PushBatchResponse"
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 90,
+            "items": {
+              "$ref": "#/components/schemas/PushEnvelope"
+            }
           }
         ]
       },
-      "Manage_create_Args": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [],
-        "properties": {
-          "rules": {
-            "$ref": "#/components/schemas/SignedRules"
-          }
-        }
-      },
-      "Manage_create_Result": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [],
-        "properties": {
-          "access": {
-            "$ref": "#/components/schemas/AccessInfo"
-          }
-        }
-      },
-      "Manage_create_Request": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "database_id",
-          "intent",
-          "args"
-        ],
-        "properties": {
-          "database_id": {
-            "type": "string"
+      "PushResponseBody": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/PushResultEnvelope"
           },
-          "intent": {
-            "type": "string",
-            "const": "create"
-          },
-          "args": {
-            "$ref": "#/components/schemas/Manage_create_Args"
-          }
-        }
-      },
-      "Manage_create_Response": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "database_id",
-          "intent",
-          "result"
-        ],
-        "properties": {
-          "database_id": {
-            "type": "string"
-          },
-          "intent": {
-            "type": "string",
-            "const": "create"
-          },
-          "result": {
-            "$ref": "#/components/schemas/Manage_create_Result"
-          }
-        }
-      },
-      "Manage_create_ErrorItem": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "database_id",
-          "intent",
-          "error"
-        ],
-        "properties": {
-          "database_id": {
-            "type": "string"
-          },
-          "intent": {
-            "type": "string",
-            "const": "create"
-          },
-          "error": {
-            "$ref": "#/components/schemas/ItemError"
-          }
-        }
-      },
-      "Manage_grant_Args": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "grants"
-        ],
-        "properties": {
-          "grants": {
+          {
             "type": "array",
             "minItems": 1,
+            "maxItems": 90,
             "items": {
-              "$ref": "#/components/schemas/GrantEntry"
-            }
-          },
-          "rules": {
-            "$ref": "#/components/schemas/SignedRules"
-          }
-        }
-      },
-      "Manage_grant_Result": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "ok"
-        ],
-        "properties": {
-          "ok": {
-            "type": "boolean"
-          },
-          "access": {
-            "$ref": "#/components/schemas/AccessInfo"
-          }
-        }
-      },
-      "Manage_grant_Request": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "database_id",
-          "intent",
-          "args"
-        ],
-        "properties": {
-          "database_id": {
-            "type": "string"
-          },
-          "intent": {
-            "type": "string",
-            "const": "grant"
-          },
-          "args": {
-            "$ref": "#/components/schemas/Manage_grant_Args"
-          }
-        }
-      },
-      "Manage_grant_Response": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "database_id",
-          "intent",
-          "result"
-        ],
-        "properties": {
-          "database_id": {
-            "type": "string"
-          },
-          "intent": {
-            "type": "string",
-            "const": "grant"
-          },
-          "result": {
-            "$ref": "#/components/schemas/Manage_grant_Result"
-          }
-        }
-      },
-      "Manage_grant_ErrorItem": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "database_id",
-          "intent",
-          "error"
-        ],
-        "properties": {
-          "database_id": {
-            "type": "string"
-          },
-          "intent": {
-            "type": "string",
-            "const": "grant"
-          },
-          "error": {
-            "$ref": "#/components/schemas/ItemError"
-          }
-        }
-      },
-      "Manage_revoke_Args": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "node_keys"
-        ],
-        "properties": {
-          "node_keys": {
-            "type": "array",
-            "minItems": 1,
-            "items": {
-              "type": "string"
+              "$ref": "#/components/schemas/PushResultEnvelope"
             }
           }
-        }
+        ]
       },
-      "Manage_revoke_Result": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "ok"
-        ],
-        "properties": {
-          "ok": {
-            "type": "boolean"
+      "ManageArgs": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "rules": {
+                "type": "object"
+              }
+            },
+            "description": "create"
+          },
+          {
+            "type": "object",
+            "required": [
+              "grants"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "grants": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "node_key",
+                    "role"
+                  ],
+                  "properties": {
+                    "node_key": {
+                      "$ref": "#/components/schemas/Hex64"
+                    },
+                    "role": {
+                      "type": "string",
+                      "enum": [
+                        "publisher",
+                        "writer",
+                        "reader"
+                      ]
+                    }
+                  }
+                }
+              },
+              "rules": {
+                "type": "object"
+              }
+            },
+            "description": "grant"
+          },
+          {
+            "type": "object",
+            "required": [
+              "node_keys"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "node_keys": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Hex64"
+                }
+              }
+            },
+            "description": "revoke"
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "mutation_id": {
+                "type": "string"
+              }
+            },
+            "description": "access"
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {},
+            "description": "delete"
           }
-        }
+        ]
       },
-      "Manage_revoke_Request": {
+      "ManageResult": {
         "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "database_id",
-          "intent",
-          "args"
-        ],
-        "properties": {
-          "database_id": {
-            "type": "string"
-          },
-          "intent": {
-            "type": "string",
-            "const": "revoke"
-          },
-          "args": {
-            "$ref": "#/components/schemas/Manage_revoke_Args"
-          }
-        }
-      },
-      "Manage_revoke_Response": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "database_id",
-          "intent",
-          "result"
-        ],
-        "properties": {
-          "database_id": {
-            "type": "string"
-          },
-          "intent": {
-            "type": "string",
-            "const": "revoke"
-          },
-          "result": {
-            "$ref": "#/components/schemas/Manage_revoke_Result"
-          }
-        }
-      },
-      "Manage_revoke_ErrorItem": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "database_id",
-          "intent",
-          "error"
-        ],
-        "properties": {
-          "database_id": {
-            "type": "string"
-          },
-          "intent": {
-            "type": "string",
-            "const": "revoke"
-          },
-          "error": {
-            "$ref": "#/components/schemas/ItemError"
-          }
-        }
-      },
-      "Manage_access_Args": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [],
-        "properties": {
-          "mutation_id": {
-            "type": "string"
-          }
-        }
-      },
-      "Manage_access_Result": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "state"
-        ],
-        "properties": {
-          "state": {
-            "type": "string",
-            "enum": [
-              "active",
-              "revoked",
-              "absent"
-            ]
-          },
-          "role": {
-            "type": "string"
-          },
-          "signed_grant": {
-            "type": "string"
-          },
-          "contribution_status": {
-            "type": "string",
-            "enum": [
-              "submitted",
-              "published",
-              "unknown"
-            ]
-          }
-        }
-      },
-      "Manage_access_Request": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "database_id",
-          "intent",
-          "args"
-        ],
-        "properties": {
-          "database_id": {
-            "type": "string"
-          },
-          "intent": {
-            "type": "string",
-            "const": "access"
-          },
-          "args": {
-            "$ref": "#/components/schemas/Manage_access_Args"
-          }
-        }
-      },
-      "Manage_access_Response": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "database_id",
-          "intent",
-          "result"
-        ],
-        "properties": {
-          "database_id": {
-            "type": "string"
-          },
-          "intent": {
-            "type": "string",
-            "const": "access"
-          },
-          "result": {
-            "$ref": "#/components/schemas/Manage_access_Result"
-          }
-        }
-      },
-      "Manage_access_ErrorItem": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "database_id",
-          "intent",
-          "error"
-        ],
-        "properties": {
-          "database_id": {
-            "type": "string"
-          },
-          "intent": {
-            "type": "string",
-            "const": "access"
-          },
-          "error": {
-            "$ref": "#/components/schemas/ItemError"
-          }
-        }
-      },
-      "Manage_delete_Args": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [],
-        "properties": {}
-      },
-      "Manage_delete_Result": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "status"
-        ],
-        "properties": {
-          "status": {
-            "type": "string",
-            "enum": [
-              "done",
-              "accepted"
-            ]
-          }
-        }
-      },
-      "Manage_delete_Request": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "database_id",
-          "intent",
-          "args"
-        ],
-        "properties": {
-          "database_id": {
-            "type": "string"
-          },
-          "intent": {
-            "type": "string",
-            "const": "delete"
-          },
-          "args": {
-            "$ref": "#/components/schemas/Manage_delete_Args"
-          }
-        }
-      },
-      "Manage_delete_Response": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "database_id",
-          "intent",
-          "result"
-        ],
-        "properties": {
-          "database_id": {
-            "type": "string"
-          },
-          "intent": {
-            "type": "string",
-            "const": "delete"
-          },
-          "result": {
-            "$ref": "#/components/schemas/Manage_delete_Result"
-          }
-        }
-      },
-      "Manage_delete_ErrorItem": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "database_id",
-          "intent",
-          "error"
-        ],
-        "properties": {
-          "database_id": {
-            "type": "string"
-          },
-          "intent": {
-            "type": "string",
-            "const": "delete"
-          },
-          "error": {
-            "$ref": "#/components/schemas/ItemError"
-          }
-        }
+        "additionalProperties": true
       },
       "ManageEnvelope": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/Manage_create_Request"
-          },
-          {
-            "$ref": "#/components/schemas/Manage_grant_Request"
-          },
-          {
-            "$ref": "#/components/schemas/Manage_revoke_Request"
-          },
-          {
-            "$ref": "#/components/schemas/Manage_access_Request"
-          },
-          {
-            "$ref": "#/components/schemas/Manage_delete_Request"
-          }
+        "type": "object",
+        "required": [
+          "database_id",
+          "intent",
+          "args"
         ],
-        "discriminator": {
-          "propertyName": "intent",
-          "mapping": {
-            "create": "#/components/schemas/Manage_create_Request",
-            "grant": "#/components/schemas/Manage_grant_Request",
-            "revoke": "#/components/schemas/Manage_revoke_Request",
-            "access": "#/components/schemas/Manage_access_Request",
-            "delete": "#/components/schemas/Manage_delete_Request"
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "intent": {
+            "type": "string",
+            "enum": [
+              "create",
+              "grant",
+              "revoke",
+              "access",
+              "delete"
+            ]
+          },
+          "args": {
+            "$ref": "#/components/schemas/ManageArgs"
           }
         }
       },
-      "ManageEnvelopeResult": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/Manage_create_Response"
-          },
-          {
-            "$ref": "#/components/schemas/Manage_grant_Response"
-          },
-          {
-            "$ref": "#/components/schemas/Manage_revoke_Response"
-          },
-          {
-            "$ref": "#/components/schemas/Manage_access_Response"
-          },
-          {
-            "$ref": "#/components/schemas/Manage_delete_Response"
-          }
+      "ManageResultEnvelope": {
+        "type": "object",
+        "required": [
+          "database_id",
+          "intent",
+          "result"
         ],
-        "discriminator": {
-          "propertyName": "intent",
-          "mapping": {
-            "create": "#/components/schemas/Manage_create_Response",
-            "grant": "#/components/schemas/Manage_grant_Response",
-            "revoke": "#/components/schemas/Manage_revoke_Response",
-            "access": "#/components/schemas/Manage_access_Response",
-            "delete": "#/components/schemas/Manage_delete_Response"
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "$ref": "#/components/schemas/Uuid"
+          },
+          "intent": {
+            "type": "string",
+            "enum": [
+              "create",
+              "grant",
+              "revoke",
+              "access",
+              "delete"
+            ]
+          },
+          "result": {
+            "$ref": "#/components/schemas/ManageResult"
           }
         }
       },
-      "ManageBatchRequest": {
-        "type": "array",
-        "minItems": 1,
-        "maxItems": 90,
-        "items": {
-          "$ref": "#/components/schemas/ManageEnvelope"
-        },
-        "description": "Up to 90 envelopes (Decision 17)."
-      },
-      "ManageBatchItemResponse": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/Manage_create_Response"
-          },
-          {
-            "$ref": "#/components/schemas/Manage_grant_Response"
-          },
-          {
-            "$ref": "#/components/schemas/Manage_revoke_Response"
-          },
-          {
-            "$ref": "#/components/schemas/Manage_access_Response"
-          },
-          {
-            "$ref": "#/components/schemas/Manage_delete_Response"
-          },
-          {
-            "$ref": "#/components/schemas/Manage_create_ErrorItem"
-          },
-          {
-            "$ref": "#/components/schemas/Manage_grant_ErrorItem"
-          },
-          {
-            "$ref": "#/components/schemas/Manage_revoke_ErrorItem"
-          },
-          {
-            "$ref": "#/components/schemas/Manage_access_ErrorItem"
-          },
-          {
-            "$ref": "#/components/schemas/Manage_delete_ErrorItem"
-          }
-        ]
-      },
-      "ManageBatchResponse": {
-        "type": "array",
-        "minItems": 1,
-        "maxItems": 90,
-        "items": {
-          "$ref": "#/components/schemas/ManageBatchItemResponse"
-        }
-      },
-      "ManageRequest": {
+      "ManageRequestBody": {
         "oneOf": [
           {
             "$ref": "#/components/schemas/ManageEnvelope"
           },
           {
-            "$ref": "#/components/schemas/ManageBatchRequest"
-          }
-        ],
-        "description": "Single envelope or array (Decision 17)."
-      },
-      "ManageResponse": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/ManageEnvelopeResult"
-          },
-          {
-            "$ref": "#/components/schemas/ManageBatchResponse"
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 90,
+            "items": {
+              "$ref": "#/components/schemas/ManageEnvelope"
+            }
           }
         ]
       },
-      "Account_enroll_start_Args": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [],
-        "properties": {}
-      },
-      "Account_enroll_start_Result": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [],
-        "properties": {
-          "challenge": {
-            "type": "string"
+      "ManageResponseBody": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/ManageResultEnvelope"
           },
-          "session": {
-            "type": "string"
-          }
-        }
-      },
-      "Account_enroll_start_Request": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "args"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "enroll_start"
-          },
-          "args": {
-            "$ref": "#/components/schemas/Account_enroll_start_Args"
-          }
-        }
-      },
-      "Account_enroll_start_Response": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "result"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "enroll_start"
-          },
-          "result": {
-            "$ref": "#/components/schemas/Account_enroll_start_Result"
-          }
-        }
-      },
-      "Account_enroll_start_ErrorItem": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "error"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "enroll_start"
-          },
-          "error": {
-            "$ref": "#/components/schemas/ItemError"
-          }
-        }
-      },
-      "Account_enroll_finish_Args": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "session",
-          "credential"
-        ],
-        "properties": {
-          "session": {
-            "type": "string"
-          },
-          "credential": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "id",
-              "response"
-            ],
-            "properties": {
-              "id": {
-                "type": "string"
-              },
-              "response": {
-                "type": "object",
-                "additionalProperties": false,
-                "properties": {
-                  "clientDataJSON": {
-                    "type": "string"
-                  },
-                  "authenticatorData": {
-                    "type": "string"
-                  },
-                  "signature": {
-                    "type": "string"
-                  },
-                  "userHandle": {
-                    "type": "string"
-                  }
-                }
-              }
-            }
-          }
-        }
-      },
-      "Account_enroll_finish_Result": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "ok"
-        ],
-        "properties": {
-          "ok": {
-            "type": "boolean"
-          },
-          "account_id": {
-            "type": "string"
-          }
-        }
-      },
-      "Account_enroll_finish_Request": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "args"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "enroll_finish"
-          },
-          "args": {
-            "$ref": "#/components/schemas/Account_enroll_finish_Args"
-          }
-        }
-      },
-      "Account_enroll_finish_Response": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "result"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "enroll_finish"
-          },
-          "result": {
-            "$ref": "#/components/schemas/Account_enroll_finish_Result"
-          }
-        }
-      },
-      "Account_enroll_finish_ErrorItem": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "error"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "enroll_finish"
-          },
-          "error": {
-            "$ref": "#/components/schemas/ItemError"
-          }
-        }
-      },
-      "Account_login_start_Args": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [],
-        "properties": {}
-      },
-      "Account_login_start_Result": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [],
-        "properties": {
-          "challenge": {
-            "type": "string"
-          },
-          "session": {
-            "type": "string"
-          }
-        }
-      },
-      "Account_login_start_Request": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "args"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "login_start"
-          },
-          "args": {
-            "$ref": "#/components/schemas/Account_login_start_Args"
-          }
-        }
-      },
-      "Account_login_start_Response": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "result"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "login_start"
-          },
-          "result": {
-            "$ref": "#/components/schemas/Account_login_start_Result"
-          }
-        }
-      },
-      "Account_login_start_ErrorItem": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "error"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "login_start"
-          },
-          "error": {
-            "$ref": "#/components/schemas/ItemError"
-          }
-        }
-      },
-      "Account_login_finish_Args": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "session",
-          "credential"
-        ],
-        "properties": {
-          "session": {
-            "type": "string"
-          },
-          "credential": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "id",
-              "response"
-            ],
-            "properties": {
-              "id": {
-                "type": "string"
-              },
-              "response": {
-                "type": "object",
-                "additionalProperties": false,
-                "properties": {
-                  "clientDataJSON": {
-                    "type": "string"
-                  },
-                  "authenticatorData": {
-                    "type": "string"
-                  },
-                  "signature": {
-                    "type": "string"
-                  },
-                  "userHandle": {
-                    "type": "string"
-                  }
-                }
-              }
-            }
-          }
-        }
-      },
-      "Account_login_finish_Result": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "ok"
-        ],
-        "properties": {
-          "ok": {
-            "type": "boolean"
-          },
-          "account_id": {
-            "type": "string"
-          }
-        }
-      },
-      "Account_login_finish_Request": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "args"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "login_finish"
-          },
-          "args": {
-            "$ref": "#/components/schemas/Account_login_finish_Args"
-          }
-        }
-      },
-      "Account_login_finish_Response": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "result"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "login_finish"
-          },
-          "result": {
-            "$ref": "#/components/schemas/Account_login_finish_Result"
-          }
-        }
-      },
-      "Account_login_finish_ErrorItem": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "error"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "login_finish"
-          },
-          "error": {
-            "$ref": "#/components/schemas/ItemError"
-          }
-        }
-      },
-      "Account_register_Args": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "public_key",
-          "timestamp",
-          "signature",
-          "device_id"
-        ],
-        "properties": {
-          "public_key": {
-            "type": "string"
-          },
-          "timestamp": {
-            "type": "integer"
-          },
-          "signature": {
-            "type": "string"
-          },
-          "device_id": {
-            "type": "string"
-          }
-        }
-      },
-      "Account_register_Result": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "ok",
-          "api_key",
-          "account_id"
-        ],
-        "properties": {
-          "ok": {
-            "type": "boolean"
-          },
-          "api_key": {
-            "type": "string"
-          },
-          "account_id": {
-            "type": "string"
-          }
-        }
-      },
-      "Account_register_Request": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "args"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "register"
-          },
-          "args": {
-            "$ref": "#/components/schemas/Account_register_Args"
-          }
-        }
-      },
-      "Account_register_Response": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "result"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "register"
-          },
-          "result": {
-            "$ref": "#/components/schemas/Account_register_Result"
-          }
-        }
-      },
-      "Account_register_ErrorItem": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "error"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "register"
-          },
-          "error": {
-            "$ref": "#/components/schemas/ItemError"
-          }
-        }
-      },
-      "Account_status_Args": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [],
-        "properties": {}
-      },
-      "Account_status_Result": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "ok",
-          "account_id",
-          "configured"
-        ],
-        "properties": {
-          "ok": {
-            "type": "boolean"
-          },
-          "account_id": {
-            "type": "string"
-          },
-          "configured": {
-            "type": "boolean"
-          },
-          "environment": {
-            "type": "string"
-          }
-        }
-      },
-      "Account_status_Request": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "args"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "status"
-          },
-          "args": {
-            "$ref": "#/components/schemas/Account_status_Args"
-          }
-        }
-      },
-      "Account_status_Response": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "result"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "status"
-          },
-          "result": {
-            "$ref": "#/components/schemas/Account_status_Result"
-          }
-        }
-      },
-      "Account_status_ErrorItem": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "error"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "status"
-          },
-          "error": {
-            "$ref": "#/components/schemas/ItemError"
-          }
-        }
-      },
-      "Account_key_create_Args": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [],
-        "properties": {}
-      },
-      "Account_key_create_Result": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "key",
-          "prefix",
-          "created_at"
-        ],
-        "properties": {
-          "key": {
-            "type": "string"
-          },
-          "prefix": {
-            "type": "string"
-          },
-          "created_at": {
-            "type": "integer"
-          }
-        }
-      },
-      "Account_key_create_Request": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "args"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "key_create"
-          },
-          "args": {
-            "$ref": "#/components/schemas/Account_key_create_Args"
-          }
-        }
-      },
-      "Account_key_create_Response": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "result"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "key_create"
-          },
-          "result": {
-            "$ref": "#/components/schemas/Account_key_create_Result"
-          }
-        }
-      },
-      "Account_key_create_ErrorItem": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "error"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "key_create"
-          },
-          "error": {
-            "$ref": "#/components/schemas/ItemError"
-          }
-        }
-      },
-      "Account_key_list_Args": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [],
-        "properties": {}
-      },
-      "Account_key_list_Result": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "keys"
-        ],
-        "properties": {
-          "keys": {
+          {
             "type": "array",
+            "minItems": 1,
+            "maxItems": 90,
             "items": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "prefix",
-                "created_at"
-              ],
-              "properties": {
-                "prefix": {
-                  "type": "string"
-                },
-                "created_at": {
-                  "type": "integer"
-                }
-              }
+              "$ref": "#/components/schemas/ManageResultEnvelope"
             }
           }
-        }
+        ]
       },
-      "Account_key_list_Request": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "args"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "key_list"
-          },
-          "args": {
-            "$ref": "#/components/schemas/Account_key_list_Args"
-          }
-        }
-      },
-      "Account_key_list_Response": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "result"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "key_list"
-          },
-          "result": {
-            "$ref": "#/components/schemas/Account_key_list_Result"
-          }
-        }
-      },
-      "Account_key_list_ErrorItem": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "error"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "key_list"
-          },
-          "error": {
-            "$ref": "#/components/schemas/ItemError"
-          }
-        }
-      },
-      "Account_key_revoke_Args": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "prefix"
-        ],
-        "properties": {
-          "prefix": {
-            "type": "string"
-          }
-        }
-      },
-      "Account_key_revoke_Result": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "ok",
-          "revoked"
-        ],
-        "properties": {
-          "ok": {
-            "type": "boolean"
-          },
-          "revoked": {
-            "type": "boolean"
-          }
-        }
-      },
-      "Account_key_revoke_Request": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "args"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "key_revoke"
-          },
-          "args": {
-            "$ref": "#/components/schemas/Account_key_revoke_Args"
-          }
-        }
-      },
-      "Account_key_revoke_Response": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "result"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "key_revoke"
-          },
-          "result": {
-            "$ref": "#/components/schemas/Account_key_revoke_Result"
-          }
-        }
-      },
-      "Account_key_revoke_ErrorItem": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "error"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "key_revoke"
-          },
-          "error": {
-            "$ref": "#/components/schemas/ItemError"
-          }
-        }
-      },
-      "Account_payment_setup_intent_Args": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [],
-        "properties": {}
-      },
-      "Account_payment_setup_intent_Result": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "stripe"
-        ],
-        "properties": {
-          "stripe": {
+      "AccountArgs": {
+        "oneOf": [
+          {
             "type": "object",
             "additionalProperties": false,
-            "description": "Opaque Stripe pass-through fields ExeMem does not interpret beyond forwarding.",
-            "properties": {
-              "client_secret": {
-                "type": "string"
-              },
-              "customer_session_client_secret": {
-                "type": "string"
-              },
-              "setup_intent_id": {
-                "type": "string"
-              },
-              "url": {
-                "type": "string"
-              },
-              "methods": {
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "additionalProperties": false,
-                  "properties": {
-                    "id": {
-                      "type": "string"
-                    },
-                    "brand": {
-                      "type": "string"
-                    },
-                    "last4": {
-                      "type": "string"
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      },
-      "Account_payment_setup_intent_Request": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "args"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "payment_setup_intent"
+            "properties": {},
+            "description": "register — device is X-LastDB-Device-Id"
           },
-          "args": {
-            "$ref": "#/components/schemas/Account_payment_setup_intent_Args"
-          }
-        }
-      },
-      "Account_payment_setup_intent_Response": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "result"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "payment_setup_intent"
-          },
-          "result": {
-            "$ref": "#/components/schemas/Account_payment_setup_intent_Result"
-          }
-        }
-      },
-      "Account_payment_setup_intent_ErrorItem": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "error"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "payment_setup_intent"
-          },
-          "error": {
-            "$ref": "#/components/schemas/ItemError"
-          }
-        }
-      },
-      "Account_payment_customer_session_Args": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [],
-        "properties": {}
-      },
-      "Account_payment_customer_session_Result": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "stripe"
-        ],
-        "properties": {
-          "stripe": {
+          {
             "type": "object",
             "additionalProperties": false,
-            "description": "Opaque Stripe pass-through fields ExeMem does not interpret beyond forwarding.",
-            "properties": {
-              "client_secret": {
-                "type": "string"
-              },
-              "customer_session_client_secret": {
-                "type": "string"
-              },
-              "setup_intent_id": {
-                "type": "string"
-              },
-              "url": {
-                "type": "string"
-              },
-              "methods": {
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "additionalProperties": false,
-                  "properties": {
-                    "id": {
-                      "type": "string"
-                    },
-                    "brand": {
-                      "type": "string"
-                    },
-                    "last4": {
-                      "type": "string"
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      },
-      "Account_payment_customer_session_Request": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "args"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "payment_customer_session"
+            "properties": {},
+            "description": "payment — result is payment_url (short-lived single-use signed link) + expires_at_ms"
           },
-          "args": {
-            "$ref": "#/components/schemas/Account_payment_customer_session_Args"
-          }
-        }
-      },
-      "Account_payment_customer_session_Response": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "result"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "payment_customer_session"
-          },
-          "result": {
-            "$ref": "#/components/schemas/Account_payment_customer_session_Result"
-          }
-        }
-      },
-      "Account_payment_customer_session_ErrorItem": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "error"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "payment_customer_session"
-          },
-          "error": {
-            "$ref": "#/components/schemas/ItemError"
-          }
-        }
-      },
-      "Account_payment_methods_Args": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [],
-        "properties": {}
-      },
-      "Account_payment_methods_Result": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "stripe"
-        ],
-        "properties": {
-          "stripe": {
+          {
             "type": "object",
             "additionalProperties": false,
-            "description": "Opaque Stripe pass-through fields ExeMem does not interpret beyond forwarding.",
-            "properties": {
-              "client_secret": {
-                "type": "string"
-              },
-              "customer_session_client_secret": {
-                "type": "string"
-              },
-              "setup_intent_id": {
-                "type": "string"
-              },
-              "url": {
-                "type": "string"
-              },
-              "methods": {
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "additionalProperties": false,
-                  "properties": {
-                    "id": {
-                      "type": "string"
-                    },
-                    "brand": {
-                      "type": "string"
-                    },
-                    "last4": {
-                      "type": "string"
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      },
-      "Account_payment_methods_Request": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "args"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "payment_methods"
+            "properties": {},
+            "description": "deactivate"
           },
-          "args": {
-            "$ref": "#/components/schemas/Account_payment_methods_Args"
-          }
-        }
-      },
-      "Account_payment_methods_Response": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "result"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "payment_methods"
-          },
-          "result": {
-            "$ref": "#/components/schemas/Account_payment_methods_Result"
-          }
-        }
-      },
-      "Account_payment_methods_ErrorItem": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "error"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "payment_methods"
-          },
-          "error": {
-            "$ref": "#/components/schemas/ItemError"
-          }
-        }
-      },
-      "Account_payment_detach_method_Args": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "method_id"
-        ],
-        "properties": {
-          "method_id": {
-            "type": "string"
-          }
-        }
-      },
-      "Account_payment_detach_method_Result": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "stripe"
-        ],
-        "properties": {
-          "stripe": {
+          {
             "type": "object",
+            "required": [
+              "device_id",
+              "proof"
+            ],
             "additionalProperties": false,
-            "description": "Opaque Stripe pass-through fields ExeMem does not interpret beyond forwarding.",
             "properties": {
-              "client_secret": {
-                "type": "string"
+              "device_id": {
+                "$ref": "#/components/schemas/Uuid"
               },
-              "customer_session_client_secret": {
+              "proof": {
                 "type": "string"
-              },
-              "setup_intent_id": {
-                "type": "string"
-              },
-              "url": {
-                "type": "string"
-              },
-              "methods": {
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "additionalProperties": false,
-                  "properties": {
-                    "id": {
-                      "type": "string"
-                    },
-                    "brand": {
-                      "type": "string"
-                    },
-                    "last4": {
-                      "type": "string"
-                    }
-                  }
-                }
               }
-            }
-          }
-        }
-      },
-      "Account_payment_detach_method_Request": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "args"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "payment_detach_method"
+            },
+            "description": "add_device — new device; header device authorizes"
           },
-          "args": {
-            "$ref": "#/components/schemas/Account_payment_detach_method_Args"
-          }
-        }
-      },
-      "Account_payment_detach_method_Response": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "result"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "payment_detach_method"
-          },
-          "result": {
-            "$ref": "#/components/schemas/Account_payment_detach_method_Result"
-          }
-        }
-      },
-      "Account_payment_detach_method_ErrorItem": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "error"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "payment_detach_method"
-          },
-          "error": {
-            "$ref": "#/components/schemas/ItemError"
-          }
-        }
-      },
-      "Account_payment_status_Args": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [],
-        "properties": {}
-      },
-      "Account_payment_status_Result": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "account_id",
-          "configured",
-          "status",
-          "can_checkout",
-          "can_manage",
-          "review_required"
-        ],
-        "properties": {
-          "account_id": {
-            "type": "string"
-          },
-          "configured": {
-            "type": "boolean"
-          },
-          "status": {
-            "type": "string"
-          },
-          "can_checkout": {
-            "type": "boolean"
-          },
-          "can_manage": {
-            "type": "boolean"
-          },
-          "review_required": {
-            "type": "boolean"
-          }
-        }
-      },
-      "Account_payment_status_Request": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "args"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "payment_status"
-          },
-          "args": {
-            "$ref": "#/components/schemas/Account_payment_status_Args"
-          }
-        }
-      },
-      "Account_payment_status_Response": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "result"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "payment_status"
-          },
-          "result": {
-            "$ref": "#/components/schemas/Account_payment_status_Result"
-          }
-        }
-      },
-      "Account_payment_status_ErrorItem": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "error"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "payment_status"
-          },
-          "error": {
-            "$ref": "#/components/schemas/ItemError"
-          }
-        }
-      },
-      "Account_payment_checkout_Args": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [],
-        "properties": {}
-      },
-      "Account_payment_checkout_Result": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "stripe"
-        ],
-        "properties": {
-          "stripe": {
+          {
             "type": "object",
+            "required": [
+              "device_id"
+            ],
             "additionalProperties": false,
-            "description": "Opaque Stripe pass-through fields ExeMem does not interpret beyond forwarding.",
             "properties": {
-              "client_secret": {
-                "type": "string"
-              },
-              "customer_session_client_secret": {
-                "type": "string"
-              },
-              "setup_intent_id": {
-                "type": "string"
-              },
-              "url": {
-                "type": "string"
-              },
-              "methods": {
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "additionalProperties": false,
-                  "properties": {
-                    "id": {
-                      "type": "string"
-                    },
-                    "brand": {
-                      "type": "string"
-                    },
-                    "last4": {
-                      "type": "string"
-                    }
-                  }
-                }
+              "device_id": {
+                "$ref": "#/components/schemas/Uuid"
               }
-            }
+            },
+            "description": "remove_device"
           }
-        }
+        ]
       },
-      "Account_payment_checkout_Request": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "args"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "payment_checkout"
-          },
-          "args": {
-            "$ref": "#/components/schemas/Account_payment_checkout_Args"
-          }
-        }
-      },
-      "Account_payment_checkout_Response": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "result"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "payment_checkout"
-          },
-          "result": {
-            "$ref": "#/components/schemas/Account_payment_checkout_Result"
-          }
-        }
-      },
-      "Account_payment_checkout_ErrorItem": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "error"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "payment_checkout"
-          },
-          "error": {
-            "$ref": "#/components/schemas/ItemError"
-          }
-        }
-      },
-      "Account_payment_portal_Args": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [],
-        "properties": {}
-      },
-      "Account_payment_portal_Result": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "stripe"
-        ],
-        "properties": {
-          "stripe": {
+      "AccountResult": {
+        "oneOf": [
+          {
             "type": "object",
+            "required": [
+              "ok",
+              "account_id"
+            ],
             "additionalProperties": false,
-            "description": "Opaque Stripe pass-through fields ExeMem does not interpret beyond forwarding.",
             "properties": {
-              "client_secret": {
-                "type": "string"
+              "ok": {
+                "type": "boolean"
               },
-              "customer_session_client_secret": {
-                "type": "string"
-              },
-              "setup_intent_id": {
-                "type": "string"
-              },
-              "url": {
-                "type": "string"
-              },
-              "methods": {
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "additionalProperties": false,
-                  "properties": {
-                    "id": {
-                      "type": "string"
-                    },
-                    "brand": {
-                      "type": "string"
-                    },
-                    "last4": {
-                      "type": "string"
-                    }
-                  }
-                }
+              "account_id": {
+                "$ref": "#/components/schemas/Uuid"
               }
-            }
-          }
-        }
-      },
-      "Account_payment_portal_Request": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "args"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "payment_portal"
+            },
+            "description": "register"
           },
-          "args": {
-            "$ref": "#/components/schemas/Account_payment_portal_Args"
-          }
-        }
-      },
-      "Account_payment_portal_Response": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "result"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "payment_portal"
+          {
+            "type": "object",
+            "required": [
+              "payment_url",
+              "expires_at_ms"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "payment_url": {
+                "type": "string",
+                "format": "uri",
+                "description": "Short-lived, single-use, signed link to the hosted payment page (browser has no node key)."
+              },
+              "expires_at_ms": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "description": "payment"
           },
-          "result": {
-            "$ref": "#/components/schemas/Account_payment_portal_Result"
-          }
-        }
-      },
-      "Account_payment_portal_ErrorItem": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "error"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "payment_portal"
+          {
+            "type": "object",
+            "required": [
+              "ok",
+              "status"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "ok": {
+                "type": "boolean"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "done",
+                  "accepted"
+                ]
+              }
+            },
+            "description": "deactivate"
           },
-          "error": {
-            "$ref": "#/components/schemas/ItemError"
+          {
+            "type": "object",
+            "required": [
+              "ok",
+              "device_id"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "ok": {
+                "type": "boolean"
+              },
+              "device_id": {
+                "$ref": "#/components/schemas/Uuid"
+              }
+            },
+            "description": "add_device"
+          },
+          {
+            "type": "object",
+            "required": [
+              "ok"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "ok": {
+                "type": "boolean"
+              }
+            },
+            "description": "remove_device"
           }
-        }
+        ]
       },
       "AccountEnvelope": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/Account_enroll_start_Request"
-          },
-          {
-            "$ref": "#/components/schemas/Account_enroll_finish_Request"
-          },
-          {
-            "$ref": "#/components/schemas/Account_login_start_Request"
-          },
-          {
-            "$ref": "#/components/schemas/Account_login_finish_Request"
-          },
-          {
-            "$ref": "#/components/schemas/Account_register_Request"
-          },
-          {
-            "$ref": "#/components/schemas/Account_status_Request"
-          },
-          {
-            "$ref": "#/components/schemas/Account_key_create_Request"
-          },
-          {
-            "$ref": "#/components/schemas/Account_key_list_Request"
-          },
-          {
-            "$ref": "#/components/schemas/Account_key_revoke_Request"
-          },
-          {
-            "$ref": "#/components/schemas/Account_payment_setup_intent_Request"
-          },
-          {
-            "$ref": "#/components/schemas/Account_payment_customer_session_Request"
-          },
-          {
-            "$ref": "#/components/schemas/Account_payment_methods_Request"
-          },
-          {
-            "$ref": "#/components/schemas/Account_payment_detach_method_Request"
-          },
-          {
-            "$ref": "#/components/schemas/Account_payment_status_Request"
-          },
-          {
-            "$ref": "#/components/schemas/Account_payment_checkout_Request"
-          },
-          {
-            "$ref": "#/components/schemas/Account_payment_portal_Request"
-          }
+        "type": "object",
+        "required": [
+          "intent",
+          "args"
         ],
-        "discriminator": {
-          "propertyName": "intent",
-          "mapping": {
-            "enroll_start": "#/components/schemas/Account_enroll_start_Request",
-            "enroll_finish": "#/components/schemas/Account_enroll_finish_Request",
-            "login_start": "#/components/schemas/Account_login_start_Request",
-            "login_finish": "#/components/schemas/Account_login_finish_Request",
-            "register": "#/components/schemas/Account_register_Request",
-            "status": "#/components/schemas/Account_status_Request",
-            "key_create": "#/components/schemas/Account_key_create_Request",
-            "key_list": "#/components/schemas/Account_key_list_Request",
-            "key_revoke": "#/components/schemas/Account_key_revoke_Request",
-            "payment_setup_intent": "#/components/schemas/Account_payment_setup_intent_Request",
-            "payment_customer_session": "#/components/schemas/Account_payment_customer_session_Request",
-            "payment_methods": "#/components/schemas/Account_payment_methods_Request",
-            "payment_detach_method": "#/components/schemas/Account_payment_detach_method_Request",
-            "payment_status": "#/components/schemas/Account_payment_status_Request",
-            "payment_checkout": "#/components/schemas/Account_payment_checkout_Request",
-            "payment_portal": "#/components/schemas/Account_payment_portal_Request"
+        "additionalProperties": false,
+        "properties": {
+          "intent": {
+            "type": "string",
+            "enum": [
+              "register",
+              "payment",
+              "deactivate",
+              "add_device",
+              "remove_device"
+            ]
+          },
+          "args": {
+            "$ref": "#/components/schemas/AccountArgs"
           }
         }
       },
-      "AccountEnvelopeResult": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/Account_enroll_start_Response"
-          },
-          {
-            "$ref": "#/components/schemas/Account_enroll_finish_Response"
-          },
-          {
-            "$ref": "#/components/schemas/Account_login_start_Response"
-          },
-          {
-            "$ref": "#/components/schemas/Account_login_finish_Response"
-          },
-          {
-            "$ref": "#/components/schemas/Account_register_Response"
-          },
-          {
-            "$ref": "#/components/schemas/Account_status_Response"
-          },
-          {
-            "$ref": "#/components/schemas/Account_key_create_Response"
-          },
-          {
-            "$ref": "#/components/schemas/Account_key_list_Response"
-          },
-          {
-            "$ref": "#/components/schemas/Account_key_revoke_Response"
-          },
-          {
-            "$ref": "#/components/schemas/Account_payment_setup_intent_Response"
-          },
-          {
-            "$ref": "#/components/schemas/Account_payment_customer_session_Response"
-          },
-          {
-            "$ref": "#/components/schemas/Account_payment_methods_Response"
-          },
-          {
-            "$ref": "#/components/schemas/Account_payment_detach_method_Response"
-          },
-          {
-            "$ref": "#/components/schemas/Account_payment_status_Response"
-          },
-          {
-            "$ref": "#/components/schemas/Account_payment_checkout_Response"
-          },
-          {
-            "$ref": "#/components/schemas/Account_payment_portal_Response"
-          }
+      "AccountResultEnvelope": {
+        "type": "object",
+        "required": [
+          "intent",
+          "result"
         ],
-        "discriminator": {
-          "propertyName": "intent",
-          "mapping": {
-            "enroll_start": "#/components/schemas/Account_enroll_start_Response",
-            "enroll_finish": "#/components/schemas/Account_enroll_finish_Response",
-            "login_start": "#/components/schemas/Account_login_start_Response",
-            "login_finish": "#/components/schemas/Account_login_finish_Response",
-            "register": "#/components/schemas/Account_register_Response",
-            "status": "#/components/schemas/Account_status_Response",
-            "key_create": "#/components/schemas/Account_key_create_Response",
-            "key_list": "#/components/schemas/Account_key_list_Response",
-            "key_revoke": "#/components/schemas/Account_key_revoke_Response",
-            "payment_setup_intent": "#/components/schemas/Account_payment_setup_intent_Response",
-            "payment_customer_session": "#/components/schemas/Account_payment_customer_session_Response",
-            "payment_methods": "#/components/schemas/Account_payment_methods_Response",
-            "payment_detach_method": "#/components/schemas/Account_payment_detach_method_Response",
-            "payment_status": "#/components/schemas/Account_payment_status_Response",
-            "payment_checkout": "#/components/schemas/Account_payment_checkout_Response",
-            "payment_portal": "#/components/schemas/Account_payment_portal_Response"
+        "additionalProperties": false,
+        "properties": {
+          "intent": {
+            "type": "string",
+            "enum": [
+              "register",
+              "payment",
+              "deactivate",
+              "add_device",
+              "remove_device"
+            ]
+          },
+          "result": {
+            "$ref": "#/components/schemas/AccountResult"
           }
         }
       },
-      "AccountBatchRequest": {
-        "type": "array",
-        "minItems": 1,
-        "maxItems": 90,
-        "items": {
-          "$ref": "#/components/schemas/AccountEnvelope"
-        },
-        "description": "Up to 90 envelopes (Decision 17)."
-      },
-      "AccountBatchItemResponse": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/Account_enroll_start_Response"
-          },
-          {
-            "$ref": "#/components/schemas/Account_enroll_finish_Response"
-          },
-          {
-            "$ref": "#/components/schemas/Account_login_start_Response"
-          },
-          {
-            "$ref": "#/components/schemas/Account_login_finish_Response"
-          },
-          {
-            "$ref": "#/components/schemas/Account_register_Response"
-          },
-          {
-            "$ref": "#/components/schemas/Account_status_Response"
-          },
-          {
-            "$ref": "#/components/schemas/Account_key_create_Response"
-          },
-          {
-            "$ref": "#/components/schemas/Account_key_list_Response"
-          },
-          {
-            "$ref": "#/components/schemas/Account_key_revoke_Response"
-          },
-          {
-            "$ref": "#/components/schemas/Account_payment_setup_intent_Response"
-          },
-          {
-            "$ref": "#/components/schemas/Account_payment_customer_session_Response"
-          },
-          {
-            "$ref": "#/components/schemas/Account_payment_methods_Response"
-          },
-          {
-            "$ref": "#/components/schemas/Account_payment_detach_method_Response"
-          },
-          {
-            "$ref": "#/components/schemas/Account_payment_status_Response"
-          },
-          {
-            "$ref": "#/components/schemas/Account_payment_checkout_Response"
-          },
-          {
-            "$ref": "#/components/schemas/Account_payment_portal_Response"
-          },
-          {
-            "$ref": "#/components/schemas/Account_enroll_start_ErrorItem"
-          },
-          {
-            "$ref": "#/components/schemas/Account_enroll_finish_ErrorItem"
-          },
-          {
-            "$ref": "#/components/schemas/Account_login_start_ErrorItem"
-          },
-          {
-            "$ref": "#/components/schemas/Account_login_finish_ErrorItem"
-          },
-          {
-            "$ref": "#/components/schemas/Account_register_ErrorItem"
-          },
-          {
-            "$ref": "#/components/schemas/Account_status_ErrorItem"
-          },
-          {
-            "$ref": "#/components/schemas/Account_key_create_ErrorItem"
-          },
-          {
-            "$ref": "#/components/schemas/Account_key_list_ErrorItem"
-          },
-          {
-            "$ref": "#/components/schemas/Account_key_revoke_ErrorItem"
-          },
-          {
-            "$ref": "#/components/schemas/Account_payment_setup_intent_ErrorItem"
-          },
-          {
-            "$ref": "#/components/schemas/Account_payment_customer_session_ErrorItem"
-          },
-          {
-            "$ref": "#/components/schemas/Account_payment_methods_ErrorItem"
-          },
-          {
-            "$ref": "#/components/schemas/Account_payment_detach_method_ErrorItem"
-          },
-          {
-            "$ref": "#/components/schemas/Account_payment_status_ErrorItem"
-          },
-          {
-            "$ref": "#/components/schemas/Account_payment_checkout_ErrorItem"
-          },
-          {
-            "$ref": "#/components/schemas/Account_payment_portal_ErrorItem"
-          }
-        ]
-      },
-      "AccountBatchResponse": {
-        "type": "array",
-        "minItems": 1,
-        "maxItems": 90,
-        "items": {
-          "$ref": "#/components/schemas/AccountBatchItemResponse"
-        }
-      },
-      "AccountRequest": {
+      "AccountRequestBody": {
         "oneOf": [
           {
             "$ref": "#/components/schemas/AccountEnvelope"
           },
           {
-            "$ref": "#/components/schemas/AccountBatchRequest"
-          }
-        ],
-        "description": "Single envelope or array (Decision 17)."
-      },
-      "AccountResponse": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/AccountEnvelopeResult"
-          },
-          {
-            "$ref": "#/components/schemas/AccountBatchResponse"
-          }
-        ]
-      },
-      "Maintenance_snapshot_proof_provision_Args": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [],
-        "properties": {
-          "proof_id": {
-            "type": "string"
-          }
-        },
-        "x-lastdb-environment": "dev"
-      },
-      "Maintenance_snapshot_proof_provision_Result": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "ok",
-          "proof_id"
-        ],
-        "properties": {
-          "ok": {
-            "type": "boolean"
-          },
-          "proof_id": {
-            "type": "string"
-          }
-        },
-        "x-lastdb-environment": "dev"
-      },
-      "Maintenance_snapshot_proof_provision_Request": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "args"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "snapshot_proof_provision"
-          },
-          "args": {
-            "$ref": "#/components/schemas/Maintenance_snapshot_proof_provision_Args"
-          }
-        },
-        "x-lastdb-environment": "dev"
-      },
-      "Maintenance_snapshot_proof_provision_Response": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "result"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "snapshot_proof_provision"
-          },
-          "result": {
-            "$ref": "#/components/schemas/Maintenance_snapshot_proof_provision_Result"
-          }
-        },
-        "x-lastdb-environment": "dev"
-      },
-      "Maintenance_snapshot_proof_provision_ErrorItem": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "error"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "snapshot_proof_provision"
-          },
-          "error": {
-            "$ref": "#/components/schemas/ItemError"
-          }
-        },
-        "x-lastdb-environment": "dev"
-      },
-      "Maintenance_snapshot_proof_retire_Args": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "proof_id"
-        ],
-        "properties": {
-          "proof_id": {
-            "type": "string"
-          }
-        },
-        "x-lastdb-environment": "dev"
-      },
-      "Maintenance_snapshot_proof_retire_Result": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "ok"
-        ],
-        "properties": {
-          "ok": {
-            "type": "boolean"
-          }
-        },
-        "x-lastdb-environment": "dev"
-      },
-      "Maintenance_snapshot_proof_retire_Request": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "args"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "snapshot_proof_retire"
-          },
-          "args": {
-            "$ref": "#/components/schemas/Maintenance_snapshot_proof_retire_Args"
-          }
-        },
-        "x-lastdb-environment": "dev"
-      },
-      "Maintenance_snapshot_proof_retire_Response": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "result"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "snapshot_proof_retire"
-          },
-          "result": {
-            "$ref": "#/components/schemas/Maintenance_snapshot_proof_retire_Result"
-          }
-        },
-        "x-lastdb-environment": "dev"
-      },
-      "Maintenance_snapshot_proof_retire_ErrorItem": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "error"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "snapshot_proof_retire"
-          },
-          "error": {
-            "$ref": "#/components/schemas/ItemError"
-          }
-        },
-        "x-lastdb-environment": "dev"
-      },
-      "Maintenance_snapshot_proof_status_Args": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "proof_id"
-        ],
-        "properties": {
-          "proof_id": {
-            "type": "string"
-          }
-        },
-        "x-lastdb-environment": "dev"
-      },
-      "Maintenance_snapshot_proof_status_Result": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "ok",
-          "status"
-        ],
-        "properties": {
-          "ok": {
-            "type": "boolean"
-          },
-          "status": {
-            "type": "string"
-          },
-          "proof_id": {
-            "type": "string"
-          }
-        },
-        "x-lastdb-environment": "dev"
-      },
-      "Maintenance_snapshot_proof_status_Request": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "args"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "snapshot_proof_status"
-          },
-          "args": {
-            "$ref": "#/components/schemas/Maintenance_snapshot_proof_status_Args"
-          }
-        },
-        "x-lastdb-environment": "dev"
-      },
-      "Maintenance_snapshot_proof_status_Response": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "result"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "snapshot_proof_status"
-          },
-          "result": {
-            "$ref": "#/components/schemas/Maintenance_snapshot_proof_status_Result"
-          }
-        },
-        "x-lastdb-environment": "dev"
-      },
-      "Maintenance_snapshot_proof_status_ErrorItem": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "error"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "snapshot_proof_status"
-          },
-          "error": {
-            "$ref": "#/components/schemas/ItemError"
-          }
-        },
-        "x-lastdb-environment": "dev"
-      },
-      "Maintenance_snapshot_proof_inspect_Args": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "proof_id"
-        ],
-        "properties": {
-          "proof_id": {
-            "type": "string"
-          }
-        },
-        "x-lastdb-environment": "dev"
-      },
-      "Maintenance_snapshot_proof_inspect_Result": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "ok"
-        ],
-        "properties": {
-          "ok": {
-            "type": "boolean"
-          },
-          "proof_id": {
-            "type": "string"
-          },
-          "detail": {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "through": {
-                "type": "integer"
-              },
-              "databases": {
-                "type": "integer"
-              }
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 90,
+            "items": {
+              "$ref": "#/components/schemas/AccountEnvelope"
             }
           }
-        },
-        "x-lastdb-environment": "dev"
+        ]
       },
-      "Maintenance_snapshot_proof_inspect_Request": {
+      "AccountResponseBody": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/AccountResultEnvelope"
+          },
+          {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 90,
+            "items": {
+              "$ref": "#/components/schemas/AccountResultEnvelope"
+            }
+          }
+        ]
+      },
+      "MaintenanceArgs": {
         "type": "object",
-        "additionalProperties": false,
+        "additionalProperties": true
+      },
+      "MaintenanceResult": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "MaintenanceEnvelope": {
+        "type": "object",
         "required": [
           "intent",
           "args"
         ],
+        "additionalProperties": false,
         "properties": {
           "intent": {
             "type": "string",
-            "const": "snapshot_proof_inspect"
+            "enum": [
+              "snapshot_proof_provision",
+              "snapshot_proof_retire",
+              "snapshot_proof_status",
+              "snapshot_proof_inspect"
+            ]
           },
           "args": {
-            "$ref": "#/components/schemas/Maintenance_snapshot_proof_inspect_Args"
+            "$ref": "#/components/schemas/MaintenanceArgs"
           }
-        },
-        "x-lastdb-environment": "dev"
+        }
       },
-      "Maintenance_snapshot_proof_inspect_Response": {
+      "MaintenanceResultEnvelope": {
         "type": "object",
-        "additionalProperties": false,
         "required": [
           "intent",
           "result"
         ],
+        "additionalProperties": false,
         "properties": {
           "intent": {
             "type": "string",
-            "const": "snapshot_proof_inspect"
+            "enum": [
+              "snapshot_proof_provision",
+              "snapshot_proof_retire",
+              "snapshot_proof_status",
+              "snapshot_proof_inspect"
+            ]
           },
           "result": {
-            "$ref": "#/components/schemas/Maintenance_snapshot_proof_inspect_Result"
-          }
-        },
-        "x-lastdb-environment": "dev"
-      },
-      "Maintenance_snapshot_proof_inspect_ErrorItem": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "error"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "snapshot_proof_inspect"
-          },
-          "error": {
-            "$ref": "#/components/schemas/ItemError"
-          }
-        },
-        "x-lastdb-environment": "dev"
-      },
-      "MaintenanceEnvelope": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/Maintenance_snapshot_proof_provision_Request"
-          },
-          {
-            "$ref": "#/components/schemas/Maintenance_snapshot_proof_retire_Request"
-          },
-          {
-            "$ref": "#/components/schemas/Maintenance_snapshot_proof_status_Request"
-          },
-          {
-            "$ref": "#/components/schemas/Maintenance_snapshot_proof_inspect_Request"
-          }
-        ],
-        "discriminator": {
-          "propertyName": "intent",
-          "mapping": {
-            "snapshot_proof_provision": "#/components/schemas/Maintenance_snapshot_proof_provision_Request",
-            "snapshot_proof_retire": "#/components/schemas/Maintenance_snapshot_proof_retire_Request",
-            "snapshot_proof_status": "#/components/schemas/Maintenance_snapshot_proof_status_Request",
-            "snapshot_proof_inspect": "#/components/schemas/Maintenance_snapshot_proof_inspect_Request"
+            "$ref": "#/components/schemas/MaintenanceResult"
           }
         }
       },
-      "MaintenanceEnvelopeResult": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/Maintenance_snapshot_proof_provision_Response"
-          },
-          {
-            "$ref": "#/components/schemas/Maintenance_snapshot_proof_retire_Response"
-          },
-          {
-            "$ref": "#/components/schemas/Maintenance_snapshot_proof_status_Response"
-          },
-          {
-            "$ref": "#/components/schemas/Maintenance_snapshot_proof_inspect_Response"
-          }
-        ],
-        "discriminator": {
-          "propertyName": "intent",
-          "mapping": {
-            "snapshot_proof_provision": "#/components/schemas/Maintenance_snapshot_proof_provision_Response",
-            "snapshot_proof_retire": "#/components/schemas/Maintenance_snapshot_proof_retire_Response",
-            "snapshot_proof_status": "#/components/schemas/Maintenance_snapshot_proof_status_Response",
-            "snapshot_proof_inspect": "#/components/schemas/Maintenance_snapshot_proof_inspect_Response"
-          }
-        }
-      },
-      "MaintenanceBatchRequest": {
-        "type": "array",
-        "minItems": 1,
-        "maxItems": 90,
-        "items": {
-          "$ref": "#/components/schemas/MaintenanceEnvelope"
-        },
-        "description": "Up to 90 envelopes (Decision 17)."
-      },
-      "MaintenanceBatchItemResponse": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/Maintenance_snapshot_proof_provision_Response"
-          },
-          {
-            "$ref": "#/components/schemas/Maintenance_snapshot_proof_retire_Response"
-          },
-          {
-            "$ref": "#/components/schemas/Maintenance_snapshot_proof_status_Response"
-          },
-          {
-            "$ref": "#/components/schemas/Maintenance_snapshot_proof_inspect_Response"
-          },
-          {
-            "$ref": "#/components/schemas/Maintenance_snapshot_proof_provision_ErrorItem"
-          },
-          {
-            "$ref": "#/components/schemas/Maintenance_snapshot_proof_retire_ErrorItem"
-          },
-          {
-            "$ref": "#/components/schemas/Maintenance_snapshot_proof_status_ErrorItem"
-          },
-          {
-            "$ref": "#/components/schemas/Maintenance_snapshot_proof_inspect_ErrorItem"
-          }
-        ]
-      },
-      "MaintenanceBatchResponse": {
-        "type": "array",
-        "minItems": 1,
-        "maxItems": 90,
-        "items": {
-          "$ref": "#/components/schemas/MaintenanceBatchItemResponse"
-        }
-      },
-      "MaintenanceRequest": {
+      "MaintenanceRequestBody": {
         "oneOf": [
           {
             "$ref": "#/components/schemas/MaintenanceEnvelope"
           },
           {
-            "$ref": "#/components/schemas/MaintenanceBatchRequest"
-          }
-        ],
-        "description": "Single envelope or array (Decision 17)."
-      },
-      "MaintenanceResponse": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/MaintenanceEnvelopeResult"
-          },
-          {
-            "$ref": "#/components/schemas/MaintenanceBatchResponse"
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 90,
+            "items": {
+              "$ref": "#/components/schemas/MaintenanceEnvelope"
+            }
           }
         ]
-      }
-    },
-    "x-lastdb-batch": {
-      "max_items": 90,
-      "max_request_bytes": 262144,
-      "max_response_bytes": 8388608
-    },
-    "responses": {
-      "Error": {
-        "description": "Error",
-        "content": {
-          "application/json": {
-            "schema": {
-              "$ref": "#/components/schemas/ErrorBody"
-            }
-          }
-        }
       },
-      "UpgradeRequired": {
-        "description": "Protocol too old",
-        "content": {
-          "application/json": {
-            "schema": {
-              "$ref": "#/components/schemas/UpgradeRequiredBody"
+      "MaintenanceResponseBody": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/MaintenanceResultEnvelope"
+          },
+          {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 90,
+            "items": {
+              "$ref": "#/components/schemas/MaintenanceResultEnvelope"
             }
           }
-        }
+        ]
       }
     }
   }
