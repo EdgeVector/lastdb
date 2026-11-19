@@ -121,7 +121,7 @@ export interface PublishAttempt {
 }
 
 export interface ReceivedPublish {
-  pending: number;
+  pending: number | null;
   lastAttempt: PublishAttempt | null;
 }
 
@@ -284,7 +284,10 @@ function parseReceivedPublish(value: unknown): ReceivedPublish {
     );
   }
   const pending = value['pending'];
-  if (typeof pending !== 'number' || !Number.isInteger(pending) || pending < 0) {
+  if (
+    pending !== null &&
+    (typeof pending !== 'number' || !Number.isInteger(pending) || pending < 0)
+  ) {
     throw new UnexpectedResponseError(
       'database list returned an invalid publish state',
       200,

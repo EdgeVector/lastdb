@@ -157,6 +157,7 @@ pub(crate) async fn submit(
     let store = registered_share::receiver_store(host, &share.id)
         .await
         .map_err(|_| Unavailable)?;
+    super::note_receiver(share.id.as_str(), &store);
     let (_, definition) = intake::resolve_schema(&store, &mutation)?;
     let mut log = connection(host, share, id)?;
     let observed = received::access(&log).await.ok_or(Unavailable)?;
