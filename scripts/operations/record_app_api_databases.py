@@ -16,6 +16,9 @@ calling app.
 
 invite, accept, submit, and submission_status need two nodes that share one
 database. No operation in this tree does that, so this proof does not call them.
+A service authorization refusal on submit is the cloud's decision. This
+fresh home has no cloud, so it cannot show the 403. The DEV two-node run
+(People people-circles, exercise_reader) is the proof.
 share_link is not called: it needs a connected publisher. Share configuration
 on this fresh home has no cloud account and answers 409 no_cloud_account at once.
 """

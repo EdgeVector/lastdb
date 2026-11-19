@@ -14,7 +14,7 @@ use cloud_backup_protocol::Digest;
 const CONFIG_BODY_MAX: u64 = 16 * 1024 * 1024;
 const NO_ACCOUNT: &str = "this node has no cloud account";
 const ENROLLING: &str = "the database is still enrolling with the cloud; retry";
-const RETRY_AFTER_SECS: u64 = 2;
+pub(super) const RETRY_AFTER_SECS: u64 = 2;
 
 pub(super) enum Route {
     Config,

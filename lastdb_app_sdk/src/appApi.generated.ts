@@ -683,7 +683,7 @@ export interface DatabasesShareLinkRequest {
   mutationId?: never;
 }
 
-/** POST /api/databases/{id}/submissions. idempotency_key becomes the Idempotency-Key header. The node appends the proposal to the pending log and does not write a record. */
+/** POST /api/databases/{id}/submissions. idempotency_key becomes the Idempotency-Key header. The node appends the proposal to the pending log and does not write a record. The service authorization refusal (code unauthorized, or HTTP 401 or 403 other than payment.subscription) is 403 permission_denied and the message is "this member cannot submit this shared mutation", with no Retry-After. An append that is not confirmed is 503 busy, the message is "shared mutation was not confirmed", and Retry-After says when to retry. */
 export interface DatabasesSubmitRequest {
   action: 'submit';
   database?: DatabaseSelector;
