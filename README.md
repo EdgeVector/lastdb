@@ -185,15 +185,15 @@ stored in sorted order. The older form, a `fields` array plus separate
 
 ### Share a database
 
-Use [Social](https://github.com/EdgeVector/social) to share a named database with verified
-contacts and circles. TypeScript apps use `socialClient` from
-[`@lastdb/social-client`](https://github.com/EdgeVector/social/tree/main/client),
-which ships with Social, to create a share, seal or accept an invitation, and
+Use [People](https://github.com/EdgeVector/people) to share a named database with verified
+contacts and circles. TypeScript apps use `peopleClient` from
+[`@lastdb/people-client`](https://github.com/EdgeVector/people/tree/main/client),
+which ships with People, to create a share, seal or accept an invitation, and
 get its stable database ID. Use `@lastdb/app-sdk`'s data client to work with
 the records.
-[App SDK sharing guide](lastdb_app_sdk/README.md#set-up-sharing-with-social)
+[App SDK sharing guide](lastdb_app_sdk/README.md#set-up-sharing-with-people)
 
-The publisher sets read access and schema write permissions in Social. Apps
+The publisher sets read access and schema write permissions in People. Apps
 use those settings to show available actions. In a whole-database share, any
 active receiver can send an encrypted change to the pending mutation log.
 Only the publisher reads it and checks the proposed change against the
