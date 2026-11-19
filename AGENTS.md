@@ -47,6 +47,12 @@ changing this path. That document is the decided state: the mutation log is the
 database, the proposal log is separate, and the two settings are independent
 (Tom, 2026-11-18).
 
+Decided later on 2026-11-18 and not built: direct write is per member, not a
+database-wide setting. Each member's entry carries read, propose, or write, and
+the `write` setting below goes away. Org is every member with write. The text
+below describes the `write` setting as the code has it until that rework. See
+"Decided change: direct write is per member" in the sharing design.
+
 The mutation log is the database. Every entry in it is part of the database.
 A caller who may read is served every entry. No entry is hidden because of who
 wrote it. ExeMem alone decides who may append and what a reader is served. A
