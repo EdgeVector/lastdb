@@ -68,11 +68,33 @@ pub(super) fn note_word(database_id: &str, status: &'static str) {
     note(database_id, Outcome::Unconfirmed, StatusKind::Word(status));
 }
 
-/// Record a swallowed publish error once. A note already stored this turn wins.
+/// Record a swallowed publish error. A failure noted earlier this turn wins.
+/// A `confirmed` note does not: a split batch whose first half was confirmed
+/// still stopped, and the report must say so.
 pub(super) fn note_failure(database_id: &str, reason: &str) {
-    let noted = slots().get(database_id).is_some_and(|slot| slot.noted);
-    if !noted {
+    let failed = slots().get(database_id).is_some_and(|slot| {
+        slot.noted
+            && slot
+                .attempt
+                .as_ref()
+                .is_some_and(|attempt| attempt.outcome != Outcome::Confirmed)
+    });
+    if !failed {
         note_word(database_id, failure_status(reason));
+    }
+}
+
+/// A closed share no longer publishes, so an earlier `confirmed` is not current.
+pub(super) fn clear_confirmed(database_id: &str) {
+    if let Some(slot) = slots().get_mut(database_id) {
+        if slot
+            .attempt
+            .as_ref()
+            .is_some_and(|attempt| attempt.outcome == Outcome::Confirmed)
+        {
+            slot.attempt = None;
+            slot.warned = None;
+        }
     }
 }
 
@@ -85,14 +107,19 @@ pub(super) fn note_unreachable(database_id: &str, home: &Path, environment: &str
     note(database_id, Outcome::Unconfirmed, status);
 }
 
-pub(super) fn finish_unnoted(host: &Host, log: &CloudLog) {
+/// A turn that stopped with no note. A local cause is named. Any other stop
+/// had no answer from the cloud, so the credentials decide the status.
+pub(super) fn finish_unnoted(host: &Host, log: &CloudLog, reason: &str) {
     let noted = slots()
         .get(log.database_id())
         .is_some_and(|slot| slot.noted);
     if noted {
         return;
     }
-    note_unreachable(log.database_id(), &host.home, log.environment());
+    match reason_word(reason) {
+        Some(word) => note_word(log.database_id(), word),
+        None => note_unreachable(log.database_id(), &host.home, log.environment()),
+    }
 }
 
 pub(super) fn classify(
@@ -185,7 +212,7 @@ fn note(database_id: &str, outcome: Outcome, status: StatusKind) {
 fn warn_publish(outcome: Outcome, status: StatusKind) {
     // PrivateFormat prints this token as category and drops the message.
     let token = category_token(outcome, status);
-    if publish_category_allowed(&token) {
+    if crate::host::publish_category_allowed(&token) {
         tracing::warn!(target: "lastdbd::log_sync", category = token.as_str(), "publish");
     }
 }
@@ -202,7 +229,16 @@ fn category_token(outcome: Outcome, status: StatusKind) -> String {
 }
 
 fn failure_status(reason: &str) -> &'static str {
-    match reason {
+    reason_word(reason).unwrap_or("upload_unconfirmed")
+}
+
+fn reason_word(reason: &str) -> Option<&'static str> {
+    Some(match reason {
+        "unknown database publication policy" => "policy_unknown",
+        "local database or content key unavailable" => "local_store_unavailable",
+        "local capture disabled until the enrolled node restarts" => "capture_disabled",
+        crate::cloud::PAYMENT_REQUIRED_MESSAGE => "payment_required",
+        super::accepted::SEQUENCE_UNKNOWN => "writer_sequence_unknown",
         "could not read stored writes to initialize the local upload position" => "writer_tip",
         "cloud entries disagree with the saved upload identity" => "upload_identity",
         "local upload position is unavailable for this device and cloud scope" => "upload_position",
@@ -215,33 +251,8 @@ fn failure_status(reason: &str) -> &'static str {
         "invalid local spool position" => "spool_position",
         "invalid local upload batch" => "batch_invalid",
         "signed entry exceeds the request limit" => "entry_too_large",
-        _ => "upload_unconfirmed",
-    }
-}
-
-fn publish_category_allowed(value: &str) -> bool {
-    let (head, tail) = match value.split_once(':') {
-        Some((head, tail)) => (head, Some(tail)),
-        None => (value, None),
-    };
-    if !matches!(head, "confirmed" | "refused" | "unconfirmed") {
-        return false;
-    }
-    match tail {
-        None => true,
-        Some(tail) => http_code(tail) || status_word(tail),
-    }
-}
-
-fn http_code(value: &str) -> bool {
-    (3..=5).contains(&value.len()) && value.bytes().all(|byte| byte.is_ascii_digit())
-}
-
-fn status_word(value: &str) -> bool {
-    (1..=40).contains(&value.len())
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_lowercase() || byte == b'_')
+        _ => return None,
+    })
 }
 
 fn credentials_usable(home: &Path, environment: &str) -> bool {

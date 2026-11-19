@@ -92,7 +92,7 @@ pub(super) async fn turn(host: &Arc<Host>, database: &Database, cleanup: &mut Pa
             return Pause::Retry;
         }
     };
-    if !created(&database.id) {
+    if !created(&log, &database.id) {
         match register(&log, database).await {
             CreateOutcome::Live => {
                 clear_hold(&database.id);
@@ -181,7 +181,7 @@ async fn register(log: &CloudLog, database: &Database) -> CreateOutcome {
     };
     let outcome = create_view(log, body, &database.id).await;
     if matches!(outcome, CreateOutcome::Live) {
-        remember(&database.id);
+        remember(log, &database.id);
     }
     outcome
 }
@@ -235,12 +235,16 @@ fn create_body(
     .map_err(|_| ())
 }
 
-fn created(database_id: &str) -> bool {
-    crate::named_grant::cloud_state::confirmed(database_id)
+fn registration_identity(log: &CloudLog) -> String {
+    crate::named_grant::cloud_state::identity(log.environment(), log.scope.account_id.as_str())
 }
 
-fn remember(database_id: &str) {
-    crate::named_grant::cloud_state::remember(database_id);
+fn created(log: &CloudLog, database_id: &str) -> bool {
+    crate::named_grant::cloud_state::confirmed(database_id, &registration_identity(log))
+}
+
+fn remember(log: &CloudLog, database_id: &str) {
+    crate::named_grant::cloud_state::remember(database_id, registration_identity(log));
 }
 
 #[derive(Serialize)]

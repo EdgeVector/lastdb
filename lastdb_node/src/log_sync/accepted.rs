@@ -22,7 +22,7 @@ use crate::log_envelope::{self, DatabaseContentKey, LogBinding};
 
 use source::{capture_block, namespace_of, publication};
 
-pub(super) use source::{read_page, LocalUpload, PublishPolicy};
+pub(super) use source::{read_page, LocalUpload, PublishPolicy, SEQUENCE_UNKNOWN};
 
 use super::cloud::CloudLog;
 use super::http::paths;

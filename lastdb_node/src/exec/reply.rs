@@ -69,6 +69,8 @@ pub(in crate::exec) struct HostError {
     pub(in crate::exec) reason: Option<&'static str>,
     /// Seconds for a `Retry-After` header. Set only on a retryable refusal.
     pub(in crate::exec) retry_after: Option<u64>,
+    /// The app API code when the status alone does not name the refusal.
+    pub(in crate::exec) code: Option<&'static str>,
 }
 
 impl HostError {
@@ -80,6 +82,7 @@ impl HostError {
             index: None,
             reason: None,
             retry_after: None,
+            code: None,
         }
     }
 
@@ -95,6 +98,7 @@ impl HostError {
             index: None,
             reason: None,
             retry_after: None,
+            code: None,
         }
     }
 
@@ -111,6 +115,12 @@ impl HostError {
     /// Why a write condition did not hold: `exists`, `absent`, or `revision`.
     pub(in crate::exec) fn with_reason(mut self, reason: &'static str) -> Self {
         self.reason = Some(reason);
+        self
+    }
+
+    /// Name the refusal when the status maps to more than one cause.
+    pub(in crate::exec) fn with_code(mut self, code: &'static str) -> Self {
+        self.code = Some(code);
         self
     }
 

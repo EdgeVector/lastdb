@@ -75,7 +75,10 @@ fn error_value(error: &HostError) -> Value {
         error.message.as_str()
     };
     let mut body = serde_json::Map::new();
-    body.insert("code".into(), json!(code(status)));
+    body.insert(
+        "code".into(),
+        json!(error.code.unwrap_or_else(|| code(status))),
+    );
     body.insert("message".into(), json!(message));
     // A 500 hides the cause. index and reason belong to the refusal the caller can act on.
     if status != 500 {

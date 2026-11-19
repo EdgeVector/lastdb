@@ -55,6 +55,9 @@ struct Payload {
 pub(crate) struct IssueError {
     status: u16,
     message: &'static str,
+    /// The cloud connection could not be opened. The caller classifies it by
+    /// the database's enrollment instead of reporting the message.
+    cloud_connection: bool,
 }
 
 impl IssueError {
@@ -62,6 +65,7 @@ impl IssueError {
         Self {
             status: 400,
             message,
+            cloud_connection: false,
         }
     }
 
@@ -69,7 +73,20 @@ impl IssueError {
         Self {
             status: 503,
             message,
+            cloud_connection: false,
         }
+    }
+
+    const fn cloud_connection() -> Self {
+        Self {
+            status: 503,
+            message: "cloud connection is unavailable",
+            cloud_connection: true,
+        }
+    }
+
+    pub(crate) fn is_cloud_connection(&self) -> bool {
+        self.cloud_connection
     }
 
     pub(crate) fn status(&self) -> (u16, &'static str) {
@@ -83,7 +100,7 @@ pub(crate) async fn issue(host: &Host, entry: &Entry) -> Result<String, IssueErr
         Ok(ctx) => ctx,
         Err(error) => {
             tracing::warn!(target: "lastdbd::log_sync", %error, "open read link is unavailable");
-            return Err(IssueError::unavailable("cloud connection is unavailable"));
+            return Err(IssueError::cloud_connection());
         }
     };
     if ctx.account_id.as_str() != host.user_hash {

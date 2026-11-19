@@ -62,6 +62,7 @@ SHARE = {
     "payment_required": "payment is required",
     "invalid_share_configuration": "invalid share configuration",
 }
+OWNER_CODES = {"no_cloud_account": "no_cloud_account", "database_enrolling": "enrolling"}
 CODES = {
     400: "invalid_request", 403: "permission_denied", 404: "not_found",
     409: "conflict", 413: "too_large", 503: "busy",
@@ -189,7 +190,7 @@ def prove_share(node, sock, database):
     """No cloud account, so share configuration answers 409 at once.
 
     The owner body is ok false, error no_cloud_account, and the message
-    "this node has no cloud account". The extension code is conflict with
+    "this node has no cloud account". The extension code is no_cloud_account with
     that message. A PUT that names read, write, or memberWrites has the same
     answer. A 400 would mean the body was refused before that check. The
     calls return in under 10 seconds: this node does not wait.
@@ -308,7 +309,8 @@ def compare(node, sock, method, path, owner_body, extension_body):
     expect = app_status(owner_status)
     message = "internal error" if expect == 500 else owner_message(raw)
     got = reply.get("error")
-    require(ext_status == expect and got == {"code": error_code(expect), "message": message},
+    code = OWNER_CODES.get(body.get("error"), error_code(expect))
+    require(ext_status == expect and got == {"code": code, "message": message},
             f"{method} share extension {ext_status} {got!r} owner {owner_status}")
     return owner_status, ext_status
 

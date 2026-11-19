@@ -33,8 +33,10 @@ export const APP_API_ERROR_CODES = [
   'permission_denied',
   'not_found',
   'conflict',
+  'no_cloud_account',
   'too_large',
   'busy',
+  'enrolling',
   'internal',
 ] as const;
 
@@ -221,7 +223,7 @@ export interface ReadKeysPage {
   next_cursor: string | null;
 }
 
-/** code and message are always present. index is present when a write refusal concerns one mutation. reason is present when a write condition failed. Both are omitted on status 500. Other properties are allowed. A structured node error is placed in message as text; the reply does not keep the original JSON. A share call with no cloud account is 409 conflict and the message is "this node has no cloud account"; do not retry. A database that is still enrolling is 503 busy, the message is "the database is still enrolling with the cloud; retry", and Retry-After says when to retry. The message "share configuration is not confirmed" is 503 busy only when the database is enrolled and the service answer could not be confirmed. */
+/** code and message are always present. index is present when a write refusal concerns one mutation. reason is present when a write condition failed. Both are omitted on status 500. Other properties are allowed. A structured node error is placed in message as text; the reply does not keep the original JSON. A share call with no cloud account is 409 no_cloud_account and the message is "this node has no cloud account"; do not retry. A database that is still enrolling is 503 enrolling, the message is "the database is still enrolling with the cloud; retry", and Retry-After says when to retry. The message "share configuration is not confirmed" is 503 busy when the database is enrolled, or when the saved cloud credentials could not be read or verified, and the service answer could not be confirmed. A 409 conflict on a share call is only the share revision conflict. */
 export interface Error {
   code: ErrorCode;
   message: string;
@@ -573,7 +575,7 @@ export interface DatabasesDeclareRequest {
   mutationId?: never;
 }
 
-/** Read the share configuration. No cloud account is 409 conflict and is final. Still enrolling waits, then 503 busy with Retry-After. Enrolled but unconfirmed is 503 busy. */
+/** Read the share configuration. No cloud account is 409 no_cloud_account and is final. Still enrolling waits, then 503 enrolling with Retry-After. Enrolled but unconfirmed, or credentials that could not be verified, is 503 busy. */
 export interface DatabasesShareConfigRequest {
   action: 'share_config';
   database?: DatabaseSelector;
@@ -600,7 +602,7 @@ export interface DatabasesShareConfigRequest {
   mutationId?: never;
 }
 
-/** Write the share configuration. No cloud account is 409 conflict and is final. Still enrolling waits, then 503 busy with Retry-After. Enrolled but unconfirmed is 503 busy. */
+/** Write the share configuration. No cloud account is 409 no_cloud_account and is final. Still enrolling waits, then 503 enrolling with Retry-After. Enrolled but unconfirmed, or credentials that could not be verified, is 503 busy. */
 export interface DatabasesSetShareConfigRequest {
   action: 'set_share_config';
   database?: DatabaseSelector;
@@ -627,7 +629,7 @@ export interface DatabasesSetShareConfigRequest {
   mutationId?: never;
 }
 
-/** Seal an invitation. No cloud account is 409 conflict and is final. Still enrolling waits, then 503 busy with Retry-After. Enrolled but unconfirmed is 503 busy. */
+/** Seal an invitation. No cloud account is 409 no_cloud_account and is final. Still enrolling waits, then 503 enrolling with Retry-After. Enrolled but unconfirmed, or credentials that could not be verified, is 503 busy. */
 export interface DatabasesInviteRequest {
   action: 'invite';
   database?: DatabaseSelector;
@@ -656,7 +658,7 @@ export interface DatabasesInviteRequest {
   mutationId?: never;
 }
 
-/** POST /api/databases/{id}/share/link. The owner body is empty. The node does not read the share settings. No cloud account is 409 conflict and is final. Still enrolling waits, then 503 busy with Retry-After. Enrolled but unconfirmed is 503 busy. */
+/** POST /api/databases/{id}/share/link. The owner body is empty. The node does not read the share settings. No cloud account is 409 no_cloud_account and is final. Still enrolling waits, then 503 enrolling with Retry-After. Enrolled but unconfirmed, or credentials that could not be verified, is 503 busy. */
 export interface DatabasesShareLinkRequest {
   action: 'share_link';
   database?: DatabaseSelector;
@@ -740,7 +742,7 @@ export interface DatabasesStatusRequest {
 /** One action. A field from another action is invalid_request. */
 export type DatabasesRequest = DatabasesListRequest | DatabasesCreateRequest | DatabasesAcceptRequest | DatabasesAcceptLinkRequest | DatabasesSchemasRequest | DatabasesDeclareRequest | DatabasesShareConfigRequest | DatabasesSetShareConfigRequest | DatabasesInviteRequest | DatabasesShareLinkRequest | DatabasesSubmitRequest | DatabasesStatusRequest;
 
-/** The last publish attempt for one received database. It is kept in memory and is absent again after a restart. at is RFC 3339 UTC. status is the HTTP status when the service answered, or a string when the turn stopped before that answer: access_unknown, no_credentials, snapshot_required, gap, spool_position_mismatch, empty_page, writer_tip, upload_identity, upload_position, reader_stopped, writer_stopped, confirm_failed, prepare_failed, queue_unreadable, spool_position, batch_invalid, entry_too_large, undo_failed, or upload_unconfirmed. access_unknown means the self-access view was unknown or stale. no_credentials means the node had no usable cloud credentials for the share. status is null when the attempt failed before a status and the node had usable credentials. */
+/** The last publish attempt for one received database. It is kept in memory and is absent again after a restart. at is RFC 3339 UTC. status is the HTTP status when the service answered, or a string when the turn stopped before that answer: access_unknown, no_credentials, snapshot_required, gap, spool_position_mismatch, empty_page, writer_tip, upload_identity, upload_position, reader_stopped, writer_stopped, confirm_failed, prepare_failed, queue_unreadable, spool_position, batch_invalid, entry_too_large, undo_failed, policy_unknown, local_store_unavailable, capture_disabled, payment_required, writer_sequence_unknown, or upload_unconfirmed. access_unknown means the self-access view was unknown or stale. no_credentials means the node had no usable cloud credentials for the share. policy_unknown, local_store_unavailable, and capture_disabled mean the node stopped for a local reason before it asked the cloud. payment_required means the account is unpaid. writer_sequence_unknown means the node lost its saved upload position and the cloud no longer keeps the delivered entries that show this device's last writer sequence, so the node does not guess one. status is null when the attempt failed before a status and the node had usable credentials. */
 export interface DatabasesPublishAttempt {
   at: string;
   outcome: 'confirmed' | 'refused' | 'unconfirmed';

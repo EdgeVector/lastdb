@@ -483,15 +483,15 @@
       "Error": {
         "type": "object",
         "required": ["code", "message"],
-        "description": "code and message are always present. index is present when a write refusal concerns one mutation. reason is present when a write condition failed. Both are omitted on status 500. Other properties are allowed. A structured node error is placed in message as text; the reply does not keep the original JSON. A share call with no cloud account is 409 conflict and the message is \"this node has no cloud account\"; do not retry. A database that is still enrolling is 503 busy, the message is \"the database is still enrolling with the cloud; retry\", and Retry-After says when to retry. The message \"share configuration is not confirmed\" is 503 busy only when the database is enrolled and the service answer could not be confirmed.",
+        "description": "code and message are always present. index is present when a write refusal concerns one mutation. reason is present when a write condition failed. Both are omitted on status 500. Other properties are allowed. A structured node error is placed in message as text; the reply does not keep the original JSON. A share call with no cloud account is 409 no_cloud_account and the message is \"this node has no cloud account\"; do not retry. A database that is still enrolling is 503 enrolling, the message is \"the database is still enrolling with the cloud; retry\", and Retry-After says when to retry. The message \"share configuration is not confirmed\" is 503 busy when the database is enrolled, or when the saved cloud credentials could not be read or verified, and the service answer could not be confirmed. A 409 conflict on a share call is only the share revision conflict.",
         "x-lastdb-status-codes": {
           "400": "invalid_request. Status 422 is returned as 400.",
           "403": "permission_denied. Status 401 is returned as 403.",
           "404": "not_found",
-          "409": "conflict",
+          "409": "conflict. A share call with no cloud account is no_cloud_account.",
           "413": "too_large",
           "500": "internal. message is replaced with \"internal error\".",
-          "503": "busy. Status 423 and 429 are returned as 503.",
+          "503": "busy. Status 423 and 429 are returned as 503. A share call on a database that is still enrolling is enrolling.",
           "507": "internal. The status stays 507 and the storage message is kept."
         },
         "properties": {
@@ -502,8 +502,10 @@
               "permission_denied",
               "not_found",
               "conflict",
+              "no_cloud_account",
               "too_large",
               "busy",
+              "enrolling",
               "internal"
             ]
           },
@@ -894,7 +896,7 @@
         "type": "object",
         "additionalProperties": false,
         "required": ["action"],
-        "description": "Read the share configuration. No cloud account is 409 conflict and is final. Still enrolling waits, then 503 busy with Retry-After. Enrolled but unconfirmed is 503 busy.",
+        "description": "Read the share configuration. No cloud account is 409 no_cloud_account and is final. Still enrolling waits, then 503 enrolling with Retry-After. Enrolled but unconfirmed, or credentials that could not be verified, is 503 busy.",
         "properties": {
           "action": {"const": "share_config"},
           "database": {"$ref": "#/components/schemas/DatabaseSelector"}
@@ -904,7 +906,7 @@
         "type": "object",
         "additionalProperties": false,
         "required": ["action", "config"],
-        "description": "Write the share configuration. No cloud account is 409 conflict and is final. Still enrolling waits, then 503 busy with Retry-After. Enrolled but unconfirmed is 503 busy.",
+        "description": "Write the share configuration. No cloud account is 409 no_cloud_account and is final. Still enrolling waits, then 503 enrolling with Retry-After. Enrolled but unconfirmed, or credentials that could not be verified, is 503 busy.",
         "properties": {
           "action": {"const": "set_share_config"},
           "database": {"$ref": "#/components/schemas/DatabaseSelector"},
@@ -915,7 +917,7 @@
         "type": "object",
         "additionalProperties": false,
         "required": ["action", "contactCode", "expectedNodeKey"],
-        "description": "Seal an invitation. No cloud account is 409 conflict and is final. Still enrolling waits, then 503 busy with Retry-After. Enrolled but unconfirmed is 503 busy.",
+        "description": "Seal an invitation. No cloud account is 409 no_cloud_account and is final. Still enrolling waits, then 503 enrolling with Retry-After. Enrolled but unconfirmed, or credentials that could not be verified, is 503 busy.",
         "properties": {
           "action": {"const": "invite"},
           "database": {"$ref": "#/components/schemas/DatabaseSelector"},
@@ -928,7 +930,7 @@
         "type": "object",
         "additionalProperties": false,
         "required": ["action"],
-        "description": "POST /api/databases/{id}/share/link. The owner body is empty. The node does not read the share settings. No cloud account is 409 conflict and is final. Still enrolling waits, then 503 busy with Retry-After. Enrolled but unconfirmed is 503 busy.",
+        "description": "POST /api/databases/{id}/share/link. The owner body is empty. The node does not read the share settings. No cloud account is 409 no_cloud_account and is final. Still enrolling waits, then 503 enrolling with Retry-After. Enrolled but unconfirmed, or credentials that could not be verified, is 503 busy.",
         "properties": {
           "action": {"const": "share_link"},
           "database": {"$ref": "#/components/schemas/DatabaseSelector"}
@@ -977,7 +979,7 @@
         "type": "object",
         "additionalProperties": false,
         "required": ["at", "outcome", "status"],
-        "description": "The last publish attempt for one received database. It is kept in memory and is absent again after a restart. at is RFC 3339 UTC. status is the HTTP status when the service answered, or a string when the turn stopped before that answer: access_unknown, no_credentials, snapshot_required, gap, spool_position_mismatch, empty_page, writer_tip, upload_identity, upload_position, reader_stopped, writer_stopped, confirm_failed, prepare_failed, queue_unreadable, spool_position, batch_invalid, entry_too_large, undo_failed, or upload_unconfirmed. access_unknown means the self-access view was unknown or stale. no_credentials means the node had no usable cloud credentials for the share. status is null when the attempt failed before a status and the node had usable credentials.",
+        "description": "The last publish attempt for one received database. It is kept in memory and is absent again after a restart. at is RFC 3339 UTC. status is the HTTP status when the service answered, or a string when the turn stopped before that answer: access_unknown, no_credentials, snapshot_required, gap, spool_position_mismatch, empty_page, writer_tip, upload_identity, upload_position, reader_stopped, writer_stopped, confirm_failed, prepare_failed, queue_unreadable, spool_position, batch_invalid, entry_too_large, undo_failed, policy_unknown, local_store_unavailable, capture_disabled, payment_required, writer_sequence_unknown, or upload_unconfirmed. access_unknown means the self-access view was unknown or stale. no_credentials means the node had no usable cloud credentials for the share. policy_unknown, local_store_unavailable, and capture_disabled mean the node stopped for a local reason before it asked the cloud. payment_required means the account is unpaid. writer_sequence_unknown means the node lost its saved upload position and the cloud no longer keeps the delivered entries that show this device's last writer sequence, so the node does not guess one. status is null when the attempt failed before a status and the node had usable credentials.",
         "properties": {
           "at": {"type": "string"},
           "outcome": {"type": "string", "enum": ["confirmed", "refused", "unconfirmed"]},

@@ -107,7 +107,8 @@ pub(super) fn unconfirmed_or_payment(error: &str) -> ConfigError {
 }
 
 /// Classify a cloud failure by the database's current enrollment.
-/// This does not wait. `Unconfirmed` remains only when the database is enrolled.
+/// This does not wait. `Unconfirmed` remains when the database is enrolled or
+/// the saved credentials could not be verified.
 pub(crate) fn cloud_failure(home: &Path, database_id: &str, error: &str) -> ConfigError {
     if error == crate::cloud::PAYMENT_REQUIRED_MESSAGE {
         return ConfigError::PaymentRequired;
@@ -115,7 +116,9 @@ pub(crate) fn cloud_failure(home: &Path, database_id: &str, error: &str) -> Conf
     match super::cloud_state::database_cloud_state(home, database_id) {
         super::cloud_state::CloudState::NoAccount => ConfigError::NoAccount,
         super::cloud_state::CloudState::Enrolling => ConfigError::Enrolling,
-        super::cloud_state::CloudState::Enrolled => ConfigError::Unconfirmed,
+        super::cloud_state::CloudState::Unverified | super::cloud_state::CloudState::Enrolled => {
+            ConfigError::Unconfirmed
+        }
     }
 }
 
@@ -367,10 +370,10 @@ pub(crate) async fn lock_member(
 
 pub(super) async fn open(home: &Path) -> Result<PublisherSession, ConfigError> {
     PublisherSession::open(home).await.map_err(|error| {
-        if super::cloud_state::has_cloud_account(home) {
-            unconfirmed_or_payment(&error)
-        } else {
+        if super::cloud_state::no_cloud_account(home) {
             ConfigError::NoAccount
+        } else {
+            unconfirmed_or_payment(&error)
         }
     })
 }
