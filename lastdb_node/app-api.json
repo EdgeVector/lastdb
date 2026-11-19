@@ -483,7 +483,7 @@
       "Error": {
         "type": "object",
         "required": ["code", "message"],
-        "description": "code and message are always present. index is present when a write refusal concerns one mutation. reason is present when a write condition failed. Both are omitted on status 500. Other properties are allowed. A structured node error is placed in message as text; the reply does not keep the original JSON.",
+        "description": "code and message are always present. index is present when a write refusal concerns one mutation. reason is present when a write condition failed. Both are omitted on status 500. Other properties are allowed. A structured node error is placed in message as text; the reply does not keep the original JSON. A share call with no cloud account is 409 conflict and the message is \"this node has no cloud account\"; do not retry. A database that is still enrolling is 503 busy, the message is \"the database is still enrolling with the cloud; retry\", and Retry-After says when to retry. The message \"share configuration is not confirmed\" is 503 busy only when the database is enrolled and the service answer could not be confirmed.",
         "x-lastdb-status-codes": {
           "400": "invalid_request. Status 422 is returned as 400.",
           "403": "permission_denied. Status 401 is returned as 403.",
@@ -894,6 +894,7 @@
         "type": "object",
         "additionalProperties": false,
         "required": ["action"],
+        "description": "Read the share configuration. No cloud account is 409 conflict and is final. Still enrolling waits, then 503 busy with Retry-After. Enrolled but unconfirmed is 503 busy.",
         "properties": {
           "action": {"const": "share_config"},
           "database": {"$ref": "#/components/schemas/DatabaseSelector"}
@@ -903,6 +904,7 @@
         "type": "object",
         "additionalProperties": false,
         "required": ["action", "config"],
+        "description": "Write the share configuration. No cloud account is 409 conflict and is final. Still enrolling waits, then 503 busy with Retry-After. Enrolled but unconfirmed is 503 busy.",
         "properties": {
           "action": {"const": "set_share_config"},
           "database": {"$ref": "#/components/schemas/DatabaseSelector"},
@@ -913,6 +915,7 @@
         "type": "object",
         "additionalProperties": false,
         "required": ["action", "contactCode", "expectedNodeKey"],
+        "description": "Seal an invitation. No cloud account is 409 conflict and is final. Still enrolling waits, then 503 busy with Retry-After. Enrolled but unconfirmed is 503 busy.",
         "properties": {
           "action": {"const": "invite"},
           "database": {"$ref": "#/components/schemas/DatabaseSelector"},
@@ -925,7 +928,7 @@
         "type": "object",
         "additionalProperties": false,
         "required": ["action"],
-        "description": "POST /api/databases/{id}/share/link. The owner body is empty. The node does not read the share settings.",
+        "description": "POST /api/databases/{id}/share/link. The owner body is empty. The node does not read the share settings. No cloud account is 409 conflict and is final. Still enrolling waits, then 503 busy with Retry-After. Enrolled but unconfirmed is 503 busy.",
         "properties": {
           "action": {"const": "share_link"},
           "database": {"$ref": "#/components/schemas/DatabaseSelector"}

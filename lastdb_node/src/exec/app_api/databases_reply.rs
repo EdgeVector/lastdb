@@ -21,7 +21,19 @@ pub(super) fn pass_owner(response: UdsResponse) -> Result<UdsResponse, HostError
     } else {
         response.status
     };
-    Err(HostError::new(status, message(&response.body)))
+    let mut error = HostError::new(status, message(&response.body));
+    if let Some(seconds) = retry_after(&response) {
+        error = error.with_retry_after(seconds);
+    }
+    Err(error)
+}
+
+fn retry_after(response: &UdsResponse) -> Option<u64> {
+    response.headers.iter().find_map(|(name, value)| {
+        name.eq_ignore_ascii_case("retry-after")
+            .then(|| value.parse().ok())
+            .flatten()
+    })
 }
 
 fn message(body: &[u8]) -> String {
@@ -64,6 +76,8 @@ fn share_sentence(code: &str) -> &'static str {
     match code {
         "share_revision_conflict" => "the share configuration is at another revision",
         "share_configuration_unconfirmed" => "share configuration is not confirmed",
+        "database_enrolling" => "the database is still enrolling with the cloud; retry",
+        "no_cloud_account" => "this node has no cloud account",
         "payment_required" => "payment is required",
         "invalid_share_configuration" => "invalid share configuration",
         _ => "request refused",

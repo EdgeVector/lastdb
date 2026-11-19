@@ -67,6 +67,8 @@ pub(in crate::exec) struct HostError {
     pub(in crate::exec) index: Option<usize>,
     /// A fixed word for why a write condition did not hold.
     pub(in crate::exec) reason: Option<&'static str>,
+    /// Seconds for a `Retry-After` header. Set only on a retryable refusal.
+    pub(in crate::exec) retry_after: Option<u64>,
 }
 
 impl HostError {
@@ -77,6 +79,7 @@ impl HostError {
             structured_body: None,
             index: None,
             reason: None,
+            retry_after: None,
         }
     }
 
@@ -91,6 +94,7 @@ impl HostError {
             structured_body: Some(body),
             index: None,
             reason: None,
+            retry_after: None,
         }
     }
 
@@ -107,6 +111,11 @@ impl HostError {
     /// Why a write condition did not hold: `exists`, `absent`, or `revision`.
     pub(in crate::exec) fn with_reason(mut self, reason: &'static str) -> Self {
         self.reason = Some(reason);
+        self
+    }
+
+    pub(in crate::exec) fn with_retry_after(mut self, seconds: u64) -> Self {
+        self.retry_after = Some(seconds);
         self
     }
 }
@@ -187,30 +196,43 @@ pub(in crate::exec) fn render(
         Ok(payload) => return json_ok(&envelope(&payload, ctx.user_id.as_str())),
         Err(e) => e,
     };
+    let retry_after = e.retry_after;
     if e.status == 507 {
         tracing::warn!(target: "lastdb_node::exec", status = e.status, "handler storage full: {}", e.message);
     } else if e.status >= 500 && e.status != 503 {
         tracing::error!(target: "lastdb_node::exec", status = e.status, "handler error: {}", e.message);
     }
-    if !ctx.is_owner {
-        return content_free(e.status, status_reason(e.status));
-    }
-    if !OWNER_VISIBLE_STATUSES.contains(&e.status) {
-        return content_free(500, "Internal Server Error");
-    }
-    let reason = status_reason(e.status);
-    e.structured_body.as_ref().map_or_else(
-        || UdsResponse::new(e.status, reason, e.message.into_bytes()),
+    let response = if !ctx.is_owner {
+        content_free(e.status, status_reason(e.status))
+    } else if !OWNER_VISIBLE_STATUSES.contains(&e.status) {
+        content_free(500, "Internal Server Error")
+    } else {
+        owner_error_response(&e)
+    };
+    attach_retry(response, retry_after)
+}
+
+fn owner_error_response(error: &HostError) -> UdsResponse {
+    let reason = status_reason(error.status);
+    error.structured_body.as_ref().map_or_else(
+        || UdsResponse::new(error.status, reason, error.message.clone().into_bytes()),
         |body| {
             serde_json::to_vec(body).map_or_else(
                 |_| content_free(500, "Internal Server Error"),
-                |b| {
-                    UdsResponse::new(e.status, reason, b)
+                |bytes| {
+                    UdsResponse::new(error.status, reason, bytes)
                         .with_header("Content-Type", "application/json")
                 },
             )
         },
     )
+}
+
+fn attach_retry(response: UdsResponse, retry_after: Option<u64>) -> UdsResponse {
+    match retry_after {
+        Some(seconds) => response.with_header("Retry-After", seconds.to_string()),
+        None => response,
+    }
 }
 
 pub(in crate::exec) fn error_response(status: u16, msg: &str, ctx: &AccessContext) -> UdsResponse {

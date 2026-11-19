@@ -1,9 +1,9 @@
 //! Share contacts, invitations, and named-database member management over the owner socket.
 
 use super::{
-    build_post_request, parse_json_or_error, parse_json_response, post_json_with_timeout,
-    request_with_timeout, require_reachable, resolve_client_home_and_socket,
-    write_new_private_file, DatabaseTarget, ShareCommand, ShareContributorCommand,
+    build_post_request, parse_json_response, post_json_with_timeout, request_with_timeout,
+    require_reachable, resolve_client_home_and_socket, write_new_private_file, DatabaseTarget,
+    ShareCommand, ShareContributorCommand,
 };
 use base64::Engine as _;
 use cloud_backup_protocol::Digest;
@@ -120,7 +120,7 @@ fn mint_link(data_dir: Option<PathBuf>, database: &str) -> Result<(), String> {
         &build_post_request(path.as_ref(), "", &[]),
         handler_timeout(),
     )?;
-    println!("{}", parse_json_response(&raw, "open read link")?);
+    println!("{}", owner_json(&raw, "open read link")?);
     Ok(())
 }
 
@@ -291,7 +291,33 @@ fn post_member(socket: &Path, selector: &str, body: &Value) -> Result<Value, Str
     }
     let path = format!("/api/databases/{selector}/share/members");
     let raw = post_json_with_timeout(socket, &path, body, handler_timeout())?;
-    parse_json_or_error(&raw, "share member update")
+    owner_json(&raw, "share member update")
+}
+
+fn owner_json(raw: &str, label: &str) -> Result<Value, String> {
+    match parse_json_response(raw, label) {
+        Ok(value) => Ok(value),
+        Err(fallback) => Err(owner_error_text(raw).unwrap_or(fallback)),
+    }
+}
+
+fn owner_error_text(raw: &str) -> Option<String> {
+    let body = raw.split_once("\r\n\r\n")?.1.trim();
+    let value: Value = serde_json::from_str(body).ok()?;
+    let message = value
+        .get("message")
+        .and_then(Value::as_str)
+        .filter(|text| !text.is_empty());
+    let code = value
+        .get("error")
+        .and_then(Value::as_str)
+        .filter(|text| !text.is_empty());
+    match (code, message) {
+        (Some(code), Some(message)) => Some(format!("{message} ({code})")),
+        (_, Some(message)) => Some(message.to_owned()),
+        (Some(code), None) => Some(code.to_owned()),
+        _ => None,
+    }
 }
 
 fn parse_ack(reply: &Value) -> Result<MemberAck, String> {

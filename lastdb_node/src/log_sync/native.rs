@@ -235,12 +235,17 @@ fn create_body(
     .map_err(|_| ())
 }
 
+pub(crate) fn database_confirmed(database_id: &str) -> bool {
+    created(database_id)
+}
+
 fn created(database_id: &str) -> bool {
     confirmed().contains(database_id)
 }
 
 fn remember(database_id: &str) {
     confirmed().insert(database_id.to_owned());
+    super::cloud_state::note_enrolled();
 }
 
 fn confirmed() -> std::sync::MutexGuard<'static, HashSet<String>> {

@@ -16,9 +16,11 @@ calling app.
 
 invite, accept, submit, and submission_status need two nodes that share one
 database. No operation in this tree does that, so this proof does not call them.
-share_link is not called: it needs a connected publisher.
+share_link is not called: it needs a connected publisher. Share configuration
+on this fresh home has no cloud account and answers 409 no_cloud_account at once.
 """
 import json
+import time
 import uuid
 from pathlib import Path
 
@@ -45,9 +47,12 @@ ACTIONS = (
     "set_share_config", "invite", "share_link", "submit", "submission_status",
 )
 REQUEST_ID = "11111111-1111-4111-8111-111111111111"
+NO_ACCOUNT = "this node has no cloud account"
 SHARE = {
     "share_revision_conflict": "the share configuration is at another revision",
     "share_configuration_unconfirmed": "share configuration is not confirmed",
+    "database_enrolling": "the database is still enrolling with the cloud; retry",
+    "no_cloud_account": NO_ACCOUNT,
     "payment_required": "payment is required",
     "invalid_share_configuration": "invalid share configuration",
 }
@@ -163,10 +168,18 @@ def same_schemas(node, sock, database):
 
 
 def prove_share(node, sock, database):
-    """No cloud connection, so share configuration answers 503.
+    """No cloud account, so share configuration answers 409 at once.
 
-    A PUT that also names read, write, or memberWrites has the same shape and
-    the same 503. A 400 would mean the body was refused before the cloud call.
+    The owner body is ok false, error no_cloud_account, and the message
+    "this node has no cloud account". The extension code is conflict with
+    that message. A PUT that names read, write, or memberWrites has the same
+    answer. A 400 would mean the body was refused before that check. The
+    calls return in under 10 seconds: this node does not wait.
+
+    Still enrolling cannot be shown here. A connected publisher creates a
+    database and immediately PUTs /api/databases/{id}/share/config. That call
+    must succeed after a short wait, not answer 503.
+
     The signed statement and the proposal check are not proven here. No CI
     operation runs a publisher and a member against the cloud. A two-node DEV
     proof must make these requests:
@@ -213,6 +226,7 @@ def prove_share(node, sock, database):
     """
     config = {"expectedRevision": "0", "requestId": REQUEST_ID, "members": []}
     path = f"/api/databases/{database}/share/config"
+    started = time.monotonic()
     get_owner, get_ext = compare(
         node, sock, "GET", path, None,
         {"action": "share_config", "database": database})
@@ -226,10 +240,12 @@ def prove_share(node, sock, database):
         "social/Album": "owner_only",
     })
     map_owner, map_ext = share_put(node, sock, database, path, mapped)
-    require(get_owner == 503 and put_owner == 503 and both_owner == 503
-            and one_owner == 503 and map_owner == 503,
+    require(get_owner == 409 and put_owner == 409 and both_owner == 409
+            and one_owner == 409 and map_owner == 409,
             f"share shape was GET {get_owner} PUT {put_owner} "
             f"read/write {both_owner} write {one_owner} memberWrites {map_owner}")
+    elapsed = time.monotonic() - started
+    require(elapsed < 10, f"no-account share answers took {elapsed:.1f}s")
     print(f"Databases extension share: GET owner {get_owner} extension {get_ext}, "
           f"PUT owner {put_owner} extension {put_ext}, "
           f"read/write owner {both_owner} extension {both_ext}, "
@@ -267,6 +283,10 @@ def compare(node, sock, method, path, owner_body, extension_body):
         require(ext_status == owner_status and reply == json.loads(raw),
                 f"{method} share success differs: owner {owner_status} extension {ext_status}")
         return owner_status, ext_status
+    body = owner_body(raw)
+    require(owner_status == 409 and body.get("ok") is False
+            and body.get("error") == "no_cloud_account" and body.get("message") == NO_ACCOUNT,
+            f"{method} share owner {owner_status} {body!r}")
     expect = app_status(owner_status)
     message = "internal error" if expect == 500 else owner_message(raw)
     got = reply.get("error")
@@ -322,6 +342,15 @@ def app_status(status):
 
 def error_code(status):
     return CODES.get(status, "internal")
+
+
+def owner_body(raw):
+    text = raw.decode("utf-8", "replace") if isinstance(raw, (bytes, bytearray)) else (raw or "")
+    try:
+        value = json.loads(text) if text else {}
+    except json.JSONDecodeError:
+        return {}
+    return value if isinstance(value, dict) else {}
 
 
 def owner_message(raw):
