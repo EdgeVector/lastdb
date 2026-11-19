@@ -62,7 +62,8 @@ pub(in crate::exec) const fn status_reason(status: u16) -> &'static str {
 pub(in crate::exec) struct HostError {
     pub(in crate::exec) status: u16,
     pub(in crate::exec) message: String,
-    structured_body: Option<Value>,
+    /// Boxed so the error stays small in a `Result`.
+    structured_body: Option<Box<Value>>,
     /// Set when an app API refusal concerns one mutation in the list.
     pub(in crate::exec) index: Option<usize>,
     /// A fixed word for why a write condition did not hold.
@@ -94,7 +95,7 @@ impl HostError {
         Self {
             status,
             message: message.into(),
-            structured_body: Some(body),
+            structured_body: Some(Box::new(body)),
             index: None,
             reason: None,
             retry_after: None,
