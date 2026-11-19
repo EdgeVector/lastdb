@@ -36,7 +36,7 @@ mod share_settings;
 
 mod self_access;
 
-pub(crate) use self_access::{view, AccessView};
+pub(crate) use self_access::view;
 
 const MEMBER_LIMIT: usize = 65_536;
 
