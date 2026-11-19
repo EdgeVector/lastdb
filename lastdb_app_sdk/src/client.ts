@@ -198,7 +198,7 @@ export class LastDbClient<DatabaseId extends string | undefined = undefined> {
     return createNodeDatabase(this.baseTransport, request, this.appId);
   }
 
-  /** `POST /api/databases/spec` — bind or clear an owned database's spec. */
+  /** `POST /api/databases/spec` — clear an owned database's binding. Attaching a filtered spec is refused. */
   bindDatabaseSpec(databaseId: string, spec: DatabaseSpec | null): Promise<ListedDatabase> {
     return bindNodeDatabaseSpec(this.baseTransport, databaseId, spec, this.appId);
   }

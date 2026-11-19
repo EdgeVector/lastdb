@@ -145,7 +145,8 @@ export interface ListedDatabase {
 export interface CreateDatabaseRequest {
   name: string;
   kind?: 'personal' | 'shareable';
-  spec?: DatabaseSpec | null;
+  /** Whole-database sharing only. Filtered or app catalog specs are refused. */
+  sharingMode?: 'whole_database';
 }
 
 /** `GET /api/databases` on the owner socket. */
@@ -177,7 +178,7 @@ export async function createNodeDatabase(
   return parseListedDatabase(body['database']);
 }
 
-/** `POST /api/databases/spec` — bind or clear the versioned spec of an owned database. */
+/** `POST /api/databases/spec` — clear an owned database's binding. Attaching a filtered spec is refused. */
 export async function bindNodeDatabaseSpec(
   transport: Transport,
   databaseId: string,
@@ -185,8 +186,11 @@ export async function bindNodeDatabaseSpec(
   appId = 'lastdb-sdk',
 ): Promise<ListedDatabase> {
   validateDatabaseSelector(databaseId);
-  if (spec !== null && !validSpec(spec)) {
-    throw new RequestRejectedError('invalid_request', 'invalid spec binding');
+  if (spec !== null) {
+    throw new RequestRejectedError(
+      'invalid_request',
+      'filtered share specs are not supported',
+    );
   }
   const body = await sendJsonObject(
     transport,
@@ -194,7 +198,7 @@ export async function bindNodeDatabaseSpec(
     LASTDB_API_ROUTES.databasesSpec,
     'database bind spec',
     appId,
-    { body: { id: databaseId, spec } },
+    { body: { id: databaseId, spec: null } },
   );
   return parseListedDatabase(body['database']);
 }
@@ -204,31 +208,25 @@ function buildCreateBody(request: CreateDatabaseRequest): CreateDatabaseRequest 
   if (!isValidDatabaseSelector(name) || name.toLowerCase() === 'personal' || isUuidName(name)) {
     throw new RequestRejectedError('invalid_request', 'invalid database name');
   }
-  const spec = request.spec ?? null;
-  if (spec !== null && !validSpec(spec)) {
-    throw new RequestRejectedError('invalid_request', 'invalid spec binding');
-  }
   const kind = request.kind;
   if (kind !== undefined && kind !== 'personal' && kind !== 'shareable') {
     throw new RequestRejectedError('invalid_request', 'invalid database access policy');
   }
-  if (kind === 'personal' && spec !== null) {
+  const sharingMode = request.sharingMode;
+  if (sharingMode !== undefined && sharingMode !== 'whole_database') {
+    throw new RequestRejectedError('invalid_request', 'invalid database sharing mode');
+  }
+  if (kind === 'personal' && sharingMode !== undefined) {
     throw new RequestRejectedError(
       'invalid_request',
-      'private databases cannot bind a share spec',
+      'private databases cannot use whole-database sharing',
     );
   }
-  const body = kind === undefined ? { name } : { name, kind };
-  return spec === null ? body : { ...body, spec };
-}
-
-function validSpec(spec: DatabaseSpec): boolean {
-  return (
-    isValidDatabaseSelector(spec.name) &&
-    Number.isInteger(spec.version) &&
-    spec.version >= 1 &&
-    spec.version <= 4_294_967_295
-  );
+  const body: CreateDatabaseRequest = kind === undefined ? { name } : { name, kind };
+  if (sharingMode !== undefined) {
+    body.sharingMode = sharingMode;
+  }
+  return body;
 }
 
 function isUuidName(value: string): boolean {

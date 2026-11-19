@@ -64,11 +64,12 @@ await db.requireApiVersion(LASTDB_SDK_API_VERSION);
 
 `listDatabases` reads `GET /api/databases`. The personal database and received
 shares stay in that list. `createDatabase` calls `POST /api/databases` to create
-an owned database, and `bindDatabaseSpec` calls `POST /api/databases/spec` to
-bind or clear an owned database's spec. `select` returns a new client bound to
-one database ID or alias without mutating the existing client. That selection
-is the database for schema list, schema get, `submitProposal`, and
-`getShareSubmissionStatus`.
+an owned database. Shareable shared databases use `sharingMode: 'whole_database'`;
+a filtered or app catalog `spec` is refused. `bindDatabaseSpec` can clear a
+binding (`null`); attaching a filtered spec is refused. `select` returns a new
+client bound to one database ID or alias without mutating the existing client.
+That selection is the database for schema list, schema get, `submitProposal`,
+and `getShareSubmissionStatus`.
 
 `read`, `write`, and `changes` do not copy it. Name the database with the
 `database` field on each item. Omit `database` to address the personal database.
