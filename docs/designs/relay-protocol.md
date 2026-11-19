@@ -1,22 +1,23 @@
 # LastDB relay protocol (open)
 
 Status: design for review (2026-11-19). Companion to
-`docs/designs/cloud-api.md` (`AcceptEntry`, device chains, grants,
-revocation cutoff, publisher-signed heads). Wire:
-`docs/designs/relay-protocol.openapi.json`.
+`docs/designs/cloud-api.md`. Wire: `docs/designs/relay-protocol.openapi.json`.
 
 **Goal:** smallest open protocol so anyone can stand up a relay if ExeMem
-is down. Signed data is relay-independent. ExeMem = conforming relay +
-separate account/billing service. No dual paths, fallback, or unit tests.
+goes down. Signed data is relay-independent. ExeMem = conforming relay +
+account/billing service. No dual paths, fallback, or unit tests.
 
 ## Trust
 
-Acceptance is **local** (`AcceptEntry` in `cloud-api.md`). Relays only
-store and serve. Optional anti-spam/quota is policy, not truth. Grants and
-revocations exist only as signed chain entries; a relay must not expose a
-revocation intent or index. Any grant cache for anti-spam is derived from
-the log, optional, and never authoritative. People is not a revocation
-channel — signed heads for comparison only.
+Acceptance is **local** (`AcceptEntry`). Relays only store and serve.
+**Logs are append-only** — relays never delete log entries. Grants/revokes
+exist only as signed chain entries; no revoke intent or index. Any grant
+cache for anti-spam is derived, optional, never authoritative. People
+carries signed heads for comparison only.
+
+Snapshots are a restore-speed optimization, never authoritative (see
+`cloud-api.md`). File blobs may be dropped only after a publisher
+`blob_delete` chain entry.
 
 ## Surface
 
@@ -27,32 +28,32 @@ POST /relay/v1/blob/put
 POST /relay/v1/blob/get
 POST /relay/v1/snapshot/put
 POST /relay/v1/snapshot/get
-POST /relay/v1/retention/request
 ```
 
-Batching/caps match cloud-api. Auth: `nodeSignature` +
-`X-LastDB-Relay-Protocol: 1`.
+No `retention.request`. Batching/caps match cloud-api. Auth:
+`nodeSignature` + `X-LastDB-Relay-Protocol: 1`.
 
 ### `log.append` / `log.read`
 
-Store key: `(database_id, node_key, device_id, writer_seq)`.
-Entries are opaque signed bytes (`birth`|`data`|`grant`|`heads`|`relays`|
-`resolve`). No checkpoint kind.
+Store key `(database_id, node_key, device_id, writer_seq)`. Entries:
+`birth`|`data`|`grant`|`blob_delete`|`heads`|`relays`|`resolve`.
 
-Read by device chain (`writer_key` + `device_id` + `from_seq`) or opaque
-delivery cursor (not canonical order). Nodes run `AcceptEntry` on read.
+Read by device chain or opaque delivery cursor (not canonical order).
+Nodes run `AcceptEntry` on read.
 
-### `blob.*` / `snapshot.*`
+### `blob.put` / `blob.get`
 
-Content-addressed by sha256. Snapshot `restore_point_id` = manifest
-digest. Presigned URLs optional; conforming relays that omit them return a
-download URL or equivalent byte transfer (implementation choice).
+Content-addressed by sha256. **`blob.get` returns exactly one download
+path: a presigned URL** (plus headers, expiry, bytes, sha256). After a
+verified `blob_delete` for that digest, get may return `not_found`;
+readers treat it as intentionally gone.
 
-### `retention.request`
+### `snapshot.put` / `snapshot.get`
 
-**Required** for conformance. Publisher-signed (`lastdb-retention-v1`).
-Accepted **only** for data older than a publisher-signed snapshot the
-relay still holds (or `delete_database`).
+Publisher uploads snapshot bytes (manifest digest = `restore_point_id`)
+and records covered per-device heads in the snapshot metadata.
+**`snapshot.get` returns exactly one download path: a presigned URL.**
+Nodes must still fetch the full log and verify replay (`cloud-api.md`).
 
 ## v3 map
 
@@ -61,30 +62,30 @@ relay still holds (or `delete_database`).
 | `push`/`mutations`, `fetch`/`mutations_since` | `log.*` |
 | `push`/`file`, `fetch`/`file` | `blob.*` |
 | `push`/`snapshot`, `fetch`/`snapshot` | `snapshot.*` |
-| `manage`/`grant`, `revoke`, `access` | out of surface — same signed `grant` chain entries via `log.append`; no revoke side channel |
-| `manage`/`create` | `log.append` of `birth` |
-| `manage`/`delete` | `retention.request` |
-| `account/*`, `maintenance/*` | not protocol (ExeMem service) |
+| `manage`/`grant`, `revoke`, `access` | out — `log.append` of signed grants |
+| `manage`/`create` | `log.append` of signed `BirthEntry` |
+| `manage`/`delete` | ExeMem product tombstone only; log stays |
+| `account/*`, `maintenance/*` | not protocol |
 
 ## Discovery and failover
 
-Publisher-signed `relays` entry lists base URLs. People bootstraps the
-first URL. Nodes push/read several relays; compare publisher-signed heads;
-switch with no migration.
+Publisher-signed `relays` entry; People bootstraps first URL. Multi-relay
+push/read; compare heads; switch with no migration.
 
 ## Defaults
 
 | Topic | Default |
 |---|---|
-| Reference relay | In `lastdb` for CI conformance |
+| Reference relay | In `lastdb` for CI |
 | Public `grant#any` reads | Open on every conforming relay |
-| Relay list | Publisher-signed `relays` + People bootstrap |
-| Retention | Required; only older than a publisher-signed snapshot |
-| Freshness | Head comparison only |
-| Accounts | Not required on the relay; ExeMem bills via its account service |
+| Relay list | Publisher-signed `relays` + People |
+| Log GC | Never |
+| Blob GC | Only after chain `blob_delete` |
+| Download | Presigned URL only |
+| Accounts | Not required on relay |
 
-## CI conformance (DEV E2E)
+## CI conformance
 
-Same scenarios as `cloud-api.md` CI against ExeMem and the in-repo
-reference relay, including failover and fork/withhold detection. Account
-paths ExeMem-only.
+Same scenarios as `cloud-api.md` against ExeMem and the in-repo reference
+relay (failover, fork/withhold, snapshot mismatch, lamport, cutoffs).
+Account paths ExeMem-only.

@@ -3,7 +3,7 @@
   "info": {
     "title": "LastDB ExeMem Cloud API",
     "version": "3.0.0-design",
-    "description": "ExeMem Cloud API v3 design (minimal signed history). Acceptance is local AcceptEntry. Device chains (node_key, device_id). Grants/revokes exist only as signed grant-kind chain entries (with revocation cutoff); no side-channel revoke store. People carries signed heads for comparison only. See relay-protocol.md."
+    "description": "ExeMem Cloud API v3 (minimal signed history). Local AcceptEntry; device chains; append-only logs; role-reduction cutoffs; checked Lamport; snapshots non-authoritative; presigned GET only. See relay-protocol.md."
   },
   "servers": [
     {
@@ -208,7 +208,7 @@
             }
           },
           "409": {
-            "description": "database.id / account.exists / device.* / entries.writer_seq / entries.signature / incorporated_from / file.unverified / cursor / grants.signature / history.*",
+            "description": "database.id / account.exists / device.* / entries.writer_seq / incorporated_from / file.unverified / cursor",
             "content": {
               "application/json": {
                 "schema": {
@@ -436,7 +436,7 @@
             }
           },
           "409": {
-            "description": "database.id / account.exists / device.* / entries.writer_seq / entries.signature / incorporated_from / file.unverified / cursor / grants.signature / history.*",
+            "description": "database.id / account.exists / device.* / entries.writer_seq / incorporated_from / file.unverified / cursor",
             "content": {
               "application/json": {
                 "schema": {
@@ -540,12 +540,27 @@
               },
               "examples": {
                 "create": {
+                  "summary": "Signed BirthEntry",
                   "value": {
                     "database_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                     "intent": "create",
                     "args": {
-                      "db_salt": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
-                      "birth_signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+                      "entry": {
+                        "kind": "birth",
+                        "database_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                        "node_key": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                        "device_id": "11111111-1111-4111-8111-111111111111",
+                        "writer_seq": 1,
+                        "prev_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+                        "authored_at_ms": 1730000000000,
+                        "lamport": 1,
+                        "seen_publisher_heads": [],
+                        "namespace": "birth",
+                        "owner": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                        "db_salt": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                        "birth_signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                        "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+                      }
                     }
                   }
                 },
@@ -758,7 +773,7 @@
             }
           },
           "409": {
-            "description": "database.id / account.exists / device.* / entries.writer_seq / entries.signature / incorporated_from / file.unverified / cursor / grants.signature / history.*",
+            "description": "database.id / account.exists / device.* / entries.writer_seq / incorporated_from / file.unverified / cursor",
             "content": {
               "application/json": {
                 "schema": {
@@ -972,7 +987,7 @@
             }
           },
           "409": {
-            "description": "database.id / account.exists / device.* / entries.writer_seq / entries.signature / incorporated_from / file.unverified / cursor / grants.signature / history.*",
+            "description": "database.id / account.exists / device.* / entries.writer_seq / incorporated_from / file.unverified / cursor",
             "content": {
               "application/json": {
                 "schema": {
@@ -1375,8 +1390,7 @@
         }
       },
       "MutationOut": {
-        "$ref": "#/components/schemas/SignedEntry",
-        "description": "fetch entry"
+        "$ref": "#/components/schemas/SignedEntry"
       },
       "FetchMutationsSinceResult": {
         "type": "object",
@@ -1505,7 +1519,16 @@
             "$ref": "#/components/schemas/DataEntry"
           },
           {
+            "$ref": "#/components/schemas/GrantEntry"
+          },
+          {
+            "$ref": "#/components/schemas/BlobDeleteEntry"
+          },
+          {
             "$ref": "#/components/schemas/HeadsEntry"
+          },
+          {
+            "$ref": "#/components/schemas/RelaysEntry"
           },
           {
             "$ref": "#/components/schemas/ResolveEntry"
@@ -1514,7 +1537,7 @@
             "$ref": "#/components/schemas/BirthEntry"
           }
         ],
-        "description": "push/mutations entry (no checkpoint)"
+        "description": "push/mutations signed entry"
       },
       "PushMutationsArgs": {
         "type": "object",
@@ -1536,22 +1559,17 @@
       "PushMutationsResult": {
         "type": "object",
         "required": [
-          "landed",
           "next_writer_seq"
         ],
         "additionalProperties": false,
         "properties": {
-          "landed": {
-            "$ref": "#/components/schemas/StreamKind"
-          },
           "next_writer_seq": {
             "type": "integer",
-            "minimum": 1,
-            "description": ""
+            "minimum": 1
           },
           "duplicate": {
             "type": "boolean",
-            "description": "Replay of same writer_seq"
+            "description": "Identical entry_hash replay"
           }
         }
       },
@@ -1804,24 +1822,13 @@
       "ManageCreateArgs": {
         "type": "object",
         "required": [
-          "db_salt",
-          "birth_signature"
+          "entry"
         ],
         "additionalProperties": false,
+        "description": "Full signed BirthEntry; ExeMem cannot sign one",
         "properties": {
-          "db_salt": {
-            "type": "string",
-            "description": "32-byte salt as 64 hex",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          },
-          "birth_signature": {
-            "type": "string",
-            "description": "Db-key Ed25519 over lastdb-db-birth-v1\\n\u2026 (64 bytes)",
-            "pattern": "^[A-Za-z0-9_-]+$",
-            "minLength": 1,
-            "maxLength": 88
+          "entry": {
+            "$ref": "#/components/schemas/BirthEntry"
           }
         }
       },
@@ -1838,6 +1845,7 @@
           "entries"
         ],
         "additionalProperties": false,
+        "description": "Append signed grant entries to the publisher chain (transport sugar)",
         "properties": {
           "entries": {
             "type": "array",
@@ -1845,11 +1853,9 @@
             "maxItems": 90,
             "items": {
               "$ref": "#/components/schemas/GrantEntry"
-            },
-            "description": "Publisher-signed grant entries; role not revoked"
+            }
           }
-        },
-        "description": "Transport sugar: appends signed grant entries onto the publisher device chain. Any ExeMem grant cache is derived and non-authoritative."
+        }
       },
       "ManageGrantResult": {
         "type": "object",
@@ -1864,6 +1870,7 @@
           "entries"
         ],
         "additionalProperties": false,
+        "description": "Append signed grant entries with role reductions/revokes (chain only)",
         "properties": {
           "entries": {
             "type": "array",
@@ -1871,11 +1878,9 @@
             "maxItems": 90,
             "items": {
               "$ref": "#/components/schemas/GrantEntry"
-            },
-            "description": "Publisher-signed grant entries with role=revoked"
+            }
           }
-        },
-        "description": "Transport sugar: appends signed grant entries with role=revoked (including cutoffs) onto the publisher device chain. Not an authoritative revoke row; readers ignore side-channel revokes."
+        }
       },
       "ManageRevokeResult": {
         "type": "object",
@@ -1939,7 +1944,8 @@
             "minLength": 1,
             "maxLength": 88
           }
-        }
+        },
+        "description": "Non-authoritative UX cache only. Authorization is AcceptEntry over the chain."
       },
       "ManageDeleteArgs": {
         "type": "object",
@@ -4360,7 +4366,6 @@
           "payload_b64"
         ],
         "additionalProperties": false,
-        "description": "lastdb-mutation-v1 on device chain",
         "properties": {
           "kind": {
             "type": "string",
@@ -4419,8 +4424,7 @@
           "namespace": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 128,
-            "pattern": "^(?!grant$|heads$|relays$|resolve$).+$"
+            "maxLength": 128
           },
           "payload_b64": {
             "type": "string",
@@ -4445,95 +4449,279 @@
         }
       },
       "GrantEntry": {
-        "type": "object",
-        "required": [
-          "kind",
-          "database_id",
-          "node_key",
-          "device_id",
-          "writer_seq",
-          "prev_hash",
-          "authored_at_ms",
-          "lamport",
-          "seen_publisher_heads",
-          "signature",
-          "namespace",
-          "grantee",
-          "role"
-        ],
-        "additionalProperties": false,
-        "description": "lastdb-grant-v1 on a publisher device chain. role=revoked requires cutoffs. The only revocation record \u2014 no side channel.",
-        "properties": {
-          "kind": {
-            "type": "string",
-            "const": "grant"
-          },
-          "database_id": {
-            "type": "string",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          },
-          "node_key": {
-            "type": "string",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          },
-          "device_id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "writer_seq": {
-            "type": "integer",
-            "minimum": 1
-          },
-          "prev_hash": {
-            "type": "string",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          },
-          "authored_at_ms": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "lamport": {
-            "type": "integer",
-            "minimum": 1
-          },
-          "seen_publisher_heads": {
-            "type": "array",
-            "maxItems": 256,
-            "items": {
-              "$ref": "#/components/schemas/DeviceHead"
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "kind",
+              "database_id",
+              "node_key",
+              "device_id",
+              "writer_seq",
+              "prev_hash",
+              "authored_at_ms",
+              "lamport",
+              "seen_publisher_heads",
+              "signature",
+              "namespace",
+              "grantee",
+              "role"
+            ],
+            "additionalProperties": false,
+            "description": "Public-read grant; any + read only",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "grant"
+              },
+              "database_id": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$",
+                "minLength": 64,
+                "maxLength": 64
+              },
+              "node_key": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$",
+                "minLength": 64,
+                "maxLength": 64
+              },
+              "device_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "writer_seq": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "prev_hash": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$",
+                "minLength": 64,
+                "maxLength": 64
+              },
+              "authored_at_ms": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "lamport": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "seen_publisher_heads": {
+                "type": "array",
+                "maxItems": 256,
+                "items": {
+                  "$ref": "#/components/schemas/DeviceHead"
+                }
+              },
+              "signature": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{86}$",
+                "minLength": 86,
+                "maxLength": 86
+              },
+              "namespace": {
+                "type": "string",
+                "const": "grant"
+              },
+              "grantee": {
+                "type": "string",
+                "const": "any"
+              },
+              "role": {
+                "type": "string",
+                "const": "read"
+              }
             }
           },
-          "signature": {
-            "type": "string",
-            "pattern": "^[A-Za-z0-9_-]{86}$",
-            "minLength": 86,
-            "maxLength": 86
+          {
+            "type": "object",
+            "required": [
+              "kind",
+              "database_id",
+              "node_key",
+              "device_id",
+              "writer_seq",
+              "prev_hash",
+              "authored_at_ms",
+              "lamport",
+              "seen_publisher_heads",
+              "signature",
+              "namespace",
+              "grantee",
+              "role"
+            ],
+            "additionalProperties": false,
+            "description": "Member write grant (no cutoffs)",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "grant"
+              },
+              "database_id": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$",
+                "minLength": 64,
+                "maxLength": 64
+              },
+              "node_key": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$",
+                "minLength": 64,
+                "maxLength": 64
+              },
+              "device_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "writer_seq": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "prev_hash": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$",
+                "minLength": 64,
+                "maxLength": 64
+              },
+              "authored_at_ms": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "lamport": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "seen_publisher_heads": {
+                "type": "array",
+                "maxItems": 256,
+                "items": {
+                  "$ref": "#/components/schemas/DeviceHead"
+                }
+              },
+              "signature": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{86}$",
+                "minLength": 86,
+                "maxLength": 86
+              },
+              "namespace": {
+                "type": "string",
+                "const": "grant"
+              },
+              "grantee": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$",
+                "minLength": 64,
+                "maxLength": 64
+              },
+              "role": {
+                "type": "string",
+                "const": "write"
+              }
+            }
           },
-          "namespace": {
-            "type": "string",
-            "const": "grant"
-          },
-          "grantee": {
-            "$ref": "#/components/schemas/GrantGrantee"
-          },
-          "role": {
-            "$ref": "#/components/schemas/GrantRole"
-          },
-          "cutoffs": {
-            "type": "array",
-            "maxItems": 256,
-            "items": {
-              "$ref": "#/components/schemas/RevocationCutoff"
-            },
-            "description": "Required when role=revoked; per-device max accepted heads"
+          {
+            "type": "object",
+            "required": [
+              "kind",
+              "database_id",
+              "node_key",
+              "device_id",
+              "writer_seq",
+              "prev_hash",
+              "authored_at_ms",
+              "lamport",
+              "seen_publisher_heads",
+              "signature",
+              "namespace",
+              "grantee",
+              "role",
+              "cutoffs"
+            ],
+            "additionalProperties": false,
+            "description": "Role reduction or non-write grant; cutoffs required",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "grant"
+              },
+              "database_id": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$",
+                "minLength": 64,
+                "maxLength": 64
+              },
+              "node_key": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$",
+                "minLength": 64,
+                "maxLength": 64
+              },
+              "device_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "writer_seq": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "prev_hash": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$",
+                "minLength": 64,
+                "maxLength": 64
+              },
+              "authored_at_ms": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "lamport": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "seen_publisher_heads": {
+                "type": "array",
+                "maxItems": 256,
+                "items": {
+                  "$ref": "#/components/schemas/DeviceHead"
+                }
+              },
+              "signature": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{86}$",
+                "minLength": 86,
+                "maxLength": 86
+              },
+              "namespace": {
+                "type": "string",
+                "const": "grant"
+              },
+              "grantee": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$",
+                "minLength": 64,
+                "maxLength": 64
+              },
+              "role": {
+                "type": "string",
+                "enum": [
+                  "read",
+                  "submit",
+                  "revoked"
+                ]
+              },
+              "cutoffs": {
+                "type": "array",
+                "maxItems": 256,
+                "items": {
+                  "$ref": "#/components/schemas/RevocationCutoff"
+                }
+              }
+            }
           }
-        }
+        ]
       },
       "SignedEntry": {
         "oneOf": [
@@ -4547,22 +4735,18 @@
             "$ref": "#/components/schemas/GrantEntry"
           },
           {
+            "$ref": "#/components/schemas/BlobDeleteEntry"
+          },
+          {
             "$ref": "#/components/schemas/HeadsEntry"
+          },
+          {
+            "$ref": "#/components/schemas/RelaysEntry"
           },
           {
             "$ref": "#/components/schemas/ResolveEntry"
           }
-        ],
-        "discriminator": {
-          "propertyName": "kind",
-          "mapping": {
-            "birth": "#/components/schemas/BirthEntry",
-            "data": "#/components/schemas/DataEntry",
-            "grant": "#/components/schemas/GrantEntry",
-            "heads": "#/components/schemas/HeadsEntry",
-            "resolve": "#/components/schemas/ResolveEntry"
-          }
-        }
+        ]
       },
       "DeviceHead": {
         "type": "object",
@@ -4597,7 +4781,6 @@
           "entry_hash"
         ],
         "additionalProperties": false,
-        "description": "Max accepted head for a revoked member device; unseen device => cutoff 0",
         "properties": {
           "device_id": {
             "type": "string",
@@ -4632,7 +4815,6 @@
           "publisher_heads"
         ],
         "additionalProperties": false,
-        "description": "lastdb-heads-v1 compact publisher head attestation",
         "properties": {
           "kind": {
             "type": "string",
@@ -4718,7 +4900,6 @@
           "chosen_entry_hash"
         ],
         "additionalProperties": false,
-        "description": "lastdb-resolve-v1 fork resolution",
         "properties": {
           "kind": {
             "type": "string",
@@ -4812,7 +4993,6 @@
           "owner"
         ],
         "additionalProperties": false,
-        "description": "First publisher-device entry",
         "properties": {
           "kind": {
             "type": "string",
@@ -4886,6 +5066,184 @@
             "pattern": "^[A-Za-z0-9_-]{86}$",
             "minLength": 86,
             "maxLength": 86
+          }
+        }
+      },
+      "BlobDeleteEntry": {
+        "type": "object",
+        "required": [
+          "kind",
+          "database_id",
+          "node_key",
+          "device_id",
+          "writer_seq",
+          "prev_hash",
+          "authored_at_ms",
+          "lamport",
+          "seen_publisher_heads",
+          "signature",
+          "namespace",
+          "sha256"
+        ],
+        "additionalProperties": false,
+        "description": "lastdb-blob-delete-v1; publisher; relays may drop blob bytes",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "blob_delete"
+          },
+          "database_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "node_key": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "device_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "writer_seq": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "prev_hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "authored_at_ms": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "lamport": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "seen_publisher_heads": {
+            "type": "array",
+            "maxItems": 256,
+            "items": {
+              "$ref": "#/components/schemas/DeviceHead"
+            }
+          },
+          "signature": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{86}$",
+            "minLength": 86,
+            "maxLength": 86
+          },
+          "namespace": {
+            "type": "string",
+            "const": "blob_delete"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64,
+            "description": "Blob digest to reclaim"
+          }
+        }
+      },
+      "RelaysEntry": {
+        "type": "object",
+        "required": [
+          "kind",
+          "database_id",
+          "node_key",
+          "device_id",
+          "writer_seq",
+          "prev_hash",
+          "authored_at_ms",
+          "lamport",
+          "seen_publisher_heads",
+          "signature",
+          "namespace",
+          "relays"
+        ],
+        "additionalProperties": false,
+        "description": "lastdb-relays-v1",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "relays"
+          },
+          "database_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "node_key": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "device_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "writer_seq": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "prev_hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "authored_at_ms": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "lamport": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "seen_publisher_heads": {
+            "type": "array",
+            "maxItems": 256,
+            "items": {
+              "$ref": "#/components/schemas/DeviceHead"
+            }
+          },
+          "signature": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{86}$",
+            "minLength": 86,
+            "maxLength": 86
+          },
+          "namespace": {
+            "type": "string",
+            "const": "relays"
+          },
+          "relays": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 32,
+            "items": {
+              "type": "object",
+              "required": [
+                "url"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "url": {
+                  "type": "string",
+                  "format": "uri",
+                  "maxLength": 8192
+                }
+              }
+            }
           }
         }
       }

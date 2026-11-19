@@ -3,30 +3,12 @@
   "info": {
     "title": "LastDB relay protocol",
     "version": "1.0.0-design",
-    "description": "Open relay protocol. Store/serve signed log entries, blobs, snapshots. No checkpoints. Acceptance is AcceptEntry on nodes. Retention required for data older than a publisher-signed snapshot."
+    "description": "Append-only log; content-addressed blobs/snapshots; presigned GET only. No retention.request. Acceptance is AcceptEntry on nodes."
   },
-  "tags": [
-    {
-      "name": "log"
-    },
-    {
-      "name": "blob"
-    },
-    {
-      "name": "snapshot"
-    },
-    {
-      "name": "retention"
-    }
-  ],
   "paths": {
     "/relay/v1/log/append": {
       "post": {
-        "tags": [
-          "log"
-        ],
-        "summary": "Append signed log entries (store only; not acceptance)",
-        "operationId": "logAppend",
+        "summary": "Append signed log entries (append-only)",
         "parameters": [
           {
             "$ref": "#/components/parameters/NodeKey"
@@ -59,7 +41,7 @@
         },
         "responses": {
           "200": {
-            "description": "Stored (or duplicate). Node must still AcceptEntry on read.",
+            "description": "OK",
             "content": {
               "application/json": {
                 "schema": {
@@ -69,27 +51,7 @@
             }
           },
           "401": {
-            "description": "Request signature / skew / nonce (transport)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Relay policy / payment (not acceptance)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "Rate limited",
+            "description": "request auth",
             "content": {
               "application/json": {
                 "schema": {
@@ -103,11 +65,7 @@
     },
     "/relay/v1/log/read": {
       "post": {
-        "tags": [
-          "log"
-        ],
-        "summary": "Read stored signed entries (delivery order not canonical)",
-        "operationId": "logRead",
+        "summary": "Read signed log entries",
         "parameters": [
           {
             "$ref": "#/components/parameters/NodeKey"
@@ -140,7 +98,7 @@
         },
         "responses": {
           "200": {
-            "description": "Entries; caller runs AcceptEntry",
+            "description": "OK",
             "content": {
               "application/json": {
                 "schema": {
@@ -150,17 +108,7 @@
             }
           },
           "401": {
-            "description": "Request auth",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Relay read policy",
+            "description": "request auth",
             "content": {
               "application/json": {
                 "schema": {
@@ -174,11 +122,7 @@
     },
     "/relay/v1/blob/put": {
       "post": {
-        "tags": [
-          "blob"
-        ],
-        "summary": "Put content-addressed blob (sha256)",
-        "operationId": "blobPut",
+        "summary": "Put blob",
         "parameters": [
           {
             "$ref": "#/components/parameters/NodeKey"
@@ -211,7 +155,7 @@
         },
         "responses": {
           "200": {
-            "description": "Begun or committed",
+            "description": "OK",
             "content": {
               "application/json": {
                 "schema": {
@@ -220,8 +164,8 @@
               }
             }
           },
-          "409": {
-            "description": "blob.unverified",
+          "401": {
+            "description": "request auth",
             "content": {
               "application/json": {
                 "schema": {
@@ -235,11 +179,7 @@
     },
     "/relay/v1/blob/get": {
       "post": {
-        "tags": [
-          "blob"
-        ],
-        "summary": "Get blob by sha256 (inline or presigned)",
-        "operationId": "blobGet",
+        "summary": "Get blob via presigned URL only",
         "parameters": [
           {
             "$ref": "#/components/parameters/NodeKey"
@@ -276,13 +216,23 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/BlobGetResult"
+                  "$ref": "#/components/schemas/PresignedGet"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "request auth",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
                 }
               }
             }
           },
           "404": {
-            "description": "blob.sha256",
+            "description": "blob.sha256 (including after blob_delete)",
             "content": {
               "application/json": {
                 "schema": {
@@ -296,11 +246,7 @@
     },
     "/relay/v1/snapshot/put": {
       "post": {
-        "tags": [
-          "snapshot"
-        ],
-        "summary": "Put restore-point snapshot",
-        "operationId": "snapshotPut",
+        "summary": "Put snapshot (non-authoritative)",
         "parameters": [
           {
             "$ref": "#/components/parameters/NodeKey"
@@ -341,17 +287,23 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "request auth",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         }
       }
     },
     "/relay/v1/snapshot/get": {
       "post": {
-        "tags": [
-          "snapshot"
-        ],
-        "summary": "Get restore-point snapshot",
-        "operationId": "snapshotGet",
+        "summary": "Get snapshot via presigned URL only",
         "parameters": [
           {
             "$ref": "#/components/parameters/NodeKey"
@@ -393,69 +345,8 @@
               }
             }
           },
-          "404": {
-            "description": "restore_point_id",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/relay/v1/retention/request": {
-      "post": {
-        "tags": [
-          "retention"
-        ],
-        "summary": "Publisher-signed retention/GC request (relay policy)",
-        "operationId": "retentionRequest",
-        "parameters": [
-          {
-            "$ref": "#/components/parameters/NodeKey"
-          },
-          {
-            "$ref": "#/components/parameters/DeviceId"
-          },
-          {
-            "$ref": "#/components/parameters/IssuedAt"
-          },
-          {
-            "$ref": "#/components/parameters/Nonce"
-          },
-          {
-            "$ref": "#/components/parameters/Signature"
-          },
-          {
-            "$ref": "#/components/parameters/RelayProtocol"
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RetentionRequestBody"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Accepted under relay policy",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RetentionRequestResult"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "relay.policy",
+          "401": {
+            "description": "request auth",
             "content": {
               "application/json": {
                 "schema": {
@@ -518,8 +409,7 @@
         "schema": {
           "type": "string",
           "minLength": 86,
-          "maxLength": 88,
-          "description": "base64url request signature"
+          "maxLength": 88
         }
       },
       "RelayProtocol": {
@@ -583,12 +473,11 @@
       "OpaqueCursor": {
         "type": "string",
         "minLength": 1,
-        "maxLength": 256,
-        "description": "Delivery pagination only"
+        "maxLength": 256
       },
       "SignedEntry": {
         "type": "object",
-        "description": "Store key (database_id, node_key, device_id, writer_seq). No checkpoint. Nodes run AcceptEntry.",
+        "description": "Opaque signed entry; store key (database_id,node_key,device_id,writer_seq). Full schemas in cloud-api.openapi.json.",
         "required": [
           "kind",
           "database_id",
@@ -606,13 +495,17 @@
               "birth",
               "data",
               "grant",
+              "blob_delete",
               "heads",
               "relays",
               "resolve"
             ]
           },
           "database_id": {
-            "$ref": "#/components/schemas/DatabaseId"
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
           },
           "node_key": {
             "type": "string",
@@ -629,106 +522,16 @@
             "minimum": 1
           },
           "prev_hash": {
-            "$ref": "#/components/schemas/Sha256Hex"
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
           },
           "signature": {
             "type": "string",
             "pattern": "^[A-Za-z0-9_-]{86}$",
             "minLength": 86,
             "maxLength": 86
-          }
-        }
-      },
-      "LogAppendBody": {
-        "type": "object",
-        "required": [
-          "database_id",
-          "entries"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "database_id": {
-            "$ref": "#/components/schemas/DatabaseId"
-          },
-          "entries": {
-            "type": "array",
-            "minItems": 1,
-            "maxItems": 90,
-            "items": {
-              "$ref": "#/components/schemas/SignedEntry"
-            }
-          }
-        }
-      },
-      "LogAppendResult": {
-        "type": "object",
-        "required": [
-          "stored"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "stored": {
-            "type": "integer",
-            "minimum": 0,
-            "description": "Entries stored this call"
-          },
-          "duplicate": {
-            "type": "boolean",
-            "description": "True if identical entry_hash replay"
-          }
-        }
-      },
-      "LogReadBody": {
-        "type": "object",
-        "required": [
-          "database_id"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "database_id": {
-            "$ref": "#/components/schemas/DatabaseId"
-          },
-          "writer_key": {
-            "type": "string",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          },
-          "from_seq": {
-            "type": "integer",
-            "minimum": 1
-          },
-          "cursor": {
-            "$ref": "#/components/schemas/OpaqueCursor"
-          },
-          "limit": {
-            "type": "integer",
-            "minimum": 1,
-            "maximum": 90
-          },
-          "device_id": {
-            "type": "string",
-            "format": "uuid",
-            "description": "With writer_key: read one device chain"
-          }
-        }
-      },
-      "LogReadResult": {
-        "type": "object",
-        "required": [
-          "entries"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "cursor": {
-            "$ref": "#/components/schemas/OpaqueCursor"
-          },
-          "entries": {
-            "type": "array",
-            "maxItems": 90,
-            "items": {
-              "$ref": "#/components/schemas/SignedEntry"
-            }
           }
         }
       },
@@ -760,6 +563,143 @@
           }
         }
       },
+      "PresignedGet": {
+        "type": "object",
+        "required": [
+          "url",
+          "headers",
+          "expires_at_ms",
+          "bytes",
+          "sha256"
+        ],
+        "additionalProperties": false,
+        "description": "Exactly one download path: presigned URL",
+        "properties": {
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "maxLength": 8192
+          },
+          "headers": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "maxLength": 1024
+            },
+            "maxProperties": 32
+          },
+          "expires_at_ms": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          }
+        }
+      },
+      "LogAppendBody": {
+        "type": "object",
+        "required": [
+          "database_id",
+          "entries"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "entries": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 90,
+            "items": {
+              "$ref": "#/components/schemas/SignedEntry"
+            }
+          }
+        }
+      },
+      "LogAppendResult": {
+        "type": "object",
+        "required": [
+          "stored"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "stored": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "duplicate": {
+            "type": "boolean"
+          }
+        }
+      },
+      "LogReadBody": {
+        "type": "object",
+        "required": [
+          "database_id"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "writer_key": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "device_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "from_seq": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "cursor": {
+            "$ref": "#/components/schemas/OpaqueCursor"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 90
+          }
+        }
+      },
+      "LogReadResult": {
+        "type": "object",
+        "required": [
+          "entries"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "cursor": {
+            "$ref": "#/components/schemas/OpaqueCursor"
+          },
+          "entries": {
+            "type": "array",
+            "maxItems": 90,
+            "items": {
+              "$ref": "#/components/schemas/SignedEntry"
+            }
+          }
+        }
+      },
       "BlobPutBody": {
         "type": "object",
         "required": [
@@ -771,7 +711,10 @@
         "additionalProperties": false,
         "properties": {
           "database_id": {
-            "$ref": "#/components/schemas/DatabaseId"
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
           },
           "stage": {
             "type": "string",
@@ -785,7 +728,10 @@
             "minimum": 1
           },
           "sha256": {
-            "$ref": "#/components/schemas/Sha256Hex"
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
           }
         }
       },
@@ -805,7 +751,10 @@
             ]
           },
           "sha256": {
-            "$ref": "#/components/schemas/Sha256Hex"
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
           },
           "upload": {
             "$ref": "#/components/schemas/Upload"
@@ -821,46 +770,16 @@
         "additionalProperties": false,
         "properties": {
           "database_id": {
-            "$ref": "#/components/schemas/DatabaseId"
-          },
-          "sha256": {
-            "$ref": "#/components/schemas/Sha256Hex"
-          }
-        }
-      },
-      "BlobGetResult": {
-        "type": "object",
-        "required": [
-          "sha256",
-          "bytes",
-          "expires_at_ms"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "sha256": {
-            "$ref": "#/components/schemas/Sha256Hex"
-          },
-          "bytes": {
-            "type": "integer",
-            "minimum": 1
-          },
-          "url": {
             "type": "string",
-            "format": "uri",
-            "maxLength": 8192,
-            "description": "Optional presigned GET"
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
           },
-          "headers": {
-            "type": "object",
-            "additionalProperties": {
-              "type": "string",
-              "maxLength": 1024
-            },
-            "maxProperties": 32
-          },
-          "expires_at_ms": {
-            "type": "integer",
-            "minimum": 0
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
           }
         }
       },
@@ -873,7 +792,10 @@
         "additionalProperties": false,
         "properties": {
           "database_id": {
-            "$ref": "#/components/schemas/DatabaseId"
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
           },
           "stage": {
             "type": "string",
@@ -887,29 +809,47 @@
             "minLength": 1,
             "maxLength": 256
           },
-          "files": {
+          "manifest_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "covered_heads": {
             "type": "array",
-            "maxItems": 32,
+            "maxItems": 4096,
             "items": {
               "type": "object",
               "required": [
-                "bytes",
-                "sha256"
+                "node_key",
+                "device_id",
+                "writer_seq",
+                "entry_hash"
               ],
               "additionalProperties": false,
               "properties": {
-                "bytes": {
+                "node_key": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$",
+                  "minLength": 64,
+                  "maxLength": 64
+                },
+                "device_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "writer_seq": {
                   "type": "integer",
                   "minimum": 1
                 },
-                "sha256": {
-                  "$ref": "#/components/schemas/Sha256Hex"
+                "entry_hash": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$",
+                  "minLength": 64,
+                  "maxLength": 64
                 }
               }
             }
-          },
-          "manifest_sha256": {
-            "$ref": "#/components/schemas/Sha256Hex"
           }
         }
       },
@@ -933,26 +873,10 @@
             "maxLength": 256
           },
           "restore_point_id": {
-            "$ref": "#/components/schemas/Sha256Hex"
-          },
-          "files": {
-            "type": "array",
-            "maxItems": 32,
-            "items": {
-              "type": "object",
-              "required": [
-                "sha256"
-              ],
-              "additionalProperties": false,
-              "properties": {
-                "sha256": {
-                  "$ref": "#/components/schemas/Sha256Hex"
-                },
-                "upload": {
-                  "$ref": "#/components/schemas/Upload"
-                }
-              }
-            }
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
           }
         }
       },
@@ -964,10 +888,16 @@
         "additionalProperties": false,
         "properties": {
           "database_id": {
-            "$ref": "#/components/schemas/DatabaseId"
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
           },
           "restore_point_id": {
-            "$ref": "#/components/schemas/Sha256Hex"
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
           }
         }
       },
@@ -975,64 +905,92 @@
         "type": "object",
         "required": [
           "restore_point_id",
-          "manifest_sha256"
+          "manifest_sha256",
+          "url",
+          "headers",
+          "expires_at_ms",
+          "bytes",
+          "sha256"
         ],
         "additionalProperties": false,
+        "description": "Presigned URL only; covered_heads for restore verify",
         "properties": {
           "restore_point_id": {
-            "$ref": "#/components/schemas/Sha256Hex"
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
           },
           "manifest_sha256": {
-            "$ref": "#/components/schemas/Sha256Hex"
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
           },
-          "held_until_ms": {
+          "covered_heads": {
+            "type": "array",
+            "maxItems": 4096,
+            "items": {
+              "type": "object",
+              "required": [
+                "node_key",
+                "device_id",
+                "writer_seq",
+                "entry_hash"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "node_key": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$",
+                  "minLength": 64,
+                  "maxLength": 64
+                },
+                "device_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "writer_seq": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "entry_hash": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$",
+                  "minLength": 64,
+                  "maxLength": 64
+                }
+              }
+            }
+          },
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "maxLength": 8192
+          },
+          "headers": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "maxLength": 1024
+            },
+            "maxProperties": 32
+          },
+          "expires_at_ms": {
             "type": "integer",
             "minimum": 0
-          }
-        }
-      },
-      "RetentionRequestBody": {
-        "type": "object",
-        "required": [
-          "database_id",
-          "mode",
-          "writer_seq",
-          "signature"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "database_id": {
-            "$ref": "#/components/schemas/DatabaseId"
           },
-          "mode": {
-            "type": "string",
-            "enum": [
-              "delete_database",
-              "gc_before_snapshot"
-            ]
-          },
-          "restore_point_id": {
-            "$ref": "#/components/schemas/Sha256Hex"
-          },
-          "writer_seq": {
+          "bytes": {
             "type": "integer",
             "minimum": 1
           },
-          "signature": {
+          "sha256": {
             "type": "string",
-            "pattern": "^[A-Za-z0-9_-]{86}$",
-            "minLength": 86,
-            "maxLength": 86,
-            "description": "Publisher lastdb-retention-v1 signature"
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
           }
         }
-      },
-      "RetentionRequestResult": {
-        "type": "object",
-        "required": [],
-        "additionalProperties": false,
-        "properties": {},
-        "description": "Empty object"
       }
     }
   }
