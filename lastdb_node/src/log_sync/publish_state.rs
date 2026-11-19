@@ -255,9 +255,10 @@ fn status_json(status: StatusKind) -> Value {
 
 fn now_rfc3339() -> String {
     let millis = i64::try_from(fold_db::clock::unix_millis()).unwrap_or(0);
-    chrono::DateTime::from_timestamp_millis(millis)
-        .map(|time| time.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
-        .unwrap_or_else(|| "1970-01-01T00:00:00Z".to_owned())
+    chrono::DateTime::from_timestamp_millis(millis).map_or_else(
+        || "1970-01-01T00:00:00Z".to_owned(),
+        |time| time.to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+    )
 }
 
 fn slots() -> std::sync::MutexGuard<'static, HashMap<String, Slot>> {
