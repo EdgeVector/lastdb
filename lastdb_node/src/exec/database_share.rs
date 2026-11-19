@@ -199,7 +199,7 @@ async fn link(
             })),
             ctx,
         ),
-        Err(error) => link_error(host, &entry.id, error, ctx),
+        Err(error) => link_error(host, &entry.id, &error, ctx),
     }
 }
 
@@ -264,7 +264,7 @@ fn member_cloud_error(host: &Host, database_id: &str, error: String) -> HostErro
 fn link_error(
     host: &Host,
     database_id: &str,
-    error: crate::share_link::IssueError,
+    error: &crate::share_link::IssueError,
     ctx: &AccessContext,
 ) -> UdsResponse {
     let (status, message) = error.status();
