@@ -43,7 +43,8 @@ pub(crate) struct Registration {
     pub(crate) stream: Stream,
     pub(crate) environment: ShareEnvironment,
     content_key: [u8; 32],
-    invitation: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    invitation: Option<String>,
     #[serde(rename = "active", default, skip_serializing)]
     _retired_active: serde::de::IgnoredAny,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -175,8 +176,12 @@ impl ShareCache {
         let (registration, _) = entry.load()?;
         let registration = registration.ok_or(ShareCacheError::Unavailable)?;
         self.require_management(&registration)?;
+        let invitation = registration
+            .invitation
+            .as_deref()
+            .ok_or(ShareCacheError::Invalid("stored invitation"))?;
         let invitation = URL_SAFE_NO_PAD
-            .decode(registration.invitation.as_bytes())
+            .decode(invitation.as_bytes())
             .map_err(|_| ShareCacheError::Invalid("stored invitation"))?;
         let signed_log = registration
             .managed
@@ -225,13 +230,65 @@ impl Registration {
             stream: opened.permission.stream().clone(),
             environment: opened.permission.environment(),
             content_key: *opened.publication_key,
-            invitation: String::new(),
+            invitation: None,
             _retired_active: serde::de::IgnoredAny,
             managed: None,
         });
         registration.require_binding(opened, publisher)?;
-        registration.invitation = URL_SAFE_NO_PAD.encode(invitation);
+        registration.invitation = Some(URL_SAFE_NO_PAD.encode(invitation));
         Ok(registration)
+    }
+
+    pub(crate) fn with_link(
+        publisher: Digest,
+        stream: Stream,
+        environment: ShareEnvironment,
+        content_key: [u8; 32],
+        managed: ManagedRegistration,
+    ) -> Result<Self> {
+        if content_key == [0; 32] || !managed.link {
+            return Err(ShareCacheError::Invalid("content key"));
+        }
+        Ok(Self {
+            version: 1,
+            publisher,
+            stream,
+            environment,
+            content_key,
+            invitation: None,
+            _retired_active: serde::de::IgnoredAny,
+            managed: Some(managed),
+        })
+    }
+
+    pub(crate) fn has_invitation(&self) -> bool {
+        self.invitation.is_some()
+    }
+
+    /// Stored content key of a link registration. An invitation registration
+    /// still opens the sealed invitation.
+    pub(crate) fn link_key(&self) -> Result<Zeroizing<[u8; 32]>> {
+        if self.invitation.is_some()
+            || self.content_key == [0; 32]
+            || !self.managed.as_ref().is_some_and(|state| state.link)
+        {
+            return Err(ShareCacheError::Invalid("content key"));
+        }
+        Ok(Zeroizing::new(self.content_key))
+    }
+
+    pub(crate) fn accepts_link_refresh(
+        &self,
+        publisher: &Digest,
+        stream: &Stream,
+        environment: ShareEnvironment,
+        key: &[u8; 32],
+    ) -> bool {
+        self.invitation.is_none()
+            && &self.publisher == publisher
+            && &self.stream == stream
+            && self.environment == environment
+            && self.content_key == *key
     }
 
     fn require_binding(&self, opened: &OpenedShareInvitation, publisher: &Digest) -> Result<()> {

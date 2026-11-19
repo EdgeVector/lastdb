@@ -845,6 +845,17 @@
           "database_id": {"type": "string"}
         }
       },
+      "DatabasesAcceptLinkRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["action", "link"],
+        "description": "POST /api/databases/accept. link replaces invitation and publisher. This action has no database field. The token is opaque, not a URL.",
+        "properties": {
+          "action": {"const": "accept"},
+          "link": {"type": "string", "description": "Opaque lastdb-read-v1 token."},
+          "name": {"type": "string"}
+        }
+      },
       "DatabasesSchemasRequest": {
         "type": "object",
         "additionalProperties": false,
@@ -901,6 +912,16 @@
           "expiresInHours": {"type": "integer", "minimum": 0}
         }
       },
+      "DatabasesShareLinkRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["action"],
+        "description": "POST /api/databases/{id}/share/link. The owner body is empty. The node does not read the share settings.",
+        "properties": {
+          "action": {"const": "share_link"},
+          "database": {"$ref": "#/components/schemas/DatabaseSelector"}
+        }
+      },
       "DatabasesSubmitRequest": {
         "type": "object",
         "additionalProperties": false,
@@ -929,11 +950,13 @@
           {"$ref": "#/components/schemas/DatabasesListRequest"},
           {"$ref": "#/components/schemas/DatabasesCreateRequest"},
           {"$ref": "#/components/schemas/DatabasesAcceptRequest"},
+          {"$ref": "#/components/schemas/DatabasesAcceptLinkRequest"},
           {"$ref": "#/components/schemas/DatabasesSchemasRequest"},
           {"$ref": "#/components/schemas/DatabasesDeclareRequest"},
           {"$ref": "#/components/schemas/DatabasesShareConfigRequest"},
           {"$ref": "#/components/schemas/DatabasesSetShareConfigRequest"},
           {"$ref": "#/components/schemas/DatabasesInviteRequest"},
+          {"$ref": "#/components/schemas/DatabasesShareLinkRequest"},
           {"$ref": "#/components/schemas/DatabasesSubmitRequest"},
           {"$ref": "#/components/schemas/DatabasesStatusRequest"}
         ]
@@ -1024,6 +1047,18 @@
           "invitation": {"type": "string"}
         }
       },
+      "DatabasesShareLinkReply": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["ok", "user_hash", "databaseId", "link"],
+        "description": "The owner open read link envelope. link is one opaque token, not a URL.",
+        "properties": {
+          "ok": {"type": "boolean"},
+          "user_hash": {"type": "string"},
+          "databaseId": {"type": "string"},
+          "link": {"type": "string"}
+        }
+      },
       "DatabasesSubmitReply": {
         "type": "object",
         "additionalProperties": true,
@@ -1055,6 +1090,7 @@
           {"$ref": "#/components/schemas/DatabasesShareConfigReply"},
           {"$ref": "#/components/schemas/DatabasesShareUpdateReply"},
           {"$ref": "#/components/schemas/DatabasesInviteReply"},
+          {"$ref": "#/components/schemas/DatabasesShareLinkReply"},
           {"$ref": "#/components/schemas/DatabasesStatusReply"}
         ]
       },

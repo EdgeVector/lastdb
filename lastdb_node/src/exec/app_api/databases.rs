@@ -109,6 +109,7 @@ fn build(
         "share_config" => share_config_request(body, host),
         "set_share_config" => set_share_config_request(body, host),
         "invite" => invite_request(body, host),
+        "share_link" => share_link_request(body, host),
         "submit" => submit_request(body, host),
         "submission_status" => status_request(body, host),
         _ => Err(bad(format!("unknown action {action}"))),
@@ -133,12 +134,27 @@ fn create_request(body: &Map<String, Value>, req: &UdsRequest) -> Result<OwnerCa
 }
 
 fn accept_request(body: &Map<String, Value>) -> Result<OwnerCall, HostError> {
+    if body.contains_key("link") {
+        allow(body, &["link", "name"])?;
+        let mut owner = Map::new();
+        copy_string(body, &mut owner, "link")?;
+        copy_present(body, &mut owner, &["name"]);
+        return OwnerCall::json("POST", ACCEPT_PATH.to_owned(), &Value::Object(owner));
+    }
     allow(body, &["invitation", "publisher", "name", "database_id"])?;
     let mut owner = Map::new();
     copy_string(body, &mut owner, "invitation")?;
     copy_string(body, &mut owner, "publisher")?;
     copy_present(body, &mut owner, &["name", "database_id"]);
     OwnerCall::json("POST", ACCEPT_PATH.to_owned(), &Value::Object(owner))
+}
+
+fn share_link_request(body: &Map<String, Value>, host: &Host) -> Result<OwnerCall, HostError> {
+    allow(body, &["database"])?;
+    Ok(OwnerCall::empty(
+        "POST",
+        scoped(&database_id(body, host)?, "share/link"),
+    ))
 }
 
 fn schemas_request(body: &Map<String, Value>, host: &Host) -> Result<OwnerCall, HostError> {

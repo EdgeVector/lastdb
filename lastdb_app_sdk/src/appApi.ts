@@ -36,6 +36,7 @@ export type DatabasesReplyFor<T extends Api.DatabasesRequest> =
   : T extends { action: 'share_config' } ? Api.DatabasesShareConfigReply
   : T extends { action: 'set_share_config' } ? Api.DatabasesShareUpdateReply
   : T extends { action: 'invite' } ? Api.DatabasesInviteReply
+  : T extends { action: 'share_link' } ? Api.DatabasesShareLinkReply
   : T extends { action: 'submit' } ? Api.DatabasesSubmitReply
   : T extends { action: 'submission_status' } ? Api.DatabasesStatusReply
   : never;

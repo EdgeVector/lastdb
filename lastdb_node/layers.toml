@@ -54,6 +54,7 @@ modules = [
   "named_grant",
   "registered_share",
   "share_cache",
+  "share_link",
 ]
 
 [[layer]]
