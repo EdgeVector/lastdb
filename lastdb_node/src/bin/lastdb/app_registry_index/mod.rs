@@ -291,13 +291,13 @@ async fn fetch_list(
 }
 
 /// The apps a node can install on one channel: for each app, its entry from the
-/// highest list between the node's minimum supported API version and its own.
+/// highest list between the node's minimum supported app API version and its own.
 ///
-/// LastDB raises `API_VERSION` on every surface change and proves in CI that the
-/// apps listed down to `MIN_SUPPORTED_API_VERSION` still run, so an app listed at
-/// an older supported version needs no new listing. A level with no list is
-/// skipped. Any other failure stops the lookup: skipping it could silently offer
-/// an older release of an app whose newer list could not be read.
+/// Listings are filed under the app API version. Owner-side socket changes do
+/// not move that version, so a listed app needs no new listing for them. A
+/// level with no list is skipped. Any other failure stops the lookup: skipping
+/// it could silently offer an older release of an app whose newer list could
+/// not be read.
 ///
 /// The returned list carries the header of the highest level found. The age
 /// note follows the newest `generated_at` accepted in this range.
@@ -330,7 +330,7 @@ pub async fn fetch_supported(
         note_stale_list(generated_at);
     }
     merged.ok_or_else(|| {
-        format!("the registry has no {channel} list for lastdb API {min_api} to {api}")
+        format!("the registry has no {channel} list for lastdb app API {min_api} to {api}")
     })
 }
 

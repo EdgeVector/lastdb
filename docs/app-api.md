@@ -257,11 +257,8 @@ goes into the listing, under the publisher signature:
 - `read` and `write` are independent. A schema on `write` alone cannot be read.
   `"*"` on one side does not grant the other side.
 - An extension is a plain name with no version. `"*"` is not an extension value.
-- `"*"` may appear in a listing only at API version 38 or above. Publish refuses
-  it below that. An older build that cannot parse `"*"` fails to read the whole
-  registry list for that channel and API version, so every app in the list
-  becomes unresolvable to that build. Builds at 37 never read the 38 list.
-- For the map form, the signed access block is the same bytes as before API 38.
+- `"*"` in `read` or `write` is allowed at every app API version. Publish copies
+  it into the listing as `"*"`.
 - Declaring is the permission. Nobody approves the declaration: install does
   not show it for consent, and a listing that changes it does not ask the
   owner again. The owner still approves the install steps.

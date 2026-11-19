@@ -1066,7 +1066,7 @@
       "AllSchemas": {
         "type": "string",
         "enum": ["*"],
-        "description": "Every schema on the node. It names none of them. A listing may carry it only at API version 38 or above, because an older build that cannot parse it fails the whole registry list for that channel and API version."
+        "description": "Every schema on the node. It names none of them. A listing may carry it at every app API version."
       },
       "ManifestSchemaSide": {
         "description": "Schema names the app asks for, or * for every schema.",
@@ -1100,7 +1100,7 @@
         "description": "Schema name to the definition id of the one version the app was built against. At most 256 entries. A name is 1 to 128 characters of ASCII letters, digits, underscore, dot, slash, or hyphen. A definition id is 64 lowercase hex characters."
       },
       "ListingSchemaSide": {
-        "description": "Schema name to definition id, or * for every schema. The map form is the same JSON object as before API version 38.",
+        "description": "Schema name to definition id, or * for every schema.",
         "oneOf": [
           {"$ref": "#/components/schemas/AllSchemas"},
           {"$ref": "#/components/schemas/DefinitionMap"}
@@ -1110,7 +1110,7 @@
         "type": "object",
         "additionalProperties": false,
         "required": ["read", "write", "extensions"],
-        "description": "The access block on the signed listing. Publish replaces each schema name with that name and its definition id. The string * stays * and means every schema. A listing may carry * only at API version 38 or above. Unknown keys are rejected.",
+        "description": "The access block on the signed listing. Publish replaces each schema name with that name and its definition id. The string * stays * and means every schema. * is allowed at every app API version. Unknown keys are rejected.",
         "properties": {
           "read": {
             "$ref": "#/components/schemas/ListingSchemaSide",
