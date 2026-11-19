@@ -15,6 +15,7 @@ concurrency:
 
 jobs:
   recovery:
+    # Private level only: device sync, recovery, and the created_by checks.
     name: Signed owner-device sync and recovery in DEV
     if: github.ref == 'refs/heads/main'
     permissions:

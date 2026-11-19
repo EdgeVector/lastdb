@@ -3,6 +3,9 @@ name: Mutation log DEV load
 # Run against the accepted ExeMem DEV service from main. Manual tiers measure
 # signed appends and paged reads. The daily workflow calls the private device
 # sync and signed log recovery operation with the exact accepted client.
+# The private level also proves created_by stays present through a body edit,
+# an alternate-address move, and a delete plus create, on both owner devices.
+# The other levels do not run that section. The load job timeout stays 25 minutes.
 # The existing cloud-backup-dev OIDC role and CI account scope all operations.
 
 on:
