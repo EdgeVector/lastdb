@@ -3,7 +3,7 @@
   "info": {
     "title": "ExeMem Cloud API",
     "version": "3.0.0-design",
-    "description": "Design-only OpenAPI. Nine product intents on POST /api/cloud/v3/{fetch,push,manage}. Tagged request/response unions by intent. No cloud storage resource names. Live home after implementation: cloud_backup_protocol/cloud-api.openapi.json."
+    "description": "Design-only. Ten product intents on POST /api/cloud/v3/{fetch,push,manage}. No ops endpoint (ExeMem-internal cleanup). Live home: cloud_backup_protocol/cloud-api.openapi.json."
   },
   "servers": [
     {
@@ -22,15 +22,11 @@
     },
     {
       "name": "manage",
-      "description": "create | grant | revoke"
-    },
-    {
-      "name": "ops",
-      "description": "Off-product reclaim/retention"
+      "description": "create | grant | revoke | access"
     },
     {
       "name": "dev",
-      "description": "DEV-only"
+      "description": "DEV-only snapshot-proof"
     },
     {
       "name": "auth-service",
@@ -45,7 +41,7 @@
         "tags": [
           "auth-service"
         ],
-        "description": "Auth-service. Out of scope for product schema. No protocol header.",
+        "description": "Auth-service. Out of scope. No protocol header.",
         "security": [],
         "requestBody": {
           "required": true,
@@ -84,7 +80,7 @@
         "tags": [
           "auth-service"
         ],
-        "description": "Auth-service. Out of scope for product schema. No protocol header.",
+        "description": "Auth-service. Out of scope. No protocol header.",
         "security": [],
         "requestBody": {
           "required": true,
@@ -123,7 +119,7 @@
         "tags": [
           "auth-service"
         ],
-        "description": "Auth-service. Out of scope for product schema. No protocol header.",
+        "description": "Auth-service. Out of scope. No protocol header.",
         "security": [],
         "requestBody": {
           "required": true,
@@ -162,7 +158,7 @@
         "tags": [
           "auth-service"
         ],
-        "description": "Auth-service. Out of scope for product schema. No protocol header.",
+        "description": "Auth-service. Out of scope. No protocol header.",
         "security": [],
         "requestBody": {
           "required": true,
@@ -242,7 +238,7 @@
             "$ref": "#/components/responses/UpgradeRequired"
           }
         },
-        "description": "DEV-only. x-lastdb-environment: dev.",
+        "description": "lastdb CI. x-lastdb-environment: dev.",
         "x-lastdb-environment": "dev"
       }
     },
@@ -294,7 +290,7 @@
             "$ref": "#/components/responses/UpgradeRequired"
           }
         },
-        "description": "Intents: mutations_since, snapshot, file. ExeMem owns direct vs proposal visibility."
+        "description": "mutations_since | snapshot | file. Publisher cursor past a proposal signals ingestion."
       }
     },
     "/api/cloud/v3/manage": {
@@ -348,58 +344,7 @@
             "$ref": "#/components/responses/UpgradeRequired"
           }
         },
-        "description": "Intents: create, grant, revoke. Grants are signed entries; no list/revision."
-      }
-    },
-    "/api/cloud/v3/ops": {
-      "post": {
-        "operationId": "cloudOps",
-        "summary": "Ops (off product)",
-        "tags": [
-          "ops"
-        ],
-        "security": [
-          {
-            "lastDbNode": []
-          }
-        ],
-        "parameters": [
-          {
-            "$ref": "#/components/parameters/CloudProtocol"
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/OpsRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/OpsResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "$ref": "#/components/responses/Error"
-          },
-          "403": {
-            "$ref": "#/components/responses/Error"
-          },
-          "426": {
-            "$ref": "#/components/responses/UpgradeRequired"
-          }
-        },
-        "description": "Owner reclaim/retention. Not fetch/push/manage."
+        "description": "create | grant | revoke | access. Optional rules on create/grant."
       }
     },
     "/api/cloud/v3/push": {
@@ -453,7 +398,7 @@
             "$ref": "#/components/responses/UpgradeRequired"
           }
         },
-        "description": "Intents: mutations, snapshot, file. push/mutations has no kind; landed reports direct|proposal."
+        "description": "mutations | snapshot | file. No kind on mutations; landed reports direct|proposal."
       }
     },
     "/api/developer/keys/create": {
@@ -463,7 +408,7 @@
         "tags": [
           "auth-service"
         ],
-        "description": "Auth-service. Out of scope for product schema. No protocol header.",
+        "description": "Auth-service. Out of scope. No protocol header.",
         "security": [
           {
             "accountBearer": []
@@ -506,7 +451,7 @@
         "tags": [
           "auth-service"
         ],
-        "description": "Auth-service. Out of scope for product schema. No protocol header.",
+        "description": "Auth-service. Out of scope. No protocol header.",
         "security": [
           {
             "accountBearer": []
@@ -549,7 +494,7 @@
         "tags": [
           "auth-service"
         ],
-        "description": "Auth-service. Out of scope for product schema. No protocol header.",
+        "description": "Auth-service. Out of scope. No protocol header.",
         "security": [
           {
             "accountBearer": []
@@ -592,7 +537,7 @@
         "tags": [
           "auth-service"
         ],
-        "description": "Auth-service. Out of scope for product schema. No protocol header.",
+        "description": "Auth-service. Out of scope. No protocol header.",
         "security": [
           {
             "accountBearer": []
@@ -635,7 +580,7 @@
         "tags": [
           "auth-service"
         ],
-        "description": "Auth-service. Out of scope for product schema. No protocol header.",
+        "description": "Auth-service. Out of scope. No protocol header.",
         "security": [
           {
             "accountBearer": []
@@ -678,7 +623,7 @@
         "tags": [
           "auth-service"
         ],
-        "description": "Auth-service. Out of scope for product schema. No protocol header.",
+        "description": "Auth-service. Out of scope. No protocol header.",
         "security": [
           {
             "accountBearer": []
@@ -721,7 +666,7 @@
         "tags": [
           "auth-service"
         ],
-        "description": "Auth-service. Out of scope for product schema. No protocol header.",
+        "description": "Auth-service. Out of scope. No protocol header.",
         "security": [
           {
             "accountBearer": []
@@ -764,7 +709,7 @@
         "tags": [
           "auth-service"
         ],
-        "description": "Auth-service. Out of scope for product schema. No protocol header.",
+        "description": "Auth-service. Out of scope. No protocol header.",
         "security": [],
         "requestBody": {
           "required": true,
@@ -803,7 +748,7 @@
         "tags": [
           "auth-service"
         ],
-        "description": "Auth-service. Out of scope for product schema. No protocol header.",
+        "description": "Auth-service. Out of scope. No protocol header.",
         "security": [],
         "requestBody": {
           "required": true,
@@ -845,8 +790,7 @@
         "schema": {
           "type": "integer",
           "const": 3
-        },
-        "description": "Required on storage actions. Not on auth-service."
+        }
       }
     },
     "securitySchemes": {
@@ -913,8 +857,7 @@
             "type": "string"
           },
           "payload_b64": {
-            "type": "string",
-            "description": "Unpadded URL-safe base64 of the sealed envelope."
+            "type": "string"
           },
           "incorporated_from": {
             "$ref": "#/components/schemas/IncorporatedFrom"
@@ -940,12 +883,10 @@
             "enum": [
               "direct",
               "proposal"
-            ],
-            "description": "ExeMem tags each entry. Publisher may see both; receivers only direct."
+            ]
           },
           "cursor": {
-            "type": "string",
-            "description": "Opaque cloud-issued cursor for this entry."
+            "type": "string"
           },
           "writer_node_key": {
             "type": "string"
@@ -981,25 +922,46 @@
         ],
         "properties": {
           "node_key": {
-            "type": "string",
-            "description": "Member node key. Storage row is grant#<node key>."
+            "type": "string"
           },
           "signed_grant": {
-            "type": "string",
-            "description": "Publisher-signed grant bytes (opaque to ExeMem policy beyond verify)."
+            "type": "string"
           }
         }
       },
-      "PartHandle": {
+      "SignedRules": {
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "handle"
+          "signed_rules"
         ],
         "properties": {
-          "handle": {
+          "signed_rules": {
             "type": "string",
-            "description": "Opaque cloud-issued restore part handle."
+            "description": "Publisher-signed link rules / settings. Opaque beyond verify."
+          }
+        }
+      },
+      "AccessInfo": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "state"
+        ],
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "active",
+              "revoked",
+              "absent"
+            ]
+          },
+          "role": {
+            "type": "string"
+          },
+          "signed_grant": {
+            "type": "string"
           }
         }
       },
@@ -1020,7 +982,7 @@
           },
           "cursor": {
             "type": "string",
-            "description": "Opaque. Absent = from start. Node sends no kind/filter."
+            "description": "Opaque. Publisher cursor past a proposal signals ingestion (Decision 14)."
           },
           "limit": {
             "type": "integer",
@@ -1047,8 +1009,7 @@
             "type": "string"
           },
           "part_handle": {
-            "type": "string",
-            "description": "Opaque. When set, read that part."
+            "type": "string"
           }
         }
       },
@@ -1071,8 +1032,7 @@
             "type": "string"
           },
           "file_handle": {
-            "type": "string",
-            "description": "Opaque cloud-issued file handle."
+            "type": "string"
           },
           "offset": {
             "type": "integer",
@@ -1119,8 +1079,7 @@
             "const": "mutations_since"
           },
           "cursor": {
-            "type": "string",
-            "description": "Latest opaque cursor (folds former head)."
+            "type": "string"
           },
           "mutations": {
             "type": "array",
@@ -1155,8 +1114,7 @@
             "type": "array",
             "items": {
               "type": "string"
-            },
-            "description": "Opaque part handles for restore_part reads."
+            }
           }
         }
       },
@@ -1313,8 +1271,7 @@
             ]
           },
           "ticket": {
-            "type": "string",
-            "description": "Opaque ticket from prepare."
+            "type": "string"
           },
           "restore_point_id": {
             "type": "string"
@@ -1345,16 +1302,14 @@
             ]
           },
           "ticket": {
-            "type": "string",
-            "description": "Opaque ticket from begin."
+            "type": "string"
           },
           "size_bytes": {
             "type": "integer",
             "minimum": 0
           },
           "content_sha256": {
-            "type": "string",
-            "description": "Hex SHA-256 of file bytes."
+            "type": "string"
           }
         }
       },
@@ -1398,8 +1353,7 @@
             "enum": [
               "direct",
               "proposal"
-            ],
-            "description": "Where ExeMem stored the append, from the caller's grant."
+            ]
           },
           "cursor": {
             "type": "string"
@@ -1437,8 +1391,7 @@
             "type": "string"
           },
           "upload_url": {
-            "type": "string",
-            "description": "Opaque short-lived upload URL. Treat as opaque (open question R1)."
+            "type": "string"
           }
         }
       },
@@ -1466,12 +1419,10 @@
             "type": "string"
           },
           "file_handle": {
-            "type": "string",
-            "description": "Opaque handle returned on complete for later fetch/file."
+            "type": "string"
           },
           "upload_url": {
-            "type": "string",
-            "description": "Opaque short-lived upload URL."
+            "type": "string"
           },
           "max_range_bytes": {
             "type": "integer",
@@ -1514,6 +1465,9 @@
           },
           "database_id": {
             "type": "string"
+          },
+          "rules": {
+            "$ref": "#/components/schemas/SignedRules"
           }
         }
       },
@@ -1539,6 +1493,9 @@
             "items": {
               "$ref": "#/components/schemas/GrantEntry"
             }
+          },
+          "rules": {
+            "$ref": "#/components/schemas/SignedRules"
           }
         }
       },
@@ -1567,6 +1524,27 @@
           }
         }
       },
+      "ManageAccessRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intent",
+          "database_id"
+        ],
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "access"
+          },
+          "database_id": {
+            "type": "string"
+          },
+          "mutation_id": {
+            "type": "string",
+            "description": "Optional; contribution status for this id."
+          }
+        }
+      },
       "ManageRequest": {
         "oneOf": [
           {
@@ -1577,6 +1555,9 @@
           },
           {
             "$ref": "#/components/schemas/ManageRevokeRequest"
+          },
+          {
+            "$ref": "#/components/schemas/ManageAccessRequest"
           }
         ],
         "discriminator": {
@@ -1584,7 +1565,8 @@
           "mapping": {
             "create": "#/components/schemas/ManageCreateRequest",
             "grant": "#/components/schemas/ManageGrantRequest",
-            "revoke": "#/components/schemas/ManageRevokeRequest"
+            "revoke": "#/components/schemas/ManageRevokeRequest",
+            "access": "#/components/schemas/ManageAccessRequest"
           }
         }
       },
@@ -1602,6 +1584,9 @@
           },
           "database_id": {
             "type": "string"
+          },
+          "access": {
+            "$ref": "#/components/schemas/AccessInfo"
           }
         }
       },
@@ -1619,6 +1604,9 @@
           },
           "ok": {
             "type": "boolean"
+          },
+          "access": {
+            "$ref": "#/components/schemas/AccessInfo"
           }
         }
       },
@@ -1639,6 +1627,43 @@
           }
         }
       },
+      "ManageAccessResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "intent",
+          "state"
+        ],
+        "properties": {
+          "intent": {
+            "type": "string",
+            "const": "access"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "active",
+              "revoked",
+              "absent"
+            ]
+          },
+          "role": {
+            "type": "string"
+          },
+          "signed_grant": {
+            "type": "string"
+          },
+          "contribution_status": {
+            "type": "string",
+            "enum": [
+              "submitted",
+              "published",
+              "discarded",
+              "unknown"
+            ]
+          }
+        }
+      },
       "ManageResponse": {
         "oneOf": [
           {
@@ -1649,6 +1674,9 @@
           },
           {
             "$ref": "#/components/schemas/ManageRevokeResponse"
+          },
+          {
+            "$ref": "#/components/schemas/ManageAccessResponse"
           }
         ],
         "discriminator": {
@@ -1656,224 +1684,8 @@
           "mapping": {
             "create": "#/components/schemas/ManageCreateResponse",
             "grant": "#/components/schemas/ManageGrantResponse",
-            "revoke": "#/components/schemas/ManageRevokeResponse"
-          }
-        }
-      },
-      "OpsRetention": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "database_id"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "retention"
-          },
-          "database_id": {
-            "type": "string"
-          }
-        }
-      },
-      "OpsAutomaticRetention": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "database_id"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "automatic_retention"
-          },
-          "database_id": {
-            "type": "string"
-          }
-        }
-      },
-      "OpsReclaim": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "database_id"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "reclaim"
-          },
-          "database_id": {
-            "type": "string"
-          }
-        }
-      },
-      "OpsReclaimCovered": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "database_id"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "reclaim_covered"
-          },
-          "database_id": {
-            "type": "string"
-          }
-        }
-      },
-      "OpsCleanupRetired": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "database_id"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "cleanup_retired"
-          },
-          "database_id": {
-            "type": "string"
-          }
-        }
-      },
-      "OpsReclaimFiles": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "database_id"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "reclaim_files"
-          },
-          "database_id": {
-            "type": "string"
-          }
-        }
-      },
-      "OpsTrackDev": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "database_id"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "track_dev"
-          },
-          "database_id": {
-            "type": "string"
-          }
-        },
-        "x-lastdb-environment": "dev"
-      },
-      "OpsCleanupDev": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "database_id"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "cleanup_dev"
-          },
-          "database_id": {
-            "type": "string"
-          }
-        },
-        "x-lastdb-environment": "dev"
-      },
-      "OpsCleanupReceiptDev": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "database_id"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "cleanup_receipt_dev"
-          },
-          "database_id": {
-            "type": "string"
-          }
-        },
-        "x-lastdb-environment": "dev"
-      },
-      "OpsRequest": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/OpsRetention"
-          },
-          {
-            "$ref": "#/components/schemas/OpsAutomaticRetention"
-          },
-          {
-            "$ref": "#/components/schemas/OpsReclaim"
-          },
-          {
-            "$ref": "#/components/schemas/OpsReclaimCovered"
-          },
-          {
-            "$ref": "#/components/schemas/OpsCleanupRetired"
-          },
-          {
-            "$ref": "#/components/schemas/OpsReclaimFiles"
-          },
-          {
-            "$ref": "#/components/schemas/OpsTrackDev"
-          },
-          {
-            "$ref": "#/components/schemas/OpsCleanupDev"
-          },
-          {
-            "$ref": "#/components/schemas/OpsCleanupReceiptDev"
-          }
-        ],
-        "discriminator": {
-          "propertyName": "intent",
-          "mapping": {
-            "retention": "#/components/schemas/OpsRetention",
-            "automatic_retention": "#/components/schemas/OpsAutomaticRetention",
-            "reclaim": "#/components/schemas/OpsReclaim",
-            "reclaim_covered": "#/components/schemas/OpsReclaimCovered",
-            "cleanup_retired": "#/components/schemas/OpsCleanupRetired",
-            "reclaim_files": "#/components/schemas/OpsReclaimFiles",
-            "track_dev": "#/components/schemas/OpsTrackDev",
-            "cleanup_dev": "#/components/schemas/OpsCleanupDev",
-            "cleanup_receipt_dev": "#/components/schemas/OpsCleanupReceiptDev"
-          }
-        }
-      },
-      "OpsResponse": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "ok"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string"
-          },
-          "ok": {
-            "type": "boolean"
+            "revoke": "#/components/schemas/ManageRevokeResponse",
+            "access": "#/components/schemas/ManageAccessResponse"
           }
         }
       },
@@ -1889,8 +1701,7 @@
             "const": "provision"
           },
           "proof_id": {
-            "type": "string",
-            "description": "Opaque DEV proof id. No bucket fields."
+            "type": "string"
           }
         },
         "x-lastdb-environment": "dev"
@@ -1907,8 +1718,7 @@
             "const": "retire"
           },
           "proof_id": {
-            "type": "string",
-            "description": "Opaque DEV proof id. No bucket fields."
+            "type": "string"
           }
         },
         "x-lastdb-environment": "dev"
@@ -1925,8 +1735,7 @@
             "const": "status"
           },
           "proof_id": {
-            "type": "string",
-            "description": "Opaque DEV proof id. No bucket fields."
+            "type": "string"
           }
         },
         "x-lastdb-environment": "dev"
@@ -1943,8 +1752,7 @@
             "const": "inspect"
           },
           "proof_id": {
-            "type": "string",
-            "description": "Opaque DEV proof id. No bucket fields."
+            "type": "string"
           }
         },
         "x-lastdb-environment": "dev"
