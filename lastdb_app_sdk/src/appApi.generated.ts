@@ -740,7 +740,7 @@ export interface DatabasesStatusRequest {
 /** One action. A field from another action is invalid_request. */
 export type DatabasesRequest = DatabasesListRequest | DatabasesCreateRequest | DatabasesAcceptRequest | DatabasesAcceptLinkRequest | DatabasesSchemasRequest | DatabasesDeclareRequest | DatabasesShareConfigRequest | DatabasesSetShareConfigRequest | DatabasesInviteRequest | DatabasesShareLinkRequest | DatabasesSubmitRequest | DatabasesStatusRequest;
 
-/** The last publish attempt for one received database. It is kept in memory and is absent again after a restart. at is RFC 3339 UTC. status is the HTTP status when the service answered, access_unknown when the self-access view was unknown or stale, no_credentials when the node had no usable cloud credentials for the share, or null when the attempt failed before a status. */
+/** The last publish attempt for one received database. It is kept in memory and is absent again after a restart. at is RFC 3339 UTC. status is the HTTP status when the service answered, or a string when the turn stopped before that answer: access_unknown, no_credentials, snapshot_required, gap, spool_position_mismatch, empty_page, writer_tip, upload_identity, upload_position, reader_stopped, writer_stopped, confirm_failed, prepare_failed, queue_unreadable, spool_position, batch_invalid, entry_too_large, undo_failed, or upload_unconfirmed. access_unknown means the self-access view was unknown or stale. no_credentials means the node had no usable cloud credentials for the share. status is null when the attempt failed before a status and the node had usable credentials. */
 export interface DatabasesPublishAttempt {
   at: string;
   outcome: 'confirmed' | 'refused' | 'unconfirmed';

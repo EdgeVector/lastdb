@@ -11,18 +11,16 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use cloud_backup_protocol::v2::blobs::BlobPath;
 use cloud_backup_protocol::v2::limits::CONTROL_JSON_MAX_BYTES;
-use database_policy::SpecBinding;
 use fold_db::storage::disk_backup::accepted::UploadPosition;
 use fold_db::storage::disk_pack::PackRuntime;
 use mutation_log::{AppendBatch, DatabaseId, Entry, Namespace};
 use zeroize::Zeroizing;
 
 use crate::accepted_writes::{self, Item, Page};
-use crate::host::owned::registered_databases;
 use crate::host::Host;
 use crate::log_envelope::{self, DatabaseContentKey, LogBinding};
 
-use source::capture_block;
+use source::{capture_block, namespace_of, publication};
 
 pub(super) use source::{read_page, LocalUpload, PublishPolicy};
 
@@ -48,18 +46,22 @@ fn payment_holds() -> std::sync::MutexGuard<'static, HashSet<String>> {
 }
 
 pub(super) async fn publish_owned(host: &Host, log: &CloudLog) -> Result<(), &'static str> {
-    let (store, key, policy) = match DatabaseContentKey::local_store(host, log.database_id()) {
-        Ok(Some((store, key))) => {
-            let Some(policy) = publication(host, log.database_id()) else {
-                return Err("unknown database publication policy");
-            };
-            (store, key, policy)
-        }
-        Ok(None) => super::direct::received_store(host, log.database_id())
-            .await
-            .ok_or("local database or content key unavailable")?,
-        Err(_) => return Err("local database or content key unavailable"),
-    };
+    let (store, key, policy, received) =
+        match DatabaseContentKey::local_store(host, log.database_id()) {
+            Ok(Some((store, key))) => {
+                let Some(policy) = publication(host, log.database_id()) else {
+                    return Err("unknown database publication policy");
+                };
+                (store, key, policy, false)
+            }
+            Ok(None) => {
+                let (store, key, policy) = super::direct::received_store(host, log.database_id())
+                    .await
+                    .ok_or("local database or content key unavailable")?;
+                (store, key, policy, true)
+            }
+            Err(_) => return Err("local database or content key unavailable"),
+        };
     let runtime = store.db_ops().native_runtime();
     let private = matches!(&policy, PublishPolicy::Private);
     if private && !runtime.captures_accepted() {
@@ -67,7 +69,11 @@ pub(super) async fn publish_owned(host: &Host, log: &CloudLog) -> Result<(), &'s
     }
     let material = Zeroizing::new(*key.encryption_bytes());
     let reader = Arc::clone(&runtime);
-    let joined = tokio::task::spawn_blocking(move || read_page(&reader, &material, &policy)).await;
+    let report = received.then(|| log.database_id().to_owned());
+    let joined = tokio::task::spawn_blocking(move || {
+        read_page(&reader, &material, &policy, report.as_deref())
+    })
+    .await;
     let failure = match joined {
         Ok(Ok(Some(page))) => send_page(host, log, &runtime, &key, &page, private)
             .await
@@ -96,6 +102,11 @@ pub(super) async fn publish_owned(host: &Host, log: &CloudLog) -> Result<(), &'s
     if failure == Some(crate::cloud::PAYMENT_REQUIRED_MESSAGE) {
         return Err(crate::cloud::PAYMENT_REQUIRED_MESSAGE);
     }
+    if received {
+        if let Some(reason) = failure {
+            super::publish_state::note_failure(log.database_id(), reason);
+        }
+    }
     blocked.map_or(Ok(()), Err)
 }
 
@@ -107,14 +118,22 @@ async fn send_page(
     page: &Page,
     private: bool,
 ) -> Result<(), &'static str> {
+    let received = matches!(
+        DatabaseContentKey::local_store(host, log.database_id()),
+        Ok(None)
+    );
     let Some(first) = page.items.first() else {
+        let status = accepted_writes::status(runtime);
+        if received && status.head > status.acked {
+            super::publish_state::note_word(log.database_id(), "empty_page");
+        }
         return Ok(());
     };
     let first = match first {
         Item::Publish { sequence, .. } | Item::Withheld { sequence } => *sequence,
     };
     let after = first.checked_sub(1).ok_or("invalid local spool position")?;
-    let Some(upload) = LocalUpload::open(runtime, log, after).await? else {
+    let Some(upload) = LocalUpload::open(runtime, log, after, received).await? else {
         return Ok(());
     };
     let mut next = upload.position.writer_seq + 1;
@@ -155,10 +174,6 @@ async fn send_page(
     if through == after {
         return Err("the next local write could not be prepared for upload");
     }
-    let received = matches!(
-        DatabaseContentKey::local_store(host, log.database_id()),
-        Ok(None)
-    );
     if let Err(reason) = append_entries(&host.home, log, entries, &blobs, received).await {
         if reason == super::direct::REFUSED {
             super::direct::undo_page(host, log.database_id(), &page.items, through).await?;
@@ -368,27 +383,4 @@ async fn append_entries(
         }
     }
     Ok(())
-}
-
-fn publication(host: &Host, database_id: &str) -> Option<PublishPolicy> {
-    let database = registered_databases(&host.home)
-        .into_iter()
-        .find(|database| database.id == database_id)?;
-    match database.kind {
-        "personal" => Some(PublishPolicy::Private),
-        "shareable" => {
-            let spec = database.spec?;
-            SpecBinding::new(&spec.name, spec.version)
-                .ok()
-                .map(PublishPolicy::Share)
-        }
-        _ => None,
-    }
-}
-
-fn namespace_of(canonical: &[u8]) -> Option<String> {
-    let value: serde_json::Value = serde_json::from_slice(canonical).ok()?;
-    let schema = value.get("schema").and_then(|item| item.as_str())?;
-    let name = schema.split_once('/').map_or(schema, |(prefix, _)| prefix);
-    (!name.is_empty()).then(|| name.to_owned())
 }
