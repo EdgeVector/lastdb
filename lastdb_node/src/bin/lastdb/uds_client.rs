@@ -217,29 +217,38 @@ pub(crate) fn resolve_client_home_and_socket(
     Ok((home, sock))
 }
 
-/// Build, where it was read from, API version, outbox format version, and the
-/// minimum API version the node still supports.
-#[must_use]
-pub(crate) fn running_node(home: &Path) -> (String, &'static str, u32, u32, u32) {
+/// Build, where it was read from, app API version, outbox format version, and
+/// the minimum app API version the node still reads registry lists for.
+///
+/// A running node whose `/api/version` reply has no `app_api_version` is older
+/// than this CLI. The error names that build and says to upgrade the node.
+/// It does not substitute the socket version. When no node answers, the app
+/// API versions are the constants compiled into this build.
+pub(crate) fn running_node(home: &Path) -> Result<(String, &'static str, u32, u32, u32), String> {
     let sock = lastdb_node::lastdb_uds::socket_path(&home.join("data"));
     if let Ok(v) = get_path(&sock, "/api/version", Duration::from_secs(2))
         .and_then(|raw| parse_json_response(&raw, "version"))
     {
-        let u32_f = |k| v.get(k)?.as_u64().and_then(|n| u32::try_from(n).ok());
-        if let (Some(b), Some(a), Some(o)) = (
+        let u32_f = |k: &str| v.get(k)?.as_u64().and_then(|n| u32::try_from(n).ok());
+        if let (Some(b), Some(_socket_api), Some(o)) = (
             v["build"].as_str(),
             u32_f("api_version"),
             u32_f("current_outbox_format_version"),
         ) {
+            let Some(app_api) = u32_f("app_api_version") else {
+                return Err(format!(
+                    "the running node build {b} does not report app_api_version; upgrade the node before registry commands"
+                ));
+            };
             // A node that does not report a minimum supports only its own version.
-            let min = u32_f("min_supported_api_version").unwrap_or(a);
-            return (b.to_string(), "socket", a, o, min);
+            let min_app = u32_f("min_supported_app_api_version").unwrap_or(app_api);
+            return Ok((b.to_string(), "socket", app_api, o, min_app));
         }
     }
-    let (api, outbox, min_api) = (
-        lastdb_node::version::CURRENT_API_VERSION,
+    let (app_api, outbox, min_app) = (
+        lastdb_node::version::APP_API_VERSION,
         lastdb_node::version::CURRENT_OUTBOX_FORMAT_VERSION,
-        lastdb_node::version::MIN_SUPPORTED_API_VERSION,
+        lastdb_node::version::MIN_SUPPORTED_APP_API_VERSION,
     );
     let sibling = std::env::current_exe()
         .ok()
@@ -262,15 +271,15 @@ pub(crate) fn running_node(home: &Path) -> (String, &'static str, u32, u32, u32)
                 .map(str::trim)
                 .filter(|b| !b.is_empty())
             {
-                return (b.to_string(), "lastdbd", api, outbox, min_api);
+                return Ok((b.to_string(), "lastdbd", app_api, outbox, min_app));
             }
         }
     }
-    (
+    Ok((
         lastdb_node::version::build_version().to_string(),
         "cli",
-        api,
+        app_api,
         outbox,
-        min_api,
-    )
+        min_app,
+    ))
 }

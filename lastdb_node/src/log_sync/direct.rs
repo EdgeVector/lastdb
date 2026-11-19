@@ -1,8 +1,10 @@
 //! A received database publishes through the owned append path.
 //!
-//! The seal key is the invitation content key. The writer is this node's key
-//! and device, because `CloudLog` is that principal. A refused append restores
-//! the preimage and drops the spool item without moving the writer sequence.
+//! The seal key is the content key stored for the registration. The writer is
+//! this node's key and device, because `CloudLog` is that principal. A link
+//! registration has no member entry and does not publish. A refused append
+//! restores the preimage and drops the spool item without moving the writer
+//! sequence.
 
 use std::sync::Arc;
 
@@ -24,7 +26,12 @@ use super::share_mode::{self, WriteMode};
 pub(super) const REFUSED: &str = "direct write refused";
 
 pub(super) async fn publish_or_retract(host: &Host, log: &CloudLog) -> Result<(), &'static str> {
-    match share_mode::write_mode(log).await {
+    let mode = registered_share::resolve(&host.home, log.database_id())
+        .ok()
+        .flatten()
+        .map(|share| share_mode::mode(host, &share))
+        .unwrap_or(WriteMode::Unknown);
+    match mode {
         WriteMode::Direct => accepted::publish_owned(host, log).await,
         WriteMode::Unknown => Ok(()),
         WriteMode::Closed => retract(host, log).await,
@@ -36,11 +43,12 @@ pub(super) async fn received_store(
     database_id: &str,
 ) -> Option<(Arc<FoldDB>, DatabaseContentKey, PublishPolicy)> {
     let share = registered_share::resolve(&host.home, database_id).ok()??;
-    if !share.signed_log || share.id.as_str() != database_id {
+    // A link has no member entry and never appends, so it has nothing to seal.
+    if share.link || !share.signed_log || share.id.as_str() != database_id {
         return None;
     }
-    let opened = registered_share::verified_invitation(&host.home, &share.id).ok()?;
-    let key = DatabaseContentKey::from_invitation(&opened).ok()?;
+    let material = registered_share::content_material(&host.home, &share.id).ok()?;
+    let key = DatabaseContentKey::from_stored(database_id, &material).ok()?;
     if key.database_id() != database_id {
         return None;
     }

@@ -166,6 +166,7 @@ pub(in crate::exec) async fn execute_data_route_with_timeout(
             DataRoute::V1Changes => heap_route!(app_api::changes_route, req, ctx, host),
             DataRoute::V1Databases => heap_route!(app_api::databases_route, req, ctx, host),
             DataRoute::AppRegister => return calling_app::register_route(req, ctx, host),
+            DataRoute::AppUnregister => return calling_app::unregister_route(req, ctx, host),
         };
         fut.await
     })

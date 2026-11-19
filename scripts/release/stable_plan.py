@@ -43,7 +43,7 @@ def download(url):
 
 
 def catalog(api_version):
-    """Read the signed stable list for one API version."""
+    """Read the signed stable list for one app API version."""
     import hashlib
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
     prod = json.loads(PROFILE.read_text())["environments"]["prod"]
@@ -65,7 +65,7 @@ def catalog(api_version):
 
 
 def listed_apps(api_version):
-    """The newest listed commit of each app in the signed stable list for one API version."""
+    """The newest listed commit of each app in the signed stable list for one app API version."""
     outbox = re.search(r"pub const CURRENT_OUTBOX_FORMAT_VERSION: u32 = ([0-9]+);",
                        Path("lastdb_node/src/version.rs").read_text())
     if outbox is None:
@@ -87,15 +87,17 @@ def listed_apps(api_version):
 
 
 def app_sources():
-    listed = listed_apps(surface()["api_version"])
+    listed = listed_apps(surface()["app_api_version"])
     return {app: listed.get(app) or api(f"repos/EdgeVector/{app}/commits/main")["sha"] for app in APPS}
 
 
 def installed_app_sources(current):
-    """App commits that users can still have installed across MIN_SUPPORTED_API_VERSION..API_VERSION."""
+    """App commits still listed across MIN_SUPPORTED_APP_API_VERSION..APP_API_VERSION."""
     versions = surface()
     result = {}
-    for api_version in range(versions["min_supported_api_version"], versions["api_version"] + 1):
+    for api_version in range(
+        versions["min_supported_app_api_version"], versions["app_api_version"] + 1
+    ):
         listed = listed_apps(api_version)
         if len(listed) == len(APPS) and listed != current and listed not in result.values():
             result[str(api_version)] = listed
@@ -279,9 +281,9 @@ def prove_compatibility(plan_path, bundles, output):
             installed[api_version] = prove_apps(node, {**plan, "apps": sources}, older, declare=False)
         except Exception as error:
             raise RuntimeError(
-                f"The apps in the signed stable list for API {api_version} do not work against this "
-                f"build ({error}). Keep the socket interface compatible, or raise "
-                "MIN_SUPPORTED_API_VERSION in lastdb_node/src/version.rs above "
+                f"The apps in the signed stable list for app API {api_version} do not work against this "
+                f"build ({error}). Keep the app API compatible, or raise "
+                "MIN_SUPPORTED_APP_API_VERSION in lastdb_node/src/version.rs above "
                 f"{api_version} and run python3 scripts/lints/api_surface.py --write.") from error
         finally:
             node.close()

@@ -91,6 +91,10 @@ export type ShareWriteScope = { names: string[] } | string[] | 'all';
 export interface SharedDatabaseAccess {
   state: 'unknown' | 'active' | 'revoked' | 'absent';
   role: 'read' | 'submit' | null;
+  /** Who may read. No stored statement is `members`. */
+  read: 'members' | 'anyone';
+  /** Where a submit append goes. No stored statement is `proposals`. */
+  write: 'proposals' | 'direct';
   writeSchemas?: ShareWriteScope;
   revision: string | null;
   confirmedAtMs: string | null;
@@ -279,15 +283,19 @@ function parseScope(value: unknown): ShareWriteScope | undefined {
 
 function parseSharedDatabaseAccess(value: unknown): SharedDatabaseAccess {
   if (isObject(value)) {
-    const { state, role, revision, confirmedAtMs, stale, writeSchemas } = value;
+    const { state, role, revision, confirmedAtMs, stale, writeSchemas, read, write } = value;
     if (
       (state === 'active' || state === 'revoked' || state === 'absent' || state === 'unknown') &&
       (role === 'read' || role === 'submit' || role === null) &&
+      (read === 'members' || read === 'anyone') &&
+      (write === 'proposals' || write === 'direct') &&
       decimalOrNull(revision) &&
       decimalOrNull(confirmedAtMs) &&
       typeof stale === 'boolean'
     ) {
-      const access: SharedDatabaseAccess = { state, role, revision, confirmedAtMs, stale };
+      const access: SharedDatabaseAccess = {
+        state, role, read, write, revision, confirmedAtMs, stale,
+      };
       const scope = parseScope(writeSchemas);
       if (scope !== undefined) access.writeSchemas = scope;
       return access;

@@ -1,8 +1,10 @@
 //! Pull a registered signed log into the receiver store and track member-list access.
 //!
 //! This does not call `accept_signed_log`. A direct Submit member publishes
-//! through the same path as an owned database. The member revision comes from
-//! the standard member-list read, with no API key.
+//! through the same path as an owned database. A link registration has no
+//! member entry: it does not poll one and it does not publish. The member
+//! revision comes from the standard member-list read, with no API key.
+//! The stored view of that access is `self_access`.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -30,6 +32,14 @@ use super::session;
 use super::turn::{self, Pause};
 use super::SyncState;
 
+// Beside this file. log_sync/mod.rs is owned by another change.
+#[path = "share_settings.rs"]
+mod share_settings;
+
+mod self_access;
+
+pub(crate) use self_access::view;
+
 const MEMBER_LIMIT: usize = 65_536;
 
 pub(super) enum ObservedAccess {
@@ -40,40 +50,6 @@ pub(super) enum ObservedAccess {
     },
     Revoked,
     Absent,
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct AccessView {
-    state: AccessState,
-    role: Option<ShareMemberRole>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    write_schemas: Option<ShareWriteScope>,
-    revision: Option<DecimalU64>,
-    confirmed_at_ms: Option<DecimalU64>,
-    stale: bool,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-enum AccessState {
-    Unknown,
-    Active,
-    Revoked,
-    Absent,
-}
-
-impl AccessView {
-    fn unknown() -> Self {
-        Self {
-            state: AccessState::Unknown,
-            role: None,
-            write_schemas: None,
-            revision: None,
-            confirmed_at_ms: None,
-            stale: true,
-        }
-    }
 }
 
 pub(super) async fn turn(host: &Arc<Host>) -> Pause {
@@ -100,9 +76,18 @@ async fn one(host: &Arc<Host>, share: &RegisteredShare) -> Pause {
             return Pause::Retry;
         }
     };
-    let Some(log) = refresh(host, share, log).await else {
-        return Pause::Retry;
+    let log = if share.link {
+        log
+    } else {
+        match refresh(host, share, log).await {
+            Some(log) => log,
+            None => return Pause::Retry,
+        }
     };
+    if let Err(error) = super::snapshot::receive::ensure_base(host.as_ref(), share, &log).await {
+        tracing::warn!(target: "lastdbd::log_sync", error = %error, "received snapshot is unavailable");
+        return Pause::Retry;
+    }
     let Some(state) = receiver_state(share, &log, &device, &host.home) else {
         return Pause::Retry;
     };
@@ -120,7 +105,17 @@ async fn one(host: &Arc<Host>, share: &RegisteredShare) -> Pause {
 
 async fn refresh(host: &Arc<Host>, share: &RegisteredShare, mut log: CloudLog) -> Option<CloudLog> {
     let observed = access(&log).await;
-    record(&host.home, share.id.as_str(), observed.as_ref());
+    let settings = if observed.is_some() {
+        share_settings::read(&log).await
+    } else {
+        None
+    };
+    let confirm = match &observed {
+        Some(ObservedAccess::Active { .. }) if settings.is_none() => None,
+        Some(value) => Some(value),
+        None => None,
+    };
+    self_access::record(&host.home, share.id.as_str(), confirm, settings);
     let Some(ObservedAccess::Active {
         revision: fresh, ..
     }) = observed
@@ -137,7 +132,7 @@ async fn refresh(host: &Arc<Host>, share: &RegisteredShare, mut log: CloudLog) -
     Some(log)
 }
 
-/// Open the publisher stream from the verified invitation. No account context and no API key.
+/// Open the publisher stream from the registration. No account context and no API key.
 fn connect_received(
     host: &Arc<Host>,
     share: &RegisteredShare,
@@ -253,80 +248,6 @@ fn active_access(bytes: &[u8], stream: &Stream) -> Option<ObservedAccess> {
         role: None,
         write_schemas: None,
     })
-}
-
-pub(crate) fn view(home: &Path, id: &str) -> AccessView {
-    let mut result = disk::read_limited(&self_access_path(home, id), MEMBER_LIMIT)
-        .ok()
-        .flatten()
-        .and_then(|bytes| serde_json::from_slice::<AccessView>(&bytes).ok())
-        .unwrap_or_else(AccessView::unknown);
-    let now = fold_db::clock::unix_millis();
-    result.stale |= result
-        .confirmed_at_ms
-        .is_none_or(|stamp| now.checked_sub(stamp.get()).is_none_or(|age| age > 60_000));
-    result
-}
-
-fn record(home: &Path, id: &str, observed: Option<&ObservedAccess>) {
-    let mut previous = view(home, id);
-    let result = match observed {
-        Some(observed) => confirmed(observed),
-        None if previous.stale => return,
-        None => {
-            previous.stale = true;
-            save_access(home, id, &previous);
-            return;
-        }
-    };
-    if previous.state == result.state
-        && previous.role == result.role
-        && previous.revision == result.revision
-        && previous.write_schemas == result.write_schemas
-        && previous.stale == result.stale
-        && previous
-            .confirmed_at_ms
-            .zip(result.confirmed_at_ms)
-            .is_some_and(|(a, b)| b.get().checked_sub(a.get()).is_some_and(|age| age < 10_000))
-    {
-        return;
-    }
-    save_access(home, id, &result);
-}
-
-fn save_access(home: &Path, id: &str, result: &AccessView) {
-    if let Ok(bytes) = serde_json::to_vec(result) {
-        let _ = disk::write_private(&self_access_path(home, id), &bytes);
-    }
-}
-
-fn confirmed(observed: &ObservedAccess) -> AccessView {
-    let (state, role, revision, write_schemas) = match observed {
-        ObservedAccess::Active {
-            revision,
-            role,
-            write_schemas,
-        } => (
-            AccessState::Active,
-            *role,
-            Some(DecimalU64::new(*revision)),
-            write_schemas.clone(),
-        ),
-        ObservedAccess::Revoked => (AccessState::Revoked, None, None, None),
-        ObservedAccess::Absent => (AccessState::Absent, None, None, None),
-    };
-    AccessView {
-        state,
-        role,
-        revision,
-        write_schemas,
-        confirmed_at_ms: Some(DecimalU64::new(fold_db::clock::unix_millis())),
-        stale: false,
-    }
-}
-
-fn self_access_path(home: &Path, id: &str) -> PathBuf {
-    home.join("log-sync").join(id).join("self-access.json")
 }
 
 fn member_revision(home: &Path, database_id: &str) -> u64 {

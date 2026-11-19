@@ -12,7 +12,7 @@ use super::uds_http::{UdsRequest, UdsResponse};
 /// The only hand-edited interface version. ci-required fails a change to the
 /// socket surface that leaves it unchanged; after an edit run
 /// `python3 scripts/lints/api_surface.py --write`.
-pub const API_VERSION: u32 = 41;
+pub const API_VERSION: u32 = 42;
 pub const SOCKET_FILE_NAME: &str = "folddb.sock";
 /// The socket for installed apps. It serves only the app API, to a caller
 /// the node has registered by app id.
@@ -151,6 +151,7 @@ pub enum DataRoute {
     V1Changes,
     V1Databases,
     AppRegister,
+    AppUnregister,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -212,6 +213,7 @@ pub fn route(req: &UdsRequest) -> ControlRoute {
         "/v1/x/changes" => Some(("POST", V1Changes)),
         "/v1/x/databases" => Some(("POST", V1Databases)),
         "/api/apps/register" => Some(("POST", AppRegister)),
+        "/api/apps/unregister" => Some(("POST", AppUnregister)),
         "/api/system/auto-identity" => Some(("GET", AutoIdentity)),
         "/api/system/boot-identity" => Some(("GET", BootIdentity)),
         _ if path
@@ -253,12 +255,14 @@ pub fn health_response(requires_recovery: bool) -> UdsResponse {
 
 pub fn version_response() -> UdsResponse {
     let build = serde_json::Value::String(crate::version::build_version().into());
-    let (min_api, out, min_out) = (
+    let (min_api, app_api, min_app, out, min_out) = (
         crate::version::MIN_SUPPORTED_API_VERSION,
+        crate::version::APP_API_VERSION,
+        crate::version::MIN_SUPPORTED_APP_API_VERSION,
         crate::version::CURRENT_OUTBOX_FORMAT_VERSION,
         crate::version::MIN_SUPPORTED_OUTBOX_FORMAT_VERSION,
     );
-    json_200(format!("{{\"ok\":true,\"api_version\":{API_VERSION},\"build\":{build},\"capabilities\":{CAPABILITIES_JSON},\"extensions\":{EXTENSIONS_JSON},\"instance_id\":\"{}\",\"min_supported_api_version\":{min_api},\"current_outbox_format_version\":{out},\"min_supported_outbox_format_version\":{min_out}}}", instance_id()))
+    json_200(format!("{{\"ok\":true,\"api_version\":{API_VERSION},\"build\":{build},\"capabilities\":{CAPABILITIES_JSON},\"extensions\":{EXTENSIONS_JSON},\"instance_id\":\"{}\",\"min_supported_api_version\":{min_api},\"app_api_version\":{app_api},\"min_supported_app_api_version\":{min_app},\"current_outbox_format_version\":{out},\"min_supported_outbox_format_version\":{min_out}}}", instance_id()))
 }
 
 pub fn method_not_allowed_response(allow: &str) -> UdsResponse {

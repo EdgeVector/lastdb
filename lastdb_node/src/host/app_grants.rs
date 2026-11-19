@@ -153,19 +153,26 @@ impl AppGrants {
         let mut next = store.grants.clone();
         next.insert(grant.app.clone(), Arc::new(grant));
         let bytes = encode(&next).ok_or(RegisterError::Store)?;
-        if bytes.len() > MAX_FILE_BYTES {
-            return Err(RegisterError::Limit);
+        store_next(&mut store, next, &bytes)
+    }
+
+    /// Drop the grant for this app.
+    ///
+    /// No stored grant answers success and does not write the file. A later
+    /// `register` of the same app id creates a new grant.
+    pub(crate) fn unregister(&self, app: &str) -> Result<bool, RegisterError> {
+        if !app_identity_crypto::valid_app_id(app) {
+            return Err(RegisterError::Invalid);
         }
-        if let Err(error) = private_fs::write_private(&store.path, &bytes) {
-            tracing::warn!(
-                target: "lastdb_node::app_grants",
-                "could not store app grants: {}",
-                error.kind()
-            );
-            return Err(RegisterError::Store);
+        let mut store = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        if !store.grants.contains_key(app) {
+            return Ok(false);
         }
-        store.grants = next;
-        Ok(())
+        let mut next = store.grants.clone();
+        next.remove(app);
+        let bytes = encode(&next).ok_or(RegisterError::Store)?;
+        store_next(&mut store, next, &bytes)?;
+        Ok(true)
     }
 
     pub(crate) fn get(&self, app_id: &str) -> Option<Arc<AppGrant>> {
@@ -175,6 +182,26 @@ impl AppGrants {
         let store = self.0.lock().unwrap_or_else(PoisonError::into_inner);
         store.grants.get(app_id).cloned()
     }
+}
+
+fn store_next(
+    store: &mut Store,
+    next: BTreeMap<String, Arc<AppGrant>>,
+    bytes: &[u8],
+) -> Result<(), RegisterError> {
+    if bytes.len() > MAX_FILE_BYTES {
+        return Err(RegisterError::Limit);
+    }
+    if let Err(error) = private_fs::write_private(&store.path, bytes) {
+        tracing::warn!(
+            target: "lastdb_node::app_grants",
+            "could not store app grants: {}",
+            error.kind()
+        );
+        return Err(RegisterError::Store);
+    }
+    store.grants = next;
+    Ok(())
 }
 
 fn same_grant(held: &AppGrant, grant: &AppGrant) -> bool {

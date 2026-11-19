@@ -377,13 +377,17 @@ export interface DatabasesShareMember {
   writeSchemas?: DatabasesWriteSchemas;
 }
 
-/** The body of PUT /api/databases/{id}/share/config. */
+/** The body of PUT /api/databases/{id}/share/config. read and write are optional. Omit either one to keep the stored value. No stored statement is members and proposals. An unchanged pair sends no settings statement. */
 export interface DatabasesShareConfig {
   /** Decimal revision the caller last read. */
   expectedRevision: string;
   /** Non-nil lowercase UUID. */
   requestId: string;
   members: DatabasesShareMember[];
+  /** Who may read. Omit it to keep the stored value. */
+  read?: 'members' | 'anyone';
+  /** Where a submit append goes. Omit it to keep the stored value. */
+  write?: 'proposals' | 'direct';
 }
 
 /** The schema object the owner declare-schema route parses. name is required. Other fields are that object's fields. */
@@ -406,6 +410,7 @@ export interface DatabasesListRequest {
   invitation?: never;
   publisher?: never;
   database_id?: never;
+  link?: never;
   database?: never;
   include_full?: never;
   include_definition_ids?: never;
@@ -433,6 +438,7 @@ export interface DatabasesCreateRequest {
   invitation?: never;
   publisher?: never;
   database_id?: never;
+  link?: never;
   database?: never;
   include_full?: never;
   include_definition_ids?: never;
@@ -461,6 +467,35 @@ export interface DatabasesAcceptRequest {
   spec?: never;
   kind?: never;
   sharingMode?: never;
+  link?: never;
+  database?: never;
+  include_full?: never;
+  include_definition_ids?: never;
+  schema?: never;
+  intent?: never;
+  retention?: never;
+  app_id?: never;
+  config?: never;
+  contactCode?: never;
+  expectedNodeKey?: never;
+  expiresInHours?: never;
+  mutation?: never;
+  idempotency_key?: never;
+  mutationId?: never;
+}
+
+/** POST /api/databases/accept. link replaces invitation and publisher. This action has no database field. The token is opaque, not a URL. */
+export interface DatabasesAcceptLinkRequest {
+  action: 'accept';
+  /** Opaque lastdb-read-v1 token. */
+  link: string;
+  name?: string;
+  spec?: never;
+  kind?: never;
+  sharingMode?: never;
+  invitation?: never;
+  publisher?: never;
+  database_id?: never;
   database?: never;
   include_full?: never;
   include_definition_ids?: never;
@@ -489,6 +524,7 @@ export interface DatabasesSchemasRequest {
   invitation?: never;
   publisher?: never;
   database_id?: never;
+  link?: never;
   schema?: never;
   intent?: never;
   retention?: never;
@@ -518,6 +554,7 @@ export interface DatabasesDeclareRequest {
   invitation?: never;
   publisher?: never;
   database_id?: never;
+  link?: never;
   include_full?: never;
   include_definition_ids?: never;
   config?: never;
@@ -539,6 +576,7 @@ export interface DatabasesShareConfigRequest {
   invitation?: never;
   publisher?: never;
   database_id?: never;
+  link?: never;
   include_full?: never;
   include_definition_ids?: never;
   schema?: never;
@@ -565,6 +603,7 @@ export interface DatabasesSetShareConfigRequest {
   invitation?: never;
   publisher?: never;
   database_id?: never;
+  link?: never;
   include_full?: never;
   include_definition_ids?: never;
   schema?: never;
@@ -594,6 +633,7 @@ export interface DatabasesInviteRequest {
   invitation?: never;
   publisher?: never;
   database_id?: never;
+  link?: never;
   include_full?: never;
   include_definition_ids?: never;
   schema?: never;
@@ -601,6 +641,33 @@ export interface DatabasesInviteRequest {
   retention?: never;
   app_id?: never;
   config?: never;
+  mutation?: never;
+  idempotency_key?: never;
+  mutationId?: never;
+}
+
+/** POST /api/databases/{id}/share/link. The owner body is empty. The node does not read the share settings. */
+export interface DatabasesShareLinkRequest {
+  action: 'share_link';
+  database?: DatabaseSelector;
+  name?: never;
+  spec?: never;
+  kind?: never;
+  sharingMode?: never;
+  invitation?: never;
+  publisher?: never;
+  database_id?: never;
+  link?: never;
+  include_full?: never;
+  include_definition_ids?: never;
+  schema?: never;
+  intent?: never;
+  retention?: never;
+  app_id?: never;
+  config?: never;
+  contactCode?: never;
+  expectedNodeKey?: never;
+  expiresInHours?: never;
   mutation?: never;
   idempotency_key?: never;
   mutationId?: never;
@@ -620,6 +687,7 @@ export interface DatabasesSubmitRequest {
   invitation?: never;
   publisher?: never;
   database_id?: never;
+  link?: never;
   include_full?: never;
   include_definition_ids?: never;
   schema?: never;
@@ -644,6 +712,7 @@ export interface DatabasesStatusRequest {
   invitation?: never;
   publisher?: never;
   database_id?: never;
+  link?: never;
   include_full?: never;
   include_definition_ids?: never;
   schema?: never;
@@ -659,7 +728,7 @@ export interface DatabasesStatusRequest {
 }
 
 /** One action. A field from another action is invalid_request. */
-export type DatabasesRequest = DatabasesListRequest | DatabasesCreateRequest | DatabasesAcceptRequest | DatabasesSchemasRequest | DatabasesDeclareRequest | DatabasesShareConfigRequest | DatabasesSetShareConfigRequest | DatabasesInviteRequest | DatabasesSubmitRequest | DatabasesStatusRequest;
+export type DatabasesRequest = DatabasesListRequest | DatabasesCreateRequest | DatabasesAcceptRequest | DatabasesAcceptLinkRequest | DatabasesSchemasRequest | DatabasesDeclareRequest | DatabasesShareConfigRequest | DatabasesSetShareConfigRequest | DatabasesInviteRequest | DatabasesShareLinkRequest | DatabasesSubmitRequest | DatabasesStatusRequest;
 
 export interface DatabasesListReply {
   ok: boolean;
@@ -695,12 +764,14 @@ export interface DatabasesDeclareReply {
   [key: string]: unknown;
 }
 
-/** The owner share configuration envelope. */
+/** The owner share configuration envelope. read and write are the stored settings. No stored statement is members and proposals. */
 export interface DatabasesShareConfigReply {
   ok: boolean;
   user_hash: string;
   databaseId: string;
   revision: string;
+  read: 'members' | 'anyone';
+  write: 'proposals' | 'direct';
   members: { [key: string]: unknown }[];
   [key: string]: unknown;
 }
@@ -725,6 +796,15 @@ export interface DatabasesInviteReply {
   [key: string]: unknown;
 }
 
+/** The owner open read link envelope. link is one opaque token, not a URL. */
+export interface DatabasesShareLinkReply {
+  ok: boolean;
+  user_hash: string;
+  databaseId: string;
+  link: string;
+  [key: string]: unknown;
+}
+
 export interface DatabasesSubmitReply {
   ok: true;
   status: 'submitted';
@@ -742,12 +822,12 @@ export interface DatabasesStatusReply {
 }
 
 /** Success JSON for an action other than submit. submit answers 202. */
-export type DatabasesReply = DatabasesListReply | DatabasesDatabaseReply | DatabasesSchemasReply | DatabasesDeclareReply | DatabasesShareConfigReply | DatabasesShareUpdateReply | DatabasesInviteReply | DatabasesStatusReply;
+export type DatabasesReply = DatabasesListReply | DatabasesDatabaseReply | DatabasesSchemasReply | DatabasesDeclareReply | DatabasesShareConfigReply | DatabasesShareUpdateReply | DatabasesInviteReply | DatabasesShareLinkReply | DatabasesStatusReply;
 
 /** Maximum items 256. */
 export type ManifestNameList = string[];
 
-/** Every schema on the node. It names none of them. A listing may carry it only at API version 38 or above, because an older build that cannot parse it fails the whole registry list for that channel and API version. */
+/** Every schema on the node. It names none of them. A listing may carry it at every app API version. */
 export type AllSchemas = '*';
 
 /** Schema names the app asks for, or * for every schema. */
@@ -769,10 +849,10 @@ export interface DefinitionMap {
   [key: string]: string;
 }
 
-/** Schema name to definition id, or * for every schema. The map form is the same JSON object as before API version 38. */
+/** Schema name to definition id, or * for every schema. */
 export type ListingSchemaSide = AllSchemas | DefinitionMap;
 
-/** The access block on the signed listing. Publish replaces each schema name with that name and its definition id. The string * stays * and means every schema. A listing may carry * only at API version 38 or above. Unknown keys are rejected. */
+/** The access block on the signed listing. Publish replaces each schema name with that name and its definition id. The string * stays * and means every schema. * is allowed at every app API version. Unknown keys are rejected. */
 export interface ListingAccess {
   /** Schemas the app reads, or * for every schema. */
   read: ListingSchemaSide;

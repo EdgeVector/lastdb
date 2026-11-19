@@ -15,7 +15,7 @@ use thiserror::Error;
 mod access;
 mod schema_push;
 
-pub use access::{Access, SchemaSet, ALL_SCHEMAS, ALL_SCHEMAS_API_VERSION, KNOWN_EXTENSIONS};
+pub use access::{Access, SchemaSet, ALL_SCHEMAS, KNOWN_EXTENSIONS};
 pub use ed25519_dalek::{SigningKey, VerifyingKey};
 pub use schema_push::{schema_push_statement, verify_schema_push};
 
@@ -180,7 +180,7 @@ pub struct ListEntry {
     pub source: String,
     /// Full lowercase git commit of the app source.
     pub sha: String,
-    /// The node HTTP API version this entry targets.
+    /// The app API version this entry is filed under.
     pub api_version: u32,
     /// The node build the publisher proved this commit with.
     pub lastdb_build: String,
@@ -200,7 +200,7 @@ pub struct ListEntry {
     /// `public` (the default when absent) or `private`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub audience: Option<String>,
-    /// The LastDB access the app declares. Listings from before API 37 carry none.
+    /// The LastDB access the app declares. Absent when the listing declares none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub access: Option<Access>,
 }
@@ -239,14 +239,14 @@ impl ListEntry {
     }
 }
 
-/// The only install input for one channel and API version.
+/// The only install input for one channel and app API version.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InterfaceList {
     /// List grammar version. Only `1` is accepted.
     pub list_version: u32,
     /// The channel this list covers.
     pub channel: String,
-    /// The node HTTP API version this list covers.
+    /// The app API version this list covers.
     pub api_version: u32,
     /// RFC 3339 UTC time the registry generated the list.
     pub generated_at: String,
@@ -288,7 +288,7 @@ impl InterfaceList {
             || api_version == 0
         {
             return Err(
-                "registry list does not match the requested channel and API version".into(),
+                "registry list does not match the requested channel and app API version".into(),
             );
         }
         if self.apps.len() > MAX_LIST_APPS {
@@ -367,7 +367,7 @@ pub fn validate_channel(channel: &str) -> Result<(), String> {
     }
 }
 
-/// The path of one interface list under a list base: `<channel>/api/<api>.json`.
+/// The path of one interface list: `<channel>/api/<app API version>.json`.
 #[must_use]
 pub fn interface_list_path(channel: &str, api_version: u32) -> String {
     format!("{channel}/api/{api_version}.json")

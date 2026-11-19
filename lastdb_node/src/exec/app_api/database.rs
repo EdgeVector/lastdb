@@ -106,7 +106,7 @@ async fn write_received<T>(
     share: &RegisteredShare,
     future: impl Future<Output = Result<T, HostError>>,
 ) -> Result<T, HostError> {
-    if !crate::log_sync::direct_write_allowed(host, share).await {
+    if !crate::log_sync::direct_write_allowed(host, share) {
         return Err(HostError::new(403, READ_ONLY));
     }
     if !durable(host, share) {

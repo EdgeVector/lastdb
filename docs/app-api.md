@@ -171,26 +171,30 @@ POST /v1/x/databases
 |---|---|---|---|
 | `list` | `GET /api/databases` | none | 200 `{ok, user_hash, databases}` |
 | `create` | `POST /api/databases` | `name`, `spec`, `kind`, `sharingMode` | 200 `{ok, user_hash, database}` |
-| `accept` | `POST /api/databases/accept` | `invitation`, `publisher`, `name`, `database_id` | 200 `{ok, user_hash, database}` |
+| `accept` | `POST /api/databases/accept` | `invitation`, `publisher`, `name`, `database_id`, or `link` and `name` | 200 `{ok, user_hash, database}` |
 | `schemas` | `GET /api/databases/{id}/schemas` | `database`, `include_full`, `include_definition_ids` | 200 schema list |
 | `declare_schema` | `POST /api/databases/{id}/apps/declare-schema` | `database`, `schema`, `intent`, `retention`, `app_id` | 200 declare envelope |
-| `share_config` | `GET /api/databases/{id}/share/config` | `database` | 200 `{ok, user_hash, databaseId, revision, members}` |
+| `share_config` | `GET /api/databases/{id}/share/config` | `database` | 200 `{ok, user_hash, databaseId, revision, read, write, members}` |
 | `set_share_config` | `PUT /api/databases/{id}/share/config` | `database`, `config` | 200 `{ok, user_hash, databaseId, requestId, revision, committed}` |
 | `invite` | `POST /api/databases/{id}/invitations` | `database`, `contactCode`, `expectedNodeKey`, `expiresInHours` | 200 `{ok, user_hash, databaseId, invitation}` |
+| `share_link` | `POST /api/databases/{id}/share/link` | `database` | 200 `{ok, user_hash, databaseId, link}` |
 | `submit` | `POST /api/databases/{id}/submissions` | `database`, `mutation`, `idempotency_key` | 202 `{ok, status, mutation_id, submission_sequence}` |
 | `submission_status` | `POST /api/databases/{id}/submissions/status` | `database`, `mutationId` | 200 `{ok, mutation_id, status}` |
 
 - `database` is the id or the name. Omit it, or send JSON null, and the call uses the personal database. A bad value is `invalid_request` and the message is `invalid database identifier`. `list`, `create`, and `accept` reject the field as `unknown field database`. `accept` names its target `database_id`.
+- `accept` takes an invitation or a link. The invitation fields are `invitation`, `publisher`, optional `name`, and optional `database_id`. The link fields are `link` and optional `name`. A body with both is `invalid_request` and the message is `unknown field invitation` when `link` is present, because that shape allows only `link` and `name`. A malformed link is `invalid link`.
+- `share_link` sends an empty body to `POST /api/databases/{id}/share/link`. The reply field `link` is one opaque token: `lastdb-read-v1.` plus base64url of canonical JSON. It is not a URL, so the content key does not land in a query string, a browser history, or a proxy log. The token carries the environment, the publisher account scope, the database id, the publisher key, and the content key. It carries no member identity and it is not sealed to a recipient. The node does not read the share settings when it makes the token. The token is useful when the service setting is `read: anyone`. A cloud failure is HTTP 503 and the message is a static sentence, for example `cloud connection is unavailable`.
 - `kind` is `shareable` or `personal`. Omit it for `shareable`. `sharingMode` is `whole_database`, and then `spec` must be absent. `spec` is `{name, version}`.
 - A present `Idempotency-Key` header on `create` is forwarded. It is a v4 UUID, and the text must equal that UUID, only when `sharingMode` is `whole_database`. Any other present key is `invalid_request` and the message is `whole-database creation uses a v4 UUID idempotency key`. An absent header is allowed.
 - `include_full` and `include_definition_ids` are booleans. `true` is sent as that query flag. `false` and JSON null are omitted. Another type is `invalid_request`.
 - `declare_schema` is allowed by the `databases` extension. An app that declared the extension may place a schema. The read list and the write list are not consulted for `declare_schema`. Those lists govern `/v1/read` and `/v1/write`.
 - On the app socket `declare_schema` takes an optional `app_id`. A present string is passed to the owner handler as that `app_id`. Omit the field, or send JSON null, and `app_id` is the calling app's id. A value that is not a string is `app_id must be a string`. The owner handler requires that name to be `{app_id}/{local}`, or a local name with no slash, which it prefixes with the app id. An app places a schema in another namespace by setting `app_id` to that namespace. Without that field, the owner handler refuses the name: `invalid_request` and the message is `schema.name namespace must match request.app_id`. A missing or empty name is the owner handler's refusal. On the owner socket `app_id` is required. A missing or empty value is `app_id is required`.
 - `intent` is `catalog_sync`. Omit it for that value. `retention` sits beside `schema`, not inside it. It has `ttl_days` or `ttl_seconds`, and optional `confirm_expire_existing`.
-- `config` is the owner PUT body: `expectedRevision`, `requestId`, and `members`. `mutation` is the owner submission document. Its tag is `type` with the value `mutation`. `idempotency_key` becomes the `Idempotency-Key` header. It is a non-nil lowercase UUID.
+- `config` is the owner PUT body: `expectedRevision`, `requestId`, `members`, and optional `read` (`members` or `anyone`) and `write` (`proposals` or `direct`). Omit either one to keep the stored value. No stored statement is `members` and `proposals`. The same pair sends no settings statement. `mutation` is the owner submission document. Its tag is `type` with the value `mutation`. `idempotency_key` becomes the `Idempotency-Key` header. It is a non-nil lowercase UUID.
 - `submit` answers 202. It appends the proposal to the share's proposal log. It does not write a record. `submission_status` reads that proposal. The status text comes from the share service.
 - An app that did not declare `databases` is `permission_denied`. The message is `the app {id} did not declare the extension databases`. The node checks this before it reads the body. An unknown `action` is `invalid_request` and the message is `unknown action {action}`. An unknown field is `unknown field {name}`. A missing or empty required string is `{name} is required`. A value of another type is `{name} must be a string`, or `must be an object`, or `must be a boolean`.
-- A success reply is the owner route's JSON, including the status. A refusal uses the app API error object. Status 402 becomes 403 `permission_denied` and keeps the payment message. A share error uses its `message`, or else its `reason`, or else a sentence: `share_revision_conflict` is 409 `conflict` and the message is `the share configuration is at another revision`; `share_configuration_unconfirmed` is 503 `busy` and the message is `share configuration is not confirmed`; `invalid_share_configuration` keeps the `reason` text as 400 `invalid_request`.
+- A success reply is the owner route's JSON, including the status. A refusal uses the app API error object. Status 402 becomes 403 `permission_denied` and keeps the payment message. A share error uses its `message`, or else its `reason`, or else a sentence: `share_revision_conflict` is 409 `conflict` and the message is `the share configuration is at another revision`; `share_configuration_unconfirmed` is 503 `busy` and the message is `share configuration is not confirmed`; `invalid_share_configuration` keeps the `reason` text as 400 `invalid_request`. A settings refusal whose `error` is not one of those codes has the message `{code}: {field}`, for example `invalid_input: share.settings.unchanged`.
+- A received database in `list` includes `selfAccess.read` and `selfAccess.write`. `read` is `members` or `anyone`. `write` is `proposals` or `direct`. No stored statement is `members` and `proposals`.
 - Record reads and writes in a named database stay on `/v1/read` and `/v1/write` under the app's schema grants. This extension adds none.
 - The call does not serve backup, cloud, status, registration, members, or spec binding.
 - The app socket does not serve `POST /api/databases/{id}/apps/declare-schema`. An app places a schema with `declare_schema`.
@@ -256,11 +260,8 @@ goes into the listing, under the publisher signature:
 - `read` and `write` are independent. A schema on `write` alone cannot be read.
   `"*"` on one side does not grant the other side.
 - An extension is a plain name with no version. `"*"` is not an extension value.
-- `"*"` may appear in a listing only at API version 38 or above. Publish refuses
-  it below that. An older build that cannot parse `"*"` fails to read the whole
-  registry list for that channel and API version, so every app in the list
-  becomes unresolvable to that build. Builds at 37 never read the 38 list.
-- For the map form, the signed access block is the same bytes as before API 38.
+- `"*"` in `read` or `write` is allowed at every app API version. Publish copies
+  it into the listing as `"*"`.
 - Declaring is the permission. Nobody approves the declaration: install does
   not show it for consent, and a listing that changes it does not ask the
   owner again. The owner still approves the install steps.
@@ -310,6 +311,29 @@ so a lost grant can be restored. The registry poll does not. The poll is
 is already at the listed release is left as it is. The launcher does not
 register. The app socket serves the app under the grant the node holds.
 
+## Listing version
+
+A registry listing is filed under the app API version. The app API is version 1.
+
+`APP_API_VERSION` and `MIN_SUPPORTED_APP_API_VERSION` live in
+`lastdb_node/src/version.rs`. They change only when `/v1/read`, `/v1/write`, or
+the extension mechanism changes in a way that breaks an installed app. Adding
+an extension does not change them. An owner-side change does not change them.
+
+The listing's signed `api_version` member, the list member `api_version`, and
+the list path `<channel>/api/<n>.json` keep those names. The value is the app
+API version. `lastdb app publish` sends the running node's `app_api_version`.
+A node reads the lists from `min_supported_app_api_version` through
+`app_api_version` and merges them. Today that range is the single list
+`api/1.json`.
+
+`GET /api/version` reports `app_api_version` and `min_supported_app_api_version`
+beside `api_version` and `min_supported_api_version`. Those two existing members
+stay the socket version, for the CLI and the SDK.
+
+Listings already filed under a socket number stay unread by this build until
+the app is republished under app API version 1.
+
 ## Schemas at publish
 
 `lastdb app publish` sends schema definitions to Schema Service after the
@@ -348,6 +372,18 @@ A node serves two sockets in its data directory.
   the write side, the extensions, or the data folder differ. A side is the same
   when both are the same set of schema names, or both are `"*"`. The same grant
   answers success and does not rewrite the file. A grant has no lifetime.
+- The owner drops one app's grant with `POST /api/apps/unregister` on the owner
+  socket and `{ "app": "<id>" }`. The route is `unregister` because it undoes
+  `register` and nothing else. The node does not delete the app's files, its
+  schemas, or its records. No stored grant answers success and does not rewrite
+  the file. The reply is the owner envelope (`ok`, `user_hash`) plus `app`, the
+  id the request sent, and `removed` (`true` when a grant was dropped, `false`
+  when the node held none). A caller that is not the owner gets 403 `the owner
+  unregisters an app`. An invalid app id gets 400 `invalid app id`. A body the
+  node cannot parse gets 400 `invalid app unregister request: ...`. A body over
+  256 KiB gets 413 `app unregister request is too large`. A store failure is
+  the same 500 as register, `could not store the app grant`, which the owner
+  socket answers as `Internal Server Error`.
 - The grants are one file, `app-grants.json`, in the data directory beside the
   sockets. The file is mode 0600. The node writes a temporary file and renames
   it into place when a grant changes, and loads the file at start. A missing
@@ -364,10 +400,11 @@ A node serves two sockets in its data directory.
 - A request on the app socket carries the app id in the header
   `X-LastDB-App`. An app id the node has no grant for is refused with
   `permission_denied` and the message `the app socket needs a registered app`.
-  Run `lastdb app install <app>` or `lastdb app upgrade <app>`, or roll back to
-  a retained version, to register the grant again. The registry poll does not.
-  An app id is a plain app name, checked with the same rule the
-  launcher and the installer use.
+  While the app is still installed, `lastdb app install <app>`, `lastdb app
+  upgrade <app>`, or a rollback registers the grant again. The registry poll
+  does not. `lastdb app remove <app>` drops the grant on purpose. An app id is
+  a plain app name, checked with the same rule the launcher and the installer
+  use.
 - Any route other than the app API answers `not_found` on the app socket.
 - A read names only a schema the app's `read` grant allows, a write only one
   its `write` grant allows, and an extension only one in its `extensions` list.
@@ -526,13 +563,40 @@ directly.
   <app>` or `lastdb app upgrade <app>` and that version is already active, the
   installer registers that access again. The registry poll does not.
 - A node that holds no grant for the app refuses its calls with `the app
-  socket needs a registered app`. Run `lastdb app install <app>` or `lastdb app
-  upgrade <app>`, or roll back to a retained version. That registers the grant
-  again. The registry poll does not. There is no repair command and no
-  registration from the launcher.
-- There is no command that removes an installed app. Pruning a version
-  directory that is neither current nor previous does not drop the grant. The
-  grant stays until a later registration of that app id replaces it.
+  socket needs a registered app`. While the app is still installed, `lastdb app
+  install <app>`, `lastdb app upgrade <app>`, or a rollback registers the grant
+  again. The registry poll does not. The launcher does not register.
+- `lastdb app remove <app>` removes an installed app. It asks the node to drop
+  that app's grant (`POST /api/apps/unregister`), then removes the command
+  links this app installed, every version directory, the `current` and
+  `previous` links, and the install receipt. It also removes `rejected-source`,
+  `last-checked`, and a leftover staging directory under the app root. A
+  command link is removed only when it is a symlink that points at the `lastdb`
+  launcher and this app lists that command, or when the symlink points inside
+  this app's directory. A regular file is left in place. A symlink that points
+  somewhere else is left in place.
+- Schemas and records are not deleted. They stay readable by the owner and by
+  any app whose access lists those schemas. There is no flag that deletes
+  schemas or records. The data folder `<apps root>/<app>/data` stays unless
+  `--delete-data` is given. That flag removes only that folder.
+- An app that is not installed is an error. When the files are already gone
+  and the node still holds the grant, running the command again drops that
+  grant and succeeds. `--delete-data` on that later run does not remove the
+  data folder. If the node is not running, the files are still removed and the
+  command says the grant was not. Run `lastdb app remove <app>` again when the
+  node is up. No stored grant is success.
+- `lastdb app upgrade --all` walks installed apps only. Installed means
+  `<apps root>/<app>/current/lastdb-app-install.json` is a file. Remove deletes
+  that link and the receipt, so the registry poll does not install the app
+  again. Pruning a version directory that is neither current nor previous still
+  does not drop the grant. Remove does.
+- The install manifest has no uninstall step. `post_install` is the step that
+  runs after activation. The receipt does not record what those steps started.
+  Remove refuses an app when a retained version that was not installed with
+  `--inactive` has `post_install` steps. The error names each such version and
+  the step's argv, and the app stays installed. An `--inactive` install did
+  not run `post_install`, so those steps do not block removal. `prepare` runs
+  inside the source tree and is not treated as a service step.
 - The declaration exists to record which app uses which schema (Tom,
   2026-11-17). The node serves an app only the schemas it declared, so the
   record stays true. Confining an installed app on the owner's machine is not a

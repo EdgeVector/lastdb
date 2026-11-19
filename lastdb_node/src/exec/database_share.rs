@@ -17,6 +17,7 @@ pub(super) enum Route {
     Config,
     Members,
     Invitation,
+    Link,
 }
 
 impl Route {
@@ -24,6 +25,7 @@ impl Route {
         match path {
             "share/config" => Some(Self::Config),
             "share/members" => Some(Self::Members),
+            "share/link" => Some(Self::Link),
             "invitations" => Some(Self::Invitation),
             _ => None,
         }
@@ -55,8 +57,11 @@ pub(super) async fn execute(
         (Route::Config, "PUT") => set(req, host, &entry).await,
         (Route::Members, "POST") => return members(req, ctx, host, &entry.id).await,
         (Route::Invitation, "POST") => invite(req, host, &entry.id).await,
+        (Route::Link, "POST") => return link(req, ctx, host, &entry).await,
         (Route::Config, _) => return method_not_allowed_response("GET, PUT"),
-        (Route::Members | Route::Invitation, _) => return method_not_allowed_response("POST"),
+        (Route::Members | Route::Invitation | Route::Link, _) => {
+            return method_not_allowed_response("POST")
+        }
     };
     render(result.map_err(host_error), ctx)
 }
@@ -167,6 +172,30 @@ struct Invitation {
     expires_in_hours: Option<u32>,
 }
 
+async fn link(
+    req: &UdsRequest,
+    ctx: &AccessContext,
+    host: &Host,
+    entry: &owned::Entry,
+) -> UdsResponse {
+    if !req.body.is_empty() {
+        return error_response(400, "invalid sharing request", ctx);
+    }
+    match crate::share_link::issue(host, entry).await {
+        Ok(token) => render(
+            Ok(json!({
+                "databaseId": entry.id,
+                "link": token,
+            })),
+            ctx,
+        ),
+        Err(error) => {
+            let (status, message) = error.status();
+            error_response(status, message, ctx)
+        }
+    }
+}
+
 async fn invite(req: &UdsRequest, host: &Host, id: &str) -> Result<Value, ConfigError> {
     let invitation: Invitation = decode(req, 4096)?;
     let sealed = named_grant::issue_invitation(
@@ -197,26 +226,40 @@ fn host_error(error: ConfigError) -> HostError {
     let (status, code, body) = match error {
         ConfigError::Invalid(reason) => (
             400,
-            "invalid_share_configuration",
+            "invalid_share_configuration".to_owned(),
             json!({ "reason": reason }),
         ),
         ConfigError::Conflict(revision) => (
             409,
-            "share_revision_conflict",
+            "share_revision_conflict".to_owned(),
             json!({ "revision": revision }),
         ),
         ConfigError::PaymentRequired => (
             402,
-            "payment_required",
+            "payment_required".to_owned(),
             json!({
                 "reason": crate::cloud::PAYMENT_REQUIRED_MESSAGE,
                 "message": crate::cloud::PAYMENT_REQUIRED_MESSAGE,
             }),
         ),
-        ConfigError::Unconfirmed => (503, "share_configuration_unconfirmed", json!({})),
+        ConfigError::Unconfirmed => (503, "share_configuration_unconfirmed".to_owned(), json!({})),
+        ConfigError::Refused {
+            status,
+            code,
+            message,
+        } => (shown_status(status), code, json!({ "message": message })),
     };
     let mut body = body;
     body["ok"] = json!(false);
     body["error"] = json!(code);
     HostError::structured(status, code, body)
+}
+
+/// A status outside the owner-visible set becomes a content-free 500 and drops
+/// the service code. 400 stays visible, so the body is kept.
+fn shown_status(status: u16) -> u16 {
+    match status {
+        400 | 401 | 402 | 403 | 404 | 409 | 413 | 422 | 423 | 503 | 507 => status,
+        _ => 400,
+    }
 }

@@ -1,15 +1,18 @@
-//! Publisher view of a shared database's members as one configuration.
+//! Publisher view of a shared database's members and settings as one configuration.
 //!
-//! The service stores one signed entry per member. The owner API still reads
-//! and writes the member set as a whole, so a read collects every entry and a
-//! write signs only the entries that change.
+//! The service stores one signed entry per member and one settings statement.
+//! The owner API still reads and writes the member set as a whole, so a read
+//! collects every entry and a write signs only the entries that change. A
+//! settings change is a separate signed statement. The service decides which
+//! pairs it accepts and when a change is allowed.
 
 use super::entries::{self, Grant};
+use super::settings;
 use super::{exchange, lock, PublisherSession};
 use cloud_backup_protocol::v2::share_access::{
-    MemberEntry, ShareMemberRole, ShareMemberState, ShareWriteScope,
+    MemberEntry, ShareMemberRole, ShareMemberState, ShareRead, ShareWrite, ShareWriteScope,
 };
-use cloud_backup_protocol::{DecimalU64, Digest, Id};
+use cloud_backup_protocol::{DecimalU64, Digest, ErrorCode, Id};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
@@ -19,6 +22,12 @@ pub(crate) struct ConfigUpdate {
     pub expected_revision: DecimalU64,
     pub request_id: Id,
     members: Vec<ConfigMember>,
+    /// Omitted keeps the stored value. No stored statement is members.
+    #[serde(default)]
+    read: Option<ShareRead>,
+    /// Omitted keeps the stored value. No stored statement is proposals.
+    #[serde(default)]
+    write: Option<ShareWrite>,
 }
 
 impl ConfigUpdate {
@@ -67,6 +76,8 @@ impl From<MemberEntry> for ConfigMember {
 pub(crate) struct Configuration {
     database_id: String,
     revision: DecimalU64,
+    read: ShareRead,
+    write: ShareWrite,
     members: Vec<ConfigMember>,
 }
 
@@ -75,6 +86,13 @@ pub(crate) enum ConfigError {
     Conflict(Option<DecimalU64>),
     PaymentRequired,
     Unconfirmed,
+    /// The service refused the settings statement. `code` is its error code
+    /// and `message` is its field. The node does not replace either one.
+    Refused {
+        status: u16,
+        code: String,
+        message: String,
+    },
 }
 
 pub(super) fn unconfirmed_or_payment(error: &str) -> ConfigError {
@@ -93,26 +111,69 @@ pub(crate) async fn read_config(
     let session = open(home).await?;
     let (revision, stored) = exchange::list(&session, database_id)
         .await
-        .map_err(|e| unconfirmed_or_payment(&e))?;
+        .map_err(|error| unconfirmed_or_payment(&error))?;
+    let current = exchange::get_settings(&session, database_id)
+        .await
+        .map_err(settings_failure)?;
+    let (read, write) = settings::mode(current.as_ref());
     Ok(Configuration {
         database_id: database_id.to_owned(),
         revision: DecimalU64::new(revision),
+        read,
+        write,
         members: stored.into_iter().map(Into::into).collect(),
     })
 }
 
-/// Make the stored members equal `request.members`.
+/// Make the stored members and settings equal the request.
 ///
-/// Every stored member must be named: leaving one out is not a revoke. Only
-/// the members whose grant changes get a new signed entry. When nothing
-/// changes, the stored configuration is already the requested one and the
-/// call succeeds at the current revision, which makes a repeat safe.
+/// Settings go out first, then member entries. When the member list would
+/// change and `expectedRevision` is not the stored member revision, the call
+/// returns that conflict before either write. A settings-only change does not
+/// move the member revision and does not require it to match.
+///
+/// If the settings call fails, no member entry is sent and the caller sees
+/// the service refusal. If settings succeed and the member call fails, the
+/// caller sees the member error and the new pair is already stored. A repeat
+/// of the same body reads that pair, sends no statement, and retries the
+/// members while `expectedRevision` still matches. `requestId` is echoed and
+/// is not sent to the service.
+///
+/// An omitted `read` or `write` keeps the stored value. No stored statement
+/// is members and proposals. The same pair sends no statement: the service
+/// refuses it, and a repeat whose answer was lost must not send it again.
+/// Every stored member must be named: leaving one out is not a revoke.
 pub(crate) async fn set_config(
     home: &Path,
     database_id: &str,
     request: ConfigUpdate,
 ) -> Result<DecimalU64, ConfigError> {
-    let mut members = request.members;
+    let read = request.read;
+    let write = request.write;
+    let expected = request.expected_revision.get();
+    let members = normalize(request.members)?;
+    let _lock = lock::hold(home, database_id).map_err(|_| ConfigError::Unconfirmed)?;
+    let session = open(home).await?;
+    let (revision, stored) = exchange::list(&session, database_id)
+        .await
+        .map_err(|error| unconfirmed_or_payment(&error))?;
+    let signed = member_updates(&session, database_id, &stored, members)?;
+    if !signed.is_empty() && revision != expected {
+        return Err(ConfigError::Conflict(Some(DecimalU64::new(revision))));
+    }
+    if read.is_some() || write.is_some() {
+        store_settings(&session, database_id, read, write).await?;
+    }
+    if signed.is_empty() {
+        return Ok(DecimalU64::new(revision));
+    }
+    exchange::set(&session, database_id, signed)
+        .await
+        .map(DecimalU64::new)
+        .map_err(update_error)
+}
+
+fn normalize(mut members: Vec<ConfigMember>) -> Result<Vec<ConfigMember>, ConfigError> {
     members.sort_by(|left, right| left.node_key.cmp(&right.node_key));
     if members
         .windows(2)
@@ -133,11 +194,15 @@ pub(crate) async fn set_config(
             _ => {}
         }
     }
-    let _lock = lock::hold(home, database_id).map_err(|_| ConfigError::Unconfirmed)?;
-    let session = open(home).await?;
-    let (revision, stored) = exchange::list(&session, database_id)
-        .await
-        .map_err(|e| unconfirmed_or_payment(&e))?;
+    Ok(members)
+}
+
+fn member_updates(
+    session: &PublisherSession,
+    database_id: &str,
+    stored: &[MemberEntry],
+    members: Vec<ConfigMember>,
+) -> Result<Vec<MemberEntry>, ConfigError> {
     if stored.iter().any(|entry| {
         members
             .binary_search_by(|member| member.node_key.cmp(&entry.node_public_key))
@@ -165,20 +230,57 @@ pub(crate) async fn set_config(
             continue;
         };
         signed.push(
-            entries::sign(&session, database_id, &member.node_key, current, grant)
+            entries::sign(session, database_id, &member.node_key, current, grant)
                 .map_err(ConfigError::Invalid)?,
         );
     }
-    if signed.is_empty() {
-        return Ok(DecimalU64::new(revision));
-    }
-    if revision != request.expected_revision.get() {
-        return Err(ConfigError::Conflict(Some(DecimalU64::new(revision))));
-    }
-    exchange::set(&session, database_id, signed)
+    Ok(signed)
+}
+
+async fn store_settings(
+    session: &PublisherSession,
+    database_id: &str,
+    read: Option<ShareRead>,
+    write: Option<ShareWrite>,
+) -> Result<(), ConfigError> {
+    let current = exchange::get_settings(session, database_id)
         .await
-        .map(DecimalU64::new)
-        .map_err(update_error)
+        .map_err(settings_failure)?;
+    let Some(statement) = settings::prepare(session, database_id, current.as_ref(), read, write)
+        .map_err(ConfigError::Invalid)?
+    else {
+        return Ok(());
+    };
+    exchange::set_settings(session, database_id, statement)
+        .await
+        .map_err(settings_failure)
+}
+
+fn settings_failure(error: exchange::CloudRefusal) -> ConfigError {
+    match error {
+        exchange::CloudRefusal::Unconfirmed => ConfigError::Unconfirmed,
+        exchange::CloudRefusal::Payment => ConfigError::PaymentRequired,
+        exchange::CloudRefusal::Service { status, error } => {
+            let code = protocol_code(&error.code);
+            let message = if error.field.is_empty() {
+                code.clone()
+            } else {
+                error.field
+            };
+            ConfigError::Refused {
+                status,
+                code,
+                message,
+            }
+        }
+    }
+}
+
+fn protocol_code(code: &ErrorCode) -> String {
+    serde_json::to_value(code)
+        .ok()
+        .and_then(|value| value.as_str().map(str::to_owned))
+        .unwrap_or_else(|| "invalid_input".into())
 }
 
 /// Hold the member lock and read one member's entry, verified as this
