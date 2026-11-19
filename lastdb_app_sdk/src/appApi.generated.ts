@@ -363,20 +363,12 @@ export interface DatabasesRetention {
   confirm_expire_existing?: boolean;
 }
 
-export interface DatabasesNamedWriteSchemas {
-  names: string[];
-}
-
-/** Definition ids, schema names, or every schema. */
-export type DatabasesWriteSchemas = string[] | DatabasesNamedWriteSchemas | 'all';
-
 export interface DatabasesShareMember {
   /** 64 lowercase hex characters. */
   nodeKey: string;
   role: 'read' | 'submit';
   state: 'active' | 'revoked';
   regrant?: boolean;
-  writeSchemas?: DatabasesWriteSchemas;
 }
 
 /** Schema name to member write behaviour. A name that is absent is owner_only. An empty object means every schema is owner_only. */
@@ -737,10 +729,10 @@ export interface DatabasesPublishAttempt {
   status: number | string | null;
 }
 
-/** How many of this member's accepted local writes are still on the spool, and the last append attempt. Owned databases omit this object. */
+/** How many of this member's accepted local writes are still on the spool, and the last append attempt. pending is null until this process has seen the spool. Owned databases omit this object. */
 export interface DatabasesPublish {
-  /** Spool head minus the prefix the service has confirmed. Integer. Minimum 0. */
-  pending: number;
+  /** Spool head minus the prefix the service has confirmed. Null when this process has not seen the spool, including after a restart. Zero when the registration is not a signed log. */
+  pending: null | number;
   /** Null until a publish attempt, and null again after a restart. */
   lastAttempt: null | DatabasesPublishAttempt;
 }

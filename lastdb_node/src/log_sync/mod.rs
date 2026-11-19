@@ -16,7 +16,7 @@ pub(crate) use crate::named_grant::cloud_state::{database_cloud_state, CloudStat
 pub(crate) use cloud_state::wait_for_enrollment;
 mod direct;
 mod publish_state;
-pub(crate) use publish_state::row as publish_row;
+pub(crate) use publish_state::{note_receiver, row as publish_row};
 mod http;
 mod native;
 mod native_reset;
@@ -92,8 +92,7 @@ impl From<RestoreError> for PageFailure {
 }
 
 pub(crate) use contributions::{
-    status as share_write_status, submit as submit_share_write, validate_write_scopes,
-    ContributionError,
+    status as share_write_status, submit as submit_share_write, ContributionError,
 };
 pub use native_reset::install_prepared_native_recovery;
 pub use owner_recovery::{recover_owned, RecoveredPrefix};

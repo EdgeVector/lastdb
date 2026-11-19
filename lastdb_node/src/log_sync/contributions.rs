@@ -7,17 +7,14 @@
 
 mod intake;
 
-use cloud_backup_protocol::v2::share_access::ShareWriteScope;
 use cloud_backup_protocol::{Digest, Id};
 use fold_db::schema::types::{Schema, SchemaError};
 use mutation_log::{AppendBatch, AppendOutcome, DatabaseId, Entry, LogError, Namespace};
 use serde::{Deserialize, Serialize};
 
 use crate::accepted_writes;
-use crate::host::owned::{Entry as OwnedEntry, ResolvedStore};
 use crate::host::Host;
 use crate::log_envelope::DatabaseContentKey;
-use crate::named_grant::{ConfigError, ConfigUpdate};
 use crate::registered_share::{self, RegisteredShare};
 use crate::share_invitation::inbox;
 
@@ -94,55 +91,6 @@ struct Submission {
     base_mutation: Option<String>,
 }
 
-pub(crate) fn validate_write_scopes(
-    host: &Host,
-    entry: &OwnedEntry,
-    update: &ConfigUpdate,
-) -> Result<(), ConfigError> {
-    let invalid = |message: &str| ConfigError::Invalid(message.to_owned());
-    if !entry.whole_database() && update.scoped_members().next().is_some() {
-        return Err(invalid(
-            "schema write scopes require whole-database sharing",
-        ));
-    }
-    if !entry.whole_database() {
-        return Ok(());
-    }
-    let ResolvedStore::Owned(store) = host
-        .owned
-        .registered_store(&entry.id)
-        .map_err(|_| ConfigError::Unconfirmed)?
-    else {
-        return Err(ConfigError::Unconfirmed);
-    };
-    let schemas = store
-        .schema_manager()
-        .get_schemas()
-        .map_err(|_| ConfigError::Unconfirmed)?;
-    let installed: std::collections::HashSet<_> = schemas
-        .values()
-        .filter_map(|schema| schema_id(schema).ok())
-        .collect();
-    for scope in update.scoped_members() {
-        match scope {
-            ShareWriteScope::Selected(ids) if ids.iter().any(|id| !installed.contains(id)) => {
-                return Err(invalid(
-                    "write scope contains a schema definition outside this database",
-                ));
-            }
-            ShareWriteScope::Named { names }
-                if names.iter().any(|name| !schemas.contains_key(name)) =>
-            {
-                return Err(invalid(
-                    "write scope contains a schema name outside this database",
-                ));
-            }
-            _ => {}
-        }
-    }
-    Ok(())
-}
-
 pub(crate) async fn submit(
     host: &Host,
     share: &RegisteredShare,
@@ -157,6 +105,7 @@ pub(crate) async fn submit(
     let store = registered_share::receiver_store(host, &share.id)
         .await
         .map_err(|_| Unavailable)?;
+    super::note_receiver(share.id.as_str(), &store);
     let (_, definition) = intake::resolve_schema(&store, &mutation)?;
     let mut log = connection(host, share, id)?;
     let observed = received::access(&log).await.ok_or(Unavailable)?;

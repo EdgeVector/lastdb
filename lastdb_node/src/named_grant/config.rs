@@ -11,7 +11,6 @@ use super::settings;
 use super::{exchange, lock, PublisherSession};
 use cloud_backup_protocol::v2::share_access::{
     MemberEntry, MemberWriteBehaviour, ShareMemberRole, ShareMemberState, ShareRead, ShareWrite,
-    ShareWriteScope,
 };
 use cloud_backup_protocol::{DecimalU64, Digest, ErrorCode, Id};
 use serde::{Deserialize, Serialize};
@@ -36,14 +35,6 @@ pub(crate) struct ConfigUpdate {
     member_writes: Option<BTreeMap<String, MemberWriteBehaviour>>,
 }
 
-impl ConfigUpdate {
-    pub(crate) fn scoped_members(&self) -> impl Iterator<Item = &ShareWriteScope> {
-        self.members
-            .iter()
-            .filter_map(|member| member.write_schemas.as_ref())
-    }
-}
-
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct ConfigMember {
@@ -52,8 +43,6 @@ struct ConfigMember {
     pub state: ShareMemberState,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub regrant: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub write_schemas: Option<ShareWriteScope>,
 }
 
 impl From<MemberEntry> for ConfigMember {
@@ -63,7 +52,6 @@ impl From<MemberEntry> for ConfigMember {
             role: entry.role,
             state: entry.state,
             regrant: false,
-            write_schemas: entry.write_schemas,
         }
     }
 }
@@ -163,8 +151,7 @@ pub(crate) async fn read_config(
 /// stored statement is members, proposals, and an empty map. The same three
 /// send no statement: the service refuses an unchanged statement, and a
 /// repeat whose answer was lost must not send it again. Every stored member
-/// must be named: leaving one out is not a revoke. An omitted `writeSchemas`
-/// signs the member entry without a scope.
+/// must be named: leaving one out is not a revoke.
 pub(crate) async fn set_config(
     home: &Path,
     database_id: &str,
@@ -212,19 +199,6 @@ fn normalize(mut members: Vec<ConfigMember>) -> Result<Vec<ConfigMember>, Config
     {
         return Err(ConfigError::Invalid("share.members.order".into()));
     }
-    for member in &mut members {
-        match &mut member.write_schemas {
-            Some(ShareWriteScope::Selected(ids)) => {
-                ids.sort_unstable();
-                ids.dedup();
-            }
-            Some(ShareWriteScope::Named { names }) => {
-                names.sort_unstable();
-                names.dedup();
-            }
-            _ => {}
-        }
-    }
     Ok(members)
 }
 
@@ -253,7 +227,6 @@ fn member_updates(
         let desired = Grant {
             role: member.role,
             state: member.state,
-            write_schemas: member.write_schemas,
         };
         let Some(grant) =
             entries::config_step(current, desired, member.regrant).map_err(ConfigError::Invalid)?
@@ -261,7 +234,7 @@ fn member_updates(
             continue;
         };
         signed.push(
-            entries::sign(session, database_id, &member.node_key, current, grant)
+            entries::sign(session, database_id, &member.node_key, current, &grant)
                 .map_err(ConfigError::Invalid)?,
         );
     }

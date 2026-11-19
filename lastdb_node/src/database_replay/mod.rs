@@ -170,7 +170,9 @@ async fn open_store(
 async fn received_store(host: &Host, database_id: &str) -> Result<Arc<FoldDB>, RestoreError> {
     let id =
         Id::try_from(database_id.to_owned()).map_err(|_| RestoreError::Scope("database id"))?;
-    crate::registered_share::receiver_store(host, &id)
+    let store = crate::registered_share::receiver_store(host, &id)
         .await
-        .map_err(|_| RestoreError::Scope("database store"))
+        .map_err(|_| RestoreError::Scope("database store"))?;
+    crate::log_sync::note_receiver(database_id, &store);
+    Ok(store)
 }

@@ -33,7 +33,6 @@ export type {
   DatabasesMutation,
   DatabasesPublish,
   DatabasesPublishAttempt,
-  DatabasesNamedWriteSchemas,
   DatabasesRetention,
   DatabasesReply,
   DatabasesRequest,
@@ -53,7 +52,6 @@ export type {
   DatabasesStatusRequest,
   DatabasesSubmitReply,
   DatabasesSubmitRequest,
-  DatabasesWriteSchemas,
   DefinitionMap,
   Error,
   ErrorCode,
@@ -113,7 +111,6 @@ export type {
   PublishOutcome,
   ReceivedPublish,
   SharedDatabaseAccess,
-  ShareWriteScope,
 } from './databases.js';
 
 export {

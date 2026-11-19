@@ -97,24 +97,24 @@ pub(super) fn bind(req: &UdsRequest, ctx: &AccessContext, host: &Host) -> UdsRes
     }
 }
 
-pub(super) async fn list(ctx: &AccessContext, host: &Host) -> UdsResponse {
-    let result: Result<Value, HostError> = async {
-        let owner = host.owned.owner()?;
-        let owned = host.owned.owned_entries()?;
-        let shares = registered_share::list(&host.home)
-            .map_err(|_| HostError::new(503, "database registry is unavailable"))?;
-        let mut databases = vec![row(&owner)];
-        databases.extend(owned.iter().map(row));
-        for share in &shares {
-            databases.push(shared_database(host, share).await);
-        }
-        Ok(json!({ "databases": databases }))
-    }
-    .await;
-    render(result, ctx)
+pub(super) fn list(ctx: &AccessContext, host: &Host) -> UdsResponse {
+    render(listed(host), ctx)
 }
 
-pub(super) async fn accept(req: &UdsRequest, ctx: &AccessContext, host: &Host) -> UdsResponse {
+fn listed(host: &Host) -> Result<Value, HostError> {
+    let owner = host.owned.owner()?;
+    let owned = host.owned.owned_entries()?;
+    let shares = registered_share::list(&host.home)
+        .map_err(|_| HostError::new(503, "database registry is unavailable"))?;
+    let mut databases = vec![row(&owner)];
+    databases.extend(owned.iter().map(row));
+    for share in &shares {
+        databases.push(shared_database(host, share));
+    }
+    Ok(json!({ "databases": databases }))
+}
+
+pub(super) fn accept(req: &UdsRequest, ctx: &AccessContext, host: &Host) -> UdsResponse {
     let limit = MAX_SEALED_INVITATION_BYTES.div_ceil(3) * 4 + 512;
     if req.body.len() > limit {
         return error_response(400, "invalid database invitation request", ctx);
@@ -133,13 +133,13 @@ pub(super) async fn accept(req: &UdsRequest, ctx: &AccessContext, host: &Host) -
         return error_response(400, "accept takes an invitation or a link", ctx);
     }
     if link {
-        accept_link(&value, ctx, host).await
+        accept_link(&value, ctx, host)
     } else {
-        accept_invitation(&value, ctx, host).await
+        accept_invitation(&value, ctx, host)
     }
 }
 
-async fn accept_invitation(value: &Value, ctx: &AccessContext, host: &Host) -> UdsResponse {
+fn accept_invitation(value: &Value, ctx: &AccessContext, host: &Host) -> UdsResponse {
     let Ok(body) = serde_json::from_value::<InvitationAccept>(value.clone()) else {
         return error_response(400, "invalid database invitation request", ctx);
     };
@@ -158,10 +158,9 @@ async fn accept_invitation(value: &Value, ctx: &AccessContext, host: &Host) -> U
         ctx,
         host,
     )
-    .await
 }
 
-async fn accept_link(value: &Value, ctx: &AccessContext, host: &Host) -> UdsResponse {
+fn accept_link(value: &Value, ctx: &AccessContext, host: &Host) -> UdsResponse {
     let Ok(body) = serde_json::from_value::<LinkAccept>(value.clone()) else {
         return error_response(400, "invalid link", ctx);
     };
@@ -173,7 +172,6 @@ async fn accept_link(value: &Value, ctx: &AccessContext, host: &Host) -> UdsResp
         ctx,
         host,
     )
-    .await
 }
 
 fn row(entry: &Entry) -> Value {
@@ -190,7 +188,7 @@ fn row(entry: &Entry) -> Value {
     })
 }
 
-async fn shared_database(host: &Host, share: &RegisteredShare) -> Value {
+fn shared_database(host: &Host, share: &RegisteredShare) -> Value {
     let mut value = json!(share);
     let ready =
         share.signed_log && crate::database_replay::prefix_durable(&host.home, share.id.as_str());
@@ -206,7 +204,7 @@ async fn shared_database(host: &Host, share: &RegisteredShare) -> Value {
     if share.whole_database() {
         value["sharingMode"] = json!("whole_database");
     }
-    value["publish"] = crate::log_sync::publish_row(host, share).await;
+    value["publish"] = crate::log_sync::publish_row(share.id.as_str(), share.signed_log);
     value
 }
 
@@ -220,7 +218,7 @@ fn decode_sealed(text: &str, limit: usize) -> Result<Vec<u8>, ()> {
     Ok(bytes)
 }
 
-async fn registration_reply(
+fn registration_reply(
     result: Result<RegisteredShare, crate::share_cache::ShareCacheError>,
     ctx: &AccessContext,
     host: &Host,
@@ -228,7 +226,7 @@ async fn registration_reply(
     use crate::share_cache::ShareCacheError;
     match result {
         Ok(share) => {
-            let database = shared_database(host, &share).await;
+            let database = shared_database(host, &share);
             json_ok(&envelope(&json!({ "database": database }), &ctx.user_id))
         }
         Err(ShareCacheError::Invalid("database selector")) => {

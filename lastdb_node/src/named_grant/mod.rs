@@ -112,7 +112,7 @@ pub(crate) async fn update_member(
             unchanged: true,
         });
     };
-    let signed = entries::sign(&session, &entry.id, node, current.as_ref(), grant)?;
+    let signed = entries::sign(&session, &entry.id, node, current.as_ref(), &grant)?;
     let revision = exchange::set(&session, &entry.id, vec![signed]).await?;
     Ok(MemberAck {
         database_id: entry.id,

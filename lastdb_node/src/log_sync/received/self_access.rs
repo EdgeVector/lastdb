@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use cloud_backup_protocol::v2::share_access::{
-    MemberWriteBehaviour, ShareMemberRole, ShareRead, ShareWrite, ShareWriteScope,
+    MemberWriteBehaviour, ShareMemberRole, ShareRead, ShareWrite,
 };
 use cloud_backup_protocol::DecimalU64;
 use serde::{Deserialize, Serialize};
@@ -35,8 +35,6 @@ pub(crate) struct AccessView {
     /// older file is that same empty map.
     #[serde(default)]
     member_writes: BTreeMap<String, MemberWriteBehaviour>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    write_schemas: Option<ShareWriteScope>,
     revision: Option<DecimalU64>,
     confirmed_at_ms: Option<DecimalU64>,
     stale: bool,
@@ -67,7 +65,6 @@ impl AccessView {
             read: ShareRead::Members,
             write: ShareWrite::Proposals,
             member_writes: BTreeMap::new(),
-            write_schemas: None,
             revision: None,
             confirmed_at_ms: None,
             stale: true,
@@ -130,7 +127,6 @@ fn same_view(previous: &AccessView, result: &AccessView) -> bool {
         && previous.write == result.write
         && previous.member_writes == result.member_writes
         && previous.revision == result.revision
-        && previous.write_schemas == result.write_schemas
         && previous.stale == result.stale
         && previous
             .confirmed_at_ms
@@ -161,19 +157,12 @@ fn confirmed(
             previous.member_writes.clone(),
         ),
     };
-    let (state, role, revision, write_schemas) = match observed {
-        ObservedAccess::Active {
-            revision,
-            role,
-            write_schemas,
-        } => (
-            AccessState::Active,
-            *role,
-            Some(DecimalU64::new(*revision)),
-            write_schemas.clone(),
-        ),
-        ObservedAccess::Revoked => (AccessState::Revoked, None, None, None),
-        ObservedAccess::Absent => (AccessState::Absent, None, None, None),
+    let (state, role, revision) = match observed {
+        ObservedAccess::Active { revision, role } => {
+            (AccessState::Active, *role, Some(DecimalU64::new(*revision)))
+        }
+        ObservedAccess::Revoked => (AccessState::Revoked, None, None),
+        ObservedAccess::Absent => (AccessState::Absent, None, None),
     };
     AccessView {
         state,
@@ -182,7 +171,6 @@ fn confirmed(
         write,
         member_writes,
         revision,
-        write_schemas,
         confirmed_at_ms: Some(DecimalU64::new(fold_db::clock::unix_millis())),
         stale: false,
     }

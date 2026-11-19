@@ -12,7 +12,6 @@
 
 use super::{
     account_key_matches, Ed25519Signature, ShareEnvironment, ShareMemberRole, ShareMemberState,
-    ShareWriteScope,
 };
 use crate::v2::{limits, Stream, Version};
 use crate::{input_digest, DecimalU64, Digest, ProtocolError};
@@ -51,9 +50,6 @@ pub struct MemberEntry {
     /// `active` or `revoked`. Omitted when active.
     #[serde(default, skip_serializing_if = "state_is_active")]
     pub state: ShareMemberState,
-    /// Schemas an active contributor may write. Absent for a reader.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub write_schemas: Option<ShareWriteScope>,
     /// Count of signed entries for this member, starting at one.
     pub sequence: DecimalU64,
     /// Publisher Ed25519 key. It must be the stream account key.
@@ -69,7 +65,7 @@ fn state_is_active(state: &ShareMemberState) -> bool {
 }
 
 impl MemberEntry {
-    /// Check the sequence, time, publisher account, and write scope.
+    /// Check the sequence, time, and publisher account.
     ///
     /// This does not verify the signature.
     pub fn validate(&self) -> Result<(), ProtocolError> {
@@ -81,14 +77,6 @@ impl MemberEntry {
         }
         if self.node_public_key == self.publisher_public_key {
             return Err(ProtocolError::invalid("share.members.publisher"));
-        }
-        let can_submit =
-            self.state == ShareMemberState::Active && self.role == ShareMemberRole::Submit;
-        match &self.write_schemas {
-            Some(scope) if scope.validate()? != can_submit => {
-                return Err(ProtocolError::invalid("share.members.write_schemas.role"));
-            }
-            _ => {}
         }
         account_key_matches(&self.publisher_public_key, &self.stream.scope.account_id)
     }
@@ -103,7 +91,7 @@ impl MemberEntry {
     ///
     /// `previous` is absent when the member has no entry yet. The first entry
     /// is active and has sequence one. A later entry has the next sequence
-    /// number and changes the role, the state, or the write scope.
+    /// number and changes the role or the state.
     pub fn validate_successor_of(&self, previous: Option<&Self>) -> Result<(), ProtocolError> {
         self.validate()?;
         let Some(previous) = previous else {
@@ -134,18 +122,15 @@ impl MemberEntry {
     /// Whether two entries grant the same thing, whatever their sequence.
     #[must_use]
     pub fn same_grant(&self, other: &Self) -> bool {
-        self.role == other.role
-            && self.state == other.state
-            && self.write_schemas == other.write_schemas
+        self.role == other.role && self.state == other.state
     }
 
     /// Domain-separated SHA-256 of the entry with the signature removed.
     ///
     /// The canonical body is a JSON array, in order: `version`, `environment`,
-    /// `stream`, `node_public_key`, `role`, `state`, `write_schemas`, `sequence`,
+    /// `stream`, `node_public_key`, `role`, `state`, `sequence`,
     /// `publisher_public_key`, `signed_at_ms`. `state` is always present in
-    /// the array, and `write_schemas` is `null` when absent. Framing is a
-    /// big-endian u32 domain length, the UTF-8 domain
+    /// the array. Framing is a big-endian u32 domain length, the UTF-8 domain
     /// `lastdb:share:member-entry:v1`, a big-endian u64 body length, and the
     /// RFC 8785 body. The result is lowercase hex.
     pub fn digest(&self) -> Result<Digest, ProtocolError> {
@@ -159,7 +144,6 @@ impl MemberEntry {
                 &self.node_public_key,
                 self.role,
                 self.state,
-                &self.write_schemas,
                 self.sequence,
                 &self.publisher_public_key,
                 self.signed_at_ms,
@@ -226,7 +210,6 @@ pub struct MemberSetResponse {
 ///
 /// The request is signed with the `LastDBNode` scheme. The publisher may name
 /// any member. Any other caller may name only its own key.
-/// [`super::authorize_member_get`] is that rule.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MemberGetRequest {
