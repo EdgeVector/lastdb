@@ -3,7 +3,7 @@
   "info": {
     "title": "LastDB ExeMem Cloud API",
     "version": "3.0.0-design",
-    "description": "Fully typed design contract for cloud API v3. See docs/designs/cloud-api.md. nodeSignature for node traffic; githubOidc for DEV maintenance. No rules/settings; public read via grant#any (reader only)."
+    "description": "Fully typed design contract for cloud API v3. See docs/designs/cloud-api.md. nodeSignature for node traffic; githubOidc for DEV maintenance. No rules/settings; public read via grant#any (read only)."
   },
   "servers": [
     {
@@ -504,7 +504,7 @@
     "/api/cloud/v3/manage": {
       "post": {
         "summary": "Manage",
-        "description": "Intents: create, grant, revoke, access, delete. No rules. Public read: grantee any / role reader → grant#any. any+writer|submit → invalid_request / grants.any.role.",
+        "description": "Intents: create, grant, revoke, access, delete. No rules. Public read: grantee any / role read → grant#any. any+write|submit → invalid_request / grants.any.role.",
         "operationId": "cloudManage",
         "security": [
           {
@@ -543,10 +543,7 @@
                   "value": {
                     "database_id": "22222222-2222-4222-8222-222222222222",
                     "intent": "create",
-                    "args": {
-                      "kind": "shareable",
-                      "name": "album"
-                    }
+                    "args": {}
                   }
                 },
                 "grant_any": {
@@ -557,7 +554,7 @@
                       "grants": [
                         {
                           "grantee": "any",
-                          "role": "reader"
+                          "role": "read"
                         }
                       ]
                     }
@@ -1275,18 +1272,18 @@
           {
             "type": "string",
             "const": "any",
-            "description": "Public-read grantee (grant#any). role must be reader."
+            "description": "Public-read grantee (grant#any). role must be read."
           }
         ]
       },
       "GrantRole": {
         "type": "string",
         "enum": [
-          "writer",
+          "read",
           "submit",
-          "reader"
+          "write"
         ],
-        "description": "writer → push lands direct; submit → proposal; reader → read only. grantee any: reader only."
+        "description": "write → push lands direct; submit → proposal; read → read only. grantee any: read only (Decision 35)."
       },
       "StreamKind": {
         "type": "string",
@@ -2099,32 +2096,10 @@
       },
       "ManageCreateArgs": {
         "type": "object",
-        "required": [
-          "kind"
-        ],
+        "required": [],
         "additionalProperties": false,
-        "properties": {
-          "kind": {
-            "type": "string",
-            "enum": [
-              "personal",
-              "shareable"
-            ],
-            "description": "Native create-database kind."
-          },
-          "name": {
-            "type": "string",
-            "description": "Publication name (required for shareable today via spec).",
-            "minLength": 1,
-            "maxLength": 128
-          },
-          "schema_version": {
-            "type": "integer",
-            "minimum": 0,
-            "description": "Publication schema version (spec.version today)."
-          }
-        },
-        "description": "manage/create — mutation-log/create-database. database_id is in the envelope."
+        "properties": {},
+        "description": "manage/create — empty args. Cloud stays blind to DB contents (no kind/name/schema_version). database_id is in the envelope."
       },
       "ManageCreateResult": {
         "type": "object",
@@ -2175,7 +2150,7 @@
             "items": {
               "$ref": "#/components/schemas/ManageGrantEntry"
             },
-            "description": "MEMBER_SET_MAX=98. any → reader only."
+            "description": "MEMBER_SET_MAX=98. any → read only."
           }
         }
       },
@@ -2459,10 +2434,11 @@
             "type": "string",
             "enum": [
               "publisher",
-              "writer",
+              "read",
               "submit",
-              "reader"
-            ]
+              "write"
+            ],
+            "description": "publisher owns the DB; otherwise access level (write → direct; submit → proposal; read only)."
           }
         }
       },

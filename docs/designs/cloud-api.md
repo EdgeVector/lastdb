@@ -243,7 +243,7 @@ body (array or single).
     24-word recovery phrase means losing the account. **No reset.**
 26. **`account`/`databases`**: paginated list (opaque cursor) of databases this
     node key owns or has been granted, each with `database_id` and the node’s
-    role (`publisher`, or member `writer`/`submit`/`reader`). Used by a new or
+    role (`publisher`, or member `write`/`submit`/`read`). Used by a new or
     recovered device to learn what to sync.
 27. **`account`/`status`**: payment/plan state (`paid`), cloud storage used,
     and registered devices. `deactivate` semantics unchanged.
@@ -262,7 +262,7 @@ body (array or single).
     (matches Decision 9 / push `landed`). The **publisher always writes
     direct**.
 31. **Public read is a grant, not a setting.** `manage`/`grant` accepts
-    grantee **`any`** (reserved value in place of a node key) at **`reader`
+    grantee **`any`** (reserved value in place of a node key) at **`read`
     only**. `any` can never get write or submit →
     `{ "code":"invalid_request", "field":"grants.any.role" }`.
     `manage`/`revoke` with `any` turns public read off. ExeMem stores a
@@ -289,6 +289,18 @@ body (array or single).
     inline files are a possible later addition only). Downloads stay as
     typed: `fetch`/`file` ranges ≤180 KiB; `fetch`/`snapshot` describe +
     GET grants.
+34. **`manage`/`create` args are `{}`.** The cloud stays blind to database
+    contents — no `kind`, `name`, or `schema_version`. **Today the node still
+    sends them:** `CreateBody { database_id, kind, spec? }` in
+    `lastdb_node/src/log_sync/native.rs` (`create_body` / `register`); load
+    scripts require `kind`/`spec`
+    (`scripts/mutation_log_load/finish.py`). Protocol
+    `authorize_native_create` in this repo does not read those fields, but
+    ExeMem’s create handler must **stop** storing or branching on them.
+35. **One access-level vocabulary everywhere:** `read`, `submit`, `write`.
+    Used on `manage`/`grant`, `manage`/`access` (`level`), and
+    `account`/`databases` (member roles; plus `publisher` for ownership).
+    Replaces `reader`/`writer`. Grantee `any` is allowed at **`read` only**.
 
 ## Account
 
@@ -308,10 +320,10 @@ hosted page opened from `payment_url`.
 
 ### `databases` — role and ExeMem source
 
-Each row: `{ "database_id": "<uuid>", "role": "publisher" | "writer" | "reader" }`.
+Each row: `{ "database_id": "<uuid>", "role": "publisher" | "write" | "submit" | "read" }`.
 `publisher` = this node key owns the database (create-time account key).
-`writer` / `reader` = active member grant (maps today’s wire `Submit` /
-`Read` on `ShareMemberRole`).
+`write` / `submit` / `read` = active member grant (today’s direct / Submit /
+Read on `ShareMemberRole`).
 
 **Today:** ExeMem has **no** reverse index from node key → databases. Every
 membership path needs a known `database_id`:
@@ -378,7 +390,7 @@ discriminators, staged snapshot/file).
 
 | Old | New |
 |---|---|
-| `…/mutation-log/create-database` | `manage`/`create` |
+| `…/mutation-log/create-database` | `manage`/`create` (args `{}`; drop `kind`/`spec`) |
 | *(no delete)* | `manage`/`delete` |
 | `…/mutation-log/access` | `manage`/`access` |
 | `…/mutation-log/append` | `push`/`mutations` |
@@ -398,7 +410,7 @@ discriminators, staged snapshot/file).
 | `…/share/members/get` / `list` | **removed** |
 | `…/share/members/read` | `manage`/`access` (includes `public_read`) |
 | `…/share/members/settings/*` | **removed** (Decision 30; no settings intent) |
-| `ShareSettings.read: anyone` | `manage`/`grant` with `grantee: "any"`, `role: "reader"` (`grant#any`) |
+| `ShareSettings.read: anyone` | `manage`/`grant` with `grantee: "any"`, `role: "read"` (`grant#any`) |
 | `lastdb-read-v1.` share links | Link still carries the **content key** (People delivers it). Cloud read auth is `grant#any` + the reader’s `nodeSignature`, not the old settings flag. |
 | `…/dev-snapshot-proof/{op}` | `maintenance` / `snapshot_proof_*` |
 | `/api/auth/enroll/*`, `/api/auth/login/*` | **removed** from this API |
@@ -545,7 +557,7 @@ Source: `mutation-log/delivery/object` (`log_sync/restore.rs`).
 ### `push` / `mutations`
 
 Purpose: append mutations (land direct or proposal from grant).
-Who: publisher (always direct); member with writer→direct or submit→proposal.
+Who: publisher (always direct); member with write→direct or submit→proposal.
 Source: `mutation-log/append` (`EntryWire` / `AppendResponse`).
 
 | args | type | req |
@@ -588,13 +600,12 @@ Source: `mutation-log/blob/bytes` prepare/complete → v3 begin/commit
 
 Purpose: create cloud database; `database_id` is node-chosen (envelope).
 Who: registered paid account (publisher).
-Source: `mutation-log/create-database` (`kind`, optional `spec`).
+Source: `mutation-log/create-database` — today still sends `kind`/`spec` from
+the node (`native.rs` `CreateBody`); v3 drops them (Decision 34).
 
 | args | type | req |
 |---|---|---|
-| `kind` | `personal`\|`shareable` | yes |
-| `name` | string ≤128 | no (needed for shareable today) |
-| `schema_version` | uint | no |
+| *(none)* | `{}` | |
 
 | result | type | req |
 |---|---|---|
@@ -609,9 +620,9 @@ Source: `share/members/set` (`MemberEntry`); v3 adds `any`.
 
 | args | type | req |
 |---|---|---|
-| `grants[]` | `{ grantee: hex\|"any", role: writer\|submit\|reader }` 1…98 | yes |
+| `grants[]` | `{ grantee: hex\|"any", role: read\|submit\|write }` 1…98 | yes |
 
-`any` + non-`reader` → `invalid_request` / `grants.any.role`.
+`any` + non-`read` → `invalid_request` / `grants.any.role`.
 
 | result | type | req |
 |---|---|---|
@@ -733,7 +744,7 @@ Source: `scripts/cloud_backup/snapshot_attempt_account.py`.
 ## Judgment calls (for Tom)
 
 1. **`account_id` format:** typed as **32 hex** (`user_hash` today), not UUID.
-2. **`manage`/`create` args:** kept `kind` + optional `name`/`schema_version` from create-database `spec` (not empty `{}`).
+2. **`manage`/`create` args:** settled empty `{}` (Decision 34); node `CreateBody` must stop sending kind/spec.
 3. **`manage`/`access`:** dropped `mutation_id` as Tom asked. Sole caller today is `log_sync/contributions.rs` `status()` for proposal polling (`submitted`/`published`/`discarded`/`unknown`). That status path is **not** in this surface — needs a later intent or publisher-only fetch if still required.
 4. **`expires_at_ms` on access:** optional; **not on wire today** — included only because Tom listed it.
 5. **Cursors:** opaque strings wrapping today’s decimal `delivery_seq` (not exposing decimal in the public schema).
@@ -742,7 +753,7 @@ Source: `scripts/cloud_backup/snapshot_attempt_account.py`.
 8. **Push stages:** Tom approved Decision 33 — `begin`/`commit` only (no inline bytes; no storage-event confirm).
 9. *(superseded by Decision 33)*
 10. **Fetch ciphertext encoding:** kept **standard base64** to match `delivery/object` (not base64url).
-11. **Grant roles:** `writer` \| `submit` \| `reader` (maps today’s Submit/Read + direct-write).
+11. **Access levels:** `read` \| `submit` \| `write` everywhere (Decision 35).
 12. **`storage_used_bytes` / device `added_at_ms`:** required/optional fields for `status` even though ExeMem does not expose them yet (Decision 27).
 13. **`duplicate` on push/mutations:** optional bool from today’s `result: duplicate`.
 14. **Inspect `entries`/`facts`:** open string maps with maxProperties (only place maps appear), matching DEV broker bags.
