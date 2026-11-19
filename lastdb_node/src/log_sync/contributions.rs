@@ -10,7 +10,7 @@ mod intake;
 use cloud_backup_protocol::v2::share_access::ShareWriteScope;
 use cloud_backup_protocol::{Digest, Id};
 use fold_db::schema::types::{Schema, SchemaError};
-use mutation_log::{AppendBatch, AppendOutcome, DatabaseId, Entry, Namespace};
+use mutation_log::{AppendBatch, AppendOutcome, DatabaseId, Entry, LogError, Namespace};
 use serde::{Deserialize, Serialize};
 
 use crate::accepted_writes;
@@ -181,14 +181,36 @@ pub(crate) async fn submit(
         accepted_at_ms: 0,
     };
     let body = log_wire::append_request(&batch).map_err(|_| Invalid)?;
-    let reply = log
-        .post(paths::APPEND, body)
+    let (status, reply) = log
+        .post_status_limit(paths::APPEND, body, Proof::Data, super::http::JSON_LIMIT)
         .await
         .map_err(|_| Unavailable)?;
-    match log_wire::append_outcome(&reply, &batch) {
-        Ok(AppendOutcome::Accepted { .. } | AppendOutcome::Duplicate { next_seq: 2 }) => Ok(1),
-        _ => Err(Unavailable),
+    append_decision(&batch, status, &reply)
+}
+
+/// The service decides the append. Its authorization refusal is final.
+/// A payment refusal uses the same code and stays unconfirmed.
+/// Anything else that is not a confirmation stays unconfirmed.
+fn append_decision(
+    batch: &AppendBatch,
+    status: u16,
+    reply: &[u8],
+) -> Result<u64, ContributionError> {
+    use ContributionError::{Forbidden, Unavailable};
+    if (200..300).contains(&status) {
+        return match log_wire::append_outcome(reply, batch) {
+            Ok(AppendOutcome::Accepted { .. } | AppendOutcome::Duplicate { next_seq: 2 }) => Ok(1),
+            _ => Err(Unavailable),
+        };
     }
+    if crate::cloud::is_payment_subscription_error(status, reply) {
+        return Err(Unavailable);
+    }
+    if matches!(status, 401 | 403) || log_wire::service_error(reply) == Some(LogError::Unauthorized)
+    {
+        return Err(Forbidden);
+    }
+    Err(Unavailable)
 }
 
 pub(crate) async fn status(

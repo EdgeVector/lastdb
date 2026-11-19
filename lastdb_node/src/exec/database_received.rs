@@ -44,9 +44,11 @@ pub(super) async fn submit_signed(
         Err(ContributionError::Forbidden) => {
             error_response(403, "this member cannot submit this shared mutation", ctx)
         }
-        Err(ContributionError::Unavailable) => {
-            error_response(503, "shared mutation was not confirmed", ctx)
-        }
+        Err(ContributionError::Unavailable) => render(
+            Err(HostError::new(503, "shared mutation was not confirmed")
+                .with_retry_after(super::database_share::RETRY_AFTER_SECS)),
+            ctx,
+        ),
     }
 }
 
