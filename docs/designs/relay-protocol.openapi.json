@@ -3,7 +3,7 @@
   "info": {
     "title": "LastDB relay protocol",
     "version": "1.0.0-design",
-    "description": "Open relay: store and serve signed log entries, content-addressed blobs, and snapshots. Acceptance is a local node rule (AcceptEntry in cloud-api.md); relays do not enforce it. Optional anti-spam/quota only."
+    "description": "Open relay protocol. Store/serve signed log entries, blobs, snapshots. No checkpoints. Acceptance is AcceptEntry on nodes. Retention required for data older than a publisher-signed snapshot."
   },
   "tags": [
     {
@@ -588,7 +588,7 @@
       },
       "SignedEntry": {
         "type": "object",
-        "description": "Opaque-to-relay signed entry. Store key (database_id, node_key, device_id, writer_seq). Full schemas in cloud-api.openapi.json. Nodes run AcceptEntry.",
+        "description": "Store key (database_id, node_key, device_id, writer_seq). No checkpoint. Nodes run AcceptEntry.",
         "required": [
           "kind",
           "database_id",
@@ -603,11 +603,12 @@
           "kind": {
             "type": "string",
             "enum": [
+              "birth",
               "data",
               "grant",
-              "checkpoint",
-              "birth",
-              "relays"
+              "heads",
+              "relays",
+              "resolve"
             ]
           },
           "database_id": {

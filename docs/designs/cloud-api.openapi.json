@@ -3,7 +3,7 @@
   "info": {
     "title": "LastDB ExeMem Cloud API",
     "version": "3.0.0-design",
-    "description": "ExeMem Cloud API v3 design. ExeMem/relays are untrusted storage and transport. Acceptance is the local node rule AcceptEntry (see cloud-api.md). Canonical history is signed writer hash chains with a publisher spine. Relay protocol: relay-protocol.md. Closed schemas; no dual paths or fallback."
+    "description": "ExeMem Cloud API v3 design (minimal signed history). Acceptance is local AcceptEntry. Device chains (node_key, device_id). No checkpoints. Grants/revokes on publisher device chains with revocation cutoff. Publisher-signed heads compared via devices/People. See relay-protocol.md."
   },
   "servers": [
     {
@@ -584,7 +584,7 @@
                   }
                 },
                 "grant_member": {
-                  "summary": "Publisher-signed member write grant",
+                  "summary": "Signed write grant",
                   "value": {
                     "database_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                     "intent": "grant",
@@ -595,15 +595,47 @@
                           "database_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                           "node_key": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
                           "device_id": "11111111-1111-4111-8111-111111111111",
-                          "writer_seq": 4,
-                          "prev_hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
-                          "authored_at_ms": 1730000003000,
-                          "lamport": 4,
-                          "last_seen_publisher_seq": 3,
-                          "last_seen_publisher_hash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+                          "writer_seq": 2,
+                          "prev_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                          "authored_at_ms": 1730000001000,
+                          "lamport": 2,
+                          "seen_publisher_heads": [],
                           "namespace": "grant",
                           "grantee": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
                           "role": "write",
+                          "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+                        }
+                      ]
+                    }
+                  }
+                },
+                "revoke_cutoff": {
+                  "summary": "Revocation with per-device cutoff",
+                  "value": {
+                    "database_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "intent": "revoke",
+                    "args": {
+                      "entries": [
+                        {
+                          "kind": "grant",
+                          "database_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                          "node_key": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                          "device_id": "11111111-1111-4111-8111-111111111111",
+                          "writer_seq": 3,
+                          "prev_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+                          "authored_at_ms": 1730000002000,
+                          "lamport": 3,
+                          "seen_publisher_heads": [],
+                          "namespace": "grant",
+                          "grantee": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                          "role": "revoked",
+                          "cutoffs": [
+                            {
+                              "device_id": "22222222-2222-4222-8222-222222222222",
+                              "writer_seq": 5,
+                              "entry_hash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+                            }
+                          ],
                           "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
                         }
                       ]
@@ -1343,26 +1375,8 @@
         }
       },
       "MutationOut": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/DataEntry"
-          },
-          {
-            "$ref": "#/components/schemas/GrantEntry"
-          },
-          {
-            "$ref": "#/components/schemas/CheckpointEntry"
-          }
-        ],
-        "discriminator": {
-          "propertyName": "kind",
-          "mapping": {
-            "data": "#/components/schemas/DataEntry",
-            "grant": "#/components/schemas/GrantEntry",
-            "checkpoint": "#/components/schemas/CheckpointEntry"
-          }
-        },
-        "description": "fetch/mutations_since signed entry"
+        "$ref": "#/components/schemas/SignedEntry",
+        "description": "fetch entry"
       },
       "FetchMutationsSinceResult": {
         "type": "object",
@@ -1491,10 +1505,16 @@
             "$ref": "#/components/schemas/DataEntry"
           },
           {
-            "$ref": "#/components/schemas/CheckpointEntry"
+            "$ref": "#/components/schemas/HeadsEntry"
+          },
+          {
+            "$ref": "#/components/schemas/ResolveEntry"
+          },
+          {
+            "$ref": "#/components/schemas/BirthEntry"
           }
         ],
-        "description": "push/mutations entry"
+        "description": "push/mutations entry (no checkpoint)"
       },
       "PushMutationsArgs": {
         "type": "object",
@@ -4294,39 +4314,6 @@
           }
         }
       },
-      "CheckpointHead": {
-        "type": "object",
-        "required": [
-          "node_key",
-          "device_id",
-          "writer_seq",
-          "entry_hash"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "node_key": {
-            "type": "string",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64,
-            "description": "Writer node key"
-          },
-          "device_id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "writer_seq": {
-            "type": "integer",
-            "minimum": 1
-          },
-          "entry_hash": {
-            "type": "string",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          }
-        }
-      },
       "GrantRole": {
         "type": "string",
         "enum": [
@@ -4371,7 +4358,7 @@
           "payload_b64"
         ],
         "additionalProperties": false,
-        "description": "lastdb-mutation-v1; device chain (node_key, device_id). Nodes run AcceptEntry.",
+        "description": "lastdb-mutation-v1 on device chain",
         "properties": {
           "kind": {
             "type": "string",
@@ -4381,15 +4368,13 @@
             "type": "string",
             "pattern": "^[0-9a-f]{64}$",
             "minLength": 64,
-            "maxLength": 64,
-            "description": "Must match envelope"
+            "maxLength": 64
           },
           "node_key": {
             "type": "string",
             "pattern": "^[0-9a-f]{64}$",
             "minLength": 64,
-            "maxLength": 64,
-            "description": "Writer node public key"
+            "maxLength": 64
           },
           "device_id": {
             "type": "string",
@@ -4397,15 +4382,13 @@
           },
           "writer_seq": {
             "type": "integer",
-            "minimum": 1,
-            "description": "Per (node_key, device_id) sequence"
+            "minimum": 1
           },
           "prev_hash": {
             "type": "string",
             "pattern": "^[0-9a-f]{64}$",
             "minLength": 64,
-            "maxLength": 64,
-            "description": "Zeros for seq 1; else prior entry_hash on this device"
+            "maxLength": 64
           },
           "authored_at_ms": {
             "type": "integer",
@@ -4413,23 +4396,20 @@
           },
           "lamport": {
             "type": "integer",
-            "minimum": 1,
-            "description": "max seen + 1"
+            "minimum": 1
           },
           "seen_publisher_heads": {
             "type": "array",
             "maxItems": 256,
             "items": {
               "$ref": "#/components/schemas/DeviceHead"
-            },
-            "description": "Publisher per-device heads this writer had verified"
+            }
           },
           "signature": {
             "type": "string",
             "pattern": "^[A-Za-z0-9_-]{86}$",
             "minLength": 86,
-            "maxLength": 86,
-            "description": "base64url Ed25519 signature"
+            "maxLength": 86
           },
           "stream": {
             "$ref": "#/components/schemas/StreamKind"
@@ -4438,7 +4418,7 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 128,
-            "pattern": "^(?!grant$|checkpoint$).+$"
+            "pattern": "^(?!grant$|heads$|relays$|resolve$).+$"
           },
           "payload_b64": {
             "type": "string",
@@ -4480,7 +4460,7 @@
           "role"
         ],
         "additionalProperties": false,
-        "description": "lastdb-grant-v1 on a publisher device chain",
+        "description": "lastdb-grant-v1; role=revoked requires cutoffs",
         "properties": {
           "kind": {
             "type": "string",
@@ -4490,15 +4470,13 @@
             "type": "string",
             "pattern": "^[0-9a-f]{64}$",
             "minLength": 64,
-            "maxLength": 64,
-            "description": "Must match envelope"
+            "maxLength": 64
           },
           "node_key": {
             "type": "string",
             "pattern": "^[0-9a-f]{64}$",
             "minLength": 64,
-            "maxLength": 64,
-            "description": "Writer node public key"
+            "maxLength": 64
           },
           "device_id": {
             "type": "string",
@@ -4506,15 +4484,13 @@
           },
           "writer_seq": {
             "type": "integer",
-            "minimum": 1,
-            "description": "Per (node_key, device_id) sequence"
+            "minimum": 1
           },
           "prev_hash": {
             "type": "string",
             "pattern": "^[0-9a-f]{64}$",
             "minLength": 64,
-            "maxLength": 64,
-            "description": "Zeros for seq 1; else prior entry_hash on this device"
+            "maxLength": 64
           },
           "authored_at_ms": {
             "type": "integer",
@@ -4522,23 +4498,20 @@
           },
           "lamport": {
             "type": "integer",
-            "minimum": 1,
-            "description": "max seen + 1"
+            "minimum": 1
           },
           "seen_publisher_heads": {
             "type": "array",
             "maxItems": 256,
             "items": {
               "$ref": "#/components/schemas/DeviceHead"
-            },
-            "description": "Publisher per-device heads this writer had verified"
+            }
           },
           "signature": {
             "type": "string",
             "pattern": "^[A-Za-z0-9_-]{86}$",
             "minLength": 86,
-            "maxLength": 86,
-            "description": "base64url Ed25519 signature"
+            "maxLength": 86
           },
           "namespace": {
             "type": "string",
@@ -4549,109 +4522,22 @@
           },
           "role": {
             "$ref": "#/components/schemas/GrantRole"
-          }
-        }
-      },
-      "CheckpointEntry": {
-        "type": "object",
-        "required": [
-          "kind",
-          "database_id",
-          "node_key",
-          "device_id",
-          "writer_seq",
-          "prev_hash",
-          "authored_at_ms",
-          "lamport",
-          "seen_publisher_heads",
-          "signature",
-          "namespace",
-          "publisher_heads",
-          "member_heads"
-        ],
-        "additionalProperties": false,
-        "description": "lastdb-checkpoint-v1; any publisher device may sign",
-        "properties": {
-          "kind": {
-            "type": "string",
-            "const": "checkpoint"
           },
-          "database_id": {
-            "type": "string",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64,
-            "description": "Must match envelope"
-          },
-          "node_key": {
-            "type": "string",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64,
-            "description": "Writer node public key"
-          },
-          "device_id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "writer_seq": {
-            "type": "integer",
-            "minimum": 1,
-            "description": "Per (node_key, device_id) sequence"
-          },
-          "prev_hash": {
-            "type": "string",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64,
-            "description": "Zeros for seq 1; else prior entry_hash on this device"
-          },
-          "authored_at_ms": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "lamport": {
-            "type": "integer",
-            "minimum": 1,
-            "description": "max seen + 1"
-          },
-          "seen_publisher_heads": {
+          "cutoffs": {
             "type": "array",
             "maxItems": 256,
             "items": {
-              "$ref": "#/components/schemas/DeviceHead"
+              "$ref": "#/components/schemas/RevocationCutoff"
             },
-            "description": "Publisher per-device heads this writer had verified"
-          },
-          "signature": {
-            "type": "string",
-            "pattern": "^[A-Za-z0-9_-]{86}$",
-            "minLength": 86,
-            "maxLength": 86,
-            "description": "base64url Ed25519 signature"
-          },
-          "namespace": {
-            "type": "string",
-            "const": "checkpoint"
-          },
-          "publisher_heads": {
-            "type": "array",
-            "maxItems": 256,
-            "items": {
-              "$ref": "#/components/schemas/DeviceHead"
-            }
-          },
-          "member_heads": {
-            "type": "array",
-            "maxItems": 4096,
-            "items": {
-              "$ref": "#/components/schemas/MemberDeviceHead"
-            }
+            "description": "Required when role=revoked; per-device max accepted heads"
           }
         }
       },
       "SignedEntry": {
         "oneOf": [
+          {
+            "$ref": "#/components/schemas/BirthEntry"
+          },
           {
             "$ref": "#/components/schemas/DataEntry"
           },
@@ -4659,15 +4545,20 @@
             "$ref": "#/components/schemas/GrantEntry"
           },
           {
-            "$ref": "#/components/schemas/CheckpointEntry"
+            "$ref": "#/components/schemas/HeadsEntry"
+          },
+          {
+            "$ref": "#/components/schemas/ResolveEntry"
           }
         ],
         "discriminator": {
           "propertyName": "kind",
           "mapping": {
+            "birth": "#/components/schemas/BirthEntry",
             "data": "#/components/schemas/DataEntry",
             "grant": "#/components/schemas/GrantEntry",
-            "checkpoint": "#/components/schemas/CheckpointEntry"
+            "heads": "#/components/schemas/HeadsEntry",
+            "resolve": "#/components/schemas/ResolveEntry"
           }
         }
       },
@@ -4692,27 +4583,70 @@
             "type": "string",
             "pattern": "^[0-9a-f]{64}$",
             "minLength": 64,
-            "maxLength": 64,
-            "description": "entry_hash at that device seq"
+            "maxLength": 64
           }
         }
       },
-      "MemberDeviceHead": {
+      "RevocationCutoff": {
         "type": "object",
         "required": [
-          "node_key",
           "device_id",
           "writer_seq",
           "entry_hash"
         ],
         "additionalProperties": false,
+        "description": "Max accepted head for a revoked member device; unseen device => cutoff 0",
         "properties": {
+          "device_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "writer_seq": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "entry_hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          }
+        }
+      },
+      "HeadsEntry": {
+        "type": "object",
+        "required": [
+          "kind",
+          "database_id",
+          "node_key",
+          "device_id",
+          "writer_seq",
+          "prev_hash",
+          "authored_at_ms",
+          "lamport",
+          "seen_publisher_heads",
+          "signature",
+          "namespace",
+          "publisher_heads"
+        ],
+        "additionalProperties": false,
+        "description": "lastdb-heads-v1 compact publisher head attestation",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "heads"
+          },
+          "database_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
           "node_key": {
             "type": "string",
             "pattern": "^[0-9a-f]{64}$",
             "minLength": 64,
-            "maxLength": 64,
-            "description": "Writer node key"
+            "maxLength": 64
           },
           "device_id": {
             "type": "string",
@@ -4722,11 +4656,234 @@
             "type": "integer",
             "minimum": 1
           },
-          "entry_hash": {
+          "prev_hash": {
             "type": "string",
             "pattern": "^[0-9a-f]{64}$",
             "minLength": 64,
             "maxLength": 64
+          },
+          "authored_at_ms": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "lamport": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "seen_publisher_heads": {
+            "type": "array",
+            "maxItems": 256,
+            "items": {
+              "$ref": "#/components/schemas/DeviceHead"
+            }
+          },
+          "signature": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{86}$",
+            "minLength": 86,
+            "maxLength": 86
+          },
+          "namespace": {
+            "type": "string",
+            "const": "heads"
+          },
+          "publisher_heads": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 256,
+            "items": {
+              "$ref": "#/components/schemas/DeviceHead"
+            }
+          }
+        }
+      },
+      "ResolveEntry": {
+        "type": "object",
+        "required": [
+          "kind",
+          "database_id",
+          "node_key",
+          "device_id",
+          "writer_seq",
+          "prev_hash",
+          "authored_at_ms",
+          "lamport",
+          "seen_publisher_heads",
+          "signature",
+          "namespace",
+          "node_key_conflict",
+          "device_id_conflict",
+          "chosen_entry_hash"
+        ],
+        "additionalProperties": false,
+        "description": "lastdb-resolve-v1 fork resolution",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "resolve"
+          },
+          "database_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "node_key": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "device_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "writer_seq": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "prev_hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "authored_at_ms": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "lamport": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "seen_publisher_heads": {
+            "type": "array",
+            "maxItems": 256,
+            "items": {
+              "$ref": "#/components/schemas/DeviceHead"
+            }
+          },
+          "signature": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{86}$",
+            "minLength": 86,
+            "maxLength": 86
+          },
+          "namespace": {
+            "type": "string",
+            "const": "resolve"
+          },
+          "node_key_conflict": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "device_id_conflict": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "chosen_entry_hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          }
+        }
+      },
+      "BirthEntry": {
+        "type": "object",
+        "required": [
+          "kind",
+          "database_id",
+          "node_key",
+          "device_id",
+          "writer_seq",
+          "prev_hash",
+          "authored_at_ms",
+          "lamport",
+          "seen_publisher_heads",
+          "signature",
+          "namespace",
+          "db_salt",
+          "birth_signature",
+          "owner"
+        ],
+        "additionalProperties": false,
+        "description": "First publisher-device entry",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "birth"
+          },
+          "database_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "node_key": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "device_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "writer_seq": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "prev_hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "authored_at_ms": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "lamport": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "seen_publisher_heads": {
+            "type": "array",
+            "maxItems": 256,
+            "items": {
+              "$ref": "#/components/schemas/DeviceHead"
+            }
+          },
+          "signature": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{86}$",
+            "minLength": 86,
+            "maxLength": 86
+          },
+          "namespace": {
+            "type": "string",
+            "const": "birth"
+          },
+          "owner": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "db_salt": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "birth_signature": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{86}$",
+            "minLength": 86,
+            "maxLength": 86
           }
         }
       }
