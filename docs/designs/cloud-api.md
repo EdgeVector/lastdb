@@ -5,32 +5,8 @@ When this document and `docs/designs/cloud-api.openapi.json` differ, the
 OpenAPI file wins for paths, auth, and error shapes.
 
 Tom (2026-11-19): action-based interface. The node Ed25519 key is the
-identity. Every node request is signed. Cloud storage may change without
-LastDB knowing.
-
-## Why
-
-Today the cloud surface is a hand-dispatched tree under
-`POST /api/cloud/backups/v2/…` with no route spec and no real wire version.
-The pin lint never checks the next cloud against the last stable node (#1799).
-
-## Sources (verified)
-
-| Source | Role |
-|---|---|
-| `exemem-infra` `storage_service` | Dispatch |
-| `cloud_backup_protocol` `NodeReadToken` | Today’s signed POST proof |
-| `lastdb_node` `log_sync/`, `named_grant/`, `cloud_backup_client/`, `cloud/enrollment.rs` | Call sites |
-| `scripts/cloud_backup/snapshot_attempt_account.py` | lastdb DEV snapshot-proof |
-| `app_cmds/publish_credentials.rs` | Paid-account check on app publish |
-
-## Hard rules
-
-- No dual paths, aliases, fallback, or migration.
-- No unit tests. E2E DEV checks in CI are fine.
-- Share, Deliver, Org exist only in People.
-- No cloud storage nouns in routes or request fields.
-- Auth and identity stay **out of the body envelope** (headers + signature).
+identity. Every node request is signed. The cloud stays blind to database
+contents. No dual paths, aliases, fallback, or migration. No unit tests.
 
 ## Shape
 
@@ -42,13 +18,13 @@ POST /api/cloud/v3/account
 POST /api/cloud/v3/maintenance
 ```
 
-### Body envelope (Decision 16)
+### Envelope
 
 **Product** (fetch / push / manage):
 
 ```json
-{ "database_id": "<uuid>", "intent": "<enum>", "args": { } }
-→ { "database_id": "<uuid>", "intent": "<same>", "result": { } }
+{ "database_id": "<64 hex>", "intent": "<enum>", "args": { } }
+→ { "database_id": "<64 hex>", "intent": "<same>", "result": { } }
 ```
 
 **Account / maintenance** (no `database_id`):
@@ -58,708 +34,470 @@ POST /api/cloud/v3/maintenance
 → { "intent": "<same>", "result": { } }
 ```
 
-Errors: `{ "code", "field" }` (+ `minimum_version` on 426).
-`manage`/`create`: the **node chooses** `database_id` (UUID), as today.
+`database_id` is the database’s Ed25519 **public key**, 64 lowercase hex
+(Decision 36). The node chooses it at create by derivation from the node seed
+and a random `db_salt`.
+
+Body is one envelope or an array of **1–90**. Request ≤ **256 KiB**, response
+≤ **8 MiB**. Items run in array order and independently. A processed batch is
+HTTP **200**. A failed item is
+`{ "database_id"?, "intent", "error": { "code", "field" } }` in its slot.
+Response overflow is per-item `batch_too_large` / `batch.response`. Auth,
+version, and size failures reject the **whole** request.
+
+Whole-request error body: `{ "code", "field" }` (+ `minimum_version` on 426).
 
 ### Intents
 
 | Action | Intents |
 |---|---|
 | `fetch` | `mutations_since`, `snapshot`, `file` |
-| `push` | `mutations`, `snapshot`, `file` |
+| `push` | `mutations`, `file`, `snapshot` |
 | `manage` | `create`, `grant`, `revoke`, `access`, `delete` |
 | `account` | `register`, `payment`, `deactivate`, `add_device`, `remove_device`, `databases`, `status` |
-| `maintenance` | `snapshot_proof_provision`, `snapshot_proof_retire`, `snapshot_proof_status`, `snapshot_proof_inspect` |
+| `maintenance` | `snapshot_proof_provision`, `snapshot_proof_status`, `snapshot_proof_retire`, `snapshot_proof_inspect` |
 
-## Node identity and signing (Decisions 19–20)
+## Auth (`nodeSignature`)
 
-### Headers on every **node** request
+Headers on every **node** request:
 
-| Header | Format | Meaning |
-|---|---|---|
-| `X-LastDB-Node-Key` | 64 lowercase hex chars (Ed25519 public key) | Account identity. Same key that signs. |
-| `X-LastDB-Device-Id` | UUID string (`uuid` crate / UUIDv4 text) | Which registered device sent this request. |
-| `X-LastDB-Issued-At` | decimal unix milliseconds | Signature time. |
-| `X-LastDB-Nonce` | 64 lowercase hex chars (32 random bytes) | One nonce per request. |
-| `X-LastDB-Signature` | base64url (no pad), 64 raw signature bytes | Ed25519 over the signed material below. |
-| `X-LastDB-Cloud-Protocol` | integer `3` | On fetch/push/manage/maintenance only. **Not** on account. |
+| Header | Format |
+|---|---|
+| `X-LastDB-Node-Key` | 64 lowercase hex (Ed25519 public key) |
+| `X-LastDB-Device-Id` | UUID |
+| `X-LastDB-Issued-At` | decimal unix milliseconds |
+| `X-LastDB-Nonce` | 64 lowercase hex |
+| `X-LastDB-Signature` | base64url, no pad (64 signature bytes) |
+| `X-LastDB-Cloud-Protocol` | `3` — on fetch/push/manage/maintenance; **not** on account |
 
-These stay out of the JSON envelope. They are covered by the signature so they
-cannot be swapped.
-
-**Why headers (not body):** Decision 16 already keeps auth out of the envelope;
-today’s `NodeReadToken` already binds `node_public_key` outside the business
-body (`guest_permission.rs` / `NodeReadToken`). Headers keep every intent’s
-`args` free of identity fields and match Tom’s direction.
-
-### What is signed
-
-UTF-8 lines joined by `\n` (no trailing newline after the last line):
+Signed material (UTF-8 lines, `\n`, no trailing newline after the last line):
 
 ```
 POST
-<request path including /api>
+<path>
 <protocol or ->
 <node key hex>
 <device id>
-<issued-at ms decimal>
+<issued-at ms>
 <nonce hex>
 <body sha256 hex>
 ```
 
-- Path example: `/api/cloud/v3/fetch`
-- Protocol: `3` when the protocol header is required; literal `-` for `account`
-- Body hash: SHA-256 of the raw request body bytes, lowercase hex (64 chars)
-- Signature: Ed25519 over the **UTF-8 bytes of that string** (same pattern as
-  today’s token digest signing)
+Protocol slot is `3` when the protocol header is required, else `-`. Body hash
+is SHA-256 of the raw body, lowercase hex. One signature covers the whole
+batch body.
 
-Clock skew: ±5 minutes (`SHARE_REQUEST_SKEW_MS` today). Nonces are
-single-use per (node key, nonce) in a short window.
+Clock skew: **±60 seconds** (`SHARE_REQUEST_SKEW_MS` today). Nonces are
+single-use per node key and remembered for at least **2×** the skew window.
 
-### Security scheme
+**Device rule:**
 
-OpenAPI scheme `nodeSignature` replaces `LastDBNode` bearer, `accountBearer`,
-and `em_` `X-API-Key` for all node traffic. **Maintenance** (CI) keeps
-`githubOidc` only — it is not a node.
+- If the signing key **has an account**, the device id must be registered and
+  not removed. Exception: `add_device` (header device is the new one).
+- If the signing key **has no account** (unregistered member or public
+  reader), the device check is skipped. The device id is only a writer label.
 
-### One node key for every device (Decision 21)
+**Maintenance** uses `githubOidc` only — no node headers.
 
-**No per-device keys.** Every registered device of an account signs with the
-**same** node Ed25519 private key. `X-LastDB-Device-Id` is identification and
-bookkeeping (which machine spoke; list/remove devices) — **not** a security
-boundary. ExeMem authenticates the node key, not a per-device credential.
+## Database keys (Decision 36)
 
-**Accepted risk (Tom):** a stolen device that holds the node private key has
-full account access (“If the laptop is stolen, then basically anything can be
-accessible”). Removing the device id after theft stops that machine from being
-listed as active; it does **not** revoke the key. There is **no node-key
-rotation** (Decision 28). A compromised node key means a **new account**.
+- `db_salt` = 32 random bytes (64 hex), chosen by the node at create.
+- `db_seed = HKDF-SHA256(ikm = node Ed25519 private seed, salt = db_salt,
+  info = "lastdb-db-key-v1")`.
+- Ed25519 keypair from `db_seed`. `database_id` = db public key (64 hex).
+- `manage`/`create` sends `db_salt` and `birth_signature`: Ed25519 by the
+  **db key** over
+  `lastdb-db-birth-v1\n<database_id>\n<owner node key>\n<db_salt>`.
+- ExeMem verifies the birth signature against `database_id`, checks that the
+  owner node key is the request signer, and stores owner, salt, and signature.
+- The db key signs **nothing else**. After create, the owner’s **node-key**
+  request signature authorizes every change. No per-grant signatures.
+- Members and public readers get `owner`, `db_salt`, `birth_signature` from
+  `manage`/`access` and verify: signature against `database_id`, and `owner`
+  matches the publisher People told them about.
+- New device: phrase → `add_device` → `databases` (returns `db_salt` for owned
+  rows) → re-derive and check `database_id`.
+- **No rotation.** A compromised node key exposes every derived db key
+  (accepted risk). No per-device keys.
+- **Tombstones:** ExeMem keeps id-only tombstones. `create` on a known or
+  deleted id → `409` `conflict` / `database.id`. Other intents on a deleted
+  id → `404` `not_found` / `database.deleted`.
+- Deactivate retires the node key and tombstones every owned database.
+- The cloud stays blind to contents (name lives in the node-encrypted
+  manifest; no `kind` / schema fields on create).
 
-### Device registration vs request device
+## Requirements (Decision 38)
 
-- `register` — first device of a **new** account; header `X-LastDB-Device-Id`
-  **is** that device. Rate-limited (Decision 24). Node key must not already
-  own an account.
-- `add_device` — enroll another device of an **existing** account. The caller
-  already holds the **same** node private key (from the recovery phrase or an
-  existing device). **No `proof` body field** — the Ed25519 signature over the
-  request is the proof. Header `X-LastDB-Device-Id` **is the new device**.
-  ExeMem accepts this when the node key is already registered, even if the
-  header device id is not yet registered (Decision 29 exception to the usual
-  unknown-device 401). Args are `{}`.
-- `remove_device` — header device must already be registered; `args.device_id`
-  is removed from the bookkeeping list.
-- All **other** intents — header device must be registered for that node key.
+The **publisher pays** for every byte stored and served on its databases,
+including member uploads and public reads. Members never register or pay.
 
-ExeMem rejects:
+| Intent | Account | Payment (whose) | Role |
+|---|---|---|---|
+| `fetch`/* | no | publisher’s | read+ or `any` |
+| `push`/`mutations` | no | publisher’s | submit (proposal); write or publisher (direct) |
+| `push`/`file` | no | publisher’s | write or publisher |
+| `push`/`snapshot` | yes | publisher’s | publisher |
+| `manage`/`create` | yes | caller’s | — |
+| `manage`/`grant`, `revoke` | yes | publisher’s | publisher |
+| `manage`/`access` | no | none | anyone |
+| `manage`/`delete` | yes | none (always allowed) | publisher |
+| `account`/`register` | no (creates one) | none | — |
+| `account`/`databases` | no | none | — |
+| `account`/* other | yes | none | — |
 
-| Case | HTTP | Error |
-|---|---|---|
-| Bad signature | 401 | `{ "code":"unauthorized", "field":"request.signature" }` |
-| Expired / skewed `Issued-At` | 401 | `{ "code":"unauthorized", "field":"request.issued_at" }` |
-| Reused nonce | 401 | `{ "code":"unauthorized", "field":"request.nonce" }` |
-| Unknown / never registered device (except `add_device`, and `fetch` under `grant#any`) | 401 | `{ "code":"unauthorized", "field":"device.id" }` |
-| Removed device | 401 | `{ "code":"unauthorized", "field":"device.revoked" }` |
-| `add_device` when node key is not a known account | 401 | `{ "code":"unauthorized", "field":"account.node_key" }` |
-| `register` rate limit | 429 | `{ "code":"rate_limited", "field":"account.register" }` |
-| `fetch` under `grant#any` rate limit | 429 | `{ "code":"rate_limited", "field":"fetch.any" }` |
-
-Members/grants remain keyed by **node key** (not device).
-
-### Example (fetch)
-
-```http
-POST /api/cloud/v3/fetch HTTP/1.1
-X-LastDB-Cloud-Protocol: 3
-X-LastDB-Node-Key: <64 hex>
-X-LastDB-Device-Id: 11111111-1111-4111-8111-111111111111
-X-LastDB-Issued-At: 1730000000000
-X-LastDB-Nonce: <64 hex>
-X-LastDB-Signature: <base64url>
-Content-Type: application/json
-
-{
-  "database_id": "22222222-2222-4222-8222-222222222222",
-  "intent": "mutations_since",
-  "args": { "cursor": "opaque", "limit": 50 }
-}
-```
-
-## Batching (Decision 17)
-
-Each action accepts one envelope **or** an array of envelopes for that action.
-Independent items; HTTP 200 for a processed batch. Max **90** items
-(`APPEND_BATCH_LIMIT` / `LIST_PAGE_LIMIT`). Request ≤ 256 KiB
-(`CONTROL_JSON_MAX_BYTES`). Response ≤ 8 MiB (`JSON_LIMIT`); overflow →
-per-item `batch_too_large` on `batch.response`. One signature covers the whole
-body (array or single).
+**Lapsed publisher:** reads keep working. `push`, `grant`, `create`, and
+`snapshot` return `payment_required` for everyone on that publisher’s
+databases. `delete` always works.
 
 ## Decisions (Tom, 2026-11-19)
 
 1. Protocol **v3**.
-2. Version in **header + token/signature material**; no body `version`.
-3. **426** `upgrade_required` + `minimum_version`.
-4. Signed `grant#<node key>` — **no list, no revision**.
-5. **No** protocol header on **account** (was auth-service).
+2. Version in **header + signature material**; no body `version`.
+3. **426** `upgrade_required` + `minimum_version` (not on account).
+4. Grants are plain `{grantee, role}`, authorized by the publisher’s
+   **request signature**. No per-grant signature, sequence, or `signed_at`.
+5. **No** protocol header on **account**.
 6. Live OpenAPI under **`cloud_backup_protocol/`**.
-7. DEV snapshot-proof under **`maintenance`**, marked
-   **`x-lastdb-environment: dev`**.
-8. Action-based surface: `fetch` / `push` / `manage` / `account` /
-   `maintenance`.
-9. `push`/`mutations`: no `kind`; `landed` from grant.
-10. `fetch`/`mutations_since`: publisher sees direct+proposal; receivers direct
-    only; accept = publisher push; entries tagged `stream`.
-11. **Silent rejections** — no discard call; node’s `Discarded` settle goes away.
-12. Access under **manage** (`manage`/`access`). No share-settings / `rules`
-    surface (Decision 30).
+7. DEV snapshot-proof under **`maintenance`**, `x-lastdb-environment: dev`.
+8. Actions: `fetch` / `push` / `manage` / `account` / `maintenance`.
+9. `push`/`mutations`: no `kind`; `landed` from grant (`direct` /
+   `proposal`). Publisher always `direct`.
+10. `fetch`/`mutations_since`: publisher sees direct+proposal; receivers
+    direct only; accept = publisher push with `incorporated_from`; entries
+    tagged `stream`.
+11. **Silent rejections** — no discard call.
+12. Access under **manage**; no share-settings / `rules` surface.
 13. Cleanup / retention **ExeMem-internal** — no public ops.
-14. Ingested proposals deletable when publisher fetch cursor advances.
-15. **`manage`/`delete`** — publisher reclaim of all cloud data.
+14. Ingested proposals deletable when publisher fetch cursor advances past
+    them (Decision 41).
+15. **`manage`/`delete`** — publisher reclaim; immediate tombstone.
 16. Standard body envelope `{database_id?, intent, args|result}`.
-17. **Batching** — single or array; caps above.
+17. **Batching** — single or array; caps above; per-item errors.
 18. **`account`**: `register`, `payment`, `deactivate`, `add_device`,
-    `remove_device`, `databases`, `status`. **No login.** Node key is
-    identity. **No developer accounts / no `em_` API keys.** Auth-service
-    enroll/login/passkey routes are **removed from this API surface** (not
-    called by lastdb_node; if People still needs them they are People-only).
-19. Every node request carries **node public key** and **device id** in signed
-    headers.
-20. Every node request is **Ed25519-signed** with the node private key under
-    one scheme (`nodeSignature` above). Replaces bearer and API-key auth for
-    node traffic.
-21. **No per-device keys.** All of a node’s devices sign with the node private
-    key. Device id is identification and bookkeeping, not a security boundary.
-    **Accepted risk:** a stolen device with the node key has full account
-    access.
-22. **Publishing to the app registry requires a paid ExeMem account**
-    (`PAID_ACCOUNT_REQUIRED` on registry publish today).
-23. **`payment`** returns a short-lived, single-use, **signed link** that opens
-    the hosted payment page in a browser (the browser does not hold the node
-    key). No Stripe ops / customer-session / portal pass-through in `args`.
-24. **`register` is rate-limited** (keys cost nothing to mint; paid features
-    unlock only after payment succeeds). Over limit → HTTP **429**
-    `{ "code":"rate_limited", "field":"account.register" }`.
-25. **Accepted risk:** with no login, losing **all** devices **and** the
-    24-word recovery phrase means losing the account. **No reset.**
-26. **`account`/`databases`**: paginated list (opaque cursor) of databases this
-    node key owns or has been granted, each with `database_id` and the node’s
-    role (`publisher`, or member `write`/`submit`/`read`). Used by a new or
-    recovered device to learn what to sync.
-27. **`account`/`status`**: payment/plan state (`paid`), cloud storage used,
-    and registered devices. `deactivate` semantics unchanged.
-28. **No node-key rotation.** A compromised node key is remedied only by a
-    **new account**.
-29. **Connect codes, invites, and joins are People-app only** for now. The
-    cloud API has **no** invite, claim-slot, connect-code, SPAKE2, or
-    rendezvous surface. `add_device` needs no body `proof`: a valid node-key
-    signature for an existing account is enough, and the header device id is
-    the new device (unknown-device 401 does not apply to this intent).
-30. **No `rules` / share-settings surface.** `manage`/`create` and
-    `manage`/`grant` take no settings body. `…/share/members/settings/*` is
-    **removed**. **Defaults with no `any` grant:** read is **members only**.
-    **Write:** decided per member by their signed grant — a grant that allows
-    direct writes lands as `direct`; a submit-level grant lands as `proposal`
-    (matches Decision 9 / push `landed`). The **publisher always writes
-    direct**.
-31. **Public read is a grant, not a setting.** `manage`/`grant` accepts
-    grantee **`any`** (reserved value in place of a node key) at **`read`
-    only**. `any` can never get write or submit →
-    `{ "code":"invalid_request", "field":"grants.any.role" }`.
-    `manage`/`revoke` with `any` turns public read off. ExeMem stores a
-    publisher-signed **`grant#any`** entry like other grants.
-    **`manage`/`access`** reports public state to the publisher
-    (`public: true|false` on the access result).
-32. **Public links work for anyone.** Any node key — **registered or not,
-    paid or not** — may **`fetch`** (read intents only) a database that has
-    an active `grant#any`. The request is still `nodeSignature`-signed with
-    that key’s private key. For those read intents under `any`, the
-    unknown-device **401 is waived** (same idea as `add_device`). Abuse is
-    controlled by **rate limiting** → HTTP **429**
-    `{ "code":"rate_limited", "field":"fetch.any" }`. Push/manage still
-    require a real membership grant and normal device registration / paid
-    gates.
-33. **Upload is `begin` then `commit`.** `push`/`file` and `push`/`snapshot`
-    each have exactly two stages. **`begin`** returns presigned PUT URL(s)
-    (files may return `already_stored` instead; snapshot URLs page at 32).
-    The **node PUTs bytes directly to storage** between stages. **`commit`**
-    makes ExeMem verify size and hash — files return `verified`; snapshots
-    take the full Manifest and return `snapshot_id` / `restore_point_id`, and
-    **only then** is the restore point visible. **No** storage-event
-    confirmation. **No** inline-bytes upload path in this design (small
-    inline files are a possible later addition only). Downloads stay as
-    typed: `fetch`/`file` ranges ≤180 KiB; `fetch`/`snapshot` describe +
-    GET grants.
-34. **`manage`/`create` args are `{}`.** The cloud stays blind to database
-    contents — no `kind`, `name`, or `schema_version`. **Today the node still
-    sends them:** `CreateBody { database_id, kind, spec? }` in
-    `lastdb_node/src/log_sync/native.rs` (`create_body` / `register`); load
-    scripts require `kind`/`spec`
-    (`scripts/mutation_log_load/finish.py`). Protocol
-    `authorize_native_create` in this repo does not read those fields, but
-    ExeMem’s create handler must **stop** storing or branching on them.
-35. **One access-level vocabulary everywhere:** `read`, `submit`, `write`.
-    Used on `manage`/`grant`, `manage`/`access` (`level`), and
-    `account`/`databases` (member roles; plus `publisher` for ownership).
-    Replaces `reader`/`writer`. Grantee `any` is allowed at **`read` only**.
+    `remove_device`, `databases`, `status`. No login. No `em_` API keys.
+19. Node public key + device id in signed headers.
+20. Ed25519 `nodeSignature` for all node traffic.
+21. **No per-device keys.** Device id is bookkeeping. Stolen device with the
+    node key has full access (accepted risk).
+22. App-registry publish requires a paid ExeMem account.
+23. **`payment`** → short-lived single-use signed `payment_url`.
+24. **`register` rate-limited** per IP → `429` `rate_limited` /
+    `account.register`.
+25. Lose all devices + recovery phrase → account gone. No reset.
+26. **`account`/`databases`**: paginated owned/granted DBs for sync
+    discovery; `db_salt` on owned rows.
+27. **`account`/`status`**: `paid`, `storage_used_bytes`,
+    `transfer_used_bytes`, devices.
+28. **No node-key rotation.** Compromised key → new account only.
+29. Connect codes / invites / joins are **People-app only**.
+30. No `rules` / share-settings. Defaults: members-only read without `any`;
+    write vs proposal from each member’s grant; publisher always direct.
+31. Public read is **`grant#any`** at **`read` only**. Revoke `any` turns it
+    off. No per-grant signatures (with Decision 4).
+32. **Device rule** (§ Auth): account keys need a registered device;
+    account-less keys skip the device check. Public fetch rate-limited
+    `read.public` per IP+database; publisher pays.
+33. **Upload `begin`/`commit`.** Node PUTs to storage between stages. File
+    begin may omit `upload` when already stored. Snapshot begin pages files;
+    commit names the encrypted manifest file. **Downloads:** one presigned
+    GET model via `fetch`/`file` (180 KiB base64 ranges **removed**). No
+    inline bytes. No storage-event confirmation.
+34. **`manage`/`create`** carries only `db_salt` + `birth_signature` (no
+    `kind`/`name`/`schema_version`). Cloud stays blind. Today’s node
+    `CreateBody` in `log_sync/native.rs` must stop sending kind/spec.
+35. Access levels everywhere: **`read` | `submit` | `write`**.
+36. **Self-certifying derived `database_id`** (§ Database keys). Tombstones.
+    No db-key rotation.
+37. **Retention is ExeMem’s.** `advance_cutoff`, `previous`, `destination`
+    (r2/b2), plaintext `name`, `upload_id`, and `through` leave the wire.
+    `name` (local named-database name the node needs on restore) moves into
+    the **encrypted** manifest. `advance_cutoff` was the client choosing
+    server deletion — that stops.
+38. **Publisher pays** for everything on its databases (§ Requirements).
+    Lapsed publisher: reads work; push/grant/create/snapshot →
+    `payment_required`; delete always allowed. `status` includes
+    `transfer_used_bytes`.
+39. **`deactivate`:** cancel subscriptions; tombstone every owned database
+    (files, snapshots, issued grants); drop grants held and devices; retire
+    the key forever → later calls `unauthorized` / `account.retired`.
+40. **Devices:** `remove_device` is bookkeeping only (id never returns);
+    cap **256** → `conflict` / `device.limit`.
+41. **Cursors / proposals / restore:** opaque forward-only cursors; proposal
+    deletion only after a later publisher cursor past it; `cursor_expired`
+    recovery = latest snapshot → restore → resume from its cursor.
+    Acceptance visible via `incorporated_from` (no status intent).
 
-## Account
+## Opaque strings and encodings
+
+| Name | Max | Notes |
+|---|---|---|
+| `cursor`, `file_handle`, `snapshot_upload` | 256 | Opaque; no raw delivery_seq |
+| `url` | 8192 | Presigned |
+| `headers` | 32 entries, values ≤1024 | String map |
+| `payload_b64` | ≤96 KiB decoded | base64url, no pad |
+| `db_salt` | 64 hex | 32 bytes |
+| `birth_signature` | base64url, 64 bytes | Db-key Ed25519 |
+| `restore_point_id` | 64 hex | sha256 of manifest file |
+
+## Intent reference
+
+### `fetch` / `mutations_since`
+
+Who: read/submit/write member, publisher, or anyone under `any`.
+Errors: `cursor_expired`, `forbidden`, `not_found`.
+
+| args | req |
+|---|---|
+| `cursor` opaque | no |
+| `limit` 1…90 | no |
+
+| result | req |
+|---|---|
+| `cursor` | yes |
+| `mutations[]` ≤90 | yes |
+
+Each mutation: `stream` (`direct`|`proposal`; proposals to publisher only),
+`node_key`, `device_id`, `writer_seq`, `authored_at_ms`, `namespace`,
+`payload_b64`, `file?`, `incorporated_from?`.
+
+### `fetch` / `snapshot`
+
+Who: same as mutations_since.
+Errors: `not_found`, `forbidden`.
+Every call places or extends a **1 h hold** on that restore point.
+
+| args | req |
+|---|---|
+| `restore_point_id` 64 hex | no (omit = latest) |
+
+| result | req |
+|---|---|
+| `restore_point_id` | yes |
+| `manifest` (`file_handle`) | yes |
+| `cursor` | yes |
+| `held_until_ms` | yes |
+
+### `fetch` / `file`
+
+Who: same; shares public-read rate limit under `any`.
+Errors: `not_found`, `forbidden`, `rate_limited`.
+
+| args | req |
+|---|---|
+| `file_handle` | yes |
+
+| result | req |
+|---|---|
+| `url` | yes |
+| `headers` | yes |
+| `expires_at_ms` | yes |
+| `bytes` | yes |
+| `sha256` | yes |
+
+Client GETs `url` with `headers`. Same model for snapshot files.
+
+### `push` / `mutations`
+
+Who: write/publisher → `direct`; submit → `proposal`; read → `forbidden`.
+Errors: `conflict`/`entries.writer_seq`, `forbidden`, `payment_required`,
+`not_found`/`file_handle`.
+
+| args | req |
+|---|---|
+| `entries[]` 1…90 | yes |
+
+Entry: `writer_seq` ≥1, `authored_at_ms`, `namespace` ≤128, `payload_b64`,
+`file?`, `incorporated_from?` (publisher only). File must already be
+committed. Submit cannot attach files.
+
+| result | req |
+|---|---|
+| `landed` | yes |
+| `next_writer_seq` | yes |
+| `duplicate` | no |
+
+Dedupe by (node key, device, writer_seq).
+
+### `push` / `file` (`begin` | `commit`)
+
+Who: write or publisher.
+Errors: `conflict`/`file.unverified`, `payment_required`, `forbidden`.
+
+**begin** args: `bytes` ≥1, `sha256`. Result: `file_handle`, optional
+`upload` `{url, headers, expires_at_ms}` (absent = already stored in this
+database). No client-chosen handle.
+
+**commit** args: `file_handle`. Result: `{}`. Idempotent.
+
+### `push` / `snapshot` (`begin` | `commit`)
+
+Who: publisher (account required).
+Errors: `conflict`/`file.unverified`, `invalid_request`/`cursor`,
+`not_found`/`snapshot_upload`, `payment_required`.
+
+**begin** args: `snapshot_upload?`, `files[]` 1…32 `{bytes, sha256}`.
+Result: `snapshot_upload`, `files[]` `{file_handle, upload?}`. Repeat to
+add pages.
+
+**commit** args: `snapshot_upload`, `manifest` (file_handle in this upload),
+`cursor`. Result: `restore_point_id` = sha256(manifest file). Restore point
+visible only after commit. Manifest is node-encrypted (paths, handles,
+hashes, local name, personal flag).
+
+### `manage` / `create`
+
+Who: registered + paid.
+Args: `db_salt`, `birth_signature`. Result: `{}`.
+Errors: `conflict`/`database.id`, `invalid_request`/`birth_signature`,
+`payment_required`.
+
+### `manage` / `grant`
+
+Who: publisher.
+Args: `grants[]` 1…90 `{grantee, role}`. Result: `{}`.
+`any` + non-`read` → `invalid_request`/`grants.any.role`. Upsert, idempotent.
+
+### `manage` / `revoke`
+
+Who: publisher.
+Args: `grantees[]` 1…90. Result: `{}`. Revoking `any` turns public read off.
+
+### `manage` / `access`
+
+Who: any key (no account). Shares public-read rate limit.
+Args: `{}`.
+
+| result | req |
+|---|---|
+| `role` `publisher`\|`member`\|`public`\|`none` | yes |
+| `level` `read`\|`submit`\|`write` | no (omit for `none`) |
+| `public_read` | no (publisher only) |
+| `owner` | yes |
+| `db_salt` | yes |
+| `birth_signature` | yes |
+
+### `manage` / `delete`
+
+Who: publisher. Always allowed (even if unpaid).
+Args: `{}`. Result: `{}`. Immediate tombstone; ExeMem reclaims later.
+
+### `account` / `register`
+
+Args: `{}`. Result: `{}`. Rate-limited per IP.
+Errors: `conflict`/`account.exists`, `unauthorized`/`account.retired`,
+`rate_limited`.
+
+### `account` / `payment`
+
+Args: `{}`. Result: `payment_url`, `expires_at_ms`.
+
+### `account` / `deactivate`
+
+Args: `{}`. Result: `{}`. See Decision 39.
+
+### `account` / `add_device`
+
+Args: `{}` (new device = header). Result: `{}`.
+Errors: `conflict`/`device.removed`, `device.limit`.
+
+### `account` / `remove_device`
+
+Args: `device_id`. Result: `{}`.
+
+### `account` / `databases`
+
+No account needed. Args: `cursor?`, `limit?` 1…90.
+Result: `cursor?`, `databases[]` `{database_id, role, db_salt?}` (`db_salt`
+on owned). Excludes deleted.
+
+### `account` / `status`
+
+Result: `paid`, `storage_used_bytes`, `transfer_used_bytes`,
+`devices[]` ≤256 `{device_id, added_at_ms}`.
+
+### `maintenance` (DEV, `githubOidc`, **no batching**)
 
 | intent | args | result |
 |---|---|---|
-| `register` | `{}` (device = header) | `ok`, `account_id` |
-| `payment` | `{}` | `payment_url` (signed, single-use), `expires_at_ms` |
-| `deactivate` | `{}` | `ok`, `status` (`done`\|`accepted`) |
-| `add_device` | `{}` (new device = header) | `ok`, `device_id` |
-| `remove_device` | `device_id` | `ok` |
-| `databases` | `cursor?`, `limit?` | `cursor`, `databases[]` (`database_id`, `role`) |
-| `status` | `{}` | `paid`, `storage_used_bytes`, `devices[]` |
+| `snapshot_proof_provision` | `node_key`, `device_id`, `database_id`, `db_salt`, `birth_signature` | `{}` |
+| `snapshot_proof_status` | `run_id`, `run_attempt` | `phase`, `database_id`, `retry_after_ms?`, `released_bytes?` |
+| `snapshot_proof_retire` | same | same |
+| `snapshot_proof_inspect` | `through` 1…32 | `database_id`, `entries`, `facts` |
 
-`register` may return `429` `rate_limited` / `account.register`. App-registry
-publish and other paid features unlock only after payment succeeds via the
-hosted page opened from `payment_url`.
+No `account_id` / `account_generation` / `database_id_version`.
 
-### `databases` — role and ExeMem source
+## New-device restore (end to end)
 
-Each row: `{ "database_id": "<uuid>", "role": "publisher" | "write" | "submit" | "read" }`.
-`publisher` = this node key owns the database (create-time account key).
-`write` / `submit` / `read` = active member grant (today’s direct / Submit /
-Read on `ShareMemberRole`).
+1. Re-derive node key from the 24-word phrase → `account`/`add_device`.
+2. `account`/`databases` → for owned rows, re-derive db key from `db_salt`
+   and check against `database_id`.
+3. Per database: `manage`/`access` → verify `birth_signature` and `owner`.
+4. `fetch`/`snapshot` → manifest handle, cursor, hold.
+5. `fetch`/`file` on the manifest → check sha256 == `restore_point_id`,
+   decrypt.
+6. Batch `fetch`/`file` (≤90) for links → GET each file, check sha256.
+7. Install under the manifest’s name → `mutations_since` from the snapshot
+   cursor.
 
-**Today:** ExeMem has **no** reverse index from node key → databases. Every
-membership path needs a known `database_id`:
+A public reader does steps 3–7 with any key (no account).
 
-- Owned: `POST …/mutation-log/create-database` creates one id; no account-wide
-  owned list.
-- Granted: `…/share/members/{get,list,read}` are per-database (`grant#<node
-  key>` inside one DB — Decision 4). Publisher-only `members/list` pages
-  members of one DB, not DBs of one member.
-- Local node discovery (`GET /api/databases`) is home-local only
-  (`docs/app-api.md`: no cloud call lists every accessible database).
+## Errors (closed set)
 
-**ExeMem must add** an account-scoped reverse index (owned + granted rows) to
-serve `account`/`databases`. Until then this intent cannot be implemented from
-existing list APIs alone.
-
-Pagination: opaque `cursor` (omit on first page); `limit` default/max aligned
-with batch caps (max **90**). Response `cursor` is the next page token (omit
-or empty when done).
-
-### `status` — fields and ExeMem source
-
-| Field | Meaning | Today |
+| HTTP | code | fields |
 |---|---|---|
-| `paid` | boolean — active paid plan | Yes — auth-service `GET /api/auth/payments/status` (`status == "active"`, or unpaid gate `payment.subscription` / `PAID_ACCOUNT_REQUIRED`) |
-| `storage_used_bytes` | uint — cloud bytes charged to this account | **Not exposed** — ExeMem must start reporting it; no account usage API on the wire today |
-| storage limit | — | **None exposed today** — omit from the result (do not invent a limit) |
-| `devices[]` | `{ device_id, added_at_ms? }` | Register exists (`POST /api/auth/cli/register`); **no device list** and **no `added_at`** on the wire today. ExeMem must list registered devices; include `added_at_ms` when stored |
+| 400 | `invalid_request` | arg paths, `grants.any.role`, `birth_signature`, `cursor` |
+| 400 | `batch_too_large` | `batch.response` |
+| 401 | `unauthorized` | `request.signature`, `request.issued_at`, `request.nonce`, `device.unknown`, `device.removed`, `account.retired` |
+| 403 | `forbidden` | `grant.absent`, `grant.role` |
+| 403 | `payment_required` | `payment.subscription` |
+| 404 | `not_found` | `database.id`, `database.deleted`, `file_handle`, `restore_point_id`, `snapshot_upload` |
+| 409 | `conflict` | `database.id`, `account.exists`, `device.removed`, `device.limit`, `entries.writer_seq`, `file.unverified` |
+| 409 | `cursor_expired` | `cursor` |
+| 426 | `upgrade_required` | `request.protocol` (not on account) |
+| 429 | `rate_limited` | `account.register` (per IP), `read.public` (per IP+database) |
 
-Second / recovered device: derive the **same** node key from the 24-word
-recovery phrase (local identity; not a cloud API), sign `add_device` with it,
-and put the new device UUID in `X-LastDB-Device-Id`. Then call `databases`
-(sync) and `status`. Device-to-device pairing without the phrase is a People
-app concern (Decision 29), not this API.
+Removed vs earlier draft: `predecessor_conflict` (folded into
+`cursor_expired`), `mutation_log.*` fields.
 
-## Maintenance
+## Cursors, proposals, retention (Decision 41)
 
-DEV snapshot-proof only (`githubOidc`). Considered and rejected: local
-`/health`/`/api/version` (UDS), reclaim/retention (ExeMem-internal).
-
-## Product intent args (summary)
-
-Fully typed args/results are in **Intent reference** below and in
-`cloud-api.openapi.json` (`additionalProperties: false`, intent
-discriminators, staged snapshot/file).
-
-## Use cases
-
-| Use case | Intent |
-|---|---|
-| Create / delete database | `manage`/`create`, `manage`/`delete` |
-| Append / propose / accept | `push`/`mutations` |
-| Read mutations (+ publisher proposals) | `fetch`/`mutations_since` |
-| Ignore proposal | silent; ExeMem deletes after fetch cursor advances |
-| File / snapshot | `push`/`file`, `fetch`/`file`, `push`/`snapshot`, `fetch`/`snapshot` |
-| Grant / revoke / access (incl. public read `any`) | `manage`/`grant`, `revoke`, `access` |
-| Register account / devices / pay / deactivate | `account`/`register`, `add_device`, `remove_device`, `payment`, `deactivate` |
-| New/recovered device: find DBs to sync | `account`/`databases` |
-| Account paid state, storage used, devices | `account`/`status` |
-| DEV snapshot-proof | `maintenance`/* |
-| Reclaim/retention jobs | ExeMem-internal |
+- Cursors are opaque, per database, forward-only. One delivery order;
+  members skip proposal entries.
+- A proposal is deleted only when a later publisher `mutations_since`
+  carries a cursor past it.
+- ExeMem owns log cutting. It never deletes the latest restore point or one
+  under hold.
+- On `cursor_expired`: `fetch`/`snapshot` (latest) → restore → resume
+  `mutations_since` from that cursor.
+- Submitter sees acceptance via a direct entry whose `incorporated_from`
+  matches its key, device, and writer_seq.
 
 ## Old → new
 
 | Old | New |
 |---|---|
-| `…/mutation-log/create-database` | `manage`/`create` (args `{}`; drop `kind`/`spec`) |
-| *(no delete)* | `manage`/`delete` |
-| `…/mutation-log/access` | `manage`/`access` |
-| `…/mutation-log/append` | `push`/`mutations` |
-| `…/mutation-log/head` / `list` | `fetch`/`mutations_since` |
-| `…/inbox/list` | `fetch`/`mutations_since` (publisher) |
-| `…/inbox/settle` (accept) | publisher `push`/`mutations` |
-| `…/inbox/settle` (discard) | **removed** (silent) |
-| `…/settle-submissions` | **removed** |
-| `…/blob/bytes` prepare | `push`/`file` `stage: begin` |
-| `…/blob/bytes` complete | `push`/`file` `stage: commit` |
-| `…/delivery/object` | `fetch`/`file` |
-| `…/snapshot/bytes` prepare | `push`/`snapshot` `stage: begin` |
-| `…/snapshot/bytes` publish | `push`/`snapshot` `stage: commit` |
-| `…/snapshot/bytes` read*/download | `fetch`/`snapshot` |
-| `…/snapshot/bytes` retention/reclaim/`*_dev` | ExeMem-internal |
-| `…/share/members/set` | `manage`/`grant` / `revoke` |
-| `…/share/members/get` / `list` | **removed** |
-| `…/share/members/read` | `manage`/`access` (includes `public_read`) |
-| `…/share/members/settings/*` | **removed** (Decision 30; no settings intent) |
-| `ShareSettings.read: anyone` | `manage`/`grant` with `grantee: "any"`, `role: "read"` (`grant#any`) |
-| `lastdb-read-v1.` share links | Link still carries the **content key** (People delivers it). Cloud read auth is `grant#any` + the reader’s `nodeSignature`, not the old settings flag. |
-| `…/dev-snapshot-proof/{op}` | `maintenance` / `snapshot_proof_*` |
-| `/api/auth/enroll/*`, `/api/auth/login/*` | **removed** from this API |
-| `/api/auth/cli/register` | `account`/`register` |
-| `/api/developer/*` (register/status/keys) | **removed** (no dev accounts) |
-| `/api/auth/payments/*`, `/api/developer/payments/*` | `account`/`payment` |
-| `Authorization: LastDBNode …` bearer blob | `nodeSignature` headers |
-| `X-API-Key` / `em_` keys | **removed** |
-
-## Auth schemes (OpenAPI)
-
-| Scheme | Where |
-|---|---|
-| `nodeSignature` | fetch, push, manage, account |
-| `githubOidc` | maintenance only |
-
-## CI plan
-
-(a) Spec ↔ dispatch. (b) Types from tagged envelopes. (c) Next cloud vs last
-stable released node (#1799). No unit tests.
-
-## Where the node still names a resource
-
-| # | Issue | Recommendation |
-|---|---|---|
-| R1 | Presigned `upload_url` may reveal host | Opaque string |
-| R2 | Node still builds `BlobPath` today | Opaque `file_handle` |
-| R3 | Snapshot multipart layout | Opaque `part_handle` |
-| R4 | Range size ↔ storage limit | Optional `max_range_bytes` |
-
-## Errors (closed set)
-
-HTTP status → `code` (body always `{ "code", "field" }` + optional `minimum_version`):
-
-| HTTP | code | Typical `field` |
-|---|---|---|
-| 401 | `unauthorized` | `request.signature`, `request.issued_at`, `request.nonce`, `device.id`, `device.revoked`, `account.node_key` |
-| 403 | `forbidden` | `grant.absent`, `grant.revoked`, `database.role` |
-| 403 | `payment_required` | `payment.subscription` |
-| 400 | `invalid_request` | `grants.any.role`, intent-specific arg paths |
-| 400 | `batch_too_large` | `batch.response` |
-| 404 | `not_found` | `database.id`, `restore_point_id`, `file_handle` |
-| 409 | `conflict` | `mutation_log.conflict` |
-| 409 | `predecessor_conflict` | `mutation_log.cursor` |
-| 409 | `cursor_expired` | `mutation_log.cursor` |
-| 426 | `upgrade_required` | `request.protocol` (+ `minimum_version`) |
-| 429 | `rate_limited` | `account.register`, `fetch.any` |
-
-Sources: `ProtocolError` / `ErrorCode` in `cloud_backup_protocol/src/lib.rs`; node maps in `log_sync/wire.rs`.
-
-## Intent reference
-
-Every intent below is a closed typed envelope. Product intents carry
-`database_id` in the envelope. Full JSON Schema: `cloud-api.openapi.json`.
-
-Opaque strings: `cursor` ≤256, `file_handle` ≤512, `part_handle` ≤256,
-`ticket` ≤256, `upload_url`/`payment_url`/`download_url` ≤8192.
-
-Byte payloads: mutation `payload_b64` = **base64url** (no pad); file
-`ciphertext_b64` = **standard base64** (delivery/object today). Range max
-**180 KiB** (`OBJECT_RANGE`). Control JSON ≤ **256 KiB**; batch ≤ **90**;
-response ≤ **8 MiB**.
-
-### `fetch` / `mutations_since`
-
-Purpose: page mutation log (publisher also sees proposal stream).
-Who: member with read+; publisher sees `stream: proposal` entries too; or
-**anyone** under `grant#any` (direct stream only; Decision 32).
-Source: `mutation-log/list`, `mutation-log/inbox/list` (`log_sync/wire.rs`).
-
-| args | type | req |
-|---|---|---|
-| `cursor` | opaque string ≤256 | no |
-| `limit` | int 1…90 | no |
-
-| result | type | req |
-|---|---|---|
-| `cursor` | opaque string | yes |
-| `mutations[]` | see OpenAPI `MutationEntryOut` | yes |
-
-Errors: `cursor_expired`, `predecessor_conflict`, `forbidden`, `unauthorized`.
-
-```json
-{ "database_id": "…", "intent": "mutations_since", "args": { "limit": 50 } }
-→ { "database_id": "…", "intent": "mutations_since", "result": { "cursor": "c-next", "mutations": [] } }
-```
-
-### `fetch` / `snapshot` (`stage: describe`)
-
-Purpose: describe a restore point (or latest).
-Who: member/publisher; or **anyone** under `grant#any` (Decision 32).
-Source: `snapshot/bytes` action `read` (`log_sync/snapshot/`).
-
-| args | type | req |
-|---|---|---|
-| `stage` | `"describe"` | yes |
-| `restore_point_id` | 64 hex | no |
-
-| result | type | req |
-|---|---|---|
-| `stage` | `"describe"` | yes |
-| `restore_point_id` | 64 hex | no |
-| `through` | uint | no |
-| `file_count` | uint | no |
-| `name` | string ≤256 | no |
-
-### `fetch` / `snapshot` (`stage: part`)
-
-Purpose: get a presigned download for one snapshot part page.
-Who: same as describe.
-Source: `snapshot/bytes` action `download`.
-
-| args | type | req |
-|---|---|---|
-| `stage` | `"part"` | yes |
-| `restore_point_id` | 64 hex | yes |
-| `part_handle` | opaque ≤256 | yes |
-
-| result | type | req |
-|---|---|---|
-| `stage` | `"part"` | yes |
-| `download_url` | uri ≤8192 | yes |
-| `headers` | string map ≤32 keys | yes |
-
-### `fetch` / `file`
-
-Purpose: read a ciphertext byte range of a file blob.
-Who: member/publisher; or **anyone** under `grant#any` (Decision 32).
-Source: `mutation-log/delivery/object` (`log_sync/restore.rs`).
-
-| args | type | req |
-|---|---|---|
-| `file_handle` | opaque ≤512 | yes |
-| `offset` | uint | yes |
-| `length` | uint 1…184320 | yes |
-
-| result | type | req |
-|---|---|---|
-| `total_bytes` | uint ≥1 | yes |
-| `offset` | uint | yes |
-| `length` | uint 1…184320 | yes |
-| `ciphertext_b64` | standard base64 | yes |
-
-### `push` / `mutations`
-
-Purpose: append mutations (land direct or proposal from grant).
-Who: publisher (always direct); member with write→direct or submit→proposal.
-Source: `mutation-log/append` (`EntryWire` / `AppendResponse`).
-
-| args | type | req |
-|---|---|---|
-| `entries[]` | `MutationEntryIn` 1…90 | yes |
-
-Writer device = `X-LastDB-Device-Id`.
-
-| result | type | req |
-|---|---|---|
-| `landed` | `direct`\|`proposal` | yes |
-| `cursor` | opaque | yes |
-| `accepted[]` | uint delivery_seq | yes |
-| `next_writer_seq` | uint ≥1 | yes |
-| `duplicate` | bool | no |
-
-### `push` / `snapshot` (`stage: begin`)
-
-Purpose: obtain PUT URLs for snapshot files (≤32 per call).
-Who: publisher.
-Source: `snapshot/bytes` action `prepare` → v3 `begin`. Node PUTs to
-`upload_url` (not this API). Decision 33.
-
-### `push` / `snapshot` (`stage: commit`)
-
-Purpose: ExeMem verifies the Manifest; returns `restore_point_id`
-(= `snapshot_id`). Restore point visible only after this call.
-Who: publisher.
-Source: `snapshot/bytes` action `publish` → v3 `commit`. Decision 33.
-
-### `push` / `file` (`stage: begin` \| `commit`)
-
-Purpose: `begin` returns a PUT URL (or `already_stored`); `commit` verifies
-size/hash → `verified`. Node PUTs between stages. No inline bytes.
-Who: member/publisher with write.
-Source: `mutation-log/blob/bytes` prepare/complete → v3 begin/commit
-(`signed_blob.rs`). Decision 33.
-
-### `manage` / `create`
-
-Purpose: create cloud database; `database_id` is node-chosen (envelope).
-Who: registered paid account (publisher).
-Source: `mutation-log/create-database` — today still sends `kind`/`spec` from
-the node (`native.rs` `CreateBody`); v3 drops them (Decision 34).
-
-| args | type | req |
-|---|---|---|
-| *(none)* | `{}` | |
-
-| result | type | req |
-|---|---|---|
-| `state` | `"native"` | yes |
-| `public_read` | bool | yes (false) |
-
-### `manage` / `grant`
-
-Purpose: set member grants and/or public read (`grantee: "any"`).
-Who: publisher.
-Source: `share/members/set` (`MemberEntry`); v3 adds `any`.
-
-| args | type | req |
-|---|---|---|
-| `grants[]` | `{ grantee: hex\|"any", role: read\|submit\|write }` 1…98 | yes |
-
-`any` + non-`read` → `invalid_request` / `grants.any.role`.
-
-| result | type | req |
-|---|---|---|
-| `ok` | bool | yes |
-
-### `manage` / `revoke`
-
-Purpose: revoke members or turn public read off (`any`).
-Who: publisher.
-
-| args | type | req |
-|---|---|---|
-| `grantees[]` | hex \| `"any"` 1…98 | yes |
-
-| result | type | req |
-|---|---|---|
-| `ok` | bool | yes |
-
-### `manage` / `access`
-
-Purpose: caller's relationship to the database (+ publisher public flag).
-Who: any node that can authenticate; result may be `role: none`.
-Source: folds `mutation-log/access` (liveness) + `share/members/read` (+ `grant#any`).
-
-| args | type | req |
-|---|---|---|
-| *(none)* | | |
-
-| result | type | req |
-|---|---|---|
-| `role` | `publisher`\|`member`\|`public`\|`none` | yes |
-| `level` | `read`\|`submit`\|`write` | yes |
-| `public` | bool | yes (publisher: `grant#any` active; others false) |
-| `expires_at_ms` | uint | no |
-
-```json
-{ "database_id": "…", "intent": "access", "args": {} }
-→ { "database_id": "…", "intent": "access", "result": { "role": "publisher", "level": "write", "public": true } }
-```
-
-### `manage` / `delete`
-
-Purpose: publisher reclaim of all cloud data for the database.
-Who: publisher.
-
-| args | | |
-|---|---|---|
-| *(none)* | | |
-
-| result | type | req |
-|---|---|---|
-| `status` | `done`\|`accepted` | yes |
-
-### `account` / `register`
-
-Purpose: first device of a new account.
-Who: unsigned-as-account yet; node key must be new.
-Source: `/api/auth/cli/register`.
-
-| result | type | req |
-|---|---|---|
-| `ok` | bool | yes |
-| `account_id` | 32 hex | yes |
-
-Errors: `429` `rate_limited` / `account.register`.
-
-### `account` / `payment`
-
-Purpose: short-lived signed browser payment link.
-Who: registered device.
-Source: replaces checkout/portal URL fetch.
-
-| result | type | req |
-|---|---|---|
-| `payment_url` | uri ≤8192 | yes |
-| `expires_at_ms` | uint | yes |
-
-### `account` / `deactivate`
-
-| result | `ok`, `status` (`done`\|`accepted`) |
-
-### `account` / `add_device`
-
-Purpose: enroll header device for existing account (no body proof).
-Who: holder of existing account node key; device may be unregistered.
-
-| result | `ok`, `device_id` (header echo) |
-
-### `account` / `remove_device`
-
-| args | `device_id` (uuid) required |
-| result | `ok` |
-
-### `account` / `databases`
-
-Purpose: page owned/granted databases for sync discovery.
-Who: registered device. **ExeMem must add reverse index** (none today).
-
-| args | `cursor?`, `limit?` 1…90 |
-| result | `cursor?`, `databases[]` `{ database_id, role }` |
-
-### `account` / `status`
-
-| result | `paid`, `storage_used_bytes`, `devices[]` `{ device_id, added_at_ms? }` |
-
-`paid` from payments/status today; storage/devices list not on wire yet.
-
-### `maintenance` / `snapshot_proof_*` (DEV, `githubOidc`)
-
-Source: `scripts/cloud_backup/snapshot_attempt_account.py`.
-
-| intent | args | result |
-|---|---|---|
-| `snapshot_proof_provision` | `public_key`, `device_id`, `database_id_version` 1\|2 | `account_id`, `account_generation`, `database_id` |
-| `snapshot_proof_status` | `run_id`, `run_attempt` | `phase`, `account_id`, `account_generation`, `database_id`, `retry_after_ms`, `released_bytes` |
-| `snapshot_proof_retire` | same as status | same as status |
-| `snapshot_proof_inspect` | `through` 1…32 | `database_id`, `entries` map, `facts` map |
-
-## Judgment calls (for Tom)
-
-1. **`account_id` format:** typed as **32 hex** (`user_hash` today), not UUID.
-2. **`manage`/`create` args:** settled empty `{}` (Decision 34); node `CreateBody` must stop sending kind/spec.
-3. **`manage`/`access`:** dropped `mutation_id` as Tom asked. Sole caller today is `log_sync/contributions.rs` `status()` for proposal polling (`submitted`/`published`/`discarded`/`unknown`). That status path is **not** in this surface — needs a later intent or publisher-only fetch if still required.
-4. **`expires_at_ms` on access:** optional; **not on wire today** — included only because Tom listed it.
-5. **Cursors:** opaque strings wrapping today’s decimal `delivery_seq` (not exposing decimal in the public schema).
-6. **`file_handle` / `part_handle` / `ticket`:** opaque; lengths 512/256/256 chosen from BlobPath / grant sizes.
-7. **Snapshot describe result:** flattened (`through`, `file_count`, `name`) instead of returning full `Manifest.files[]` (can be large); full file list still available via part/begin flows.
-8. **Push stages:** Tom approved Decision 33 — `begin`/`commit` only (no inline bytes; no storage-event confirm).
-9. *(superseded by Decision 33)*
-10. **Fetch ciphertext encoding:** kept **standard base64** to match `delivery/object` (not base64url).
-11. **Access levels:** `read` \| `submit` \| `write` everywhere (Decision 35).
-12. **`storage_used_bytes` / device `added_at_ms`:** required/optional fields for `status` even though ExeMem does not expose them yet (Decision 27).
-13. **`duplicate` on push/mutations:** optional bool from today’s `result: duplicate`.
-14. **Inspect `entries`/`facts`:** open string maps with maxProperties (only place maps appear), matching DEV broker bags.
-15. **Public-read fetch auth:** settled by Decision 32 (anyone may `fetch` under `grant#any`, rate-limited).
+| UUID `database_id` | 64-hex db public key |
+| `create-database` + `kind`/`spec` | `manage`/`create` `{db_salt, birth_signature}` |
+| `share/members/settings/*` | **removed** |
+| `ShareSettings.read: anyone` | `grant` `any` / `read` |
+| `lastdb-read-v1.` links | People delivers content key; cloud auth = `grant#any` |
+| `blob/bytes` prepare/complete | `push`/`file` begin/commit |
+| `delivery/object` ranges | `fetch`/`file` presigned GET |
+| `snapshot/bytes` prepare/publish + plaintext Manifest | `push`/`snapshot` begin/commit; encrypted manifest file |
+| `advance_cutoff` / `previous` / destinations | ExeMem-internal (D37) |
+| `Authorization: LastDBNode` / `X-API-Key` | `nodeSignature` |
+| inbox settle discard | **removed** (silent) |
+| proposal status / `mutation_id` access | `incorporated_from` on direct entries |
+
+## Build work
+
+**ExeMem:** node-key → databases index; storage + transfer counters; device
+list; tombstones; restore-point holds; stop reading create `kind`/`spec`.
+
+**Node:** local registry keys by 64-hex ids and stores `db_salt`; stop
+sending `CreateBody.kind`/`spec`; derive db keys; verify birth on access;
+use `incorporated_from` instead of submission status.
 
 ## Open questions for Tom
 
-None.
-
+None. Lapsed-publisher payment is Decision 38 as approved.
