@@ -86,13 +86,13 @@ const [album] = await root.read([
 Schema list and schema get on a selected database use
 `/api/databases/<selector>/...`.
 
-## Set up sharing with Social
+## Set up sharing with People
 
-Sharing setup is done with Social's own client, `@lastdb/social-client`. It
-ships with the Social app at
-[EdgeVector/social `client/`](https://github.com/EdgeVector/social/tree/main/client)
-and calls the installed `social` command. This package is the data client.
-Point both at the same LastDB home. The Social client returns the stable
+Sharing setup is done with People's own client, `@lastdb/people-client`.
+`peopleClient` ships with the People app at
+[EdgeVector/people `client/`](https://github.com/EdgeVector/people/tree/main/client)
+and calls the installed `people` command. This package is the data client.
+Point both at the same LastDB home. The People client returns the stable
 database ID.
 
 A received database is read with `read` and `database` set to that ID. A
