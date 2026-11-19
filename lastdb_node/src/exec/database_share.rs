@@ -12,6 +12,9 @@ use cloud_backup_protocol::Digest;
 /// single write can name at roughly 100,000. The service has no such bound:
 /// the node sends it only the entries that change, a few at a time.
 const CONFIG_BODY_MAX: u64 = 16 * 1024 * 1024;
+const NO_ACCOUNT: &str = "this node has no cloud account";
+const ENROLLING: &str = "the database is still enrolling with the cloud; retry";
+const RETRY_AFTER_SECS: u64 = 2;
 
 pub(super) enum Route {
     Config,
@@ -51,9 +54,17 @@ pub(super) async fn execute(
         }
     };
     let result = match (route, req.method.as_str()) {
-        (Route::Config, "GET") => named_grant::read_config(&host.home, &entry.id)
+        (Route::Config, "GET") => {
+            async {
+                ensure_enrolled(host, &entry.id).await?;
+                named_grant::read_config(&host.home, &entry.id)
+                    .await
+                    .and_then(|config| {
+                        serde_json::to_value(config).map_err(|_| ConfigError::Unconfirmed)
+                    })
+            }
             .await
-            .and_then(|config| serde_json::to_value(config).map_err(|_| ConfigError::Unconfirmed)),
+        }
         (Route::Config, "PUT") => set(req, host, &entry).await,
         (Route::Members, "POST") => return members(req, ctx, host, &entry.id).await,
         (Route::Invitation, "POST") => invite(req, host, &entry.id).await,
@@ -69,6 +80,7 @@ pub(super) async fn execute(
 async fn set(req: &UdsRequest, host: &Host, entry: &owned::Entry) -> Result<Value, ConfigError> {
     let update: ConfigUpdate = decode(req, CONFIG_BODY_MAX)?;
     crate::log_sync::validate_write_scopes(host, entry, &update)?;
+    ensure_enrolled(host, &entry.id).await?;
     let id = &entry.id;
     let request_id = update.request_id.clone();
     let revision = named_grant::set_config(&host.home, id, update).await?;
@@ -125,15 +137,10 @@ async fn members(req: &UdsRequest, ctx: &AccessContext, host: &Host, id: &str) -
             "revoke" => (MemberIntent::Revoke, None),
             _ => return Err(HostError::new(400, "invalid member action")),
         };
+        ensure_enrolled(host, id).await.map_err(host_error)?;
         let ack = named_grant::update_member(&host.home, id, &b.recipient_key, intent)
             .await
-            .map_err(|e| {
-                if e == crate::cloud::PAYMENT_REQUIRED_MESSAGE {
-                    host_error(ConfigError::PaymentRequired)
-                } else {
-                    HostError::new(400, e)
-                }
-            })?;
+            .map_err(|error| member_cloud_error(host, id, error))?;
         let mut out = json!({
             "database_id": ack.database_id,
             "revision": ack.revision.to_string(),
@@ -181,6 +188,9 @@ async fn link(
     if !req.body.is_empty() {
         return error_response(400, "invalid sharing request", ctx);
     }
+    if let Err(error) = ensure_enrolled(host, &entry.id).await {
+        return render(Err(host_error(error)), ctx);
+    }
     match crate::share_link::issue(host, entry).await {
         Ok(token) => render(
             Ok(json!({
@@ -189,15 +199,13 @@ async fn link(
             })),
             ctx,
         ),
-        Err(error) => {
-            let (status, message) = error.status();
-            error_response(status, message, ctx)
-        }
+        Err(error) => link_error(host, &entry.id, &error, ctx),
     }
 }
 
 async fn invite(req: &UdsRequest, host: &Host, id: &str) -> Result<Value, ConfigError> {
     let invitation: Invitation = decode(req, 4096)?;
+    ensure_enrolled(host, id).await?;
     let sealed = named_grant::issue_invitation(
         &host.home,
         id,
@@ -222,7 +230,53 @@ fn decode<T: serde::de::DeserializeOwned>(req: &UdsRequest, limit: u64) -> Resul
         .map_err(|_| ConfigError::Invalid("invalid sharing request".into()))
 }
 
+async fn ensure_enrolled(host: &Host, database_id: &str) -> Result<(), ConfigError> {
+    if payment_blocked(host, database_id) {
+        return Err(ConfigError::PaymentRequired);
+    }
+    match crate::log_sync::wait_for_enrollment(host, database_id).await {
+        crate::log_sync::CloudState::Enrolled => Ok(()),
+        crate::log_sync::CloudState::NoAccount => Err(ConfigError::NoAccount),
+        crate::log_sync::CloudState::Enrolling if payment_blocked(host, database_id) => {
+            Err(ConfigError::PaymentRequired)
+        }
+        crate::log_sync::CloudState::Enrolling => Err(ConfigError::Enrolling),
+    }
+}
+
+fn payment_blocked(host: &Host, database_id: &str) -> bool {
+    host.cloud_sync.snapshot().payment_hold
+        && crate::log_sync::database_cloud_state(&host.home, database_id)
+            == crate::log_sync::CloudState::Enrolling
+}
+
+fn member_cloud_error(host: &Host, database_id: &str, error: String) -> HostError {
+    if error == crate::cloud::PAYMENT_REQUIRED_MESSAGE {
+        return host_error(ConfigError::PaymentRequired);
+    }
+    match crate::log_sync::database_cloud_state(&host.home, database_id) {
+        crate::log_sync::CloudState::NoAccount => host_error(ConfigError::NoAccount),
+        crate::log_sync::CloudState::Enrolling => host_error(ConfigError::Enrolling),
+        crate::log_sync::CloudState::Enrolled => HostError::new(400, error),
+    }
+}
+
+fn link_error(
+    host: &Host,
+    database_id: &str,
+    error: &crate::share_link::IssueError,
+    ctx: &AccessContext,
+) -> UdsResponse {
+    let (status, message) = error.status();
+    if message == "cloud connection is unavailable" {
+        let failure = named_grant::cloud_failure(&host.home, database_id, message);
+        return render(Err(host_error(failure)), ctx);
+    }
+    error_response(status, message, ctx)
+}
+
 fn host_error(error: ConfigError) -> HostError {
+    let retry = matches!(error, ConfigError::Enrolling).then_some(RETRY_AFTER_SECS);
     let (status, code, body) = match error {
         ConfigError::Invalid(reason) => (
             400,
@@ -242,7 +296,21 @@ fn host_error(error: ConfigError) -> HostError {
                 "message": crate::cloud::PAYMENT_REQUIRED_MESSAGE,
             }),
         ),
-        ConfigError::Unconfirmed => (503, "share_configuration_unconfirmed".to_owned(), json!({})),
+        ConfigError::NoAccount => (
+            409,
+            "no_cloud_account".to_owned(),
+            json!({ "message": NO_ACCOUNT }),
+        ),
+        ConfigError::Enrolling => (
+            503,
+            "database_enrolling".to_owned(),
+            json!({ "message": ENROLLING }),
+        ),
+        ConfigError::Unconfirmed => (
+            503,
+            "share_configuration_unconfirmed".to_owned(),
+            json!({ "message": "share configuration is not confirmed" }),
+        ),
         ConfigError::Refused {
             status,
             code,
@@ -252,7 +320,11 @@ fn host_error(error: ConfigError) -> HostError {
     let mut body = body;
     body["ok"] = json!(false);
     body["error"] = json!(code);
-    HostError::structured(status, code, body)
+    let built = HostError::structured(status, code, body);
+    match retry {
+        Some(seconds) => built.with_retry_after(seconds),
+        None => built,
+    }
 }
 
 /// A status outside the owner-visible set becomes a content-free 500 and drops

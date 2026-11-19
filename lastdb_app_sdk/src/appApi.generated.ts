@@ -221,7 +221,7 @@ export interface ReadKeysPage {
   next_cursor: string | null;
 }
 
-/** code and message are always present. index is present when a write refusal concerns one mutation. reason is present when a write condition failed. Both are omitted on status 500. Other properties are allowed. A structured node error is placed in message as text; the reply does not keep the original JSON. */
+/** code and message are always present. index is present when a write refusal concerns one mutation. reason is present when a write condition failed. Both are omitted on status 500. Other properties are allowed. A structured node error is placed in message as text; the reply does not keep the original JSON. A share call with no cloud account is 409 conflict and the message is "this node has no cloud account"; do not retry. A database that is still enrolling is 503 busy, the message is "the database is still enrolling with the cloud; retry", and Retry-After says when to retry. The message "share configuration is not confirmed" is 503 busy only when the database is enrolled and the service answer could not be confirmed. */
 export interface Error {
   code: ErrorCode;
   message: string;
@@ -573,6 +573,7 @@ export interface DatabasesDeclareRequest {
   mutationId?: never;
 }
 
+/** Read the share configuration. No cloud account is 409 conflict and is final. Still enrolling waits, then 503 busy with Retry-After. Enrolled but unconfirmed is 503 busy. */
 export interface DatabasesShareConfigRequest {
   action: 'share_config';
   database?: DatabaseSelector;
@@ -599,6 +600,7 @@ export interface DatabasesShareConfigRequest {
   mutationId?: never;
 }
 
+/** Write the share configuration. No cloud account is 409 conflict and is final. Still enrolling waits, then 503 busy with Retry-After. Enrolled but unconfirmed is 503 busy. */
 export interface DatabasesSetShareConfigRequest {
   action: 'set_share_config';
   database?: DatabaseSelector;
@@ -625,6 +627,7 @@ export interface DatabasesSetShareConfigRequest {
   mutationId?: never;
 }
 
+/** Seal an invitation. No cloud account is 409 conflict and is final. Still enrolling waits, then 503 busy with Retry-After. Enrolled but unconfirmed is 503 busy. */
 export interface DatabasesInviteRequest {
   action: 'invite';
   database?: DatabaseSelector;
@@ -653,7 +656,7 @@ export interface DatabasesInviteRequest {
   mutationId?: never;
 }
 
-/** POST /api/databases/{id}/share/link. The owner body is empty. The node does not read the share settings. */
+/** POST /api/databases/{id}/share/link. The owner body is empty. The node does not read the share settings. No cloud account is 409 conflict and is final. Still enrolling waits, then 503 busy with Retry-After. Enrolled but unconfirmed is 503 busy. */
 export interface DatabasesShareLinkRequest {
   action: 'share_link';
   database?: DatabaseSelector;

@@ -100,8 +100,12 @@ fn fail(error: &HostError) -> UdsResponse {
     serde_json::to_vec(&error_value(error)).map_or_else(
         |_| content_free(500, "Internal Server Error"),
         |body| {
-            UdsResponse::new(status, status_reason(status), body)
-                .with_header("Content-Type", "application/json")
+            let response = UdsResponse::new(status, status_reason(status), body)
+                .with_header("Content-Type", "application/json");
+            match error.retry_after {
+                Some(seconds) => response.with_header("Retry-After", seconds.to_string()),
+                None => response,
+            }
         },
     )
 }

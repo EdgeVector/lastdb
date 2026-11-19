@@ -1,6 +1,7 @@
 //! Publisher grant, revoke, and invitation sealing for one shared database.
 //! Decided state: docs/designs/shared-database-mutation-logs.md (mutation log, proposal log, share settings).
 
+pub(crate) mod cloud_state;
 mod config;
 mod entries;
 mod exchange;
@@ -22,7 +23,8 @@ use std::sync::Arc;
 use zeroize::Zeroizing;
 
 pub(crate) use config::{
-    confirmed_member_writes, lock_member, read_config, set_config, ConfigError, ConfigUpdate,
+    cloud_failure, confirmed_member_writes, lock_member, read_config, set_config, ConfigError,
+    ConfigUpdate,
 };
 
 /// What the publisher wants the member row to become.
@@ -150,7 +152,7 @@ pub(crate) async fn issue_invitation(
     let session = config::open(home).await?;
     let (_, granted) = exchange::get(&session, database_id, expected_key)
         .await
-        .map_err(|e| config::unconfirmed_or_payment(&e))?;
+        .map_err(|error| config::cloud_failure(home, database_id, &error))?;
     if !granted.is_some_and(|entry| entry.is_active()) {
         return Err(ConfigError::Invalid("recipient has no active grant".into()));
     }

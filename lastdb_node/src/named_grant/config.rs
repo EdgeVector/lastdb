@@ -85,6 +85,10 @@ pub(crate) enum ConfigError {
     Conflict(Option<DecimalU64>),
     PaymentRequired,
     Unconfirmed,
+    /// The node has no usable cloud account. The caller does not wait.
+    NoAccount,
+    /// The node has an account and this database's cloud log is not confirmed.
+    Enrolling,
     /// The service refused the settings statement. `code` is its error code
     /// and `message` is its field. The node does not replace either one.
     Refused {
@@ -102,6 +106,19 @@ pub(super) fn unconfirmed_or_payment(error: &str) -> ConfigError {
     }
 }
 
+/// Classify a cloud failure by the database's current enrollment.
+/// This does not wait. `Unconfirmed` remains only when the database is enrolled.
+pub(crate) fn cloud_failure(home: &Path, database_id: &str, error: &str) -> ConfigError {
+    if error == crate::cloud::PAYMENT_REQUIRED_MESSAGE {
+        return ConfigError::PaymentRequired;
+    }
+    match super::cloud_state::database_cloud_state(home, database_id) {
+        super::cloud_state::CloudState::NoAccount => ConfigError::NoAccount,
+        super::cloud_state::CloudState::Enrolling => ConfigError::Enrolling,
+        super::cloud_state::CloudState::Enrolled => ConfigError::Unconfirmed,
+    }
+}
+
 pub(crate) async fn read_config(
     home: &Path,
     database_id: &str,
@@ -110,10 +127,10 @@ pub(crate) async fn read_config(
     let session = open(home).await?;
     let (revision, stored) = exchange::list(&session, database_id)
         .await
-        .map_err(|error| unconfirmed_or_payment(&error))?;
+        .map_err(|error| cloud_failure(home, database_id, &error))?;
     let current = exchange::get_settings(&session, database_id)
         .await
-        .map_err(settings_failure)?;
+        .map_err(|error| settings_failure(home, database_id, error))?;
     let (read, write) = settings::mode(current.as_ref());
     Ok(Configuration {
         database_id: database_id.to_owned(),
@@ -159,13 +176,21 @@ pub(crate) async fn set_config(
     let session = open(home).await?;
     let (revision, stored) = exchange::list(&session, database_id)
         .await
-        .map_err(|error| unconfirmed_or_payment(&error))?;
+        .map_err(|error| cloud_failure(home, database_id, &error))?;
     let signed = member_updates(&session, database_id, &stored, members)?;
     if !signed.is_empty() && revision != expected {
         return Err(ConfigError::Conflict(Some(DecimalU64::new(revision))));
     }
     if read.is_some() || write.is_some() || member_writes.is_some() {
-        store_settings(&session, database_id, read, write, member_writes.as_ref()).await?;
+        store_settings(
+            home,
+            &session,
+            database_id,
+            read,
+            write,
+            member_writes.as_ref(),
+        )
+        .await?;
     }
     if signed.is_empty() {
         return Ok(DecimalU64::new(revision));
@@ -173,7 +198,7 @@ pub(crate) async fn set_config(
     exchange::set(&session, database_id, signed)
         .await
         .map(DecimalU64::new)
-        .map_err(update_error)
+        .map_err(|error| update_error(home, database_id, error))
 }
 
 fn normalize(mut members: Vec<ConfigMember>) -> Result<Vec<ConfigMember>, ConfigError> {
@@ -241,6 +266,7 @@ fn member_updates(
 }
 
 async fn store_settings(
+    home: &Path,
     session: &PublisherSession,
     database_id: &str,
     read: Option<ShareRead>,
@@ -249,7 +275,7 @@ async fn store_settings(
 ) -> Result<(), ConfigError> {
     let current = exchange::get_settings(session, database_id)
         .await
-        .map_err(settings_failure)?;
+        .map_err(|error| settings_failure(home, database_id, error))?;
     let Some(statement) = settings::prepare(
         session,
         database_id,
@@ -264,10 +290,19 @@ async fn store_settings(
     };
     exchange::set_settings(session, database_id, statement)
         .await
-        .map_err(settings_failure)
+        .map_err(|error| settings_failure(home, database_id, error))
 }
 
-fn settings_failure(error: exchange::CloudRefusal) -> ConfigError {
+fn settings_failure(home: &Path, database_id: &str, error: exchange::CloudRefusal) -> ConfigError {
+    let payment = matches!(error, exchange::CloudRefusal::Payment);
+    match super::cloud_state::database_cloud_state(home, database_id) {
+        super::cloud_state::CloudState::NoAccount if !payment => ConfigError::NoAccount,
+        super::cloud_state::CloudState::Enrolling if !payment => ConfigError::Enrolling,
+        _ => service_refusal(error),
+    }
+}
+
+fn service_refusal(error: exchange::CloudRefusal) -> ConfigError {
     match error {
         exchange::CloudRefusal::Unconfirmed => ConfigError::Unconfirmed,
         exchange::CloudRefusal::Payment => ConfigError::PaymentRequired,
@@ -326,23 +361,26 @@ pub(crate) async fn lock_member(
     let session = open(home).await?;
     let (_, entry) = exchange::get(&session, database_id, node)
         .await
-        .map_err(|e| unconfirmed_or_payment(&e))?;
+        .map_err(|error| cloud_failure(home, database_id, &error))?;
     Ok((lock, entry))
 }
 
 pub(super) async fn open(home: &Path) -> Result<PublisherSession, ConfigError> {
-    PublisherSession::open(home)
-        .await
-        .map_err(|e| unconfirmed_or_payment(&e))
+    PublisherSession::open(home).await.map_err(|error| {
+        if super::cloud_state::has_cloud_account(home) {
+            unconfirmed_or_payment(&error)
+        } else {
+            ConfigError::NoAccount
+        }
+    })
 }
 
-fn update_error(error: String) -> ConfigError {
+fn update_error(home: &Path, database_id: &str, error: String) -> ConfigError {
     match error.as_str() {
-        msg if msg == crate::cloud::PAYMENT_REQUIRED_MESSAGE => ConfigError::PaymentRequired,
         "share.grant.revision" => ConfigError::Conflict(None),
         "share.grant.identity" | "share.grant.personal" | "mutation_log.transaction" => {
             ConfigError::Invalid(error)
         }
-        _ => ConfigError::Unconfirmed,
+        _ => cloud_failure(home, database_id, &error),
     }
 }

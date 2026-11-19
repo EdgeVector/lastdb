@@ -1,6 +1,6 @@
 //! Register a database on the signed cloud log, then sync its accepted writes.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -236,19 +236,11 @@ fn create_body(
 }
 
 fn created(database_id: &str) -> bool {
-    confirmed().contains(database_id)
+    crate::named_grant::cloud_state::confirmed(database_id)
 }
 
 fn remember(database_id: &str) {
-    confirmed().insert(database_id.to_owned());
-}
-
-fn confirmed() -> std::sync::MutexGuard<'static, HashSet<String>> {
-    static CREATED: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
-    CREATED
-        .get_or_init(|| Mutex::new(HashSet::new()))
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
+    crate::named_grant::cloud_state::remember(database_id);
 }
 
 #[derive(Serialize)]

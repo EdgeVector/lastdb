@@ -9,7 +9,11 @@ mod accepted;
 mod automatic_retention;
 mod blob_retention;
 mod cloud;
+mod cloud_state;
 mod contributions;
+
+pub(crate) use crate::named_grant::cloud_state::{database_cloud_state, CloudState};
+pub(crate) use cloud_state::wait_for_enrollment;
 mod direct;
 mod http;
 mod native;
