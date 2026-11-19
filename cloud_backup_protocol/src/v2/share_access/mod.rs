@@ -64,11 +64,6 @@ pub const SHARE_NODE_AUTHORIZATION_SCHEME: &str = "LastDBNode";
 /// Symmetric clock skew for a signed share request, in milliseconds.
 pub const SHARE_REQUEST_SKEW_MS: u64 = 60_000;
 
-/// Complete HTTP path for a publisher member-list update.
-///
-/// `BackupTransport` inserts `/api` itself, so the operation suffix is
-/// `cloud/backups/v2/share/members/update`.
-pub const SHARE_MEMBER_LIST_UPDATE_PATH: &str = "/api/cloud/backups/v2/share/members/update";
 /// Complete HTTP path for a member-list read.
 ///
 /// `BackupTransport` inserts `/api` itself, so the operation suffix is
