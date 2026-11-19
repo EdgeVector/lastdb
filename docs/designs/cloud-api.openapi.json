@@ -3,7 +3,7 @@
   "info": {
     "title": "ExeMem Cloud API",
     "version": "3.0.0-design",
-    "description": "Design-only. Ten product intents on POST /api/cloud/v3/{fetch,push,manage}. No ops endpoint (ExeMem-internal cleanup). Live home: cloud_backup_protocol/cloud-api.openapi.json."
+    "description": "Design-only. Product calls use envelope {database_id, intent, args|result}. Eleven intents on fetch/push/manage. No ops endpoint. Live home: cloud_backup_protocol/cloud-api.openapi.json."
   },
   "servers": [
     {
@@ -13,24 +13,19 @@
   ],
   "tags": [
     {
-      "name": "fetch",
-      "description": "mutations_since | snapshot | file"
+      "name": "fetch"
     },
     {
-      "name": "push",
-      "description": "mutations | snapshot | file"
+      "name": "push"
     },
     {
-      "name": "manage",
-      "description": "create | grant | revoke | access"
+      "name": "manage"
     },
     {
-      "name": "dev",
-      "description": "DEV-only snapshot-proof"
+      "name": "dev"
     },
     {
-      "name": "auth-service",
-      "description": "Out of scope; no protocol header"
+      "name": "auth-service"
     }
   ],
   "paths": {
@@ -238,7 +233,7 @@
             "$ref": "#/components/responses/UpgradeRequired"
           }
         },
-        "description": "lastdb CI. x-lastdb-environment: dev.",
+        "description": "lastdb CI. Not the product envelope.",
         "x-lastdb-environment": "dev"
       }
     },
@@ -290,7 +285,7 @@
             "$ref": "#/components/responses/UpgradeRequired"
           }
         },
-        "description": "mutations_since | snapshot | file. Publisher cursor past a proposal signals ingestion."
+        "description": "Envelope {database_id, intent, args}. Intents: mutations_since, snapshot, file."
       }
     },
     "/api/cloud/v3/manage": {
@@ -344,7 +339,7 @@
             "$ref": "#/components/responses/UpgradeRequired"
           }
         },
-        "description": "create | grant | revoke | access. Optional rules on create/grant."
+        "description": "Envelope {database_id, intent, args}. Intents: create, grant, revoke, access, delete."
       }
     },
     "/api/cloud/v3/push": {
@@ -398,7 +393,7 @@
             "$ref": "#/components/responses/UpgradeRequired"
           }
         },
-        "description": "mutations | snapshot | file. No kind on mutations; landed reports direct|proposal."
+        "description": "Envelope {database_id, intent, args}. Intents: mutations, snapshot, file."
       }
     },
     "/api/developer/keys/create": {
@@ -937,8 +932,7 @@
         ],
         "properties": {
           "signed_rules": {
-            "type": "string",
-            "description": "Publisher-signed link rules / settings. Opaque beyond verify."
+            "type": "string"
           }
         }
       },
@@ -965,24 +959,19 @@
           }
         }
       },
-      "FetchMutationsSinceRequest": {
+      "EmptyArgs": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "intent",
-          "database_id"
-        ],
+        "required": [],
+        "properties": {}
+      },
+      "FetchMutationsSinceArgs": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
         "properties": {
-          "intent": {
-            "type": "string",
-            "const": "mutations_since"
-          },
-          "database_id": {
-            "type": "string"
-          },
           "cursor": {
-            "type": "string",
-            "description": "Opaque. Publisher cursor past a proposal signals ingestion (Decision 14)."
+            "type": "string"
           },
           "limit": {
             "type": "integer",
@@ -990,94 +979,14 @@
           }
         }
       },
-      "FetchSnapshotRequest": {
+      "FetchMutationsSinceResult": {
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "intent",
-          "database_id"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "snapshot"
-          },
-          "database_id": {
-            "type": "string"
-          },
-          "restore_point_id": {
-            "type": "string"
-          },
-          "part_handle": {
-            "type": "string"
-          }
-        }
-      },
-      "FetchFileRequest": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "database_id",
-          "file_handle",
-          "offset",
-          "length"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "file"
-          },
-          "database_id": {
-            "type": "string"
-          },
-          "file_handle": {
-            "type": "string"
-          },
-          "offset": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "length": {
-            "type": "integer",
-            "minimum": 1
-          }
-        }
-      },
-      "FetchRequest": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/FetchMutationsSinceRequest"
-          },
-          {
-            "$ref": "#/components/schemas/FetchSnapshotRequest"
-          },
-          {
-            "$ref": "#/components/schemas/FetchFileRequest"
-          }
-        ],
-        "discriminator": {
-          "propertyName": "intent",
-          "mapping": {
-            "mutations_since": "#/components/schemas/FetchMutationsSinceRequest",
-            "snapshot": "#/components/schemas/FetchSnapshotRequest",
-            "file": "#/components/schemas/FetchFileRequest"
-          }
-        }
-      },
-      "FetchMutationsSinceResponse": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
           "cursor",
           "mutations"
         ],
         "properties": {
-          "intent": {
-            "type": "string",
-            "const": "mutations_since"
-          },
           "cursor": {
             "type": "string"
           },
@@ -1089,21 +998,29 @@
           }
         }
       },
-      "FetchSnapshotDescribeResponse": {
+      "FetchSnapshotArgs": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {
+          "restore_point_id": {
+            "type": "string"
+          },
+          "part_handle": {
+            "type": "string"
+          }
+        }
+      },
+      "FetchSnapshotDescribeResult": {
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "intent",
-          "result",
+          "kind",
           "restore_point_id",
           "part_handles"
         ],
         "properties": {
-          "intent": {
-            "type": "string",
-            "const": "snapshot"
-          },
-          "result": {
+          "kind": {
             "type": "string",
             "const": "describe"
           },
@@ -1118,22 +1035,17 @@
           }
         }
       },
-      "FetchSnapshotPartResponse": {
+      "FetchSnapshotPartResult": {
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "intent",
-          "result",
+          "kind",
           "part_handle",
           "bytes_b64",
           "length"
         ],
         "properties": {
-          "intent": {
-            "type": "string",
-            "const": "snapshot"
-          },
-          "result": {
+          "kind": {
             "type": "string",
             "const": "part"
           },
@@ -1149,38 +1061,55 @@
           }
         }
       },
-      "FetchSnapshotResponse": {
+      "FetchSnapshotResult": {
         "oneOf": [
           {
-            "$ref": "#/components/schemas/FetchSnapshotDescribeResponse"
+            "$ref": "#/components/schemas/FetchSnapshotDescribeResult"
           },
           {
-            "$ref": "#/components/schemas/FetchSnapshotPartResponse"
+            "$ref": "#/components/schemas/FetchSnapshotPartResult"
           }
         ],
         "discriminator": {
-          "propertyName": "result",
+          "propertyName": "kind",
           "mapping": {
-            "describe": "#/components/schemas/FetchSnapshotDescribeResponse",
-            "part": "#/components/schemas/FetchSnapshotPartResponse"
+            "describe": "#/components/schemas/FetchSnapshotDescribeResult",
+            "part": "#/components/schemas/FetchSnapshotPartResult"
           }
         }
       },
-      "FetchFileResponse": {
+      "FetchFileArgs": {
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "intent",
+          "file_handle",
+          "offset",
+          "length"
+        ],
+        "properties": {
+          "file_handle": {
+            "type": "string"
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "length": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "FetchFileResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
           "file_handle",
           "offset",
           "length",
           "bytes_b64"
         ],
         "properties": {
-          "intent": {
-            "type": "string",
-            "const": "file"
-          },
           "file_handle": {
             "type": "string"
           },
@@ -1197,44 +1126,185 @@
           }
         }
       },
-      "FetchResponse": {
+      "Fetch_mutations_since_Request": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "database_id",
+          "intent",
+          "args"
+        ],
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "description": "UUID. Node-chosen on create."
+          },
+          "intent": {
+            "type": "string",
+            "const": "mutations_since"
+          },
+          "args": {
+            "$ref": "#/components/schemas/FetchMutationsSinceArgs"
+          }
+        }
+      },
+      "Fetch_mutations_since_Response": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "database_id",
+          "intent",
+          "result"
+        ],
+        "properties": {
+          "database_id": {
+            "type": "string"
+          },
+          "intent": {
+            "type": "string",
+            "const": "mutations_since"
+          },
+          "result": {
+            "$ref": "#/components/schemas/FetchMutationsSinceResult"
+          }
+        }
+      },
+      "Fetch_snapshot_Request": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "database_id",
+          "intent",
+          "args"
+        ],
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "description": "UUID. Node-chosen on create."
+          },
+          "intent": {
+            "type": "string",
+            "const": "snapshot"
+          },
+          "args": {
+            "$ref": "#/components/schemas/FetchSnapshotArgs"
+          }
+        }
+      },
+      "Fetch_snapshot_Response": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "database_id",
+          "intent",
+          "result"
+        ],
+        "properties": {
+          "database_id": {
+            "type": "string"
+          },
+          "intent": {
+            "type": "string",
+            "const": "snapshot"
+          },
+          "result": {
+            "$ref": "#/components/schemas/FetchSnapshotResult"
+          }
+        }
+      },
+      "Fetch_file_Request": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "database_id",
+          "intent",
+          "args"
+        ],
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "description": "UUID. Node-chosen on create."
+          },
+          "intent": {
+            "type": "string",
+            "const": "file"
+          },
+          "args": {
+            "$ref": "#/components/schemas/FetchFileArgs"
+          }
+        }
+      },
+      "Fetch_file_Response": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "database_id",
+          "intent",
+          "result"
+        ],
+        "properties": {
+          "database_id": {
+            "type": "string"
+          },
+          "intent": {
+            "type": "string",
+            "const": "file"
+          },
+          "result": {
+            "$ref": "#/components/schemas/FetchFileResult"
+          }
+        }
+      },
+      "FetchRequest": {
         "oneOf": [
           {
-            "$ref": "#/components/schemas/FetchMutationsSinceResponse"
+            "$ref": "#/components/schemas/Fetch_mutations_since_Request"
           },
           {
-            "$ref": "#/components/schemas/FetchSnapshotResponse"
+            "$ref": "#/components/schemas/Fetch_snapshot_Request"
           },
           {
-            "$ref": "#/components/schemas/FetchFileResponse"
+            "$ref": "#/components/schemas/Fetch_file_Request"
           }
         ],
         "discriminator": {
           "propertyName": "intent",
           "mapping": {
-            "mutations_since": "#/components/schemas/FetchMutationsSinceResponse",
-            "snapshot": "#/components/schemas/FetchSnapshotResponse",
-            "file": "#/components/schemas/FetchFileResponse"
+            "mutations_since": "#/components/schemas/Fetch_mutations_since_Request",
+            "snapshot": "#/components/schemas/Fetch_snapshot_Request",
+            "file": "#/components/schemas/Fetch_file_Request"
           }
         }
       },
-      "PushMutationsRequest": {
+      "FetchResponse": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Fetch_mutations_since_Response"
+          },
+          {
+            "$ref": "#/components/schemas/Fetch_snapshot_Response"
+          },
+          {
+            "$ref": "#/components/schemas/Fetch_file_Response"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "intent",
+          "mapping": {
+            "mutations_since": "#/components/schemas/Fetch_mutations_since_Response",
+            "snapshot": "#/components/schemas/Fetch_snapshot_Response",
+            "file": "#/components/schemas/Fetch_file_Response"
+          }
+        }
+      },
+      "PushMutationsArgs": {
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "intent",
-          "database_id",
           "device_id",
           "entries"
         ],
         "properties": {
-          "intent": {
-            "type": "string",
-            "const": "mutations"
-          },
-          "database_id": {
-            "type": "string"
-          },
           "device_id": {
             "type": "string"
           },
@@ -1247,22 +1317,38 @@
           }
         }
       },
-      "PushSnapshotRequest": {
+      "PushMutationsResult": {
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "intent",
-          "database_id",
+          "landed",
+          "cursor",
+          "accepted"
+        ],
+        "properties": {
+          "landed": {
+            "type": "string",
+            "enum": [
+              "direct",
+              "proposal"
+            ]
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "accepted": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "PushSnapshotArgs": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
           "stage"
         ],
         "properties": {
-          "intent": {
-            "type": "string",
-            "const": "snapshot"
-          },
-          "database_id": {
-            "type": "string"
-          },
           "stage": {
             "type": "string",
             "enum": [
@@ -1278,22 +1364,39 @@
           }
         }
       },
-      "PushFileRequest": {
+      "PushSnapshotResult": {
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "intent",
-          "database_id",
+          "stage",
+          "ticket"
+        ],
+        "properties": {
+          "stage": {
+            "type": "string",
+            "enum": [
+              "prepare",
+              "publish"
+            ]
+          },
+          "ticket": {
+            "type": "string"
+          },
+          "restore_point_id": {
+            "type": "string"
+          },
+          "upload_url": {
+            "type": "string"
+          }
+        }
+      },
+      "PushFileArgs": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
           "stage"
         ],
         "properties": {
-          "intent": {
-            "type": "string",
-            "const": "file"
-          },
-          "database_id": {
-            "type": "string"
-          },
           "stage": {
             "type": "string",
             "enum": [
@@ -1313,101 +1416,14 @@
           }
         }
       },
-      "PushRequest": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/PushMutationsRequest"
-          },
-          {
-            "$ref": "#/components/schemas/PushSnapshotRequest"
-          },
-          {
-            "$ref": "#/components/schemas/PushFileRequest"
-          }
-        ],
-        "discriminator": {
-          "propertyName": "intent",
-          "mapping": {
-            "mutations": "#/components/schemas/PushMutationsRequest",
-            "snapshot": "#/components/schemas/PushSnapshotRequest",
-            "file": "#/components/schemas/PushFileRequest"
-          }
-        }
-      },
-      "PushMutationsResponse": {
+      "PushFileResult": {
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "intent",
-          "landed",
-          "cursor",
-          "accepted"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "mutations"
-          },
-          "landed": {
-            "type": "string",
-            "enum": [
-              "direct",
-              "proposal"
-            ]
-          },
-          "cursor": {
-            "type": "string"
-          },
-          "accepted": {
-            "type": "integer",
-            "minimum": 0
-          }
-        }
-      },
-      "PushSnapshotResponse": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
           "stage",
           "ticket"
         ],
         "properties": {
-          "intent": {
-            "type": "string",
-            "const": "snapshot"
-          },
-          "stage": {
-            "type": "string",
-            "enum": [
-              "prepare",
-              "publish"
-            ]
-          },
-          "ticket": {
-            "type": "string"
-          },
-          "restore_point_id": {
-            "type": "string"
-          },
-          "upload_url": {
-            "type": "string"
-          }
-        }
-      },
-      "PushFileResponse": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "stage",
-          "ticket"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "file"
-          },
           "stage": {
             "type": "string",
             "enum": [
@@ -1430,63 +1446,204 @@
           }
         }
       },
-      "PushResponse": {
+      "Push_mutations_Request": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "database_id",
+          "intent",
+          "args"
+        ],
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "description": "UUID. Node-chosen on create."
+          },
+          "intent": {
+            "type": "string",
+            "const": "mutations"
+          },
+          "args": {
+            "$ref": "#/components/schemas/PushMutationsArgs"
+          }
+        }
+      },
+      "Push_mutations_Response": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "database_id",
+          "intent",
+          "result"
+        ],
+        "properties": {
+          "database_id": {
+            "type": "string"
+          },
+          "intent": {
+            "type": "string",
+            "const": "mutations"
+          },
+          "result": {
+            "$ref": "#/components/schemas/PushMutationsResult"
+          }
+        }
+      },
+      "Push_snapshot_Request": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "database_id",
+          "intent",
+          "args"
+        ],
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "description": "UUID. Node-chosen on create."
+          },
+          "intent": {
+            "type": "string",
+            "const": "snapshot"
+          },
+          "args": {
+            "$ref": "#/components/schemas/PushSnapshotArgs"
+          }
+        }
+      },
+      "Push_snapshot_Response": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "database_id",
+          "intent",
+          "result"
+        ],
+        "properties": {
+          "database_id": {
+            "type": "string"
+          },
+          "intent": {
+            "type": "string",
+            "const": "snapshot"
+          },
+          "result": {
+            "$ref": "#/components/schemas/PushSnapshotResult"
+          }
+        }
+      },
+      "Push_file_Request": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "database_id",
+          "intent",
+          "args"
+        ],
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "description": "UUID. Node-chosen on create."
+          },
+          "intent": {
+            "type": "string",
+            "const": "file"
+          },
+          "args": {
+            "$ref": "#/components/schemas/PushFileArgs"
+          }
+        }
+      },
+      "Push_file_Response": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "database_id",
+          "intent",
+          "result"
+        ],
+        "properties": {
+          "database_id": {
+            "type": "string"
+          },
+          "intent": {
+            "type": "string",
+            "const": "file"
+          },
+          "result": {
+            "$ref": "#/components/schemas/PushFileResult"
+          }
+        }
+      },
+      "PushRequest": {
         "oneOf": [
           {
-            "$ref": "#/components/schemas/PushMutationsResponse"
+            "$ref": "#/components/schemas/Push_mutations_Request"
           },
           {
-            "$ref": "#/components/schemas/PushSnapshotResponse"
+            "$ref": "#/components/schemas/Push_snapshot_Request"
           },
           {
-            "$ref": "#/components/schemas/PushFileResponse"
+            "$ref": "#/components/schemas/Push_file_Request"
           }
         ],
         "discriminator": {
           "propertyName": "intent",
           "mapping": {
-            "mutations": "#/components/schemas/PushMutationsResponse",
-            "snapshot": "#/components/schemas/PushSnapshotResponse",
-            "file": "#/components/schemas/PushFileResponse"
+            "mutations": "#/components/schemas/Push_mutations_Request",
+            "snapshot": "#/components/schemas/Push_snapshot_Request",
+            "file": "#/components/schemas/Push_file_Request"
           }
         }
       },
-      "ManageCreateRequest": {
+      "PushResponse": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Push_mutations_Response"
+          },
+          {
+            "$ref": "#/components/schemas/Push_snapshot_Response"
+          },
+          {
+            "$ref": "#/components/schemas/Push_file_Response"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "intent",
+          "mapping": {
+            "mutations": "#/components/schemas/Push_mutations_Response",
+            "snapshot": "#/components/schemas/Push_snapshot_Response",
+            "file": "#/components/schemas/Push_file_Response"
+          }
+        }
+      },
+      "ManageCreateArgs": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "intent",
-          "database_id"
-        ],
+        "required": [],
         "properties": {
-          "intent": {
-            "type": "string",
-            "const": "create"
-          },
-          "database_id": {
-            "type": "string"
-          },
           "rules": {
             "$ref": "#/components/schemas/SignedRules"
           }
         }
       },
-      "ManageGrantRequest": {
+      "ManageCreateResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {
+          "access": {
+            "$ref": "#/components/schemas/AccessInfo"
+          }
+        }
+      },
+      "ManageGrantArgs": {
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "intent",
-          "database_id",
           "grants"
         ],
         "properties": {
-          "intent": {
-            "type": "string",
-            "const": "grant"
-          },
-          "database_id": {
-            "type": "string"
-          },
           "grants": {
             "type": "array",
             "minItems": 1,
@@ -1499,22 +1656,28 @@
           }
         }
       },
-      "ManageRevokeRequest": {
+      "ManageGrantResult": {
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "intent",
-          "database_id",
+          "ok"
+        ],
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "access": {
+            "$ref": "#/components/schemas/AccessInfo"
+          }
+        }
+      },
+      "ManageRevokeArgs": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
           "node_keys"
         ],
         "properties": {
-          "intent": {
-            "type": "string",
-            "const": "revoke"
-          },
-          "database_id": {
-            "type": "string"
-          },
           "node_keys": {
             "type": "array",
             "minItems": 1,
@@ -1524,121 +1687,35 @@
           }
         }
       },
-      "ManageAccessRequest": {
+      "ManageRevokeResult": {
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "intent",
-          "database_id"
+          "ok"
         ],
         "properties": {
-          "intent": {
-            "type": "string",
-            "const": "access"
-          },
-          "database_id": {
-            "type": "string"
-          },
+          "ok": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ManageAccessArgs": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {
           "mutation_id": {
-            "type": "string",
-            "description": "Optional; contribution status for this id."
-          }
-        }
-      },
-      "ManageRequest": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/ManageCreateRequest"
-          },
-          {
-            "$ref": "#/components/schemas/ManageGrantRequest"
-          },
-          {
-            "$ref": "#/components/schemas/ManageRevokeRequest"
-          },
-          {
-            "$ref": "#/components/schemas/ManageAccessRequest"
-          }
-        ],
-        "discriminator": {
-          "propertyName": "intent",
-          "mapping": {
-            "create": "#/components/schemas/ManageCreateRequest",
-            "grant": "#/components/schemas/ManageGrantRequest",
-            "revoke": "#/components/schemas/ManageRevokeRequest",
-            "access": "#/components/schemas/ManageAccessRequest"
-          }
-        }
-      },
-      "ManageCreateResponse": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "database_id"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "create"
-          },
-          "database_id": {
             "type": "string"
-          },
-          "access": {
-            "$ref": "#/components/schemas/AccessInfo"
           }
         }
       },
-      "ManageGrantResponse": {
+      "ManageAccessResult": {
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "intent",
-          "ok"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "grant"
-          },
-          "ok": {
-            "type": "boolean"
-          },
-          "access": {
-            "$ref": "#/components/schemas/AccessInfo"
-          }
-        }
-      },
-      "ManageRevokeResponse": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
-          "ok"
-        ],
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "revoke"
-          },
-          "ok": {
-            "type": "boolean"
-          }
-        }
-      },
-      "ManageAccessResponse": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "intent",
           "state"
         ],
         "properties": {
-          "intent": {
-            "type": "string",
-            "const": "access"
-          },
           "state": {
             "type": "string",
             "enum": [
@@ -1660,32 +1737,345 @@
               "published",
               "unknown"
             ],
-            "description": "No discarded status: silent rejection (Decision 11)."
+            "description": "No discarded: silent rejection (Decision 11)."
+          }
+        }
+      },
+      "ManageDeleteArgs": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [],
+        "properties": {}
+      },
+      "ManageDeleteResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "done",
+              "accepted"
+            ],
+            "description": "done = deleted now; accepted = ExeMem will finish asynchronously."
+          }
+        }
+      },
+      "Manage_create_Request": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "database_id",
+          "intent",
+          "args"
+        ],
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "description": "UUID. Node-chosen on create."
+          },
+          "intent": {
+            "type": "string",
+            "const": "create"
+          },
+          "args": {
+            "$ref": "#/components/schemas/ManageCreateArgs"
+          }
+        }
+      },
+      "Manage_create_Response": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "database_id",
+          "intent",
+          "result"
+        ],
+        "properties": {
+          "database_id": {
+            "type": "string"
+          },
+          "intent": {
+            "type": "string",
+            "const": "create"
+          },
+          "result": {
+            "$ref": "#/components/schemas/ManageCreateResult"
+          }
+        }
+      },
+      "Manage_grant_Request": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "database_id",
+          "intent",
+          "args"
+        ],
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "description": "UUID. Node-chosen on create."
+          },
+          "intent": {
+            "type": "string",
+            "const": "grant"
+          },
+          "args": {
+            "$ref": "#/components/schemas/ManageGrantArgs"
+          }
+        }
+      },
+      "Manage_grant_Response": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "database_id",
+          "intent",
+          "result"
+        ],
+        "properties": {
+          "database_id": {
+            "type": "string"
+          },
+          "intent": {
+            "type": "string",
+            "const": "grant"
+          },
+          "result": {
+            "$ref": "#/components/schemas/ManageGrantResult"
+          }
+        }
+      },
+      "Manage_revoke_Request": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "database_id",
+          "intent",
+          "args"
+        ],
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "description": "UUID. Node-chosen on create."
+          },
+          "intent": {
+            "type": "string",
+            "const": "revoke"
+          },
+          "args": {
+            "$ref": "#/components/schemas/ManageRevokeArgs"
+          }
+        }
+      },
+      "Manage_revoke_Response": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "database_id",
+          "intent",
+          "result"
+        ],
+        "properties": {
+          "database_id": {
+            "type": "string"
+          },
+          "intent": {
+            "type": "string",
+            "const": "revoke"
+          },
+          "result": {
+            "$ref": "#/components/schemas/ManageRevokeResult"
+          }
+        }
+      },
+      "Manage_access_Request": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "database_id",
+          "intent",
+          "args"
+        ],
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "description": "UUID. Node-chosen on create."
+          },
+          "intent": {
+            "type": "string",
+            "const": "access"
+          },
+          "args": {
+            "$ref": "#/components/schemas/ManageAccessArgs"
+          }
+        }
+      },
+      "Manage_access_Response": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "database_id",
+          "intent",
+          "result"
+        ],
+        "properties": {
+          "database_id": {
+            "type": "string"
+          },
+          "intent": {
+            "type": "string",
+            "const": "access"
+          },
+          "result": {
+            "$ref": "#/components/schemas/ManageAccessResult"
+          }
+        }
+      },
+      "Manage_delete_Request": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "database_id",
+          "intent",
+          "args"
+        ],
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "description": "UUID. Node-chosen on create."
+          },
+          "intent": {
+            "type": "string",
+            "const": "delete"
+          },
+          "args": {
+            "$ref": "#/components/schemas/ManageDeleteArgs"
+          }
+        }
+      },
+      "Manage_delete_Response": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "database_id",
+          "intent",
+          "result"
+        ],
+        "properties": {
+          "database_id": {
+            "type": "string"
+          },
+          "intent": {
+            "type": "string",
+            "const": "delete"
+          },
+          "result": {
+            "$ref": "#/components/schemas/ManageDeleteResult"
+          }
+        }
+      },
+      "ManageRequest": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Manage_create_Request"
+          },
+          {
+            "$ref": "#/components/schemas/Manage_grant_Request"
+          },
+          {
+            "$ref": "#/components/schemas/Manage_revoke_Request"
+          },
+          {
+            "$ref": "#/components/schemas/Manage_access_Request"
+          },
+          {
+            "$ref": "#/components/schemas/Manage_delete_Request"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "intent",
+          "mapping": {
+            "create": "#/components/schemas/Manage_create_Request",
+            "grant": "#/components/schemas/Manage_grant_Request",
+            "revoke": "#/components/schemas/Manage_revoke_Request",
+            "access": "#/components/schemas/Manage_access_Request",
+            "delete": "#/components/schemas/Manage_delete_Request"
           }
         }
       },
       "ManageResponse": {
         "oneOf": [
           {
-            "$ref": "#/components/schemas/ManageCreateResponse"
+            "$ref": "#/components/schemas/Manage_create_Response"
           },
           {
-            "$ref": "#/components/schemas/ManageGrantResponse"
+            "$ref": "#/components/schemas/Manage_grant_Response"
           },
           {
-            "$ref": "#/components/schemas/ManageRevokeResponse"
+            "$ref": "#/components/schemas/Manage_revoke_Response"
           },
           {
-            "$ref": "#/components/schemas/ManageAccessResponse"
+            "$ref": "#/components/schemas/Manage_access_Response"
+          },
+          {
+            "$ref": "#/components/schemas/Manage_delete_Response"
           }
         ],
         "discriminator": {
           "propertyName": "intent",
           "mapping": {
-            "create": "#/components/schemas/ManageCreateResponse",
-            "grant": "#/components/schemas/ManageGrantResponse",
-            "revoke": "#/components/schemas/ManageRevokeResponse",
-            "access": "#/components/schemas/ManageAccessResponse"
+            "create": "#/components/schemas/Manage_create_Response",
+            "grant": "#/components/schemas/Manage_grant_Response",
+            "revoke": "#/components/schemas/Manage_revoke_Response",
+            "access": "#/components/schemas/Manage_access_Response",
+            "delete": "#/components/schemas/Manage_delete_Response"
+          }
+        }
+      },
+      "CloudRequestEnvelope": {
+        "type": "object",
+        "description": "Standard product request shape (Decision 16). Per-action requests are tagged unions of this form.",
+        "additionalProperties": false,
+        "required": [
+          "database_id",
+          "intent",
+          "args"
+        ],
+        "properties": {
+          "database_id": {
+            "type": "string"
+          },
+          "intent": {
+            "type": "string"
+          },
+          "args": {
+            "type": "object"
+          }
+        }
+      },
+      "CloudResponseEnvelope": {
+        "type": "object",
+        "description": "Standard product response shape (Decision 16).",
+        "additionalProperties": false,
+        "required": [
+          "database_id",
+          "intent",
+          "result"
+        ],
+        "properties": {
+          "database_id": {
+            "type": "string"
+          },
+          "intent": {
+            "type": "string"
+          },
+          "result": {
+            "type": "object"
           }
         }
       },
@@ -1846,157 +2236,157 @@
       "DeveloperRegisterRequest": {
         "type": "object",
         "additionalProperties": true,
-        "description": "Auth-service body. Out of scope for product schema strictness.",
+        "description": "Auth-service. Out of scope for product schema strictness.",
         "x-lastdb-scope": "auth-service-out-of-scope"
       },
       "DeveloperRegisterResponse": {
         "type": "object",
         "additionalProperties": true,
-        "description": "Auth-service body. Out of scope for product schema strictness.",
+        "description": "Auth-service. Out of scope for product schema strictness.",
         "x-lastdb-scope": "auth-service-out-of-scope"
       },
       "DeveloperStatusRequest": {
         "type": "object",
         "additionalProperties": true,
-        "description": "Auth-service body. Out of scope for product schema strictness.",
+        "description": "Auth-service. Out of scope for product schema strictness.",
         "x-lastdb-scope": "auth-service-out-of-scope"
       },
       "DeveloperStatusResponse": {
         "type": "object",
         "additionalProperties": true,
-        "description": "Auth-service body. Out of scope for product schema strictness.",
+        "description": "Auth-service. Out of scope for product schema strictness.",
         "x-lastdb-scope": "auth-service-out-of-scope"
       },
       "KeysCreateRequest": {
         "type": "object",
         "additionalProperties": true,
-        "description": "Auth-service body. Out of scope for product schema strictness.",
+        "description": "Auth-service. Out of scope for product schema strictness.",
         "x-lastdb-scope": "auth-service-out-of-scope"
       },
       "KeysCreateResponse": {
         "type": "object",
         "additionalProperties": true,
-        "description": "Auth-service body. Out of scope for product schema strictness.",
+        "description": "Auth-service. Out of scope for product schema strictness.",
         "x-lastdb-scope": "auth-service-out-of-scope"
       },
       "KeysListRequest": {
         "type": "object",
         "additionalProperties": true,
-        "description": "Auth-service body. Out of scope for product schema strictness.",
+        "description": "Auth-service. Out of scope for product schema strictness.",
         "x-lastdb-scope": "auth-service-out-of-scope"
       },
       "KeysListResponse": {
         "type": "object",
         "additionalProperties": true,
-        "description": "Auth-service body. Out of scope for product schema strictness.",
+        "description": "Auth-service. Out of scope for product schema strictness.",
         "x-lastdb-scope": "auth-service-out-of-scope"
       },
       "KeysRevokeRequest": {
         "type": "object",
         "additionalProperties": true,
-        "description": "Auth-service body. Out of scope for product schema strictness.",
+        "description": "Auth-service. Out of scope for product schema strictness.",
         "x-lastdb-scope": "auth-service-out-of-scope"
       },
       "KeysRevokeResponse": {
         "type": "object",
         "additionalProperties": true,
-        "description": "Auth-service body. Out of scope for product schema strictness.",
+        "description": "Auth-service. Out of scope for product schema strictness.",
         "x-lastdb-scope": "auth-service-out-of-scope"
       },
       "PaymentSetupRequest": {
         "type": "object",
         "additionalProperties": true,
-        "description": "Auth-service body. Out of scope for product schema strictness.",
+        "description": "Auth-service. Out of scope for product schema strictness.",
         "x-lastdb-scope": "auth-service-out-of-scope"
       },
       "PaymentSetupResponse": {
         "type": "object",
         "additionalProperties": true,
-        "description": "Auth-service body. Out of scope for product schema strictness.",
+        "description": "Auth-service. Out of scope for product schema strictness.",
         "x-lastdb-scope": "auth-service-out-of-scope"
       },
       "PaymentMethodsRequest": {
         "type": "object",
         "additionalProperties": true,
-        "description": "Auth-service body. Out of scope for product schema strictness.",
+        "description": "Auth-service. Out of scope for product schema strictness.",
         "x-lastdb-scope": "auth-service-out-of-scope"
       },
       "PaymentMethodsResponse": {
         "type": "object",
         "additionalProperties": true,
-        "description": "Auth-service body. Out of scope for product schema strictness.",
+        "description": "Auth-service. Out of scope for product schema strictness.",
         "x-lastdb-scope": "auth-service-out-of-scope"
       },
       "PaymentDetachRequest": {
         "type": "object",
         "additionalProperties": true,
-        "description": "Auth-service body. Out of scope for product schema strictness.",
+        "description": "Auth-service. Out of scope for product schema strictness.",
         "x-lastdb-scope": "auth-service-out-of-scope"
       },
       "PaymentDetachResponse": {
         "type": "object",
         "additionalProperties": true,
-        "description": "Auth-service body. Out of scope for product schema strictness.",
+        "description": "Auth-service. Out of scope for product schema strictness.",
         "x-lastdb-scope": "auth-service-out-of-scope"
       },
       "PaymentSessionRequest": {
         "type": "object",
         "additionalProperties": true,
-        "description": "Auth-service body. Out of scope for product schema strictness.",
+        "description": "Auth-service. Out of scope for product schema strictness.",
         "x-lastdb-scope": "auth-service-out-of-scope"
       },
       "PaymentSessionResponse": {
         "type": "object",
         "additionalProperties": true,
-        "description": "Auth-service body. Out of scope for product schema strictness.",
+        "description": "Auth-service. Out of scope for product schema strictness.",
         "x-lastdb-scope": "auth-service-out-of-scope"
       },
       "EnrollStartRequest": {
         "type": "object",
         "additionalProperties": true,
-        "description": "Auth-service body. Out of scope for product schema strictness.",
+        "description": "Auth-service. Out of scope for product schema strictness.",
         "x-lastdb-scope": "auth-service-out-of-scope"
       },
       "EnrollStartResponse": {
         "type": "object",
         "additionalProperties": true,
-        "description": "Auth-service body. Out of scope for product schema strictness.",
+        "description": "Auth-service. Out of scope for product schema strictness.",
         "x-lastdb-scope": "auth-service-out-of-scope"
       },
       "EnrollFinishRequest": {
         "type": "object",
         "additionalProperties": true,
-        "description": "Auth-service body. Out of scope for product schema strictness.",
+        "description": "Auth-service. Out of scope for product schema strictness.",
         "x-lastdb-scope": "auth-service-out-of-scope"
       },
       "EnrollFinishResponse": {
         "type": "object",
         "additionalProperties": true,
-        "description": "Auth-service body. Out of scope for product schema strictness.",
+        "description": "Auth-service. Out of scope for product schema strictness.",
         "x-lastdb-scope": "auth-service-out-of-scope"
       },
       "LoginStartRequest": {
         "type": "object",
         "additionalProperties": true,
-        "description": "Auth-service body. Out of scope for product schema strictness.",
+        "description": "Auth-service. Out of scope for product schema strictness.",
         "x-lastdb-scope": "auth-service-out-of-scope"
       },
       "LoginStartResponse": {
         "type": "object",
         "additionalProperties": true,
-        "description": "Auth-service body. Out of scope for product schema strictness.",
+        "description": "Auth-service. Out of scope for product schema strictness.",
         "x-lastdb-scope": "auth-service-out-of-scope"
       },
       "LoginFinishRequest": {
         "type": "object",
         "additionalProperties": true,
-        "description": "Auth-service body. Out of scope for product schema strictness.",
+        "description": "Auth-service. Out of scope for product schema strictness.",
         "x-lastdb-scope": "auth-service-out-of-scope"
       },
       "LoginFinishResponse": {
         "type": "object",
         "additionalProperties": true,
-        "description": "Auth-service body. Out of scope for product schema strictness.",
+        "description": "Auth-service. Out of scope for product schema strictness.",
         "x-lastdb-scope": "auth-service-out-of-scope"
       }
     },
