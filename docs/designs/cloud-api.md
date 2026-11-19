@@ -26,6 +26,17 @@ not authorize.
 **Acceptance is a local node rule.** Relays neither enforce nor know about
 it. Optional relay checks are anti-spam/quota only.
 
+**Revocations live only in the chain.** A revocation (including its
+per-device cutoff heads) is a signed `grant`-kind entry on a publisher
+device chain. It is ordered by the same deterministic merge as every other
+entry and covered by the publisher’s signed heads. There is **no** separate
+revocation record or side channel — not on the relay surface, not in ExeMem
+rows, not in People. People may carry **signed heads for comparison only**.
+If a relay or ExeMem keeps grant data for anti-spam, that copy is **derived
+from the chain**, optional, and never authoritative. A reader that receives
+a revocation only via a side channel and not as a verified chain entry
+**must ignore it**.
+
 `AcceptEntry(E, S) → accept | reject` — `S` is the node’s verified signed
 history for `E.database_id`:
 
@@ -124,22 +135,30 @@ Member direct write `W` with `grant_at = G` and `seen_publisher_heads = H`:
 
 ### Revocation cutoff
 
-A `grant` entry with `role = revoked` carries the revoked member’s
+A revocation is **only** a `grant` entry with `role = revoked` on a
+publisher device chain (same `lastdb-grant-v1` bytes, same merge order,
+same head coverage as any other entry). It carries the revoked member’s
 **per-device heads** the publisher accepts:
 
 `cutoffs[]`: `(device_id, writer_seq, entry_hash)`.
 
-- Readers accept that member’s entries **only up to** those heads (matching
-  hash at that seq).
+- Readers apply cutoffs only after that revoke entry is in verified `S`
+  via the chain — never from a side channel.
+- Accept that member’s entries **only up to** those heads (matching hash
+  at that seq).
 - Reject everything after, whatever position the entry claims.
 - A member device the publisher has not listed has **cutoff 0** (no entry
   from that device is accepted).
-- This is per-member data inside that member’s own revocation — **not** a
-  member list.
+- Per-member data inside that member’s own revocation — **not** a member
+  list.
 
-**Guarantee (plain):** once a reader has the revocation, nothing new from
-that member is accepted. Delayed revocation delivery is a liveness failure
-detected by signed-head comparison.
+`manage`/`revoke` (ExeMem) is transport sugar: it appends the same signed
+chain entry a `log.append` would. ExeMem must not store an authoritative
+revoke row beside the chain.
+
+**Guarantee (plain):** once a reader has the revocation **in the chain**,
+nothing new from that member is accepted. Delayed chain delivery is a
+liveness failure detected by signed-head comparison.
 
 ### Fork resolution (default)
 
@@ -172,9 +191,10 @@ HTTP 200 with per-item errors; whole-request auth/version/size failures.
 | `account` | `register`, `payment`, `deactivate`, `add_device`, `remove_device`, `databases`, `status` |
 | `maintenance` | snapshot_proof_* (DEV, `githubOidc`, no batch) |
 
-`manage`/`grant` and `revoke` carry signed `grant` entries (transport
-sugar). Under the open relay they are plain `log.append`. Authorization is
-only `AcceptEntry`.
+`manage`/`grant` and `manage`/`revoke` carry signed `grant` entries and
+only append them to the publisher device chain (transport sugar). Under
+the open relay they are plain `log.append`. No ExeMem/relay revoke index
+is authoritative. Authorization is only `AcceptEntry` over the chain.
 
 ## Auth (`nodeSignature`)
 
@@ -234,8 +254,9 @@ pagination only, etc.).
 
 - `push`/`mutations` / `fetch`/`mutations_since`: full signed entries; no
   checkpoint kind. Delivery cursor is pagination only.
-- `manage`/`grant`/`revoke`: `entries[]` of signed `grant` entries; revoke
-  includes cutoffs.
+- `manage`/`grant`/`revoke`: `entries[]` of signed `grant` entries
+  appended to the chain; revoke includes cutoffs. No side-channel revoke
+  store.
 - `manage`/`access`: UX cache only; not authorization truth.
 - Account/maintenance: ExeMem service (see relay doc).
 
@@ -267,14 +288,17 @@ in-repo reference relay (`relay-protocol.md`).
 4. True one-device equivocation: `history.equivocation`.
 5. Multi-device offline same `writer_seq`: **not** equivocation.
 6. Forged grant: cannot authorize.
-7. **Backdated write after revoke:** revoked member presents old
-   `seen_publisher_heads` / low lamport past the revocation **cutoff** →
-   node rejects.
+7. **Backdated write after revoke:** revoke is in the chain with cutoffs;
+   revoked member presents old `seen_publisher_heads` / low lamport past
+   the cutoff → node rejects.
 8. Write that had seen a revocation in its `seen_publisher_heads`: reject.
-9. Bad signature: that device chain stops.
-10. Reordered delivery → same merge result.
-11. Divergent publisher heads → `history.fork`; stop advance.
-12. Withheld revocation detected by head compare (liveness).
+9. **Side-channel revoke ignored:** a revocation delivered only outside
+   the chain (ExeMem row, People message, relay index) and not as a
+   verified chain entry → reader ignores it; cutoffs do not apply.
+10. Bad signature: that device chain stops.
+11. Reordered delivery → same merge result.
+12. Divergent publisher heads → `history.fork`; stop advance.
+13. Withheld chain revocation detected by head compare (liveness).
 
 ## Build work
 

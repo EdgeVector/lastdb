@@ -12,7 +12,11 @@ separate account/billing service. No dual paths, fallback, or unit tests.
 ## Trust
 
 Acceptance is **local** (`AcceptEntry` in `cloud-api.md`). Relays only
-store and serve. Optional anti-spam/quota is policy, not truth.
+store and serve. Optional anti-spam/quota is policy, not truth. Grants and
+revocations exist only as signed chain entries; a relay must not expose a
+revocation intent or index. Any grant cache for anti-spam is derived from
+the log, optional, and never authoritative. People is not a revocation
+channel — signed heads for comparison only.
 
 ## Surface
 
@@ -57,7 +61,7 @@ relay still holds (or `delete_database`).
 | `push`/`mutations`, `fetch`/`mutations_since` | `log.*` |
 | `push`/`file`, `fetch`/`file` | `blob.*` |
 | `push`/`snapshot`, `fetch`/`snapshot` | `snapshot.*` |
-| `manage`/`grant`, `revoke`, `access` | out of surface (signed log + local verify) |
+| `manage`/`grant`, `revoke`, `access` | out of surface — same signed `grant` chain entries via `log.append`; no revoke side channel |
 | `manage`/`create` | `log.append` of `birth` |
 | `manage`/`delete` | `retention.request` |
 | `account/*`, `maintenance/*` | not protocol (ExeMem service) |

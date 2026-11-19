@@ -3,7 +3,7 @@
   "info": {
     "title": "LastDB ExeMem Cloud API",
     "version": "3.0.0-design",
-    "description": "ExeMem Cloud API v3 design (minimal signed history). Acceptance is local AcceptEntry. Device chains (node_key, device_id). No checkpoints. Grants/revokes on publisher device chains with revocation cutoff. Publisher-signed heads compared via devices/People. See relay-protocol.md."
+    "description": "ExeMem Cloud API v3 design (minimal signed history). Acceptance is local AcceptEntry. Device chains (node_key, device_id). Grants/revokes exist only as signed grant-kind chain entries (with revocation cutoff); no side-channel revoke store. People carries signed heads for comparison only. See relay-protocol.md."
   },
   "servers": [
     {
@@ -1848,7 +1848,8 @@
             },
             "description": "Publisher-signed grant entries; role not revoked"
           }
-        }
+        },
+        "description": "Transport sugar: appends signed grant entries onto the publisher device chain. Any ExeMem grant cache is derived and non-authoritative."
       },
       "ManageGrantResult": {
         "type": "object",
@@ -1873,7 +1874,8 @@
             },
             "description": "Publisher-signed grant entries with role=revoked"
           }
-        }
+        },
+        "description": "Transport sugar: appends signed grant entries with role=revoked (including cutoffs) onto the publisher device chain. Not an authoritative revoke row; readers ignore side-channel revokes."
       },
       "ManageRevokeResult": {
         "type": "object",
@@ -4460,7 +4462,7 @@
           "role"
         ],
         "additionalProperties": false,
-        "description": "lastdb-grant-v1; role=revoked requires cutoffs",
+        "description": "lastdb-grant-v1 on a publisher device chain. role=revoked requires cutoffs. The only revocation record \u2014 no side channel.",
         "properties": {
           "kind": {
             "type": "string",
