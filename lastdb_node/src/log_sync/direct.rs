@@ -84,31 +84,44 @@ pub(super) async fn undo_page(
 }
 
 async fn retract(host: &Host, log: &CloudLog) -> Result<(), &'static str> {
+    super::publish_state::begin(log.database_id());
     let Some((store, key, policy)) = received_store(host, log.database_id()).await else {
         return Ok(());
     };
     let material = Zeroizing::new(*key.encryption_bytes());
     let runtime = store.db_ops().native_runtime();
     let reader = Arc::clone(&runtime);
-    let joined = tokio::task::spawn_blocking(move || read_page(&reader, &material, &policy)).await;
+    let reported = log.database_id().to_owned();
+    let joined = tokio::task::spawn_blocking(move || {
+        read_page(&reader, &material, &policy, Some(&reported))
+    })
+    .await;
     let page = match joined {
         Ok(Ok(Some(page))) => page,
         Ok(Ok(None)) => return Ok(()),
-        Ok(Err(reason)) => return Err(reason),
-        Err(_) => return Err("the local upload queue reader stopped"),
+        Ok(Err(reason)) => return note_stop(log, reason),
+        Err(_) => return note_stop(log, "the local upload queue reader stopped"),
     };
     let Some(first) = page.items.first() else {
+        let status = crate::accepted_writes::status(&runtime);
+        if status.head > status.acked {
+            super::publish_state::note_word(log.database_id(), "empty_page");
+        }
         return Ok(());
     };
     let through = sequence_of(page.items.last().unwrap_or(first));
-    let after = sequence_of(first)
-        .checked_sub(1)
-        .ok_or("invalid local spool position")?;
-    let Some(upload) = LocalUpload::open(&runtime, log, after).await? else {
-        return Ok(());
+    let Some(after) = sequence_of(first).checked_sub(1) else {
+        return note_stop(log, "invalid local spool position");
     };
-    undo_records(&store, &page.items, through).await?;
-    upload
+    let upload = match LocalUpload::open(&runtime, log, after, true).await {
+        Ok(Some(upload)) => upload,
+        Ok(None) => return Ok(()),
+        Err(reason) => return note_stop(log, reason),
+    };
+    if let Err(reason) = undo_records(&store, &page.items, through).await {
+        return note_stop(log, reason);
+    }
+    if let Err(reason) = upload
         .confirm(
             &runtime,
             UploadPosition {
@@ -117,6 +130,15 @@ async fn retract(host: &Host, log: &CloudLog) -> Result<(), &'static str> {
             },
         )
         .await
+    {
+        return note_stop(log, reason);
+    }
+    Ok(())
+}
+
+fn note_stop(log: &CloudLog, reason: &'static str) -> Result<(), &'static str> {
+    super::publish_state::note_failure(log.database_id(), reason);
+    Err(reason)
 }
 
 async fn undo_records(store: &FoldDB, items: &[Item], through: u64) -> Result<(), &'static str> {

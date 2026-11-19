@@ -30,6 +30,7 @@ enum StatusKind {
     AccessUnknown,
     NoCredentials,
     Missing,
+    Word(&'static str),
 }
 
 #[derive(Clone)]
@@ -61,6 +62,18 @@ pub(super) fn begin(database_id: &str) {
 
 pub(super) fn note_access_unknown(database_id: &str) {
     note(database_id, Outcome::Unconfirmed, StatusKind::AccessUnknown);
+}
+
+pub(super) fn note_word(database_id: &str, status: &'static str) {
+    note(database_id, Outcome::Unconfirmed, StatusKind::Word(status));
+}
+
+/// Record a swallowed publish error once. A note already stored this turn wins.
+pub(super) fn note_failure(database_id: &str, reason: &str) {
+    let noted = slots().get(database_id).is_some_and(|slot| slot.noted);
+    if !noted {
+        note_word(database_id, failure_status(reason));
+    }
 }
 
 pub(super) fn note_unreachable(database_id: &str, home: &Path, environment: &str) {
@@ -184,6 +197,25 @@ fn category_token(outcome: Outcome, status: StatusKind) -> String {
         StatusKind::AccessUnknown => format!("{name}:access_unknown"),
         StatusKind::NoCredentials => format!("{name}:no_credentials"),
         StatusKind::Missing => name.to_owned(),
+        StatusKind::Word(word) => format!("{name}:{word}"),
+    }
+}
+
+fn failure_status(reason: &str) -> &'static str {
+    match reason {
+        "could not read stored writes to initialize the local upload position" => "writer_tip",
+        "cloud entries disagree with the saved upload identity" => "upload_identity",
+        "local upload position is unavailable for this device and cloud scope" => "upload_position",
+        "local upload reader stopped" | "the local upload queue reader stopped" => "reader_stopped",
+        "local upload writer stopped" => "writer_stopped",
+        "upload confirmation could not be recorded locally" => "confirm_failed",
+        "refused write was not undone" => "undo_failed",
+        "the next local write could not be prepared for upload" => "prepare_failed",
+        "the local upload queue could not be read" => "queue_unreadable",
+        "invalid local spool position" => "spool_position",
+        "invalid local upload batch" => "batch_invalid",
+        "signed entry exceeds the request limit" => "entry_too_large",
+        _ => "upload_unconfirmed",
     }
 }
 
@@ -250,6 +282,7 @@ fn status_json(status: StatusKind) -> Value {
         StatusKind::AccessUnknown => Value::from("access_unknown"),
         StatusKind::NoCredentials => Value::from("no_credentials"),
         StatusKind::Missing => Value::Null,
+        StatusKind::Word(word) => Value::from(word),
     }
 }
 

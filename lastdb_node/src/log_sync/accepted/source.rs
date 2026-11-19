@@ -8,6 +8,8 @@ use fold_db::storage::disk_pack::PackRuntime;
 use mutation_log::LogError;
 
 use crate::accepted_writes::{self, Blocked, Page, Publication, StreamStatus};
+use crate::host::owned::registered_databases;
+use crate::host::Host;
 
 use super::CloudLog;
 
@@ -23,6 +25,7 @@ impl LocalUpload {
         runtime: &Arc<PackRuntime>,
         log: &CloudLog,
         after: u64,
+        member: bool,
     ) -> Result<Option<Self>, &'static str> {
         let identity = Arc::new(UploadIdentity {
             scope: log.scope.clone(),
@@ -41,10 +44,7 @@ impl LocalUpload {
                     "local upload position is unavailable for this device and cloud scope"
                 })?;
         let Some(position) = saved else {
-            let writer_seq = log.writer_tip_async().await.map_err(|error| match error {
-                LogError::Conflict => "cloud entries disagree with the saved upload identity",
-                _ => "could not read stored writes to initialize the local upload position",
-            })?;
+            let writer_seq = writer_seq(log, member).await?;
             let upload = Self {
                 identity,
                 position: UploadPosition {
@@ -56,6 +56,10 @@ impl LocalUpload {
             return Ok(Some(upload));
         };
         if position.spool_through != after {
+            // The saved spool position is not this page. Do not append past it.
+            if member {
+                report(Some(log.database_id()), "spool_position_mismatch");
+            }
             return Ok(None);
         }
         Ok(Some(Self { identity, position }))
@@ -97,13 +101,16 @@ pub(crate) fn read_page(
     runtime: &PackRuntime,
     key: &[u8; 32],
     policy: &PublishPolicy,
+    database_id: Option<&str>,
 ) -> Result<Option<Page>, &'static str> {
     let status = accepted_writes::status(runtime);
     if status.gap {
         tracing::warn!(target: "lastdbd::log_sync", "accepted prefix has a gap");
+        report(database_id, "gap");
         return Ok(None);
     }
     if status.snapshot_required {
+        report(database_id, "snapshot_required");
         return Ok(None);
     }
     let publication = match policy {
@@ -112,10 +119,58 @@ pub(crate) fn read_page(
     };
     match accepted_writes::prefix(runtime, key, publication, status.acked, PAGE_LIMIT) {
         Ok(page) if !page.snapshot_required => Ok(Some(page)),
-        Ok(_) | Err(Blocked::Snapshot | Blocked::Gap) => Ok(None),
+        Ok(_) | Err(Blocked::Snapshot) => {
+            report(database_id, "snapshot_required");
+            Ok(None)
+        }
+        Err(Blocked::Gap) => {
+            report(database_id, "gap");
+            Ok(None)
+        }
         Err(blocked) => {
             tracing::warn!(target: "lastdbd::log_sync", reason = ?blocked, "accepted prefix was not read");
             Err("the local upload queue could not be read")
         }
     }
+}
+
+/// A shareable log returns the writer tip only for its publisher.
+/// A member's first cloud sequence is 1, so an unauthorized tip is 0.
+/// Later sequences stay in the saved checkpoint and do not ask again.
+async fn writer_seq(log: &CloudLog, member: bool) -> Result<u64, &'static str> {
+    match log.writer_tip_async().await {
+        Ok(seq) => Ok(seq),
+        Err(LogError::Unauthorized) if member => Ok(0),
+        Err(LogError::Conflict) => Err("cloud entries disagree with the saved upload identity"),
+        Err(_) => Err("could not read stored writes to initialize the local upload position"),
+    }
+}
+
+fn report(database_id: Option<&str>, status: &'static str) {
+    if let Some(database_id) = database_id {
+        super::super::publish_state::note_word(database_id, status);
+    }
+}
+
+pub(super) fn publication(host: &Host, database_id: &str) -> Option<PublishPolicy> {
+    let database = registered_databases(&host.home)
+        .into_iter()
+        .find(|database| database.id == database_id)?;
+    match database.kind {
+        "personal" => Some(PublishPolicy::Private),
+        "shareable" => {
+            let spec = database.spec?;
+            SpecBinding::new(&spec.name, spec.version)
+                .ok()
+                .map(PublishPolicy::Share)
+        }
+        _ => None,
+    }
+}
+
+pub(super) fn namespace_of(canonical: &[u8]) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_slice(canonical).ok()?;
+    let schema = value.get("schema").and_then(|item| item.as_str())?;
+    let name = schema.split_once('/').map_or(schema, |(prefix, _)| prefix);
+    (!name.is_empty()).then(|| name.to_owned())
 }
