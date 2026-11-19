@@ -117,15 +117,7 @@ SCAN_SUFFIXES: tuple[str, ...] = (
 
 # Short allowlist: path prefix or exact relative path -> reason.
 # Keep this short. Prefer deleting the leak over growing the list.
-ALLOWLIST: dict[str, str] = {
-    # Known debt: the social share-spec catalog still lives in LastDB.
-    # Apps such as Hearth cannot bind a hearth catalog until this moves
-    # to People (or becomes a generic app-supplied binding). Do not add
-    # more People schemas here; remove the catalog when the redesign lands.
-    "database_policy/src/lib.rs": (
-        "known debt: People social share-spec catalog; belongs in People"
-    ),
-}
+ALLOWLIST: dict[str, str] = {}
 
 
 def _repo_root(explicit: Path | None) -> Path:

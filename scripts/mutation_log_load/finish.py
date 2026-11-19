@@ -226,13 +226,14 @@ def request_for(session, operation, fields, limit):
         return request_body(operation, {"database_id": database})
     if operation == "create-database":
         return request_body(operation, {
-            "database_id": database, "kind": "shareable", "spec": {"name": "social", "version": 1},
+            "database_id": database, "kind": "shareable",
+            "spec": {"name": "whole-database", "version": 1},
         })
     if operation == "append":
         device = fields.get("device_id") or device_name(session.device_prefix, fields["index"])
         return request_body(operation, {
             "database_id": database, "device_id": device,
-            "entries": [{"authored_at_ms": fields["authored_at_ms"], "namespace": "social",
+            "entries": [{"authored_at_ms": fields["authored_at_ms"], "namespace": "load",
                          "payload_b64": PAYLOAD, "writer_seq": fields["seq"]}],
         })
     if operation == "list":

@@ -7,7 +7,7 @@ the socket and the lastdb CLI.
 
 RecordById on each named database is still placed by
 POST /api/databases/{id}/schemas/seed-system, which requires an isolated copy.
-social/CircleNote is placed by POST /api/databases/{id}/apps/declare-schema,
+demo/CircleNote is placed by POST /api/databases/{id}/apps/declare-schema,
 written and read with the database field, and absent from the personal database.
 """
 import json
@@ -36,15 +36,15 @@ def prepare(node, cli, output):
         "id": notes["id"], "spec": {"name": "notes", "version": 1},
     }), "invalid spec binding")
     refuse(node, {"name": "notes", "spec": {"name": "notes", "version": 0}}, "invalid spec binding")
-    family = create(node, "social-family", {"name": "social", "version": 1})
+    family = create(node, "family", {"name": "family", "version": 1})
     alpha = create(node, "alpha", None)
     work = create(node, "work", {"name": "work", "version": 1})
-    graph = create(node, "graph", {"name": "social", "version": 1})
-    refuse(node, {"name": "social-family", "spec": {"name": "social", "version": 1}},
+    graph = create(node, "graph", {"name": "graph", "version": 1})
+    refuse(node, {"name": "family", "spec": {"name": "family", "version": 1}},
            "already registered")
     personal_id = owner_id(node)
     refused(lambda: node.call("/api/databases/spec", {
-        "id": personal_id, "spec": {"name": "social", "version": 1},
+        "id": personal_id, "spec": {"name": "family", "version": 1},
     }), "HTTP 404")
     alpha = bind(node, alpha["id"], {"name": "notes", "version": 1})
     install(node, notes["id"])
@@ -60,8 +60,8 @@ def prepare(node, cli, output):
     write_value(node, graph["id"], "graph")
     require(read_value(node, None) == "v3", "a sibling write changed personal")
     require(read_value(node, "notes") == "owner-only", "notes did not keep its value")
-    require(read_value(node, family["id"]) == "family", "social-family did not keep its value")
-    require(read_value(node, "social-family") == "family", "the owned name did not select its store")
+    require(read_value(node, family["id"]) == "family", "family did not keep its value")
+    require(read_value(node, "family") == "family", "the owned name did not select its store")
     require(read_value(node, alpha["id"]) == "alpha", "alpha did not keep its value")
     require(read_value(node, work["id"]) == "work", "work did not keep its value")
     require(read_value(node, graph["id"]) == "graph", "graph did not keep its value")
@@ -85,7 +85,7 @@ def check(node, cli, output):
     saved = json.loads((output / "named-databases.json").read_text())
     require(read_value(node, None) == "v3", "personal changed across restart")
     require(read_value(node, saved["notes_id"]) == "owner-only", "notes changed across restart")
-    require(read_value(node, saved["family_id"]) == "family", "social-family changed across restart")
+    require(read_value(node, saved["family_id"]) == "family", "family changed across restart")
     require(read_value(node, saved["alpha_id"]) == "alpha", "alpha changed across restart")
     require(read_value(node, saved["work_id"]) == "work", "work changed across restart")
     require(read_value(node, saved["graph_id"]) == "graph", "graph changed across restart")
@@ -93,7 +93,7 @@ def check(node, cli, output):
     check_placed_schema(node, saved["family_id"])
     check_list(node, saved, alpha_spec={"name": "notes", "version": 1})
     cli_read(node, cli, saved["family_id"], "family")
-    cli_read(node, cli, "social-family", "family")
+    cli_read(node, cli, "family", "family")
     cli_read(node, cli, "personal", "v3")
     cli_read(node, cli, "notes", "owner-only")
     wrong = run_cli(node, cli, MISSING_DATABASE)
@@ -127,7 +127,7 @@ def install(node, database_id):
     system_seed(node, schema, database_id)
 
 
-PLACED_SCHEMA = "social/CircleNote"
+PLACED_SCHEMA = "demo/CircleNote"
 PLACED_NOTE = "placed in the named database"
 
 
@@ -136,9 +136,9 @@ def place_named_schema(node, database_id):
     schema = definition(PLACED_SCHEMA, "Hash", ["id", "note"], description_prefix="Named database ")
     schema.pop("source", None)
     placed = node.call(f"/api/databases/{database_id}/apps/declare-schema", {
-        "app_id": "social", "schema": schema,
+        "app_id": "demo", "schema": schema,
     })[0]
-    require(placed.get("schema_name") == PLACED_SCHEMA and placed.get("namespace") == "social"
+    require(placed.get("schema_name") == PLACED_SCHEMA and placed.get("namespace") == "demo"
             and placed.get("resolution") == "register" and placed.get("schema") == PLACED_SCHEMA,
             "declare-schema did not place the schema in the named database: " + repr(placed))
     v1.write_items(node, [v1.create_item(
@@ -191,18 +191,18 @@ def check_list(node, saved, alpha_spec):
     notes = by_name["notes"]
     require(notes["id"] == saved["notes_id"] and notes["kind"] == "personal"
             and notes["spec"] is None, "notes lost its owner-only registration")
-    require(by_name["social-family"]["id"] == saved["family_id"], "social-family id changed")
-    require(by_name["social-family"]["spec"] == {"name": "social", "version": 1},
-            "social-family lost its spec")
+    require(by_name["family"]["id"] == saved["family_id"], "family id changed")
+    require(by_name["family"]["spec"] == {"name": "family", "version": 1},
+            "family lost its spec")
     require(by_name["alpha"]["id"] == saved["alpha_id"], "alpha id changed")
     require(by_name["alpha"]["spec"] == alpha_spec, "alpha lost its spec binding")
     require(by_name["work"]["id"] == saved["work_id"], "work id changed")
     require(by_name["work"]["spec"] == {"name": "work", "version": 1}, "work lost its spec")
     require(by_name["graph"]["id"] == saved["graph_id"], "graph id changed")
-    require(by_name["graph"]["spec"] == {"name": "social", "version": 1}, "graph lost its spec")
+    require(by_name["graph"]["spec"] == {"name": "graph", "version": 1}, "graph lost its spec")
     require(len(rows) == 6, "the database list has an unexpected row")
     require([row["name"] for row in rows] ==
-            ["personal", "notes", "social-family", "alpha", "work", "graph"],
+            ["personal", "notes", "family", "alpha", "work", "graph"],
             "owned databases were not listed after personal")
 
 
