@@ -110,9 +110,8 @@ async fn retract(host: &Host, log: &CloudLog) -> Result<(), &'static str> {
         return Ok(());
     };
     let through = sequence_of(page.items.last().unwrap_or(first));
-    let after = match sequence_of(first).checked_sub(1) {
-        Some(after) => after,
-        None => return note_stop(log, "invalid local spool position"),
+    let Some(after) = sequence_of(first).checked_sub(1) else {
+        return note_stop(log, "invalid local spool position");
     };
     let upload = match LocalUpload::open(&runtime, log, after, true).await {
         Ok(Some(upload)) => upload,
