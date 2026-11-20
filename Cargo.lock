@@ -2700,6 +2700,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "signed_history_relay_e2e"
+version = "0.1.0"
+dependencies = [
+ "aes-gcm",
+ "app_identity_crypto",
+ "base64",
+ "bytes",
+ "clap",
+ "fold_db",
+ "futures",
+ "hkdf",
+ "mutation_log",
+ "rand 0.8.8",
+ "reqwest 0.12.28",
+ "serde_json",
+ "sha2 0.10.9",
+ "signed_history_materialize",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "simd_cesu8"
 version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

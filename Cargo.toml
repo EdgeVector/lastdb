@@ -30,6 +30,8 @@ members = [
     "signed_history_materialize",
     # DEV CI proof binary: signed-history scenarios against reference_relay.
     "signed_history_dev",
+    # Live-relay bundle bootstrap + restore proof (exemem-infra `LASTDB_RELAY_E2E_BIN`).
+    "signed_history_relay_e2e",
 
     # minimal headless LastDB daemon (`lastdbd`) — core DB + app-identity +
     # cloud sync over the owner Unix socket (no ingestion, no discovery, no
@@ -62,6 +64,7 @@ default-members = [
     "signed_history_client",
     "signed_history_materialize",
     "signed_history_dev",
+    "signed_history_relay_e2e",
     "lastdb_node",
 ]
 

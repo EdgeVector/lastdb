@@ -1,0 +1,34 @@
+[package]
+autotests = false
+name = "signed_history_relay_e2e"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "Bundle bootstrap and restore proof against a live relay (OpenAPI nodeSignature, Hex32 device ids)."
+
+[lints]
+workspace = true
+
+[[bin]]
+bench = false
+test = false
+name = "signed_history_relay_e2e"
+path = "src/main.rs"
+
+[dependencies]
+aes-gcm = "0.10"
+app_identity_crypto = { workspace = true }
+base64 = { workspace = true }
+bytes = "1"
+clap = { workspace = true }
+fold_db = { workspace = true }
+futures = { workspace = true }
+hkdf = "0.12"
+mutation_log = { path = "../mutation_log" }
+rand = "0.8"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "charset", "http2", "json"] }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+signed_history_materialize = { path = "../signed_history_materialize" }
+tokio = { workspace = true, features = ["time"] }
+uuid = { workspace = true, features = ["v4"] }
