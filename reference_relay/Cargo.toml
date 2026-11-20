@@ -1,0 +1,27 @@
+[package]
+autotests = false
+name = "reference_relay"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "In-repo grant-blind reference relay for CI signed-history scenarios."
+
+[lints]
+workspace = true
+
+[[bin]]
+bench = false
+test = false
+name = "reference_relay"
+path = "src/main.rs"
+
+[dependencies]
+app_identity_crypto = { workspace = true }
+axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio", "query"] }
+base64 = { workspace = true }
+clap = { workspace = true }
+hmac = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+tokio = { workspace = true, features = ["fs", "io-util", "net", "rt", "sync", "time"] }
