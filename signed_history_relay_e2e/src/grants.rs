@@ -207,6 +207,6 @@ fn refused(who: &str, call: &str, outcome: Result<(), String>) -> Result<(), Str
 
 fn http_status(error: &str) -> Option<u16> {
     let rest = error.split("HTTP ").nth(1)?;
-    let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+    let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
     digits.parse().ok()
 }
