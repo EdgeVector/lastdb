@@ -1636,7 +1636,6 @@ dependencies = [
 name = "lastdb_node"
 version = "0.1.0"
 dependencies = [
- "aes-gcm",
  "app_identity_crypto",
  "base64",
  "bip39",

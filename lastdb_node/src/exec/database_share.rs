@@ -49,12 +49,7 @@ pub(super) fn execute(
     }
 }
 
-fn link(
-    req: &UdsRequest,
-    ctx: &AccessContext,
-    host: &Host,
-    entry: &owned::Entry,
-) -> UdsResponse {
+fn link(req: &UdsRequest, ctx: &AccessContext, host: &Host, entry: &owned::Entry) -> UdsResponse {
     if !req.body.is_empty() {
         return error_response(400, "invalid sharing request", ctx);
     }

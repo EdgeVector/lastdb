@@ -237,7 +237,7 @@ def check_cli_operations(node, cli, output, database_id):
             "the standalone publication flag is still available")
     share_help = run_cmd(node, cli, "share", "--help")
     subcommands = {line.split()[0] for line in share_help.stdout.splitlines() if line.strip()}
-    require(share_help.returncode == 0 and {"accept", "contributors"} <= subcommands and "files" not in subcommands,
+    require(share_help.returncode == 0 and {"accept", "link"} <= subcommands and "files" not in subcommands,
             "share --help subcommands drifted: " + share_help.stdout)
     listed = run_cmd(node, cli, "db", "list", "--json")
     require(listed.returncode == 0 and any(db["id"] == database_id for db in json.loads(listed.stdout)["databases"]),
