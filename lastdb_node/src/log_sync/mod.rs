@@ -75,13 +75,17 @@ pub(crate) fn direct_write_allowed(
     true
 }
 
-pub(crate) fn note_receiver(_database_id: &str, _store: &std::sync::Arc<fold_db::FoldDB>) {}
+pub(crate) fn note_receiver(
+    _database_id: &str,
+    _store: &std::sync::Arc<fold_db::fold_db_core::FoldDB>,
+) {
+}
 
 pub(crate) mod received {
     use serde_json::{json, Value};
 
     /// Self-access view derived from chain grants (side channel removed).
-    pub(crate) fn view(_database_id: &str) -> Value {
+    pub(crate) fn view(_home: &std::path::Path, _database_id: &str) -> Value {
         json!({
             "read": "chain",
             "write": "chain",

@@ -1,6 +1,7 @@
 //! Grant-blind HTTP client for `/relay/v1/log/*` and `/relay/v1/blob/*`.
 
 use app_identity_crypto::{hex_lower, sign, SigningKey};
+use base64::Engine as _;
 use mutation_log::SignedEntry;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};

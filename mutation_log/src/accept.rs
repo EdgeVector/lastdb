@@ -219,7 +219,7 @@ fn expected_lamport(
     let l_prev = if writer_seq == 1 {
         0
     } else {
-        head.map(|h| h.lamport).unwrap_or(0)
+        head.map_or(0, |h| h.lamport)
     };
     let mut l_seen = 0u64;
     for h in seen {

@@ -51,5 +51,5 @@ fn accept_one(
             );
             Ok(false)
         }
-    })??
+    })?
 }

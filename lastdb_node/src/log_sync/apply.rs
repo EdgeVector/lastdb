@@ -68,5 +68,5 @@ pub(super) fn author_and_accept_data(
             }
             AcceptOutcome::Reject { reason } => Err(format!("authored entry rejected: {reason:?}")),
         }
-    })??
+    })?
 }

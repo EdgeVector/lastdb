@@ -27,7 +27,7 @@ pub(super) fn bootstrap_database(
 ) -> Result<(), String> {
     let database_id =
         DatabaseId::from_hex(input.database_id).map_err(|_| "database_id is not hex32")?;
-    let result = bootstrap_from_records(BootstrapParams {
+    let result = bootstrap_from_records(&BootstrapParams {
         database_id,
         signing_key: input.signing_key,
         owner: input.owner,

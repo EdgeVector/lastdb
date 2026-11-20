@@ -117,10 +117,10 @@ impl GrantState {
     #[must_use]
     pub fn rebuild_from<'a>(
         grants: impl IntoIterator<Item = (RecordPosition, &'a GrantBody)>,
-    ) -> GrantState {
+    ) -> Self {
         let mut list: Vec<(RecordPosition, &GrantBody)> = grants.into_iter().collect();
         sort_grants(&mut list);
-        let mut folded = GrantState::empty();
+        let mut folded = Self::empty();
         for (pos, body) in list {
             folded.apply_grant(pos, body);
         }
@@ -135,7 +135,7 @@ impl GrantState {
     pub fn fold_window_from_seen<'s>(
         seen: &[EntryHash],
         lookup: impl Fn(&EntryHash) -> Option<&'s AcceptedMeta>,
-    ) -> GrantState {
+    ) -> Self {
         let grants = seen.iter().filter_map(|h| {
             let meta = lookup(h)?;
             if !meta.is_publisher {

@@ -127,12 +127,6 @@ impl DeviceId {
         *self.0.as_bytes()
     }
 
-    /// Wire string form.
-    #[must_use]
-    pub fn to_string(&self) -> String {
-        self.0.to_string()
-    }
-
     /// Borrow the UUID.
     #[must_use]
     pub const fn as_uuid(&self) -> &Uuid {

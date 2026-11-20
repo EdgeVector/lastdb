@@ -66,7 +66,7 @@ pub struct BootstrapResult {
 
 /// Author birth + data + grants, accept each into a fresh history, enqueue outbox.
 pub fn bootstrap_from_records(
-    params: BootstrapParams<'_>,
+    params: &BootstrapParams<'_>,
 ) -> Result<BootstrapResult, BootstrapError> {
     let mut history = VerifiedHistory::new(params.database_id);
     let mut entries = Vec::new();

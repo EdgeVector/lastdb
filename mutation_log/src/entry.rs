@@ -170,54 +170,66 @@ pub struct RelayUrl {
 pub enum SignedEntry {
     /// Birth.
     Birth {
+        /// Common signed header.
         #[serde(flatten)]
         header: EntryHeader,
         /// Const namespace `"birth"`.
         namespace: String,
+        /// Birth body fields.
         #[serde(flatten)]
         body: BirthBody,
     },
     /// Data mutation.
     Data {
+        /// Common signed header.
         #[serde(flatten)]
         header: EntryHeader,
+        /// Data body fields.
         #[serde(flatten)]
         body: DataBody,
     },
     /// Grant / revoke.
     Grant {
+        /// Common signed header.
         #[serde(flatten)]
         header: EntryHeader,
         /// Const namespace `"grant"`.
         namespace: String,
+        /// Grant body fields.
         #[serde(flatten)]
         body: GrantBody,
     },
     /// Blob delete.
     #[serde(rename = "blob_delete")]
     BlobDelete {
+        /// Common signed header.
         #[serde(flatten)]
         header: EntryHeader,
         /// Const namespace `"blob_delete"`.
         namespace: String,
+        /// Blob-delete body fields.
         #[serde(flatten)]
         body: BlobDeleteBody,
     },
     /// Heads.
     Heads {
+        /// Common signed header.
         #[serde(flatten)]
         header: EntryHeader,
         /// Const namespace `"heads"`.
         namespace: String,
+        /// Heads body fields.
         #[serde(flatten)]
         body: HeadsBody,
     },
     /// Relays.
     Relays {
+        /// Common signed header.
         #[serde(flatten)]
         header: EntryHeader,
         /// Const namespace `"relays"`.
         namespace: String,
+        /// Relays body fields.
         #[serde(flatten)]
         body: RelaysBody,
     },

@@ -70,5 +70,5 @@ fn accept_restore(
             tracing::warn!(target: "lastdbd::log_sync", ?reason, "restore entry rejected");
             Ok(false)
         }
-    })??
+    })?
 }

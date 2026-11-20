@@ -23,7 +23,7 @@ pub async fn run(relay: &RelayHandle) -> Result<String, String> {
             value: b"two".to_vec(),
         },
     ];
-    let boot = bootstrap_from_records(BootstrapParams {
+    let boot = bootstrap_from_records(&BootstrapParams {
         database_id: birth.database_id,
         signing_key: &owner.signing_key,
         owner: owner.node_key,

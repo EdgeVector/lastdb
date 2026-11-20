@@ -233,7 +233,7 @@ async fn ensure_enrolled(host: &Host, database_id: &str) -> Result<(), ConfigErr
     if payment_blocked(host, database_id) {
         return Err(ConfigError::PaymentRequired);
     }
-    match crate::log_sync::wait_for_enrollment(host, database_id) {
+    match crate::log_sync::wait_for_enrollment(host, database_id).await {
         crate::log_sync::CloudState::Enrolled => Ok(()),
         crate::log_sync::CloudState::NoAccount => Err(ConfigError::NoAccount),
         crate::log_sync::CloudState::Enrolling if payment_blocked(host, database_id) => {

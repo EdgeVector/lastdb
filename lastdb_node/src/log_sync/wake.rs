@@ -12,7 +12,7 @@ pub fn request_wake(home: &Path) {
     let _ = disk::write_private(&home.join("log-sync").join(WAKE_FILE), b"1");
 }
 
-pub(crate) fn ensure_wake(home: &Path) {
+pub fn ensure_wake(home: &Path) {
     request_wake(home);
 }
 
