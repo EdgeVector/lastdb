@@ -15,7 +15,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import v1_records as v1  # noqa: E402
 
 FIELDS = ["id", "bucket", "value"]
-MISSING_DATABASE = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+# A well-formed 64-hex database id that no test home registers.
+MISSING_DATABASE = "b" * 64
 # More deleted records under one hash than one request may examine.
 RUN = 12_000
 BATCH = 500
