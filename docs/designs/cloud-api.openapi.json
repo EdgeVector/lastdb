@@ -4105,9 +4105,19 @@
             "minimum": 1,
             "maximum": 10000,
             "description": "Inner data changes; protocol max 10_000; must match decrypted body"
+          },
+          "grant_at_device": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Publisher device_id of the grant entry this member bundle binds to. Required for non-publisher bundles; omit for publisher."
+          },
+          "grant_at_seq": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Publisher writer_seq of the grant entry this member bundle binds to. Required for non-publisher bundles; omit for publisher."
           }
         },
-        "description": "Signed multi-change bundle. Encrypted blob uploaded via blob.put before append. Caps: blob_size \u2264 67108864 (64 MiB), change_count \u2264 10000. Inner changes are data-only; share the entry lamport; unique record keys; apply order = ascending record key. Missing/bad blob \u2192 pending (stream blocks)."
+        "description": "Signed multi-change bundle. Encrypted blob uploaded via blob.put before append. Caps: blob_size \u2264 67108864 (64 MiB), change_count \u2264 10000. Inner changes are data-only; share the entry lamport; unique record keys; apply order = ascending record key. Missing/bad blob \u2192 pending (stream blocks). Member writers bind grant_at_device/grant_at_seq like DataEntry; publisher omits them."
       }
     }
   }

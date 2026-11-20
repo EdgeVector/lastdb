@@ -186,22 +186,25 @@ Wire `signature`: base64url, 64 bytes.
 |---|---|---|
 | `birth` | birth material in chain | First publisher-device entry (`writer_seq=1`) |
 | `data` | `lastdb-mutation-v1` | `stream` direct\|proposal; payload; optional file / incorporation / grant_at |
-| `bundle` | `lastdb-bundle-v1` | `{blob_sha256, blob_size, change_count}`; encrypted multi-change blob |
+| `bundle` | `lastdb-bundle-v1` | `{blob_sha256, blob_size, change_count}`; member binds `grant_at` |
 | `grant` | `lastdb-grant-v1` | grantee, role; **cutoffs only when lowering/revoking** (not on first grant) |
 | `blob_delete` | `lastdb-blob-delete-v1` | publisher; names blob `sha256` |
 | `heads` | `lastdb-heads-v1` | publisher tip vector for hidden-entry detection |
 | `relays` | `lastdb-relays-v1` | publisher-signed relay URL list |
 
-**Data:** publisher direct needs no grant. Member direct binds `grant_at`
-and `seen_heads`. Proposal: `stream=proposal`, no grant_at; content only
-via incorporation (`incorporated_from`).
+**Data / bundle:** publisher direct or bundle needs no grant. Member
+direct **or** member bundle binds `grant_at` (`grant_at_device` +
+`grant_at_seq`) and `seen_heads`. Proposal: `stream=proposal`, no
+grant_at; content only via incorporation (`incorporated_from`). Bundles
+never carry proposals or grant entries inside the blob.
 
 **Birth:** first chained entry on a publisher device. ExeMem
 `manage`/`create` carries the full signed `BirthEntry`.
 
 ### Grant window
 
-Member direct write `W` with `grant_at = G` and `seen_heads = H`:
+Member direct `data` or member `bundle` write `W` with `grant_at = G`
+and `seen_heads = H`:
 
 1. From the **publisher** entries among the accepted set named by `H`,
    fold grants in merge order. At `G`, effective role must be **`write`**.
@@ -242,6 +245,7 @@ payload is:
 | `blob_sha256` | SHA-256 of the encrypted blob bytes |
 | `blob_size` | Encrypted blob length in bytes |
 | `change_count` | Number of inner data changes (1…cap) |
+| `grant_at_device` / `grant_at_seq` | Member grant binding (omit for publisher) |
 
 The encrypted blob holds many **data** changes in a defined order. Upload
 the blob with `blob.put` (presigned; parallel or multipart allowed)
