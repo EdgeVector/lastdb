@@ -129,14 +129,16 @@ pub(crate) async fn seal_named_invitation(
     seal_invitation(&session, &entry, contact, lifetime_hours)
 }
 
+/// `has_active_grant` receives the database id and says whether the recipient
+/// holds an active grant on its signed history.
 pub(crate) async fn issue_invitation(
-    host: &crate::host::Host,
+    home: &Path,
     database_id: &str,
     contact_code: &str,
     expected_key: &Digest,
     lifetime_hours: u32,
+    has_active_grant: impl FnOnce(&str) -> bool,
 ) -> Result<Vec<u8>, ConfigError> {
-    let home = host.home.as_path();
     let contact = ShareContact::parse(contact_code)
         .map_err(|error| ConfigError::Invalid(error.to_string()))?;
     if contact.identity_public_key() != expected_key || !(1..=168).contains(&lifetime_hours) {
@@ -145,7 +147,7 @@ pub(crate) async fn issue_invitation(
         ));
     }
     let entry = owned::find_shareable(home, database_id).map_err(ConfigError::Invalid)?;
-    if !crate::log_sync::chain_read::has_active_grant(host, &entry.id, expected_key.as_str()) {
+    if !has_active_grant(&entry.id) {
         return Err(ConfigError::Invalid("recipient has no active grant".into()));
     }
     let _lock = lock::hold(home, database_id).map_err(|_| ConfigError::Unconfirmed)?;

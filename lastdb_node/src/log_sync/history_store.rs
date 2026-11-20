@@ -6,13 +6,29 @@
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex, OnceLock};
 
 use mutation_log::{entry_hash, AcceptOutcome, DatabaseId, Outbox, SignedEntry, VerifiedHistory};
 
 use crate::profile::private_fs as disk;
 
 const OUTBOX_LIMIT: usize = 16 * 1024 * 1024;
+
+/// The histories of one node home, shared by the sync loop and every request
+/// handler. Host sits below log_sync in the layer order and cannot hold the
+/// map, so the map is looked up by home and created on first use.
+pub(crate) fn histories_for(home: &Path) -> Arc<HistoryMap> {
+    static HOMES: OnceLock<Mutex<HashMap<PathBuf, Arc<HistoryMap>>>> = OnceLock::new();
+    let mut homes = HOMES
+        .get_or_init(|| Mutex::new(HashMap::new()))
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    Arc::clone(
+        homes
+            .entry(home.to_path_buf())
+            .or_insert_with(|| Arc::new(HistoryMap::new(home))),
+    )
+}
 
 /// Process-wide histories, shared by the sync loop and every request handler.
 ///

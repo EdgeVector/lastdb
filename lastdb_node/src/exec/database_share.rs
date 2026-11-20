@@ -172,11 +172,18 @@ async fn invite(req: &UdsRequest, host: &Host, id: &str) -> Result<Value, Config
     let invitation: Invitation = decode(req, 4096)?;
     ensure_enrolled(host, id)?;
     let sealed = named_grant::issue_invitation(
-        host,
+        &host.home,
         id,
         &invitation.contact_code,
         &invitation.expected_node_key,
         invitation.expires_in_hours.unwrap_or(24),
+        |database_id| {
+            crate::log_sync::chain_read::has_active_grant(
+                host,
+                database_id,
+                invitation.expected_node_key.as_str(),
+            )
+        },
     )
     .await?;
     Ok(json!({

@@ -29,6 +29,7 @@ impl Tables {
         kind: Kind,
         spec: Option<PublicationSpec>,
         requested_id: Option<String>,
+        mint_birth: impl FnOnce(&str, &[u8; 32]) -> Result<(), String>,
     ) -> Result<Entry, OwnedError> {
         if kind == Kind::Personal && spec.is_some() {
             return Err(OwnedError::InvalidSpec);
@@ -63,8 +64,7 @@ impl Tables {
             }
         }
         if let (Kind::Shareable, Some(seed)) = (kind, &birth_seed) {
-            crate::log_sync::birth::mint(home, &entry.id, signer.public_key_bytes(), seed)
-                .map_err(|_| OwnedError::Unavailable)?;
+            mint_birth(&entry.id, &**seed).map_err(|_| OwnedError::Unavailable)?;
         }
         self.create_registered(home, signer, entry).await
     }

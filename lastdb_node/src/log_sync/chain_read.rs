@@ -31,14 +31,16 @@ fn with_history<R>(
     match owned_database(host, selector) {
         Ok(entry) => {
             require_enrolled(host, &entry.id)?;
-            host.histories
+            let histories = super::histories_for(&host.home);
+            histories
                 .with_mut(&entry.id, |history| view(&entry.id, history))
                 .map_err(|_| ChainError::Unconfirmed)?
         }
         Err(ChainError::NotFound(_)) => {
             let id = received_id(host, selector)?;
             require_enrolled(host, &id)?;
-            host.histories
+            let histories = super::histories_for(&host.home);
+            histories
                 .peek_with(&id, |history| view(&id, history))
                 .unwrap_or(Err(ChainError::NotFound(
                     "no signed history is held for this database",
@@ -125,7 +127,8 @@ pub(crate) fn has_active_grant(host: &Host, database_id: &str, node_key: &str) -
     let Ok(node) = NodeKey::from_hex(node_key) else {
         return false;
     };
-    host.histories
+    let histories = super::histories_for(&host.home);
+    histories
         .with_mut(database_id, |history| {
             history.grants().role_of(&node).is_some()
         })

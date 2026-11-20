@@ -28,7 +28,7 @@ use cloud_backup_protocol::Digest;
 use fold_db::schema::types::Schema;
 
 pub use config::{relay_base_url, store_relay_base_url};
-pub(crate) use history_store::HistoryMap;
+pub(crate) use history_store::histories_for;
 pub(crate) use proposal::{
     status as share_write_status, submit as submit_share_write, ContributionError,
 };

@@ -153,20 +153,24 @@ pub(crate) fn submit(
         database_id,
         identity: &identity,
     };
-    let authored = chain_author::author_member(&host.histories, &target, |mut ctx, history| {
-        require_submitter(history, &identity.node_key)?;
-        for (hash, lamport) in history.publisher_grants() {
-            ctx.seen_heads.push(hash);
-            ctx.seen_lamports.push(lamport);
-        }
-        let body = data_record(
-            StreamKind::Proposal,
-            proposed.namespace,
-            &proposed.record_key,
-            &proposed.value,
-        );
-        author_data(&ctx, &identity.signing_key, body).map_err(|_| ChainError::Unconfirmed)
-    })
+    let authored = chain_author::author_member(
+        &super::histories_for(&host.home),
+        &target,
+        |mut ctx, history| {
+            require_submitter(history, &identity.node_key)?;
+            for (hash, lamport) in history.publisher_grants() {
+                ctx.seen_heads.push(hash);
+                ctx.seen_lamports.push(lamport);
+            }
+            let body = data_record(
+                StreamKind::Proposal,
+                proposed.namespace,
+                &proposed.record_key,
+                &proposed.value,
+            );
+            author_data(&ctx, &identity.signing_key, body).map_err(|_| ChainError::Unconfirmed)
+        },
+    )
     .map_err(|error| contribution_error(&error))?;
     ledger.insert(
         key,
@@ -219,7 +223,8 @@ pub(crate) fn status(
     };
     let identity = chain_author::identity_of(host).map_err(|_| ContributionError::Unavailable)?;
     let stream = VerifiedHistory::stream(identity.node_key, identity.device_id);
-    host.histories
+    let histories = super::histories_for(&host.home);
+    histories
         .with_mut(database_id, |history| {
             if history.proposal_incorporated(&stream, done.writer_seq) {
                 "published"
