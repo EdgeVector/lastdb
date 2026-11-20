@@ -63,7 +63,7 @@ impl VerifiedHistory {
         if let Err(reason) = self.apply_bundle_changes(&entry, changes) {
             return AcceptOutcome::Reject { reason };
         }
-        self.drop_pending_bundle(&hash);
+        self.drop_pending_hash(&hash);
         self.apply_accepted(hash, entry);
         self.drain_pending();
         AcceptOutcome::Accept {

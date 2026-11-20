@@ -11,6 +11,7 @@ use cloud_backup_protocol::v2::share_access::{ShareEnvironment, MUTATION_LOG_BLO
 use cloud_backup_protocol::v2::Destination;
 use cloud_backup_protocol::{AccountId, CloudScope, DecimalU64, Id};
 use fold_db::security::Ed25519KeyPair;
+use rand::RngCore;
 use reqwest::header::{HeaderMap, HeaderValue};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -70,7 +71,7 @@ impl SignedBlobClient {
         if derived != request.account_id.as_str() {
             return Err(E::Configuration("account identity"));
         }
-        let context_id = Id::try_from(uuid::Uuid::new_v4().to_string())?;
+        let context_id = ephemeral_authorization_database_id()?;
         let scope = CloudScope {
             account_id: request.account_id.clone(),
             account_generation: DecimalU64::new(0),
@@ -121,4 +122,20 @@ impl SignedBlobClient {
             .post_bounded_with_headers(url, body, CONTROL_JSON_MAX_BYTES, headers)
             .await
     }
+}
+
+/// Account context reads are not bound to one database; authorization still
+/// requires a valid protocol database id, so mint an ephemeral Ed25519 identity.
+fn ephemeral_authorization_database_id() -> std::result::Result<Id, E> {
+    for _ in 0..8 {
+        let mut seed = [0u8; 32];
+        rand::rngs::OsRng.fill_bytes(&mut seed);
+        let key = app_identity_crypto::SigningKey::from_bytes(&seed)
+            .map_err(|_| E::Configuration("database id"))?;
+        let hex = app_identity_crypto::hex_lower(&key.verifying_key().to_bytes());
+        if let Ok(id) = Id::try_from(hex) {
+            return Ok(id);
+        }
+    }
+    Err(E::Configuration("database id"))
 }

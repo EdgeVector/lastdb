@@ -28,7 +28,7 @@ impl Tables {
         name: &str,
         kind: Kind,
         spec: Option<PublicationSpec>,
-        requested_id: Option<uuid::Uuid>,
+        requested_id: Option<String>,
     ) -> Result<Entry, OwnedError> {
         if kind == Kind::Personal && spec.is_some() {
             return Err(OwnedError::InvalidSpec);
@@ -36,7 +36,10 @@ impl Tables {
         validate_create(name, spec.as_ref())?;
         let _creating = self.creating.lock().await;
         let id = match requested_id {
-            Some(id) => id.to_string(),
+            Some(id) => {
+                mutation_log::DatabaseId::from_hex(&id).map_err(|_| OwnedError::InvalidName)?;
+                id
+            }
             None => self.allocate(name)?,
         };
         let entry = Entry {

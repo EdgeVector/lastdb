@@ -28,8 +28,8 @@ const RECOVERY_ERRS: [&str; 4] = [
 pub(super) fn run(home: &Path, args: BackupRestoreArgs) -> Result<(), String> {
     let phrase = read_stdin_secret(4096, "recovery phrase")?;
     let database_id = args.database.clone();
-    let database = Id::try_from(args.database)
-        .map_err(|_| "signed restore requires a canonical database id".to_owned())?;
+    let database = Id::try_from(args.database.clone())
+        .map_err(|_| "signed restore requires a 64-hex database id".to_owned())?;
     let device_ids = args.device_ids;
     let relay_override = args.relay_url;
     let generation = args.generation;

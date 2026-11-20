@@ -44,6 +44,7 @@ mod entry;
 mod grants;
 mod history;
 mod history_bundle;
+mod history_util;
 mod ids;
 mod kinds;
 mod outbox;
@@ -73,9 +74,8 @@ pub use entry::{
     IncorporatedFrom, MutationFileRef, RelayUrl, RelaysBody, RevocationCutoff, SignedEntry,
 };
 pub use grants::{past_cutoff, AcceptedMeta, CutoffTip, GrantState};
-pub use history::{
-    grant_body_of, next_lamport, EquivocationEvidence, RejectEvidence, VerifiedHistory,
-};
+pub use history::{EquivocationEvidence, RejectEvidence, VerifiedHistory};
+pub use history_util::{grant_body_of, next_lamport};
 pub use ids::{DatabaseId, DeviceId, EntryHash, Hex32, IdError, NodeKey, StreamId};
 pub use kinds::{domain, EntryKind, Grantee, Role, StreamKind};
 pub use outbox::Outbox;

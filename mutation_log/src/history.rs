@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use crate::accept::{
     evaluate, position_of, stream_id_of, AcceptContext, AcceptOutcome, RejectReason, StreamHead,
 };
-use crate::entry::{GrantBody, SignedEntry};
+use crate::entry::SignedEntry;
 use crate::grants::{AcceptedMeta, GrantState};
 use crate::ids::{DatabaseId, DeviceId, EntryHash, NodeKey, StreamId};
 use crate::kinds::EntryKind;
@@ -333,7 +333,12 @@ impl VerifiedHistory {
         }
     }
 
-    pub(crate) fn drop_pending_bundle(&mut self, hash: &EntryHash) {
+    pub(crate) fn drop_pending_hash(&mut self, hash: &EntryHash) {
+        self.pending
+            .retain(|e| entry_hash(e).ok().as_ref() != Some(hash));
+    }
+
+    pub(crate) fn drop_pending_hash(&mut self, hash: &EntryHash) {
         self.pending
             .retain(|e| entry_hash(e).ok().as_ref() != Some(hash));
     }
@@ -387,20 +392,4 @@ impl VerifiedHistory {
             device_id,
         }
     }
-}
-
-/// Compute expected next lamport for authoring.
-#[must_use]
-pub fn next_lamport(prev_lamport: u64, seen_lamports: impl Iterator<Item = u64>) -> u64 {
-    let mut max = prev_lamport;
-    for l in seen_lamports {
-        max = max.max(l);
-    }
-    1 + max
-}
-
-/// Borrow grant body from accepted meta helper for external folders.
-#[must_use]
-pub fn grant_body_of(meta: &AcceptedMeta) -> Option<&GrantBody> {
-    meta.grant_body.as_ref()
 }

@@ -427,7 +427,7 @@ export interface DatabasesListRequest {
   mutationId?: never;
 }
 
-/** POST /api/databases. Shareable databases use sharingMode whole_database only. A filtered or app catalog spec is refused. A present Idempotency-Key header is forwarded. It is a v4 UUID only when sharingMode is whole_database. Any other present key is invalid_request. */
+/** POST /api/databases. Shareable databases use sharingMode whole_database only. A filtered or app catalog spec is refused. A present Idempotency-Key header is forwarded. It is a 64-character lowercase hex database id only when sharingMode is whole_database. Any other present key is invalid_request. */
 export interface DatabasesCreateRequest {
   action: 'create';
   name: string;

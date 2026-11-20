@@ -95,8 +95,8 @@ string_primitive!(
 string_primitive!(
     Id,
     valid_id,
-    "invalid nonnil UUID",
-    "Non-nil UUID: 36 lowercase hex characters with hyphens."
+    "invalid database or stream id",
+    "64-character lowercase hex database or stream id (Ed25519 verifying key)."
 );
 string_primitive!(
     AccountId,
@@ -127,15 +127,7 @@ fn valid_account(value: &str) -> bool {
 }
 
 fn valid_id(value: &str) -> bool {
-    value.len() == 36
-        && value.bytes().enumerate().all(|(index, byte)| {
-            if matches!(index, 8 | 13 | 18 | 23) {
-                byte == b'-'
-            } else {
-                byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)
-            }
-        })
-        && value.bytes().any(|byte| byte != b'0' && byte != b'-')
+    exact_lower_hex(value, 64)
 }
 
 fn valid_text(value: &str, max_bytes: usize) -> bool {

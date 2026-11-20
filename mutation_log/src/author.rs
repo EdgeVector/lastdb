@@ -7,7 +7,7 @@ use crate::entry::{
     BirthBody, BlobDeleteBody, BundleBody, DataBody, DeviceHead, EntryHeader, GrantBody, HeadsBody,
     RelayUrl, RelaysBody, SignedEntry,
 };
-use crate::history::next_lamport;
+use crate::history_util::next_lamport;
 use crate::ids::{DatabaseId, DeviceId, EntryHash, Hex32, NodeKey};
 use crate::kinds::{Grantee, Role, StreamKind};
 use crate::wire::{encode_signature_b64url, EncodeError};
