@@ -44,9 +44,11 @@ pub(crate) async fn log_append(
     headers: HeaderMap,
     body: Bytes,
 ) -> ApiResult<Json<Value>> {
-    let caller = auth::verify_request(&headers, "/relay/v1/log/append", &body)?;
+    let verified = auth::verify_request(&headers, "/relay/v1/log/append", &body)?;
     let req: LogAppendBody =
         serde_json::from_slice(&body).map_err(|_| ApiError::invalid("body"))?;
+    verified.check_database(&req.database_id)?;
+    let caller = verified.node_key;
     let db = gate::parse_id(&req.database_id, "database_id")?;
     let signed = gate::parse_entries(&req.entries)?;
     let mut grants = state.grants.lock().await;
@@ -64,8 +66,10 @@ pub(crate) async fn log_read(
     headers: HeaderMap,
     body: Bytes,
 ) -> ApiResult<Json<Value>> {
-    let caller = auth::verify_request(&headers, "/relay/v1/log/read", &body)?;
+    let verified = auth::verify_request(&headers, "/relay/v1/log/read", &body)?;
     let req: LogReadBody = serde_json::from_slice(&body).map_err(|_| ApiError::invalid("body"))?;
+    verified.check_database(&req.database_id)?;
+    let caller = verified.node_key;
     let db = gate::parse_id(&req.database_id, "database_id")?;
     state.check_read(&db, &caller).await?;
     let (node_key, device_id, from_seq) = read_position(&req)?;
@@ -86,8 +90,10 @@ pub(crate) async fn blob_put(
     headers: HeaderMap,
     body: Bytes,
 ) -> ApiResult<Json<Value>> {
-    let caller = auth::verify_request(&headers, "/relay/v1/blob/put", &body)?;
+    let verified = auth::verify_request(&headers, "/relay/v1/blob/put", &body)?;
     let req: BlobPutBody = serde_json::from_slice(&body).map_err(|_| ApiError::invalid("body"))?;
+    verified.check_database(&req.database_id)?;
+    let caller = verified.node_key;
     let db = gate::parse_id(&req.database_id, "database_id")?;
     state.check_blob_put(&db, &caller).await?;
     require_hex64(&req.sha256, "sha256")?;
@@ -123,8 +129,10 @@ pub(crate) async fn blob_get(
     headers: HeaderMap,
     body: Bytes,
 ) -> ApiResult<Json<Value>> {
-    let caller = auth::verify_request(&headers, "/relay/v1/blob/get", &body)?;
+    let verified = auth::verify_request(&headers, "/relay/v1/blob/get", &body)?;
     let req: BlobGetBody = serde_json::from_slice(&body).map_err(|_| ApiError::invalid("body"))?;
+    verified.check_database(&req.database_id)?;
+    let caller = verified.node_key;
     let db = gate::parse_id(&req.database_id, "database_id")?;
     state.check_read(&db, &caller).await?;
     require_hex64(&req.sha256, "sha256")?;

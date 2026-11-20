@@ -120,7 +120,7 @@ impl RelayClient {
         entries: &[SignedEntry],
     ) -> Result<Value, String> {
         let body = json!({ "database_id": database_id, "entries": entries });
-        self.post("/relay/v1/log/append", &body).await
+        self.post("/relay/v1/log/append", database_id, &body).await
     }
 
     pub async fn read(
@@ -138,7 +138,7 @@ impl RelayClient {
             "from_seq": from_seq,
             "limit": limit,
         });
-        let value = self.post("/relay/v1/log/read", &body).await?;
+        let value = self.post("/relay/v1/log/read", database_id, &body).await?;
         serde_json::from_value(value["entries"].clone())
             .map_err(|e| format!("log.read entries: {e}"))
     }
@@ -155,7 +155,7 @@ impl RelayClient {
             "bytes": bytes,
             "stage": "begin",
         });
-        self.post("/relay/v1/blob/put", &body).await
+        self.post("/relay/v1/blob/put", database_id, &body).await
     }
 
     pub async fn blob_put_commit(
@@ -170,7 +170,7 @@ impl RelayClient {
             "bytes": bytes,
             "stage": "commit",
         });
-        self.post("/relay/v1/blob/put", &body).await?;
+        self.post("/relay/v1/blob/put", database_id, &body).await?;
         Ok(())
     }
 
@@ -193,7 +193,7 @@ impl RelayClient {
 
     pub async fn blob_get(&self, database_id: &str, sha256: &str) -> Result<Value, String> {
         let body = json!({ "database_id": database_id, "sha256": sha256 });
-        self.post("/relay/v1/blob/get", &body).await
+        self.post("/relay/v1/blob/get", database_id, &body).await
     }
 
     pub async fn blob_download(&self, url: &str) -> Result<Vec<u8>, String> {
@@ -214,12 +214,13 @@ impl RelayClient {
             .map_err(|e| format!("blob download body: {e}"))
     }
 
-    async fn post(&self, path: &str, body: &Value) -> Result<Value, String> {
+    async fn post(&self, path: &str, database_id: &str, body: &Value) -> Result<Value, String> {
         let raw = serde_json::to_vec(body).map_err(|e| format!("encode body: {e}"))?;
         let headers = sign_headers(
             &self.signing_key,
             &self.node_key_hex,
             &self.device_id,
+            database_id,
             path,
             &raw,
         )?;
@@ -245,19 +246,22 @@ fn sign_headers(
     key: &SigningKey,
     node_key_hex: &str,
     device_id: &str,
+    database_id: &str,
     path: &str,
     body: &[u8],
 ) -> Result<Vec<(&'static str, String)>, String> {
-    let issued_at = now_ms().to_string();
+    let issued_at = (now_ms() / 1000).to_string();
     let nonce = nonce_hex();
     let body_hash = hex_lower(&Sha256::digest(body));
-    let message =
-        format!("POST\n{path}\n1\n{node_key_hex}\n{device_id}\n{issued_at}\n{nonce}\n{body_hash}");
+    let message = format!(
+        "POST\n{path}\n1\n{node_key_hex}\n{database_id}\n{body_hash}\n{issued_at}\n{nonce}"
+    );
     let sig = sign(key, message.as_bytes());
     let signature = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(sig);
     Ok(vec![
         ("X-LastDB-Relay-Protocol", "1".into()),
         ("X-LastDB-Node-Key", node_key_hex.to_owned()),
+        ("X-LastDB-Database-Id", database_id.to_owned()),
         ("X-LastDB-Device-Id", device_id.to_owned()),
         ("X-LastDB-Issued-At", issued_at),
         ("X-LastDB-Nonce", nonce),

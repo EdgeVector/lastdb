@@ -15,29 +15,52 @@ use crate::error::{ApiError, ApiResult};
 const SKEW_MS: u64 = 60_000;
 const PROTOCOL: &str = "1";
 
-/// Verify `X-LastDB-*` headers over the raw request body for `path`; returns the caller node key.
-pub(crate) fn verify_request(headers: &HeaderMap, path: &str, body: &[u8]) -> ApiResult<NodeKey> {
+/// Verified caller of one relay request.
+pub(crate) struct Caller {
+    pub(crate) node_key: NodeKey,
+    database_id: String,
+}
+
+impl Caller {
+    /// The signed `X-LastDB-Database-Id` must name the database in the body.
+    pub(crate) fn check_database(&self, body_database_id: &str) -> ApiResult<()> {
+        if self.database_id == body_database_id {
+            Ok(())
+        } else {
+            Err(ApiError::invalid("database_id"))
+        }
+    }
+}
+
+/// Verify `X-LastDB-*` headers over the raw request body for `path`.
+///
+/// Signed material (OpenAPI `nodeSignature`):
+/// `POST\n<path>\n<protocol>\n<node_key>\n<database_id>\n<body_sha256>\n<issued_at>\n<nonce>`.
+pub(crate) fn verify_request(headers: &HeaderMap, path: &str, body: &[u8]) -> ApiResult<Caller> {
     let protocol = header(headers, "x-lastdb-relay-protocol")?;
     if protocol != PROTOCOL {
         return Err(ApiError::upgrade_required("request.protocol"));
     }
     let node_key = header(headers, "x-lastdb-node-key")?;
-    let device_id = header(headers, "x-lastdb-device-id")?;
+    let database_id = header(headers, "x-lastdb-database-id")?;
     let issued_at = header(headers, "x-lastdb-issued-at")?;
     let nonce = header(headers, "x-lastdb-nonce")?;
     let signature = header(headers, "x-lastdb-signature")?;
-    validate_formats(&node_key, &device_id, &issued_at, &nonce)?;
+    validate_formats(&node_key, &database_id, &issued_at, &nonce)?;
     check_skew(&issued_at)?;
     let body_hash = hex_lower(&Sha256::digest(body));
     let message = format!(
-        "POST\n{path}\n{PROTOCOL}\n{node_key}\n{device_id}\n{issued_at}\n{nonce}\n{body_hash}"
+        "POST\n{path}\n{PROTOCOL}\n{node_key}\n{database_id}\n{body_hash}\n{issued_at}\n{nonce}"
     );
     let vk = verifying_key_hex(&node_key)?;
     let sig = decode_signature(&signature)?;
     verify(&vk, &sig, message.as_bytes()).map_err(|_| ApiError::unauthorized("signature"))?;
-    Ok(NodeKey::from_bytes(
-        decode_hex32(&node_key).ok_or_else(|| ApiError::unauthorized("node_key"))?,
-    ))
+    Ok(Caller {
+        node_key: NodeKey::from_bytes(
+            decode_hex32(&node_key).ok_or_else(|| ApiError::unauthorized("node_key"))?,
+        ),
+        database_id,
+    })
 }
 
 fn header(headers: &HeaderMap, name: &str) -> ApiResult<String> {
@@ -50,15 +73,15 @@ fn header(headers: &HeaderMap, name: &str) -> ApiResult<String> {
 
 fn validate_formats(
     node_key: &str,
-    device_id: &str,
+    database_id: &str,
     issued_at: &str,
     nonce: &str,
 ) -> ApiResult<()> {
     if !is_hex64(node_key) {
         return Err(ApiError::unauthorized("node_key"));
     }
-    if device_id.is_empty() || device_id.len() > 64 {
-        return Err(ApiError::unauthorized("device_id"));
+    if !is_hex64(database_id) {
+        return Err(ApiError::unauthorized("database_id"));
     }
     if issued_at.is_empty()
         || issued_at.len() > 20
@@ -79,7 +102,7 @@ fn check_skew(issued_at: &str) -> ApiResult<()> {
     let now_ms = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_millis() as u64);
-    // Accept either unix-ms or unix-seconds (legacy clients).
+    // OpenAPI `issued_at` is unix seconds; unix milliseconds are also accepted.
     let issued_ms = if issued > 10_000_000_000 {
         issued
     } else {

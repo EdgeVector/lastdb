@@ -992,7 +992,7 @@
         "type": "apiKey",
         "in": "header",
         "name": "X-LastDB-Signature",
-        "description": "Ed25519 over POST\\n<path>\\n<protocol|->\\n<node key>\\n<device id>\\n<issued-at>\\n<nonce>\\n<body sha256 hex>. Skew \u00b160s. Companion headers required."
+        "description": "Ed25519 over POST\\n<path>\\n<protocol>\\n<node_key>\\n<database_id>\\n<body_sha256 hex>\\n<issued_at>\\n<nonce>. Companion headers: X-LastDB-Node-Key, X-LastDB-Database-Id, X-LastDB-Issued-At (unix seconds), X-LastDB-Nonce, X-LastDB-Relay-Protocol; X-LastDB-Device-Id (Hex32 stream id) is not signed. Skew \u00b160s. relay-protocol.openapi.json is authoritative."
       }
     },
     "parameters": {
