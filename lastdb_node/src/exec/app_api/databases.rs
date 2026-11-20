@@ -277,18 +277,6 @@ fn copy_string(
     Ok(())
 }
 
-fn copy_required(
-    body: &Map<String, Value>,
-    owner: &mut Map<String, Value>,
-    key: &str,
-) -> Result<(), HostError> {
-    let value = body
-        .get(key)
-        .ok_or_else(|| bad(format!("{key} is required")))?;
-    owner.insert(key.to_owned(), value.clone());
-    Ok(())
-}
-
 fn copy_present(body: &Map<String, Value>, owner: &mut Map<String, Value>, keys: &[&str]) {
     for key in keys {
         if let Some(value) = body.get(*key).filter(|value| !value.is_null()) {

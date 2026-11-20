@@ -12,9 +12,7 @@ use std::{
 mod guest_permission;
 mod signed_blob;
 
-pub(crate) use guest_permission::{
-    authorization_post, GuestReadPermission, PathPostTarget, ShareEnvironment,
-};
+pub(crate) use guest_permission::{authorization_post, PathPostTarget, ShareEnvironment};
 pub use signed_blob::{canonical_backup_endpoint, SignedBlobClient};
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);

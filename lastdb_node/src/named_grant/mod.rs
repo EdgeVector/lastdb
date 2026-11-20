@@ -7,8 +7,8 @@ mod cloud_state;
 
 use std::path::Path;
 
+#[derive(Clone, Copy)]
 pub(crate) enum ConfigError {
-    Invalid(String),
     PaymentRequired,
     Unconfirmed,
     /// The node has no usable cloud account. The caller does not wait.

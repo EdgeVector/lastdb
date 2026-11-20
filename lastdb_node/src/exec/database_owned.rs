@@ -185,12 +185,7 @@ fn registration_reply(
         Err(ShareCacheError::Invalid("database selector")) => {
             error_response(400, "invalid database selector", ctx)
         }
-        Err(ShareCacheError::Invalid("database id")) => {
-            error_response(400, "database id does not match the invitation", ctx)
-        }
-        Err(error @ (ShareCacheError::Invalid(_) | ShareCacheError::Invitation(_))) => {
-            error_response(400, &error.to_string(), ctx)
-        }
+        Err(error @ ShareCacheError::Invalid(_)) => error_response(400, &error.to_string(), ctx),
         Err(ShareCacheError::Unavailable) => error_response(404, "database is not registered", ctx),
         Err(_) => error_response(503, "database registration is unavailable", ctx),
     }

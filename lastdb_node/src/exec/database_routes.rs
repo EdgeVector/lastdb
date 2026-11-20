@@ -49,7 +49,7 @@ pub(in crate::exec) async fn execute_database_request(
         return uds_router::method_not_allowed_response("POST");
     }
     if let Some(route) = super::database_share::Route::parse(path) {
-        return super::database_share::execute(route, req, ctx, host, selector).await;
+        return super::database_share::execute(route, req, ctx, host, selector);
     }
     let selector = selector.to_owned();
     req.target = format!("/api/{path}");
@@ -123,11 +123,9 @@ pub(in crate::exec) async fn execute_deferred_database_request(
     if let Some((selector, route)) = split_database_path(&req.target)
         .and_then(|(selector, path)| Some((selector, super::database_share::Route::parse(path)?)))
     {
-        return with_handler_timeout_budget(
-            ctx,
-            handler_timeout(),
-            super::database_share::execute(route, req, ctx, host, selector),
-        )
+        return with_handler_timeout_budget(ctx, handler_timeout(), async {
+            super::database_share::execute(route, req, ctx, host, selector)
+        })
         .await;
     }
     content_free(404, "Not Found")

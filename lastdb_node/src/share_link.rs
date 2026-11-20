@@ -96,7 +96,7 @@ impl IssueError {
 }
 
 /// Mint the token for one shareable database from local credentials only.
-pub(crate) async fn issue(host: &Host, entry: &Entry) -> Result<String, IssueError> {
+pub(crate) fn issue(host: &Host, entry: &Entry) -> Result<String, IssueError> {
     let creds = match load_verified_cloud_credentials(&host.home) {
         Ok(Some(creds)) => creds,
         Ok(None) => return Err(IssueError::cloud_connection()),
@@ -105,7 +105,7 @@ pub(crate) async fn issue(host: &Host, entry: &Entry) -> Result<String, IssueErr
             return Err(IssueError::cloud_connection());
         }
     };
-    let account_id = AccountId::try_from(host.user_hash.to_owned())
+    let account_id = AccountId::try_from(host.user_hash.clone())
         .map_err(|_| IssueError::unavailable("node account id is unavailable"))?;
     if let Some(conn) = &creds.connection {
         if conn.account_id != account_id {

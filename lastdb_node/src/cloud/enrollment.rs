@@ -6,8 +6,7 @@ use crate::cloud_backup_client::{
 use crate::profile::endpoints::{self, exemem_api_url_for, Environment};
 use crate::profile::user_hash_from_pubkey;
 use app_identity_crypto::SigningKey;
-use cloud_backup_protocol::v2::{context::ContextReadRequest, Version};
-use cloud_backup_protocol::{AccountId, CloudScope};
+use cloud_backup_protocol::AccountId;
 use fold_db::security::Ed25519KeyPair;
 use hkdf::Hkdf;
 use sha2::Sha256;
@@ -22,14 +21,6 @@ pub struct VerifiedHomeCredentials {
     pub api_key: Zeroizing<String>,
     pub(crate) connection: Option<SavedConnection>,
     pub expected_account_id: Option<String>,
-}
-
-pub(crate) struct ConnectedHomeContext {
-    pub(crate) env: Environment,
-    pub(crate) api_url: &'static str,
-    pub(crate) keypair: Arc<Ed25519KeyPair>,
-    pub(crate) account_id: AccountId,
-    pub(crate) scope: CloudScope,
 }
 
 fn load_home_account_id(home: &Path) -> Result<Option<String>, String> {
@@ -66,52 +57,6 @@ pub fn load_verified_cloud_credentials(
         connection: creds.connection,
         expected_account_id,
     }))
-}
-
-pub(crate) async fn load_connected_home_context(
-    home: &Path,
-    keypair: Option<Arc<Ed25519KeyPair>>,
-) -> Result<ConnectedHomeContext, String> {
-    let creds = load_verified_cloud_credentials(home)?
-        .ok_or("no saved cloud credentials — run 'lastdb backup connect' first")?;
-    let conn = creds
-        .connection
-        .as_ref()
-        .ok_or("saved cloud credentials have no account connection")?;
-    let keypair = match keypair {
-        Some(pair) => pair,
-        None => Arc::new(
-            load_home_keypair(home)?.ok_or("cloud sync needs an initialized home identity")?,
-        ),
-    };
-    let account_id = AccountId::try_from(user_hash_from_pubkey(&keypair.public_key_base64())?)
-        .map_err(|_| "invalid native account identity".to_owned())?;
-    if conn.account_id != account_id {
-        return Err("saved cloud connection account does not match this home's identity".into());
-    }
-    let backup = SignedBlobClient::from_auth_and_keypair(
-        AuthClient::new(creds.api_url.to_owned(), creds.api_key.as_str().to_owned()),
-        Arc::clone(&keypair),
-    )
-    .map_err(|error| error.to_string())?;
-    if conn.endpoint != backup.canonical_endpoint() {
-        return Err("saved cloud connection endpoint does not match compiled environment".into());
-    }
-    let context = backup
-        .context(&ContextReadRequest {
-            version: Version::V2,
-            account_id: account_id.clone(),
-            required_destinations: Vec::new(),
-        })
-        .await
-        .map_err(|error| error.to_string())?;
-    Ok(ConnectedHomeContext {
-        env: creds.env,
-        api_url: creds.api_url,
-        keypair,
-        account_id,
-        scope: context.scope,
-    })
 }
 
 /// Recover the stable, domain-separated publisher signing key for a LastDB account.

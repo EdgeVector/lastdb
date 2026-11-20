@@ -18,15 +18,15 @@ const CONTACT_ENCODED_BYTES: usize = (CONTACT_BODY_BYTES * 4).div_ceil(3);
 #[derive(Clone)]
 pub struct ShareContact {
     identity_public_key: Digest,
-    pub(super) identity: [u8; 32],
-    pub(super) encryption: PublicKey,
+    identity: [u8; 32],
+    encryption: PublicKey,
     signature: [u8; 64],
 }
 
-/// The recipient's local decryption authority. Only the contact is exported.
+/// The recipient's local key material. Only the contact is exported.
 pub struct ShareRecipient {
-    pub(super) secret: StaticSecret,
-    pub(super) contact: ShareContact,
+    secret: StaticSecret,
+    contact: ShareContact,
 }
 
 impl ShareRecipient {
@@ -121,47 +121,4 @@ fn binding_bytes(identity: &[u8; 32], encryption: &PublicKey) -> Vec<u8> {
         .field(identity)
         .field(encryption.as_bytes())
         .finish()
-}
-
-pub(crate) mod inbox {
-    use fold_db::security::Ed25519KeyPair;
-    use hkdf::Hkdf;
-    use sha2::Sha256;
-    use x25519_dalek::{PublicKey, SharedSecret, StaticSecret};
-    use zeroize::Zeroizing;
-
-    use crate::share_invitation::{Result, ShareInvitationError};
-
-    const DOMAIN: &[u8] = b"lastdb:whole-database:contribution:v1";
-    const INVALID: ShareInvitationError = ShareInvitationError("invalid contribution envelope");
-
-    pub(in crate::share_invitation) fn sealed_box_key(
-        shared: &SharedSecret,
-        context: &[u8],
-    ) -> std::result::Result<Zeroizing<[u8; 32]>, &'static str> {
-        if !shared.was_contributory() {
-            return Err("non-contributory X25519 key");
-        }
-        let hk = Hkdf::<Sha256>::new(None, shared.as_bytes());
-        let mut key = Zeroizing::new([0u8; 32]);
-        hk.expand(context, &mut *key)
-            .map_err(|_| "sealed box key derivation failed")?;
-        Ok(key)
-    }
-
-    fn secret(publisher: &Ed25519KeyPair, database: &str) -> Result<StaticSecret> {
-        let seed = Zeroizing::new(publisher.secret_key_bytes());
-        let mut key = Zeroizing::new([0u8; 32]);
-        Hkdf::<Sha256>::new(Some(DOMAIN), &*seed)
-            .expand(database.as_bytes(), &mut *key)
-            .map_err(|_| INVALID)?;
-        Ok(StaticSecret::from(*key))
-    }
-
-    pub(in crate::share_invitation) fn public_key(
-        publisher: &Ed25519KeyPair,
-        database: &str,
-    ) -> Result<PublicKey> {
-        Ok(PublicKey::from(&secret(publisher, database)?))
-    }
 }

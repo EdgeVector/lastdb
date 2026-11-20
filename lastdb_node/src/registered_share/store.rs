@@ -1,6 +1,6 @@
 //! Open a received database after its snapshot is installed.
 //!
-//! An invitation and a link use the same content key. The store captures a
+//! Open-link registrations store the content key locally. The store captures a
 //! direct member append. It does not publish a snapshot. Replay runs inside
 //! `replay_accepted`, so a served entry is not captured again.
 
@@ -62,25 +62,14 @@ async fn open_receiver(host: &Host, id: &Id, whole_database: bool) -> Result<Arc
     .map_err(|_| ShareCacheError::Unavailable)
 }
 
-/// Content key for a received database.
-///
-/// An invitation registration opens the sealed invitation. A link registration
-/// returns the stored key. The pointer lock is not held across that open.
+/// Content key for a received open-link registration.
 pub(crate) fn content_material(home: &Path, id: &Id) -> Result<Zeroizing<[u8; 32]>> {
     let cache = ShareCache::open_managed(home, false)?.ok_or(ShareCacheError::Unavailable)?;
     let entry = cache.entry(id, false)?;
-    let pointer = entry.lock(Lock::PointerRead)?;
+    let _pointer = entry.lock(Lock::PointerRead)?;
     let (registration, _) = entry.load()?;
     let registration = registration.ok_or(ShareCacheError::Unavailable)?;
     cache.require_management(&registration)?;
-    if registration.has_invitation() {
-        drop(pointer);
-        let opened = cache.open_verified(id)?;
-        if opened.permission.stream().stream_id.as_str() != id.as_str() {
-            return Err(ShareCacheError::Invalid("stored invitation"));
-        }
-        return Ok(Zeroizing::new(*opened.publication_key));
-    }
     registration.link_key()
 }
 

@@ -56,11 +56,6 @@ impl SignedBlobClient {
         })
     }
 
-    #[must_use]
-    pub(crate) fn canonical_endpoint(&self) -> String {
-        self.transport.api_endpoint("cloud/backups/v2/").to_string()
-    }
-
     pub async fn context(
         &self,
         request: &ContextReadRequest,

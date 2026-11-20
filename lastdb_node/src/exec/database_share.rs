@@ -25,7 +25,7 @@ impl Route {
     }
 }
 
-pub(super) async fn execute(
+pub(super) fn execute(
     route: Route,
     req: &UdsRequest,
     ctx: &AccessContext,
@@ -44,12 +44,12 @@ pub(super) async fn execute(
         }
     };
     match (route, req.method.as_str()) {
-        (Route::Link, "POST") => link(req, ctx, host, &entry).await,
+        (Route::Link, "POST") => link(req, ctx, host, &entry),
         (Route::Link, _) => method_not_allowed_response("POST"),
     }
 }
 
-async fn link(
+fn link(
     req: &UdsRequest,
     ctx: &AccessContext,
     host: &Host,
@@ -61,7 +61,7 @@ async fn link(
     if let Err(error) = ensure_enrolled(host, &entry.id) {
         return render(Err(host_error(error)), ctx);
     }
-    match crate::share_link::issue(host, entry).await {
+    match crate::share_link::issue(host, entry) {
         Ok(token) => render(
             Ok(json!({
                 "databaseId": entry.id,
@@ -110,11 +110,6 @@ fn link_error(
 fn host_error(error: ConfigError) -> HostError {
     let retry = matches!(error, ConfigError::Enrolling).then_some(RETRY_AFTER_SECS);
     let (status, code, body) = match error {
-        ConfigError::Invalid(reason) => (
-            400,
-            "invalid_share_configuration".to_owned(),
-            json!({ "reason": reason }),
-        ),
         ConfigError::PaymentRequired => (
             402,
             "payment_required".to_owned(),
