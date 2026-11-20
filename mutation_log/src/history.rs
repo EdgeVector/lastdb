@@ -338,11 +338,6 @@ impl VerifiedHistory {
             .retain(|e| entry_hash(e).ok().as_ref() != Some(hash));
     }
 
-    pub(crate) fn drop_pending_hash(&mut self, hash: &EntryHash) {
-        self.pending
-            .retain(|e| entry_hash(e).ok().as_ref() != Some(hash));
-    }
-
     pub(crate) fn drain_pending(&mut self) {
         let mut progressed = true;
         while progressed {
