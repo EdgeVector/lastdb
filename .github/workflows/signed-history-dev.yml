@@ -2,6 +2,20 @@ name: Signed history DEV proofs
 
 # Phase 1 AcceptEntry proofs against the in-repo grant-blind reference_relay.
 # No AWS/IAM/secrets. CI may cargo build; agents must not build on Tom's machine.
+#
+# Job `relay_e2e` builds `signed_history_relay_e2e` (release) and runs it against
+# a spawned reference_relay: signed append/read, grant + revoke (403), ~300 MiB of
+# signed bundles, and a discovering restore into FoldDB. Both phases must finish
+# under 60 s. When `exemem_relay_url` (workflow input) or the repository variable
+# EXEMEM_RELAY_URL is set, the same binary also runs against that relay. No credentials.
+#
+# exemem-infra deploy.yml (prove_dev_relay.py, LASTDB_RELAY_E2E_BIN): check out
+# EdgeVector/lastdb at the Phase 2 SHA, run
+#   cargo build --locked -p signed_history_relay_e2e --bin signed_history_relay_e2e --release
+# (or download the `signed-history-relay-e2e-bin-<sha>` artifact this job uploads),
+# then export LASTDB_RELAY_E2E_BIN=$PWD/target/release/signed_history_relay_e2e and
+# RELAY_URL=<relay origin>. Its last stdout line is JSON with upload_seconds and
+# restore_seconds (see signed_history_relay_e2e/README.md).
 on:
   pull_request:
     paths:
@@ -10,6 +24,8 @@ on:
       - "signed_history_dev/**"
       - "signed_history_client/**"
       - "signed_history_materialize/**"
+      - "signed_history_relay_e2e/**"
+      - "scripts/signed_history/**"
       - "lastdb_node/src/log_sync/**"
       - ".github/workflows/signed-history-dev.yml"
   push:
@@ -19,10 +35,24 @@ on:
       - "signed_history_dev/**"
       - "signed_history_client/**"
       - "signed_history_materialize/**"
+      - "signed_history_relay_e2e/**"
+      - "scripts/signed_history/**"
       - "lastdb_node/src/log_sync/**"
       - ".github/workflows/signed-history-dev.yml"
   workflow_dispatch:
+    inputs:
+      exemem_relay_url:
+        description: "Also run signed_history_relay_e2e against this relay origin (no credentials)"
+        required: false
+        type: string
+        default: ""
   workflow_call:
+    inputs:
+      exemem_relay_url:
+        description: "Also run signed_history_relay_e2e against this relay origin (no credentials)"
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -87,4 +117,91 @@ jobs:
               cat "${RUNNER_TEMP}/signed-history-dev/summary.json"
               echo '```'
             fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  relay_e2e:
+    name: relay e2e (reference_relay, optional exemem)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    env:
+      CARGO_BUILD_JOBS: "2"
+      EXEMEM_RELAY_URL: ${{ inputs.exemem_relay_url || vars.EXEMEM_RELAY_URL }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: signed-history-relay-e2e-release
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Build reference_relay and signed_history_relay_e2e (release)
+        run: |
+          set -euo pipefail
+          cargo build --locked -p reference_relay --bin reference_relay --release
+          cargo build --locked -p signed_history_relay_e2e --bin signed_history_relay_e2e --release
+      - name: Run signed_history_relay_e2e against reference_relay
+        run: |
+          set -euo pipefail
+          OUT="${RUNNER_TEMP}/relay-e2e"
+          mkdir -p "$OUT"
+          ./target/release/reference_relay --listen 127.0.0.1:0 --data-dir "$OUT/relay-data" \
+            > "$OUT/relay.addr" 2> "$OUT/relay.stderr" &
+          RELAY_PID=$!
+          trap 'kill "$RELAY_PID" 2>/dev/null || true' EXIT
+          for _ in $(seq 1 100); do
+            [[ -s "$OUT/relay.addr" ]] && break
+            sleep 0.1
+          done
+          ADDR="$(head -n1 "$OUT/relay.addr")"
+          [[ -n "$ADDR" ]] || { echo "reference_relay printed no address" >&2; exit 1; }
+          export LASTDB_RELAY_E2E_BIN="$PWD/target/release/signed_history_relay_e2e"
+          export RELAY_URL="http://${ADDR}"
+          "$LASTDB_RELAY_E2E_BIN" | tee "$OUT/reference.stdout"
+          python3 scripts/signed_history/check_relay_e2e.py "$OUT/reference.stdout" reference_relay
+      - name: Run signed_history_relay_e2e against the exemem relay
+        if: ${{ env.EXEMEM_RELAY_URL != '' }}
+        run: |
+          set -euo pipefail
+          OUT="${RUNNER_TEMP}/relay-e2e"
+          mkdir -p "$OUT"
+          export LASTDB_RELAY_E2E_BIN="$PWD/target/release/signed_history_relay_e2e"
+          export RELAY_URL="${EXEMEM_RELAY_URL%/}"
+          "$LASTDB_RELAY_E2E_BIN" | tee "$OUT/exemem.stdout"
+          python3 scripts/signed_history/check_relay_e2e.py "$OUT/exemem.stdout" exemem
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: signed-history-relay-e2e-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/relay-e2e/*.stdout
+            ${{ runner.temp }}/relay-e2e/relay.stderr
+          retention-days: 7
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v7
+        with:
+          name: signed-history-relay-e2e-bin-${{ github.sha }}
+          path: target/release/signed_history_relay_e2e
+          retention-days: 7
+          if-no-files-found: error
+      - name: Publish summary
+        if: always()
+        run: |
+          {
+            echo "## Signed history relay e2e"
+            echo "Source: $GITHUB_SHA"
+            echo "Binary: signed_history_relay_e2e (LASTDB_RELAY_E2E_BIN). Scenarios: signed append/read, grant + revoke (403), ~300 MiB signed bundles, discovering restore into FoldDB. No credentials."
+            if [[ -z "${EXEMEM_RELAY_URL}" ]]; then
+              echo "Exemem relay: skipped (no exemem_relay_url input or EXEMEM_RELAY_URL variable)."
+            else
+              echo "Exemem relay: ${EXEMEM_RELAY_URL}"
+            fi
+            for f in reference exemem; do
+              if [[ -f "${RUNNER_TEMP}/relay-e2e/$f.stdout" ]]; then
+                echo
+                echo "### $f"
+                echo '```json'
+                tail -n1 "${RUNNER_TEMP}/relay-e2e/$f.stdout"
+                echo '```'
+              fi
+            done
           } >> "$GITHUB_STEP_SUMMARY"
