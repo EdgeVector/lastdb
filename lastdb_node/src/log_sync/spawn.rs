@@ -135,7 +135,7 @@ async fn pull_received_shares(
         let Some(device) = share.publisher_device_id.as_deref() else {
             tracing::warn!(
                 target: "lastdbd::log_sync",
-                id = %share.id,
+                id = %share.id.as_str(),
                 "skip received sync: open link has no publisher device_id"
             );
             continue;
