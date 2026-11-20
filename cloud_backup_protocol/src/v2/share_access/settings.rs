@@ -1,5 +1,5 @@
 //! Publisher-signed share settings: who may read, and where a Submit append goes.
-//! Decided state: docs/designs/shared-database-mutation-logs.md (mutation log, proposal log, share settings).
+//! Legacy share settings. Live contract: docs/designs/cloud-api.md.
 //!
 //! One statement per shared database. `read` and `write` are independent.
 //! Every pair is a statement. `proposals` means a Submit member's next append

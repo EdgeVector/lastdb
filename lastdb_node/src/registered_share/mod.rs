@@ -1,5 +1,5 @@
 //! Stable database handles, node-owned Share bindings, and receiver stores that follow the mutation log.
-//! Decided state: docs/designs/shared-database-mutation-logs.md (mutation log, proposal log, share settings).
+//! Decided state: docs/designs/cloud-api.md (signed history; grants in-chain).
 
 use crate::cloud_backup_client::ShareEnvironment;
 use crate::share_cache::{

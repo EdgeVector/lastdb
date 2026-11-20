@@ -1,5 +1,5 @@
 //! Publisher grant, revoke, and invitation sealing for one shared database.
-//! Decided state: docs/designs/shared-database-mutation-logs.md (mutation log, proposal log, share settings).
+//! Decided state: docs/designs/cloud-api.md (signed history; grants in-chain).
 
 pub(crate) mod cloud_state;
 mod config;

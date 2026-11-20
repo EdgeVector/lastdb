@@ -7,22 +7,15 @@ on:
 
 permissions:
   contents: read
-  actions: read
 
 concurrency:
   group: cloud-backup-recovery-daily
   cancel-in-progress: false
 
 # Unsigned mutation-log DEV load and snapshot roundtrip are retired.
-# Signed-history DEV CI will replace this workflow (sibling task).
+# The DEV gate is signed-history-dev.yml (AcceptEntry + reference_relay).
 jobs:
-  recovery:
-    name: Signed-history DEV recovery (placeholder)
+  signed_history:
+    name: Signed-history DEV proofs
     if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    steps:
-      - name: Snapshot/unsigned log gates removed
-        run: |
-          echo "Phase 1 removed mutation-log-dev-load and snapshot-roundtrip-dev."
-          echo "Replace this job with signed-history AcceptEntry + relay DEV CI."
+    uses: ./.github/workflows/signed-history-dev.yml

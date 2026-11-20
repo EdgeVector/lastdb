@@ -18,6 +18,7 @@ on:
       - "lastdb_node/src/log_sync/**"
       - ".github/workflows/signed-history-dev.yml"
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read

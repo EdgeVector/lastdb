@@ -1,5 +1,5 @@
 //! Share access v2 wire types for the mutation log, the proposal log, and share settings.
-//! Decided state: docs/designs/shared-database-mutation-logs.md (mutation log, proposal log, share settings).
+//! Legacy share-access wire types. Live contract: docs/designs/cloud-api.md.
 //!
 //! A member entry names one Ed25519 node key that may read one shared database.
 //! On a whole-database share, any active member may submit encrypted mutations.
