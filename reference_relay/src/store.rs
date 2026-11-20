@@ -96,7 +96,7 @@ impl Store {
         from_seq: u64,
         limit: usize,
     ) -> ApiResult<(Vec<Value>, Option<String>)> {
-        require_uuid(device_id, "entries.device_id")?;
+        require_hex64(device_id, "entries.device_id")?;
         let limit = limit.clamp(1, MAX_BATCH);
         let mut entries = Vec::new();
         let mut seq = from_seq.max(1);
@@ -241,7 +241,7 @@ impl EntryKey {
         let device_id = str_field(entry, "device_id")?;
         require_hex64(&database_id, "entries.database_id")?;
         require_hex64(&node_key, "entries.node_key")?;
-        require_uuid(&device_id, "entries.device_id")?;
+        require_hex64(&device_id, "entries.device_id")?;
         let writer_seq = entry
             .get("writer_seq")
             .and_then(serde_json::Value::as_u64)
@@ -270,12 +270,6 @@ fn require_hex64(s: &str, field: &str) -> ApiResult<()> {
     } else {
         Err(ApiError::invalid(field))
     }
-}
-
-fn require_uuid(s: &str, field: &str) -> ApiResult<()> {
-    uuid::Uuid::parse_str(s)
-        .map(|_| ())
-        .map_err(|_| ApiError::invalid(field))
 }
 
 async fn read_json(path: &Path) -> ApiResult<Value> {
@@ -312,6 +306,6 @@ pub(crate) fn parse_cursor(cursor: &str) -> ApiResult<(String, String, u64)> {
         return Err(ApiError::invalid("cursor"));
     }
     require_hex64(parts[0], "cursor")?;
-    require_uuid(parts[1], "cursor")?;
+    require_hex64(parts[1], "cursor")?;
     Ok((parts[0].to_owned(), parts[1].to_owned(), seq))
 }

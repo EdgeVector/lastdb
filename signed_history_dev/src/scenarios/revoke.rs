@@ -4,14 +4,11 @@
 //! Also: new device_id after revoke → cutoff 0 → Reject.
 //! (Backdated rewrite is the same cutoff gate; this scenario proves the ordinary case.)
 
-use mutation_log::{
-    entry_hash, DeviceId, RejectReason, RevocationCutoff, SignedEntry, VerifiedHistory,
-};
-use uuid::Uuid;
+use mutation_log::{entry_hash, RejectReason, RevocationCutoff, SignedEntry, VerifiedHistory};
 
 use crate::device::{
     author_member_write, bootstrap_owner, member_write, must_reject, now_ms, owner_grant_write,
-    owner_revoke, DataWrite, DbBirth, Device,
+    owner_revoke, random_device_id, DataWrite, DbBirth, Device,
 };
 use crate::relay::{RelayClient, RelayHandle};
 
@@ -168,7 +165,7 @@ fn reject_new_device_cutoff(
     let member_new = Device {
         signing_key: member.signing_key.clone(),
         node_key: member.node_key,
-        device_id: DeviceId::from_uuid(Uuid::new_v4()),
+        device_id: random_device_id(),
     };
     let entry = author_member_write(
         member_view,

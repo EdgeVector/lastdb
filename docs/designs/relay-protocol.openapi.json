@@ -640,7 +640,9 @@
         "required": true,
         "schema": {
           "type": "string",
-          "format": "uuid"
+          "pattern": "^[0-9a-f]{64}$",
+          "minLength": 64,
+          "maxLength": 64
         }
       },
       "IssuedAt": {
@@ -772,7 +774,9 @@
           },
           "device_id": {
             "type": "string",
-            "format": "uuid"
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
           },
           "writer_seq": {
             "type": "integer",
@@ -922,7 +926,9 @@
           },
           "device_id": {
             "type": "string",
-            "format": "uuid"
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
           },
           "from_seq": {
             "type": "integer",

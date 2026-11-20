@@ -113,7 +113,8 @@ non-`grant#any` reads.
 
 ### `log.append` / `log.read`
 
-Store key `(database_id, node_key, device_id, writer_seq)`. Entries:
+Store key `(database_id, node_key, device_id, writer_seq)`; `device_id` is
+Hex32 (64 lowercase hex, 32 bytes in `signed_bytes`), never a UUID. Entries:
 `birth`|`data`|`bundle`|`grant`|`blob_delete`|`heads`|`relays`.
 
 Read by device chain from `from_seq` (default 1) or opaque delivery cursor

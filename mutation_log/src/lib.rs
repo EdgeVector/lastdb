@@ -8,7 +8,7 @@
 //!
 //! See [`encode`] for the exact binary layout. Common header (big-endian):
 //! domain UTF-8 + `0x00`, then `database_id`(32) · `node_key`(32) ·
-//! `device_id`(16) · `writer_seq`(u64) · `prev_hash`(32) · `authored_at_ms`(u64) ·
+//! `device_id`(32) · `writer_seq`(u64) · `prev_hash`(32) · `authored_at_ms`(u64) ·
 //! `lamport`(u64) · `seen_heads` (u16 + hashes sorted ascending).
 //!
 //! Domains: birth=`lastdb-birth-v1`, data=`lastdb-mutation-v1`,
@@ -20,7 +20,7 @@
 //! (or metadata-only via [`accept_entry`]) after the encrypted blob is verified off-crate.
 //!
 //! Wire `signature`: base64url, no padding, 86 characters. Hex ids: 64 lowercase.
-//! `device_id`: UUID string. `entry_hash = SHA-256(signed_bytes ‖ signature_raw_64)`.
+//! `device_id`: 64 lowercase hex (32 bytes, same as `node_key`). `entry_hash = SHA-256(signed_bytes ‖ signature_raw_64)`.
 //!
 //! # Record LWW payload
 //!

@@ -6,10 +6,10 @@ use signed_history_client::{restore_from_relay, RestoreRequest, StreamRef};
 
 use super::materialize;
 
-/// One owned device stream to restore (`device_id` is a UUID string).
+/// One owned device stream to restore (`device_id` is 64 lowercase hex).
 #[derive(Clone, Debug)]
 pub struct OwnedStream {
-    /// UUID device id on the publisher/owner node key.
+    /// Hex32 device id on the publisher/owner node key.
     pub device_id: String,
 }
 
@@ -42,7 +42,7 @@ pub async fn restore_owned_database(
 ) -> Result<RestoreOwnedReport, String> {
     let signing_key = SigningKey::from_bytes(params.seed);
     let node_key_hex = app_identity_crypto::hex_lower(&signing_key.verifying_key().to_bytes());
-    let reader_device = uuid::Uuid::new_v4().to_string();
+    let reader_device = super::device::random_device_id().to_string();
     let streams: Vec<StreamRef> = params
         .streams
         .into_iter()

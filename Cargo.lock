@@ -1772,7 +1772,6 @@ dependencies = [
  "serde",
  "sha2 0.10.9",
  "thiserror 1.0.69",
- "uuid",
 ]
 
 [[package]]
@@ -2144,7 +2143,6 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "tokio",
- "uuid",
 ]
 
 [[package]]
@@ -2689,7 +2687,6 @@ dependencies = [
  "signed_history_client",
  "signed_history_materialize",
  "tokio",
- "uuid",
 ]
 
 [[package]]

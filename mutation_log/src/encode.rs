@@ -3,7 +3,7 @@
 //! # Common header (big-endian)
 //!
 //! `Domain UTF-8` + `0x00`, then:
-//! `database_id`(32) · `node_key`(32) · `device_id`(16 UUID bytes) ·
+//! `database_id`(32) · `node_key`(32) · `device_id`(32, Hex32) ·
 //! `writer_seq`(u64) · `prev_hash`(32) · `authored_at_ms`(u64) ·
 //! `lamport`(u64) · `seen_heads`(u16 count + `entry_hash`(32)× sorted ascending).
 //!
@@ -15,9 +15,9 @@
 //!   `payload`(u32+bytes) · `flags` u8 (bit0=file, bit1=incorporated_from,
 //!   bit2=grant_at) · optionals in that bit order
 //! - **grant:** grantee tag (0=any / 1+node_key32) · `role` u8 ·
-//!   cutoffs (`u16` count + `device_id`(16)·`writer_seq`(u64)·`entry_hash`(32)×)
+//!   cutoffs (`u16` count + `device_id`(32)·`writer_seq`(u64)·`entry_hash`(32)×)
 //! - **blob_delete:** `sha256`(32)
-//! - **heads:** tips (`u16` + `device_id`(16)·`writer_seq`(u64)·`entry_hash`(32)×)
+//! - **heads:** tips (`u16` + `device_id`(32)·`writer_seq`(u64)·`entry_hash`(32)×)
 //! - **relays:** urls (`u16` + per url `u16` len + utf8)
 //! - **bundle:** `blob_sha256`(32) · `blob_size`(u64) · `change_count`(u32) ·
 //!   `flags` u8 (bit2=`grant_at`) · grant optionals

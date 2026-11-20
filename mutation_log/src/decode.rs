@@ -4,7 +4,6 @@ use crate::entry::BundleBody;
 use crate::ids::{DeviceId, Hex32};
 use crate::kinds::domain;
 use thiserror::Error;
-use uuid::Uuid;
 
 /// Decode failure.
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
@@ -31,10 +30,7 @@ pub fn decode_bundle_body(body: &[u8]) -> Result<BundleBody, DecodeError> {
     let change_count = take_u32(body, &mut off)?;
     let flags = take_u8(body, &mut off)?;
     let (grant_at_device, grant_at_seq) = if flags & 0x04 != 0 {
-        let raw: [u8; 16] = take_slice(body, &mut off, 16)?
-            .try_into()
-            .map_err(|_| DecodeError::Truncated)?;
-        let device = DeviceId::from_uuid(Uuid::from_bytes(raw));
+        let device: DeviceId = take_hash(body, &mut off)?;
         let seq = take_u64(body, &mut off)?;
         (Some(device), Some(seq))
     } else {
@@ -62,7 +58,7 @@ pub fn decode_bundle_signed_bytes(bytes: &[u8]) -> Result<BundleBody, DecodeErro
     if &bytes[..domain.len()] != domain.as_bytes() || bytes[domain.len()] != 0 {
         return Err(DecodeError::UnknownDomain);
     }
-    let header_len = need + 32 + 32 + 16 + 8 + 32 + 8 + 8;
+    let header_len = need + 32 + 32 + 32 + 8 + 32 + 8 + 8;
     if bytes.len() < header_len + 2 {
         return Err(DecodeError::Truncated);
     }

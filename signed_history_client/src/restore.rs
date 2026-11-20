@@ -9,7 +9,7 @@ use crate::relay::RelayClient;
 pub struct StreamRef {
     /// Hex-encoded writer node key.
     pub writer_key: String,
-    /// UUID device id for that writer stream.
+    /// Hex32 device id for that writer stream.
     pub device_id: String,
 }
 

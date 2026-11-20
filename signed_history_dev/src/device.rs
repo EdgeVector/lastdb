@@ -8,7 +8,13 @@ use mutation_log::{
     SignedEntry, StreamHead, StreamKind, VerifiedHistory,
 };
 use rand::RngCore;
-use uuid::Uuid;
+
+/// Fresh random 32-byte device stream id.
+pub fn random_device_id() -> DeviceId {
+    let mut bytes = [0u8; 32];
+    rand::thread_rng().fill_bytes(&mut bytes);
+    DeviceId::from_bytes(bytes)
+}
 
 /// One Ed25519 writer stream.
 pub struct Device {
@@ -23,7 +29,7 @@ impl Device {
         rand::thread_rng().fill_bytes(&mut seed);
         let signing_key = SigningKey::from_bytes(&seed);
         let node_key = NodeKey::from_bytes(signing_key.verifying_key().to_bytes());
-        let device_id = DeviceId::from_uuid(Uuid::new_v4());
+        let device_id = random_device_id();
         Self {
             signing_key,
             node_key,

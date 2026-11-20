@@ -176,7 +176,7 @@ silently disagree once heads and dependencies meet.
 
 Length-prefixed, big-endian. Domain + `0x00`, then:
 
-`database_id`(32) · `node_key`(32) · `device_id`(16) · `writer_seq`(u64) ·
+`database_id`(32) · `node_key`(32) · `device_id`(32, Hex32) · `writer_seq`(u64) ·
 `prev_hash`(32) · `authored_at_ms`(u64) · `lamport`(u64) ·
 `seen_heads` (u16 count + `entry_hash`(32)×, sorted ascending).
 
