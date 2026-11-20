@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "LastDB app API",
-    "version": "42",
+    "version": "43",
     "description": "The app API lastdbd serves today: POST /v1/read, POST /v1/write, and POST /v1/x/<name>. info.version is the node api_version. Extensions carry no version: adding one does not change api_version, and removing one is refused. The app socket accepts a request body of at most 8388608 bytes. The owner socket does not use that cap. On the app socket a whole-request refusal uses the error object. A read that fails one item returns HTTP 200 and puts the same error object in that item."
   },
   "x-lastdb-extensions-carry-version": false,
