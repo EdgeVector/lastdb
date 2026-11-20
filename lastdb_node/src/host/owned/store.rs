@@ -35,12 +35,15 @@ impl Tables {
         }
         validate_create(name, spec.as_ref())?;
         let _creating = self.creating.lock().await;
-        let id = match requested_id {
+        let (id, birth_seed) = match requested_id {
             Some(ref id) => {
                 mutation_log::DatabaseId::from_hex(id).map_err(|_| OwnedError::InvalidName)?;
-                id.clone()
+                (id.clone(), None)
             }
-            None => self.allocate(name)?,
+            None => {
+                let (id, seed) = self.allocate(name)?;
+                (id, Some(seed))
+            }
         };
         let entry = Entry {
             id,
@@ -61,6 +64,10 @@ impl Tables {
             if state.registry_owner.id == entry.id {
                 return Err(OwnedError::AlreadyRegistered);
             }
+        }
+        if let (Kind::Shareable, Some(seed)) = (kind, &birth_seed) {
+            crate::log_sync::birth::mint(home, &entry.id, signer.public_key_bytes(), seed)
+                .map_err(|_| OwnedError::Unavailable)?;
         }
         self.create_registered(home, signer, entry).await
     }

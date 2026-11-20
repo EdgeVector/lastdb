@@ -5,13 +5,20 @@
 
 #[allow(dead_code)]
 mod apply;
+pub(crate) mod birth;
 #[allow(dead_code)]
 mod bootstrap;
+mod chain_author;
+pub(crate) mod chain_error;
+pub(crate) mod chain_grant;
+pub(crate) mod chain_read;
 mod config;
 mod device;
 mod history_store;
 mod materialize;
+mod proposal;
 mod pull;
+pub(crate) mod received;
 mod relay;
 mod restore;
 mod spawn;
@@ -21,6 +28,10 @@ use cloud_backup_protocol::Digest;
 use fold_db::schema::types::Schema;
 
 pub use config::{relay_base_url, store_relay_base_url};
+pub(crate) use history_store::HistoryMap;
+pub(crate) use proposal::{
+    status as share_write_status, submit as submit_share_write, ContributionError,
+};
 pub use restore::{restore_owned_database, OwnedStream, RestoreOwnedParams, RestoreOwnedReport};
 pub use spawn::spawn;
 pub use wake::{ensure_wake, publish_signed_history_intent, request_wake};
@@ -82,55 +93,9 @@ pub(crate) fn note_receiver(
 ) {
 }
 
-pub(crate) mod received {
-    use serde_json::{json, Value};
-
-    /// Self-access view derived from chain grants (side channel removed).
-    pub(crate) fn view(_home: &std::path::Path, _database_id: &str) -> Value {
-        json!({
-            "read": "chain",
-            "write": "chain",
-            "memberWrites": {},
-            "stale": true
-        })
-    }
-}
-
 pub(crate) fn publish_row(_database_id: &str, signed_log: bool) -> serde_json::Value {
     serde_json::json!({
         "signed_log": signed_log,
         "unpublished": []
     })
-}
-
-/// Share-write contribution API retired with unsigned mutation log.
-#[derive(Debug)]
-pub(crate) enum ContributionError {
-    Unavailable,
-}
-
-impl std::fmt::Display for ContributionError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(match self {
-            Self::Unavailable => "shared mutation unavailable",
-        })
-    }
-}
-
-pub(crate) fn submit_share_write(
-    _host: &crate::host::Host,
-    _share: &crate::registered_share::RegisteredShare,
-    _id: &cloud_backup_protocol::Id,
-    _body: &[u8],
-) -> Result<serde_json::Value, ContributionError> {
-    // ExeMem proposal side channel removed; members author signed proposal entries.
-    Err(ContributionError::Unavailable)
-}
-
-pub(crate) fn share_write_status(
-    _host: &crate::host::Host,
-    _share: &crate::registered_share::RegisteredShare,
-    _mutation_id: &cloud_backup_protocol::Id,
-) -> Result<serde_json::Value, ContributionError> {
-    Err(ContributionError::Unavailable)
 }

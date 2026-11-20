@@ -60,6 +60,7 @@ pub(super) async fn author_and_accept_data(
         let hash = entry_hash(&entry).map_err(|e| e.to_string())?;
         match history.accept_entry(entry.clone()) {
             AcceptOutcome::Accept { .. } => {
+                history_store::append_authored(home, write.database_id, &entry)?;
                 history.outbox_mut().enqueue(hash, entry);
                 history_store::persist_outbox(home, write.database_id, history.outbox())
             }

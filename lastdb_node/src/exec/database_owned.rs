@@ -25,7 +25,7 @@ pub(super) async fn create(req: &UdsRequest, ctx: &AccessContext, host: &Host) -
         Some(_) => return error_response(400, "invalid database access policy", ctx),
     };
     // Shareable databases are whole-database only. A filtered or app catalog
-    // `spec` on create is refused; People and other apps set memberWrites.
+    // `spec` on create is refused.
     if body.spec.is_some() {
         return error_response(400, "invalid database sharing mode", ctx);
     }
@@ -196,11 +196,12 @@ fn shared_database(host: &Host, share: &RegisteredShare) -> Value {
         share.signed_log && crate::database_replay::prefix_durable(&host.home, share.id.as_str());
     value["state"] = json!(if ready { "ready" } else { "restoring" });
     value["access"] = json!("reader");
-    if share.signed_log {
-        value["selfAccess"] = json!(crate::log_sync::received::view(
-            &host.home,
-            share.id.as_str()
-        ));
+    if let Some(access) = share
+        .signed_log
+        .then(|| crate::log_sync::received::view(host, share.id.as_str()))
+        .flatten()
+    {
+        value["selfAccess"] = access;
     }
     value["kind"] = json!("received");
     if share.whole_database() {

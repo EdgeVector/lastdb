@@ -27,7 +27,6 @@ pub fn spawn(
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(
         async move {
-            let histories = HistoryMap::new();
             while !shutdown.load(Ordering::Acquire) {
                 wake::consume_wake(&host.home);
                 match config::relay_base_url(&host.home) {
@@ -39,7 +38,7 @@ pub fn spawn(
                         tokio::time::sleep(IDLE).await;
                     }
                     Some(base) => {
-                        if let Err(err) = one_turn(&host, &histories, &base).await {
+                        if let Err(err) = one_turn(&host, &host.histories, &base).await {
                             tracing::warn!(target: "lastdbd::log_sync", %err, "sync turn failed");
                             host.cloud_sync.record_error(err);
                         }

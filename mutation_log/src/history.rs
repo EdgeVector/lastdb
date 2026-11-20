@@ -13,6 +13,10 @@ use crate::outbox::Outbox;
 use crate::payload::{decode_record_payload, MaterializedRecord, RecordPosition};
 use crate::wire::entry_hash;
 
+mod view;
+
+pub use view::GrantTip;
+
 /// Equivocation evidence kept when a stream freezes.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EquivocationEvidence {

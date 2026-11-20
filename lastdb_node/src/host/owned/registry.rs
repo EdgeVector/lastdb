@@ -82,8 +82,18 @@ fn accept_registered(row: &Entry, native: bool) -> Option<RegisteredDatabase> {
     })
 }
 
-/// Resolve one shareable sibling by id or exact name.
+/// Resolve one shareable sibling by id or exact name. Share creation also
+/// requires a spec binding.
 pub(crate) fn find_shareable(home: &Path, selector: &str) -> Result<Entry, String> {
+    let entry = find_shareable_database(home, selector)?;
+    if entry.spec.is_none() {
+        return Err("share creation requires a spec binding".into());
+    }
+    Ok(entry)
+}
+
+/// Resolve one shareable sibling by id or exact name, with or without a spec.
+pub(crate) fn find_shareable_database(home: &Path, selector: &str) -> Result<Entry, String> {
     if !crate::profile::valid_label_64(selector) {
         return Err("invalid database selector".into());
     }
@@ -108,9 +118,6 @@ pub(crate) fn find_shareable(home: &Path, selector: &str) -> Result<Entry, Strin
     };
     if entry.kind != Kind::Shareable {
         return Err("database is not shareable".into());
-    }
-    if entry.spec.is_none() {
-        return Err("share creation requires a spec binding".into());
     }
     require_id(&entry.id).map_err(|_| "database registry is unavailable".to_owned())?;
     Ok(entry)
@@ -215,13 +222,21 @@ pub(super) fn used_ids(owner: &Entry, owned: &[Entry]) -> HashSet<String> {
 }
 
 pub(super) fn fresh_id(used: &HashSet<String>) -> Result<String, OwnedError> {
+    fresh_db_key(used).map(|(id, _)| id)
+}
+
+/// A fresh database id and the seed of the key whose verifying key is that id.
+/// Only a database that signs its own birth keeps the seed, and only until then.
+pub(super) fn fresh_db_key(
+    used: &HashSet<String>,
+) -> Result<(String, zeroize::Zeroizing<[u8; 32]>), OwnedError> {
     for _ in 0..8 {
-        let mut seed = [0u8; 32];
-        rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut seed);
+        let mut seed = zeroize::Zeroizing::new([0u8; 32]);
+        rand::RngCore::fill_bytes(&mut rand::thread_rng(), seed.as_mut());
         let key = app_identity_crypto::SigningKey::from_bytes(&seed);
         let id = app_identity_crypto::hex_lower(&key.verifying_key().to_bytes());
         if require_id(&id).is_ok() && !used.contains(&id) {
-            return Ok(id);
+            return Ok((id, seed));
         }
     }
     Err(OwnedError::Unavailable)

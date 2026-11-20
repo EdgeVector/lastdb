@@ -64,6 +64,8 @@ pub struct Host {
     pub(crate) received: tokio::sync::Mutex<HashMap<String, Arc<FoldDB>>>,
     pub(crate) app_grants: app_grants::AppGrants,
     pub(crate) ops: ops::Ops,
+    /// Signed histories shared by the sync loop and every request handler.
+    pub(crate) histories: crate::log_sync::HistoryMap,
 }
 
 impl Host {
@@ -150,6 +152,7 @@ impl Host {
             received: tokio::sync::Mutex::new(HashMap::new()),
             app_grants: app_grants::AppGrants::open(&home.join("data")),
             ops: ops::Ops::default(),
+            histories: crate::log_sync::HistoryMap::new(home),
         })
     }
 
