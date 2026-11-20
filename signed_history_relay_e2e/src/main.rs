@@ -7,6 +7,7 @@
 
 mod blob;
 mod chain;
+mod grants;
 mod identity;
 mod materialize;
 mod relay;
@@ -124,15 +125,20 @@ async fn prove(cli: &Cli, relay_url: &str, work: &Path) -> Result<Outcome, Strin
         restored.streams, restored.bundles, materialized.records
     );
 
-    materialize::verify(&materialized.store, &restored.history, up.records).await?;
+    let expect = materialize::Expect {
+        bulk: up.records,
+        member: up.member,
+        reader: reader.node_key,
+    };
+    materialize::verify(&materialized.store, &restored.history, &expect).await?;
     materialized
         .store
         .shutdown()
         .await
         .map_err(|e| e.to_string())?;
-    if restored.bundles != up.bundles || materialized.records != up.records {
+    if restored.bundles != up.bundles || materialized.records != up.records + 1 {
         return Err(format!(
-            "restore saw {} bundles and {} records, upload wrote {} and {}",
+            "restore saw {} bundles and {} records, upload wrote {} and {} plus the member's",
             restored.bundles, materialized.records, up.bundles, up.records
         ));
     }
@@ -151,7 +157,11 @@ async fn prove(cli: &Cli, relay_url: &str, work: &Path) -> Result<Outcome, Strin
             "bytes_uploaded": up.blob_bytes,
             "record_text_bytes": up.records * VALUE_TEXT_BYTES,
             "records": up.records,
+            "member_records": 1,
             "bundles": up.bundles,
+            "roles": ["read", "write", "revoked"],
+            "grant_revoke_ok": true,
+            "revoked_http_status": 403,
             "streams_discovered": restored.streams,
             "history_seconds": history_seconds,
             "materialize_seconds": restore_seconds - history_seconds,

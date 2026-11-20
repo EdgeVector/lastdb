@@ -8,7 +8,9 @@ It needs no secrets: it mints a fresh publisher, database and reader on every ru
 
 ```
 cargo build --locked -p signed_history_relay_e2e --bin signed_history_relay_e2e --release
-# artifact: target/release/signed_history_relay_e2e
+export LASTDB_RELAY_E2E_BIN=$PWD/target/release/signed_history_relay_e2e
+export RELAY_URL=...   # relay origin, e.g. the DEV relay or a local reference_relay
+$LASTDB_RELAY_E2E_BIN
 ```
 
 Run CI builds only (this repo's rule); do not build it on a developer machine.
@@ -36,9 +38,10 @@ the limit. Failures print `{"ok": false, "error": "..."}` and exit 1.
 
 ```json
 {"ok": true, "error": null, "upload_seconds": 0.0, "restore_seconds": 0.0, "limit_seconds": 60.0,
- "bytes_uploaded": 0, "record_text_bytes": 0, "records": 6400, "bundles": 7, "streams_discovered": 2,
- "history_seconds": 0.0, "materialize_seconds": 0.0, "generate_encrypt_cpu_seconds": 0.0,
- "database_id": "<64 hex>"}
+ "bytes_uploaded": 0, "record_text_bytes": 0, "records": 6400, "member_records": 1, "bundles": 7,
+ "roles": ["read", "write", "revoked"], "grant_revoke_ok": true, "revoked_http_status": 403,
+ "streams_discovered": 3, "history_seconds": 0.0, "materialize_seconds": 0.0,
+ "generate_encrypt_cpu_seconds": 0.0, "database_id": "<64 hex>"}
 ```
 
 `upload_seconds` covers key and birth setup, generating and encrypting every bundle, `blob.put` of every blob,
@@ -51,7 +54,12 @@ and `log.append` of the chain. `restore_seconds` covers stream discovery, `log.r
   `POST\n<path>\n1\n<node_key>\n<database_id>\n<body_sha256>\n<issued_at>\n<nonce>` with headers
   `X-LastDB-Relay-Protocol`, `-Node-Key`, `-Database-Id`, `-Device-Id`, `-Issued-At` (unix seconds), `-Nonce`,
   `-Signature`. The device id is a Hex32 (64 hex) in headers, JSON, and signed bytes; it is not signed in the request.
-- Roles used: `read` (the restoring node). The publisher writes directly.
+- Roles used: `read` (the restoring node), `write` (a member), `revoked` (that member after the revoke). The
+  publisher writes directly.
+- Grant and revoke: the publisher grants `write` to a member, the member reads the publisher stream, checks it with
+  AcceptEntry, and appends one record bound to its grant. The publisher then appends a `revoke` grant with a cutoff at
+  that record. Once the revoke is stored, the member's next `log.append` and `blob.put` must both get HTTP 403
+  (`grant_revoke_ok`). The member's earlier record stays stored and survives the restore.
 - Blobs follow `blob.put` begin, presigned PUT, commit, then the `bundle` entry is appended; readers use
   `blob.get` and a presigned GET.
 
@@ -70,8 +78,8 @@ and `log.append` of the chain. `restore_seconds` covers stream discovery, `log.r
 ## Restore and discovery
 
 The invite carries the database id, the publisher node key, one root device id, and the bundle secret. The restorer
-reads the root stream from seq 1, accepts it, then follows accepted publisher `heads` tips and grant cutoffs to
-the remaining streams. No device-id list is passed. Bundle entries are applied after the blob hashes to the entry's
+reads the root stream from seq 1, accepts it, then follows accepted publisher `heads` tips (the publisher's other
+device) and grant cutoffs (the revoked member's device) to the remaining streams. No device-id list is passed. Bundle entries are applied after the blob hashes to the entry's
 digest and decrypts; a missing or wrong blob fails the restore. Afterwards nothing may be pending, deferred or
 rejected, and every tip in the latest `heads` entry must match the held hash. The winners are written into a fresh
 FoldDB in batches of 256 creates (one native commit each), then the history equals the generator for all records

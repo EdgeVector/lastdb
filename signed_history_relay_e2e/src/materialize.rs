@@ -7,17 +7,28 @@ use std::sync::Arc;
 
 use fold_db::record_replacement::RecordTarget;
 use fold_db::schema::types::{CasExpectation, KeyValue, Mutation, MutationType};
-use mutation_log::VerifiedHistory;
+use mutation_log::{NodeKey, Role, VerifiedHistory};
 use serde_json::Value;
 use signed_history_materialize::{
-    ensure_hash_schema, open_proof_store, read_field_map, FoldDB, STRING_FIELD,
+    encode_string_field, ensure_hash_schema, open_proof_store, read_field_map, FoldDB, STRING_FIELD,
 };
 
 use crate::blob::{record_key, record_text, record_value, NAMESPACE};
+use crate::grants::{MEMBER_KEY, MEMBER_NAMESPACE, MEMBER_TEXT};
 use crate::identity::random_32;
 
 const BATCH_RECORDS: usize = 256;
 const SPOT_CHECKS: u64 = 128;
+
+/// What the restored history must hold after the upload.
+pub struct Expect {
+    /// Generated bulk records.
+    pub bulk: u64,
+    /// Member that was revoked after one accepted write.
+    pub member: NodeKey,
+    /// Node holding the `read` grant that performed the restore.
+    pub reader: NodeKey,
+}
 
 pub struct Materialized {
     pub store: Arc<FoldDB>,
@@ -27,7 +38,9 @@ pub struct Materialized {
 /// Create one record per live winner. The store is fresh, so every write is a create.
 pub async fn materialize(dir: &Path, history: &VerifiedHistory) -> Result<Materialized, String> {
     let store = open_proof_store(dir, &random_32()).await?;
-    ensure_hash_schema(&store, NAMESPACE).await?;
+    for namespace in [NAMESPACE, MEMBER_NAMESPACE] {
+        ensure_hash_schema(&store, namespace).await?;
+    }
     let mut batch = Vec::with_capacity(BATCH_RECORDS);
     let mut records = 0u64;
     for ((namespace, key), winner) in history.records() {
@@ -77,15 +90,22 @@ fn create_mutation(schema: &str, key: &str, value: &[u8]) -> Result<Mutation, St
     ))
 }
 
-/// Every history winner equals the generated record, and sampled keyed reads of
+/// Every history winner equals the generated record, the revoked member's one
+/// write survived, the folded grants show the revoke, and sampled keyed reads of
 /// FoldDB (first, last and evenly spaced) hold the generated text.
-pub async fn verify(store: &FoldDB, history: &VerifiedHistory, total: u64) -> Result<(), String> {
-    if history.records().len() as u64 != total {
+pub async fn verify(
+    store: &FoldDB,
+    history: &VerifiedHistory,
+    expect: &Expect,
+) -> Result<(), String> {
+    let total = expect.bulk;
+    if history.records().len() as u64 != total + 1 {
         return Err(format!(
-            "history holds {} records, expected {total}",
+            "history holds {} records, expected {total} bulk plus the member's write",
             history.records().len()
         ));
     }
+    verify_member(store, history, expect).await?;
     for index in 0..total {
         let winner = history
             .records()
@@ -115,6 +135,33 @@ pub async fn verify(store: &FoldDB, history: &VerifiedHistory, total: u64) -> Re
                 record_key(index)
             ));
         }
+    }
+    Ok(())
+}
+
+async fn verify_member(
+    store: &FoldDB,
+    history: &VerifiedHistory,
+    expect: &Expect,
+) -> Result<(), String> {
+    let winner = history
+        .records()
+        .get(&(MEMBER_NAMESPACE.to_owned(), MEMBER_KEY.to_owned()))
+        .ok_or("history lost the member's write that preceded its revoke")?;
+    if winner.value != encode_string_field(MEMBER_TEXT) {
+        return Err("history holds a different value for the member's write".into());
+    }
+    if history.grants().role_of(&expect.member).is_some() {
+        return Err("the member still holds a role after the revoke".into());
+    }
+    if history.grants().role_of(&expect.reader) != Some(Role::Read) {
+        return Err("the restoring node does not hold the read role".into());
+    }
+    let fields = read_field_map(store, MEMBER_NAMESPACE, MEMBER_KEY)
+        .await?
+        .ok_or("FoldDB has no record for the member's write")?;
+    if fields.get(STRING_FIELD).and_then(Value::as_str) != Some(MEMBER_TEXT) {
+        return Err("FoldDB holds a different value for the member's write".into());
     }
     Ok(())
 }

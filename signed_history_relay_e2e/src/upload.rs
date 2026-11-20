@@ -1,4 +1,5 @@
-//! Bootstrap: birth, a read grant, ~300 MiB of encrypted bundles, then `heads`.
+//! Bootstrap: birth, read and write grants, a member write, ~300 MiB of encrypted
+//! bundles, the member's revoke, then `heads`.
 //!
 //! The publisher writes through two device streams of one node key. Blobs are
 //! generated, encrypted and uploaded in parallel (`blob.put` before `log.append`),
@@ -16,6 +17,7 @@ use sha2::{Digest, Sha256};
 
 use crate::blob::{bundle_changes, encode_changes, BundleCipher, BUNDLE_RECORDS, VALUE_TEXT_BYTES};
 use crate::chain::{Chain, Publisher};
+use crate::grants::{self, Scene};
 use crate::identity::{new_device_id, Actor, DbBirth};
 use crate::relay::RelayClient;
 
@@ -43,6 +45,8 @@ pub struct UploadReport {
     pub bundles: usize,
     pub blob_bytes: u64,
     pub cpu_seconds: f64,
+    /// The revoked `write` member whose one record is still in the history.
+    pub member: NodeKey,
 }
 
 struct PutBundle {
@@ -56,6 +60,7 @@ struct PutBundle {
 pub async fn bootstrap(http: &reqwest::Client, plan: &UploadPlan) -> Result<UploadReport, String> {
     let started = Instant::now();
     let owner = Actor::generate();
+    let member_actor = Actor::generate();
     let birth = DbBirth::generate(owner.node_key);
     let publisher = Publisher {
         actor: owner,
@@ -78,8 +83,17 @@ pub async fn bootstrap(http: &reqwest::Client, plan: &UploadPlan) -> Result<Uplo
     let opening = [
         publisher.birth(&mut chain_a, &birth)?,
         publisher.grant_read(&mut chain_a, plan.reader)?,
+        publisher.grant_write(&mut chain_a, member_actor.node_key)?,
     ];
     client_a.append(&opening).await?;
+    let scene = Scene {
+        http,
+        relay_url: &plan.relay_url,
+        database_id: birth.database_id,
+        owner: publisher.actor.node_key,
+        root_device: chain_a.device_id,
+    };
+    let mut member = grants::write_as_member(&scene, member_actor).await?;
 
     let records = plan.total_bytes.div_ceil(VALUE_TEXT_BYTES).max(1);
     let bundles = records.div_ceil(BUNDLE_RECORDS);
@@ -90,7 +104,8 @@ pub async fn bootstrap(http: &reqwest::Client, plan: &UploadPlan) -> Result<Uplo
         .await?;
     puts.sort_by_key(|put| put.index);
 
-    let mut entries_a = Vec::new();
+    let mut entries_a =
+        vec![publisher.revoke(&mut chain_a, member.node_key(), member.cutoff()?)?];
     let mut entries_b = Vec::new();
     for put in &puts {
         let body = BundleBody {
@@ -115,6 +130,8 @@ pub async fn bootstrap(http: &reqwest::Client, plan: &UploadPlan) -> Result<Uplo
         client_b.append(&entries_b).await?;
     }
     client_a.append(&entries_a).await?;
+    let seconds = started.elapsed().as_secs_f64();
+    grants::expect_revoked(&scene, &mut member).await?;
 
     Ok(UploadReport {
         invite: Invite {
@@ -123,11 +140,12 @@ pub async fn bootstrap(http: &reqwest::Client, plan: &UploadPlan) -> Result<Uplo
             root_device: chain_a.device_id,
             secret: birth.secret,
         },
-        seconds: started.elapsed().as_secs_f64(),
+        seconds,
         records,
         bundles: puts.len(),
         blob_bytes: puts.iter().map(|put| put.size).sum(),
         cpu_seconds: puts.iter().map(|put| put.cpu_seconds).sum(),
+        member: member.node_key(),
     })
 }
 

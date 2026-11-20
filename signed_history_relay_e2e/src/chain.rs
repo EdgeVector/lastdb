@@ -1,10 +1,10 @@
-//! Authoring of the publisher's device streams (birth, read grant, bundles, heads).
+//! Authoring of the publisher's device streams (birth, grants, revoke, bundles, heads).
 
 use app_identity_crypto::SigningKey;
 use mutation_log::{
-    author_birth, author_bundle, author_grant, author_heads, entry_hash, grant_raise, AuthorCtx,
-    BundleBody, DatabaseId, DeviceHead, DeviceId, EncodeError, Grantee, NodeKey, Role, SignedEntry,
-    StreamHead,
+    author_birth, author_bundle, author_grant, author_heads, entry_hash, grant_raise, grant_reduce,
+    AuthorCtx, BundleBody, DatabaseId, DeviceHead, DeviceId, EncodeError, Grantee, NodeKey,
+    RevocationCutoff, Role, SignedEntry, StreamHead,
 };
 
 use crate::identity::{now_ms, Actor, DbBirth};
@@ -21,6 +21,23 @@ impl Chain {
             device_id,
             head: None,
         }
+    }
+
+    /// Current stream head, `None` before the first entry.
+    pub const fn head(&self) -> Option<StreamHead> {
+        self.head
+    }
+
+    /// Make `entry` the new tip after authoring it.
+    pub fn advance(&mut self, entry: &SignedEntry) -> Result<(), String> {
+        let hash = entry_hash(entry).map_err(|e| e.to_string())?;
+        let header = entry.header();
+        self.head = Some(StreamHead {
+            entry_hash: hash,
+            writer_seq: header.writer_seq,
+            lamport: header.lamport,
+        });
+        Ok(())
     }
 
     /// Tip of the stream as cited by a `heads` entry; `None` before the first entry.
@@ -55,13 +72,7 @@ impl Publisher {
             authored_at_ms: now_ms(),
         };
         let entry = sign(&ctx, &self.actor.signing_key).map_err(|e| e.to_string())?;
-        let hash = entry_hash(&entry).map_err(|e| e.to_string())?;
-        let header = entry.header();
-        chain.head = Some(StreamHead {
-            entry_hash: hash,
-            writer_seq: header.writer_seq,
-            lamport: header.lamport,
-        });
+        chain.advance(&entry)?;
         Ok(entry)
     }
 
@@ -80,6 +91,25 @@ impl Publisher {
     pub fn grant_read(&self, chain: &mut Chain, member: NodeKey) -> Result<SignedEntry, String> {
         self.author(chain, |ctx, key| {
             author_grant(ctx, key, grant_raise(Grantee::Member(member), Role::Read))
+        })
+    }
+
+    pub fn grant_write(&self, chain: &mut Chain, member: NodeKey) -> Result<SignedEntry, String> {
+        self.author(chain, |ctx, key| {
+            author_grant(ctx, key, grant_raise(Grantee::Member(member), Role::Write))
+        })
+    }
+
+    /// Revoke `member`; `cutoff` names the last entry of its device stream that stays valid.
+    pub fn revoke(
+        &self,
+        chain: &mut Chain,
+        member: NodeKey,
+        cutoff: RevocationCutoff,
+    ) -> Result<SignedEntry, String> {
+        self.author(chain, |ctx, key| {
+            let body = grant_reduce(Grantee::Member(member), Role::Revoked, vec![cutoff]);
+            author_grant(ctx, key, body)
         })
     }
 
