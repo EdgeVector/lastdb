@@ -4,8 +4,8 @@
 Usage: check_relay_e2e.py STDOUT_FILE [LABEL]
 
 Fails unless the bin printed a JSON object as its last line with ok=true,
-grant_revoke_ok=true, and upload_seconds / restore_seconds both under the
-limit. Prints a one-line verdict.
+grant_revoke_ok=true, nongrantee_http_status=403, and upload_seconds /
+restore_seconds both under the limit. Prints a one-line verdict.
 """
 from __future__ import annotations
 
@@ -35,6 +35,10 @@ def problems(report: dict) -> list[str]:
         found.append(f"ok is {report.get('ok')!r}: {report.get('error')}")
     if report.get("grant_revoke_ok") is not True:
         found.append("grant_revoke_ok is not true")
+    if report.get("nongrantee_http_status") != 403:
+        found.append(
+            f"nongrantee_http_status is {report.get('nongrantee_http_status')!r}, expected 403"
+        )
     for key in ("upload_seconds", "restore_seconds"):
         value = report.get(key)
         if not isinstance(value, (int, float)) or isinstance(value, bool):
@@ -54,7 +58,8 @@ def main() -> int:
     line = (
         f"{verdict} {label} upload={report.get('upload_seconds')} "
         f"restore={report.get('restore_seconds')} bytes={report.get('bytes_uploaded')} "
-        f"streams={report.get('streams_discovered')} grant_revoke_ok={report.get('grant_revoke_ok')}"
+        f"streams={report.get('streams_discovered')} grant_revoke_ok={report.get('grant_revoke_ok')} "
+        f"nongrantee_http_status={report.get('nongrantee_http_status')}"
     )
     print(line)
     for item in found:

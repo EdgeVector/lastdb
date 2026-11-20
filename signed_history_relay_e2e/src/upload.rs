@@ -47,6 +47,8 @@ pub struct UploadReport {
     pub cpu_seconds: f64,
     /// The revoked `write` member whose one record is still in the history.
     pub member: NodeKey,
+    /// HTTP status from a never-granted node's append and read (must be 403).
+    pub nongrantee_http_status: u16,
 }
 
 struct PutBundle {
@@ -132,6 +134,7 @@ pub async fn bootstrap(http: &reqwest::Client, plan: &UploadPlan) -> Result<Uplo
     client_a.append(&entries_a).await?;
     let seconds = started.elapsed().as_secs_f64();
     grants::expect_revoked(&scene, &mut member).await?;
+    let nongrantee_http_status = grants::expect_nongrantee(&scene).await?;
 
     Ok(UploadReport {
         invite: Invite {
@@ -146,6 +149,7 @@ pub async fn bootstrap(http: &reqwest::Client, plan: &UploadPlan) -> Result<Uplo
         blob_bytes: puts.iter().map(|put| put.size).sum(),
         cpu_seconds: puts.iter().map(|put| put.cpu_seconds).sum(),
         member: member.node_key(),
+        nongrantee_http_status,
     })
 }
 

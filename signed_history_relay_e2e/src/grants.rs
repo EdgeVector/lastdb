@@ -1,7 +1,8 @@
 //! Grant and revoke against the relay: a `write` member appends, the publisher
 //! revokes it with a cutoff, and the relay then refuses the member's next
 //! `log.append` and `blob.put` with HTTP 403. The member's earlier entry stays
-//! stored and is judged by the cutoff on restore.
+//! stored and is judged by the cutoff on restore. A never-granted node key also
+//! gets 403 on signed `log.append` and on `log.read` of a non-public database.
 
 use bytes::Bytes;
 use mutation_log::{
@@ -134,12 +135,14 @@ pub async fn expect_revoked(scene: &Scene<'_>, member: &mut Member) -> Result<()
     let client = scene.client(&member.actor, member.chain.device_id);
     let late = member.write(scene.database_id, "late", "written after the revoke")?;
     refused(
+        "revoked member",
         "log.append",
         client.append(std::slice::from_ref(&late)).await,
     )?;
     let probe = Bytes::from_static(b"blob from a revoked member");
     let digest: [u8; 32] = Sha256::digest(&probe).into();
     refused(
+        "revoked member",
         "blob.put",
         client
             .blob_put(&Hex32::from_bytes(digest).to_hex(), probe)
@@ -147,12 +150,63 @@ pub async fn expect_revoked(scene: &Scene<'_>, member: &mut Member) -> Result<()
     )
 }
 
-fn refused(call: &str, outcome: Result<(), String>) -> Result<(), String> {
+/// A real node key that was never granted must get 403 on signed append and on
+/// read of this non-public database. Returns `403` when both calls are refused.
+pub async fn expect_nongrantee(scene: &Scene<'_>) -> Result<u16, String> {
+    let stranger = Actor::generate();
+    let device = new_device_id();
+    let client = scene.client(&stranger, device);
+    let mut chain = Chain::new(device);
+    let probe = stranger_append(&stranger, &mut chain, scene.database_id)?;
+    refused(
+        "nongrantee",
+        "log.append",
+        client.append(std::slice::from_ref(&probe)).await,
+    )?;
+    refused(
+        "nongrantee",
+        "log.read",
+        client
+            .read(&scene.owner.to_hex(), &scene.root_device.to_hex(), 1)
+            .await
+            .map(|_| ()),
+    )?;
+    Ok(403)
+}
+
+fn stranger_append(
+    actor: &Actor,
+    chain: &mut Chain,
+    database_id: DatabaseId,
+) -> Result<SignedEntry, String> {
+    let ctx = AuthorCtx {
+        database_id,
+        node_key: actor.node_key,
+        device_id: chain.device_id,
+        stream_head: chain.head(),
+        seen_heads: Vec::new(),
+        seen_lamports: Vec::new(),
+        authored_at_ms: now_ms(),
+    };
+    let value = encode_string_field("nongrantee probe");
+    let body = data_record(StreamKind::Direct, "relay_e2e_nongrantee", "probe", &value);
+    let entry = author_data(&ctx, &actor.signing_key, body).map_err(|e| e.to_string())?;
+    chain.advance(&entry)?;
+    Ok(entry)
+}
+
+fn refused(who: &str, call: &str, outcome: Result<(), String>) -> Result<(), String> {
     match outcome {
-        Ok(()) => Err(format!("relay accepted {call} from a revoked member")),
-        Err(error) if error.contains("HTTP 403") => Ok(()),
+        Ok(()) => Err(format!("relay accepted {call} from a {who}")),
+        Err(error) if http_status(&error) == Some(403) => Ok(()),
         Err(error) => Err(format!(
-            "revoked member {call} failed with something other than 403: {error}"
+            "{who} {call} failed with something other than 403: {error}"
         )),
     }
+}
+
+fn http_status(error: &str) -> Option<u16> {
+    let rest = error.split("HTTP ").nth(1)?;
+    let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+    digits.parse().ok()
 }

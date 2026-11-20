@@ -2,8 +2,9 @@
 //!
 //! Against the relay at `RELAY_URL` it uploads ~300 MiB of synthetic records as
 //! signed, encrypted bundles, restores them with stream discovery into a fresh
-//! FoldDB, and prints one JSON object as the last stdout line. Progress goes to
-//! stderr. Exit 0 only when both phases finish inside the time limit.
+//! FoldDB, proves grant/revoke and never-granted 403s, and prints one JSON
+//! object as the last stdout line. Progress goes to stderr. Exit 0 only when
+//! both phases finish inside the time limit and nongrantee calls return 403.
 
 mod blob;
 mod chain;
@@ -144,8 +145,18 @@ async fn prove(cli: &Cli, relay_url: &str, work: &Path) -> Result<Outcome, Strin
     }
 
     let limit = cli.limit_seconds;
-    let ok = up.seconds < limit && restore_seconds < limit;
-    let error = (!ok).then(|| format!("a phase took {limit}s or longer"));
+    let nongrantee_ok = up.nongrantee_http_status == 403;
+    let ok = up.seconds < limit && restore_seconds < limit && nongrantee_ok;
+    let error = if !nongrantee_ok {
+        Some(format!(
+            "nongrantee_http_status={} (expected 403)",
+            up.nongrantee_http_status
+        ))
+    } else if !ok {
+        Some(format!("a phase took {limit}s or longer"))
+    } else {
+        None
+    };
     Ok(Outcome {
         ok,
         report: json!({
@@ -162,6 +173,7 @@ async fn prove(cli: &Cli, relay_url: &str, work: &Path) -> Result<Outcome, Strin
             "roles": ["read", "write", "revoked"],
             "grant_revoke_ok": true,
             "revoked_http_status": 403,
+            "nongrantee_http_status": up.nongrantee_http_status,
             "streams_discovered": restored.streams,
             "history_seconds": history_seconds,
             "materialize_seconds": restore_seconds - history_seconds,
