@@ -23,7 +23,7 @@ pub(in crate::storage) mod run_node;
 pub(in crate::storage) use run_node as admit;
 pub(crate) mod transaction;
 
-pub use super::disk_backup::{snapshot, NativeCloudWorkGuard};
+pub use super::disk_backup::NativeCloudWorkGuard;
 pub use crate::storage::disk_cleanup::{
     NativeCleanupBoundary, NativeCleanupPhase, NativeCleanupStatus,
 };

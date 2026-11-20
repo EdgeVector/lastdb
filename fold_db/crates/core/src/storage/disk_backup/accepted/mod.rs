@@ -23,7 +23,7 @@ pub(crate) fn schema_drop_id(name: &str) -> String {
     body::schema_id(name, "drop")
 }
 
-/// Why a stream read, ack, or snapshot note refused.
+/// Why a stream read or ack refused.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {
     /// An entry is missing or unreadable. Do not skip it.
@@ -38,8 +38,6 @@ pub enum Error {
     Conflict,
     /// The durable spool would pass its cap.
     Spool,
-    /// A snapshot still has to cover writes from before the stream.
-    Snapshot,
     /// The disk call failed. This is not a skipped entry.
     Unavailable,
 }
@@ -53,8 +51,6 @@ pub struct Status {
     pub acked: u64,
     /// Native frontier when the stream started.
     pub opened_frontier: u64,
-    /// Writes before the stream are not in this log.
-    pub snapshot_required: bool,
     /// A hole is open. Reads and new commits refuse.
     pub gap: bool,
 }
@@ -81,8 +77,6 @@ pub struct Entry {
 pub struct Page {
     /// Last sequence in this page, or `after` when the page is empty.
     pub through: u64,
-    /// The same coverage flag as [`Status::snapshot_required`].
-    pub snapshot_required: bool,
     /// Entries with sequence `after + 1` through `through`.
     pub items: Vec<Entry>,
 }
@@ -108,9 +102,6 @@ pub(in crate::storage) fn storage(error: Error) -> StorageError {
             StorageError::InvalidOperation("accepted mutation id changed its body".into())
         }
         Error::Gap => StorageError::BackendError("accepted stream has a gap".into()),
-        Error::Snapshot => {
-            StorageError::InvalidOperation("accepted stream still needs its snapshot".into())
-        }
         Error::Unavailable | Error::Ahead | Error::Behind | Error::Limit => {
             StorageError::BackendError("accepted stream is unavailable".into())
         }
@@ -155,7 +146,6 @@ impl PackRuntime {
                 head: 0,
                 acked: 0,
                 opened_frontier: 0,
-                snapshot_required: false,
                 gap: false,
             },
             Log::status,
@@ -192,14 +182,6 @@ impl PackRuntime {
             .as_ref()
             .ok_or(Error::Unavailable)?
             .confirm_upload(identity, after, position)
-    }
-
-    /// Record that a snapshot covers the native frontier from before the stream.
-    pub fn note_accepted_snapshot(&self, covered_frontier: u64) -> Result<(), Error> {
-        let Some(log) = &self.accepted else {
-            return Ok(());
-        };
-        log.note_snapshot(covered_frontier)
     }
 
     pub(in crate::storage) fn prepare_accepted(
@@ -280,7 +262,6 @@ fn idle_prefix(after: u64, limit: u32) -> Result<Page, Error> {
     }
     Ok(Page {
         through: after,
-        snapshot_required: false,
         items: Vec::new(),
     })
 }

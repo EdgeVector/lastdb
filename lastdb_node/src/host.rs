@@ -119,8 +119,6 @@ impl Host {
         let opts = fold_db::fold_db_core::factory::FoldDbOptions {
             offline_maintenance: false,
             capture_accepted: signed_restore || has_spool || connected,
-            // Snapshots retired; fold_db still accepts the flag as false.
-            capture_initial_snapshot: false,
             record_log: None,
         };
         let db = fold_db::fold_db_core::factory::create_fold_db_with_options(

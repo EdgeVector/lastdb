@@ -27,8 +27,6 @@ pub mod factory {
         pub offline_maintenance: bool,
         /// Capture the accepted publication stream for an owned database.
         pub capture_accepted: bool,
-        /// Preserve the original native root before a personal home starts cloud capture.
-        pub capture_initial_snapshot: bool,
         /// Host notes for each committed record. Absent when the host keeps no notes.
         pub record_log:
             Option<std::sync::Arc<dyn crate::fold_db_core::mutation_manager::RecordWriteLog>>,
@@ -46,12 +44,8 @@ pub mod factory {
         options: FoldDbOptions,
     ) -> FoldDbResult<Arc<FoldDB>> {
         let key = e2e_keys.encryption_key();
-        let store = PackNamespacedStore::open_keyed(
-            &config.path,
-            Some(&key),
-            options.capture_accepted,
-            options.capture_initial_snapshot,
-        )?;
+        let store =
+            PackNamespacedStore::open_keyed(&config.path, Some(&key), options.capture_accepted)?;
         let db_ops = DbOperations::from_namespaced_store_with_content_and_field_keys(store, key)
             .await
             .map_err(|e| FoldDbError::Config(e.to_string()))?;

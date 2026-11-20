@@ -1,8 +1,6 @@
-//! Accepted mutation log, database snapshots, and the native cloud work guard.
+//! Accepted mutation log and the native cloud work guard.
 
 pub mod accepted;
-mod files;
-pub(in crate::storage) mod prearm;
 
 use crate::storage::error::{StorageError, StorageResult};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -35,8 +33,6 @@ impl Drop for NativeCloudWorkGuard {
     }
 }
 
-pub mod snapshot;
-
 pub mod stopped_sync {
     //! Prove a stopped personal database still matches its prepared recovery state.
 
@@ -68,7 +64,7 @@ pub mod stopped_sync {
     }
 
     impl PackRuntime {
-        /// Pin the same durable frontier used by native snapshots. All local
+        /// Pin the durable frontier of both roots. All local
         /// mutations through the current spool head must have a cloud confirmation.
         pub async fn sync_boundary(
             self: &Arc<Self>,
@@ -81,13 +77,9 @@ pub mod stopped_sync {
             cas_delete::require_clear(&self.physical)?;
             let roots = self.physical.current_root();
             let Status {
-                head,
-                acked,
-                snapshot_required,
-                gap,
-                ..
+                head, acked, gap, ..
             } = self.accepted_status();
-            if gap || snapshot_required || head != acked {
+            if gap || head != acked {
                 return Err(unready());
             }
             let confirmed = self
@@ -112,16 +104,9 @@ pub mod stopped_sync {
         ) -> StorageResult<()> {
             let _gate = self.enter_write().await;
             let current = self.accepted_status();
-            if self.requires_recovery()
-                || current.gap
-                || current.snapshot_required
-                || current.head != 0
-                || current.acked != 0
-            {
+            if self.requires_recovery() || current.gap || current.head != 0 || current.acked != 0 {
                 return Err(unready());
             }
-            self.note_accepted_snapshot(self.physical.current_root().frontier())
-                .map_err(accepted::storage)?;
             self.confirm_accepted_upload(
                 identity,
                 0,
