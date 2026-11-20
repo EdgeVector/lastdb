@@ -7,9 +7,9 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use cloud_backup_protocol::Id;
 use fold_db::fold_db_core::mutation_manager::{RecordWriteLog, RecordWriteNote};
 use fold_db::schema::SchemaError;
+use mutation_log::DatabaseId;
 
 use crate::profile::private_fs as disk;
 
@@ -96,9 +96,9 @@ fn named(
 }
 
 fn root(home: &Path, database_id: &str) -> Result<PathBuf, String> {
-    let id =
-        Id::try_from(database_id.to_owned()).map_err(|_| "database id was refused".to_owned())?;
-    if id.as_str() != database_id {
+    // Owned database ids are Hex32 (db verifying key), not cloud UUID Ids.
+    let id = DatabaseId::from_hex(database_id).map_err(|_| "database id was refused".to_owned())?;
+    if id.to_hex() != database_id {
         return Err("database id was refused".into());
     }
     Ok(home
