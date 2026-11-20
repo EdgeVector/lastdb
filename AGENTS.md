@@ -196,30 +196,15 @@ can still publish over one of those listings with the owner key. That rule is
 `lastdb_node/src/bin/lastdb/app_registry_index/mod.rs`, and the pinned CI
 publisher keys stay in `lastdb_node/environments.json`.
 
-### Scoped extension: signed snapshot round trip (Tom, 2026-11-13)
+### Scoped extension: signed snapshot round trip — RETIRED (cloud API v3)
 
-Tom asked for an end-to-end DEV check so the owner signed-database snapshot
-backup and restore path cannot regress. That path was deleted once before, in
-exemem-infra #797 and lastdb #1541.
-
-This authorizes only:
-
-- `scripts/cloud_backup/snapshot_gate.py`
-- `.github/workflows/snapshot-roundtrip-dev.yml`
-- the `snapshot-roundtrip-dev` precondition in `scripts/release/nightly_plan.py`,
-  `.github/workflows/nightly-release.yml`, and `.github/workflows/stable-release.yml`
-
-The check uses a fresh generated home, synthetic records, the public CLI and
-daemon, and the existing `cloud-backup-dev` environment. It runs on a push to
-main, the daily schedule, and `workflow_dispatch`. Pull requests receive no
-cloud credentials. Keep every other test target retired. No local LastDB
-builds, benchmarks, or runtime proofs. No primary data.
+Snapshot roundtrip DEV CI and `snapshot_gate*.py` were removed with the
+unsigned mutation log. Signed-history + relay DEV CI replaces them.
 
 ## Cursor Cloud specific instructions
 
-Owner byte backup and its PROD restore workflow are gone. Personal and private
-databases sync and restore through the signed database-id log. Do not add a
-second backup path, a flag, or a migration.
+Owner byte backup and its PROD restore workflow are gone. Personal databases sync through signed history AcceptEntry and a grant-blind
+relay. No snapshots, dual readers, feature flags, or migration paths.
 
 The image already has Rust (`rust-toolchain.toml`, 1.96.1) and Node 22.
 `install` adds Ruby and the pinned

@@ -1,39 +1,20 @@
 # cloud_backup_protocol
 
-The crate supplies canonical cloud backup types to the client and service.
-It performs no I/O and enables no runtime capability.
-The `src/v2` module defines the active backup protocol.
-The service consumes this source through its pinned LastDB submodule.
-Do not duplicate the wire types in the service.
+Scalar and wire helpers shared by LastDB clients. Prefer the cloud API v3 design:
 
-The active backup and share transport is `src/v2`. The legacy shared HTTP
-routes and their wire module are gone.
+- [`docs/designs/cloud-api.md`](../docs/designs/cloud-api.md)
+- [`docs/designs/relay-protocol.md`](../docs/designs/relay-protocol.md)
 
-`src/v2/share_access` is the shared wire for grants and signed requests.
-`NodeReadToken::digest` binds the database id, the HTTP action, the raw body, and a nonce.
-The domain string is `lastdb:share:node-read-authority:v1`.
-A revoked member stays on its signed entry until a later entry restores it with `regrant`.
-The signing key is the node key. DEV and PROD use the same mutation-log paths.
-`NodeReadToken::digest` hashes the raw body octets and the service realm.
-Membership is decided from each member's own signed entry once the database is native.
-Native create is only `POST /api/cloud/backups/v2/mutation-log/create-database`.
-That request authorizes and creates the database in one transaction, with no migration evidence.
-A node-key revoke covers every device of that key.
-Snapshot and delivery-cursor types in that module name objects. They do not fetch bytes.
+ExeMem account/billing paths may still use types in this crate. Grant
+authorization and snapshots are **not** part of the live contract: grants live
+only as signed chain entries; relays are grant-blind; there are no snapshots.
 
-Whole-database sharing uses the mutation log, the proposal log, and two
-independent settings, `read` and `write`. Members append to the proposal log
-only while `write` is `proposals`. The publisher reads and settles that log
-under any setting. The publisher's LastDB checks the confirmed member-write
-map after decryption and publishes only committed changes.
-[Requirements to preserve](../docs/designs/shared-database-mutation-logs.md#requirements-to-preserve)
+`src/v2/share_access` still holds legacy share-settings wire shapes used by
+People-facing invitation code that has not yet moved. Do not add new ExeMem
+grant side-channel calls. Do not restore snapshot or retention reclaim types.
 
-The crate root holds the scalar types and digest helpers that `src/v2` uses.
-Keep completion checks, retained bytes, and unresolved provider obligations until their exact saved state proves release is safe.
-
-Builds, lint, and required benchmarks run in GitHub CI.
-Tests are retired. Do not run local builds, clippy, benchmarks, or host build-lock helpers.
-Local Rust formatting remains permitted:
+Builds and required checks run in GitHub CI. Do not run local builds, clippy,
+or benchmarks. Local formatting remains permitted:
 
 ```sh
 cargo fmt -p cloud_backup_protocol --check

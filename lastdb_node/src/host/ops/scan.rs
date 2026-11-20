@@ -89,7 +89,6 @@ fn exact(path: &str) -> Option<&'static str> {
         "/api/apps/declare-schema" => "/api/apps/declare-schema",
         "/api/apps/register" => "/api/apps/register",
         "/api/apps/unregister" => "/api/apps/unregister",
-        "/api/backup/snapshot" => "/api/backup/snapshot",
         "/api/cloud/wake" => "/api/cloud/wake",
         "/api/databases" => "/api/databases",
         "/api/databases/accept" => "/api/databases/accept",

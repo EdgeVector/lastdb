@@ -27,6 +27,8 @@ pub const PAYMENT_REQUIRED_MESSAGE: &str =
 #[doc(hidden)]
 pub const FIRST_BACKUP_INTENT_FILE: &str = ".native-first-backup";
 #[doc(hidden)]
+/// Marker bytes historically named for snapshots; now means "bootstrap signed history".
+/// DESIGN: rename file/bytes once no DEV home relies on `snapshot-v1\n`.
 pub const FIRST_BACKUP_INTENT: &[u8] = b"snapshot-v1\n";
 
 #[must_use]

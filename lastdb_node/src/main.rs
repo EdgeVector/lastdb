@@ -153,7 +153,7 @@ fn serve_node(
     sock_path: Option<PathBuf>,
 ) -> Result<(), String> {
     let data_dir = home.join("data");
-    rt.block_on(log_sync::install_prepared_native_recovery(home))?;
+    log_sync::install_prepared_native_recovery(home)?;
     let host = Arc::new(rt.block_on(Host::boot(home))?);
     let reopen = Arc::new(AtomicBool::new(false));
     let stop = Arc::new(AtomicBool::new(false));

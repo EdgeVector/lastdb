@@ -84,12 +84,6 @@ impl Host {
         Self::boot_inner(home, true).await
     }
 
-    /// Boot the isolated restore home after verified snapshot files are installed.
-    #[doc(hidden)]
-    pub async fn boot_for_snapshot_restore(home: &Path) -> Result<Self, String> {
-        Self::boot_inner(home, true).await
-    }
-
     async fn boot_inner(home: &Path, signed_restore: bool) -> Result<Self, String> {
         recovery::ensure_node_home(home)
             .map_err(|e| format!("failed to create node home {}: {e}", home.display()))?;
@@ -122,13 +116,14 @@ impl Host {
         let has_spool = !signed_restore
             && fold_db::storage::disk_backup::accepted::has_spool(&data_dir)
                 .map_err(|e| recovery::map_and_record_boot_error(home, existing, e))?;
-        let wants_initial = !signed_restore && crate::cloud::first_backup_intent(home);
+        let wants_bootstrap = !signed_restore && crate::cloud::first_backup_intent(home);
         let creds_at_boot = has_cloud_credentials(home);
-        let connected = !signed_restore && (!has_spool || wants_initial) && creds_at_boot;
+        let connected = !signed_restore && (!has_spool || wants_bootstrap) && creds_at_boot;
         let opts = fold_db::fold_db_core::factory::FoldDbOptions {
             offline_maintenance: false,
             capture_accepted: signed_restore || has_spool || connected,
-            capture_initial_snapshot: wants_initial && connected,
+            // Snapshots retired; fold_db still accepts the flag as false.
+            capture_initial_snapshot: false,
             record_log: None,
         };
         let db = fold_db::fold_db_core::factory::create_fold_db_with_options(

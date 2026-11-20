@@ -19,8 +19,7 @@ mod registry;
 mod store;
 
 pub(crate) use registry::{
-    find_shareable, prepare_snapshot_restore, registered_databases, registry_claims,
-    validate_create, RegisteredDatabase,
+    find_shareable, registered_databases, registry_claims, validate_create, RegisteredDatabase,
 };
 
 /// AES content key for one owned sibling. Callers must not treat this as a

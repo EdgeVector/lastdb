@@ -144,7 +144,6 @@ pub enum DataRoute {
     DbNativeStatus,
     DbDeleteLedger,
     DbSchemaRetention,
-    BackupSnapshot,
     CloudWake,
     V1Read,
     V1Write,
@@ -181,10 +180,9 @@ pub fn route(req: &UdsRequest) -> ControlRoute {
     match path {
         "/health" => return check("GET", ControlRoute::Health),
         "/api/version" => return check("GET", ControlRoute::Version),
-        "/api/db/native-status" | "/api/db/cleanup" | "/api/backup/snapshot" => {
+        "/api/db/native-status" | "/api/db/cleanup" => {
             let d = match path {
                 "/api/db/cleanup" => DbCleanup,
-                "/api/backup/snapshot" => BackupSnapshot,
                 _ => DbNativeStatus,
             };
             return if matches!(m, "GET" | "POST") {

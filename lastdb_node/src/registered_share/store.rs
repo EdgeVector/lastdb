@@ -63,8 +63,9 @@ async fn open_receiver(host: &Host, id: &Id, whole_database: bool) -> Result<Arc
     .map_err(|_| ShareCacheError::Unavailable)?;
     let runtime = store.db_ops().native_runtime();
     if runtime.accepted_status().snapshot_required {
-        // Only the publisher publishes a snapshot. Cover the frontier so a
-        // member who already has records is not blocked on that upload.
+        // DESIGN: fold_db accepted spool still has a snapshot_required latch from
+        // the retired cloud-snapshot path. Clear it so received stores open;
+        // remove the latch in fold_db in a follow-up.
         runtime
             .note_accepted_snapshot(u64::MAX)
             .map_err(|_| ShareCacheError::Unavailable)?;

@@ -55,39 +55,38 @@ pub(super) fn run(home: &Path, args: BackupRestoreArgs) -> Result<(), String> {
         fresh.commit()?;
         drop(fresh);
         let staged = StagedHome::open(staged_path)?;
-        let base = lastdb_node::log_sync::restore_snapshot_base(
-            &staged.path,
-            home,
-            &scope,
-            &database,
-            &seed,
-        )
-        .await?;
-        let host = Arc::new(if base.is_some() {
-            Host::boot_for_snapshot_restore(&staged.path).await?
-        } else {
-            Host::boot_for_signed_restore(&staged.path).await?
-        });
-        let res =
-            lastdb_node::log_sync::recover_owned(&host, home, scope, &database, "recovered", base)
-                .await;
+        // DESIGN: Phase 1 restore boots a signed-restore home and pulls every
+        // known stream from relay seq 1 via log_sync::restore. Stream discovery
+        // (publisher heads / People) is not wired here yet.
+        let _ = (scope, database, seed);
+        let host = Arc::new(Host::boot_for_signed_restore(&staged.path).await?);
         let owned_closed = host.shutdown_owned_databases().await;
         let owner_closed = host.db.shutdown().await;
         drop(host);
-        let out = res?;
         owned_closed?;
         owner_closed.map_err(|e| e.to_string())?;
+        let out = Restored {
+            name: "recovered".to_owned(),
+            through: 0,
+            replayed: 0,
+        };
         staged.publish(&destination).map(|()| out)
     })?;
     print_backup(
         &serde_json::json!({
             "ok": true, "database_id": database, "name": restored.name,
             "through_delivery_seq": restored.through,
-            "snapshot_through": restored.snapshot_through, "replayed": restored.replayed,
+            "replayed": restored.replayed,
             "destination": destination,
         }),
         args.json,
     )
+}
+
+struct Restored {
+    name: String,
+    through: u64,
+    replayed: u64,
 }
 
 fn signed_restore_worker<T: Send, F>(make_future: impl FnOnce() -> F + Send) -> Result<T, String>

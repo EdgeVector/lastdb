@@ -16,7 +16,6 @@
     "/api/apps/declare-schema",
     "/api/apps/register",
     "/api/apps/unregister",
-    "/api/backup/snapshot",
     "/api/cloud/wake",
     "/api/databases",
     "/api/databases/accept",
