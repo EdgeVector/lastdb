@@ -54,14 +54,14 @@ libc = "0.2"
 # deliberately not workspace deps, feature sets diverge per member).
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "charset", "http2", "json", "stream"] }
 chrono = "0.4"
-bip39 = "2"
+bip39 = "3"
 # Seal path (mirrors fold_db_node auth_envelope + connection crypto).
-aes-gcm = "0.10"
-hkdf = "0.12"
+aes-gcm = "0.11"
+hkdf = "0.13"
 sha2 = { workspace = true }
-x25519-dalek = { version = "2", features = ["static_secrets"] }
+x25519-dalek = { version = "3", features = ["static_secrets"] }
 base64 = { workspace = true }
-rand = "0.8"
+rand = "0.10"
 uuid = { workspace = true, features = ["v4"] }
 
 [lib]
