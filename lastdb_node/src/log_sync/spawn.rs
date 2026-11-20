@@ -29,9 +29,9 @@ pub fn spawn(
         async move {
             let histories = super::histories_for(&host.home);
             while !shutdown.load(Ordering::Acquire) {
-                wake::consume_wake(&host.home);
                 match config::relay_base_url(&host.home) {
                     None => {
+                        let _ = wake::consume_wake(&host.home);
                         tracing::trace!(
                             target: "lastdbd::log_sync",
                             "no relay URL configured; signed-history sync idle"
@@ -42,8 +42,15 @@ pub fn spawn(
                         if let Err(err) = one_turn(&host, &histories, &base).await {
                             tracing::warn!(target: "lastdbd::log_sync", %err, "sync turn failed");
                             host.cloud_sync.record_error(err);
+                            // Unacked outbox (including publisher revoke) must be
+                            // re-pushed promptly; skip the active sleep below.
+                            if outbox_pending(&host, &histories) {
+                                wake::request_wake(&host.home);
+                            }
                         }
-                        tokio::time::sleep(ACTIVE).await;
+                        if !wake::consume_wake(&host.home) {
+                            tokio::time::sleep(ACTIVE).await;
+                        }
                     }
                 }
             }
@@ -57,7 +64,7 @@ async fn one_turn(host: &Host, histories: &HistoryMap, base: &str) -> Result<(),
     let node_key = NodeKey::from_bytes(host.keypair.public_key_bytes());
     let node_key_hex = node_key.to_hex();
     let device_id = device::device_id(&host.home)?;
-    let client = RelayClient::new(base, signing_key, node_key_hex.clone(), &device_id);
+    let client = RelayClient::new(base, signing_key, node_key_hex.clone(), &device_id)?;
 
     let databases = crate::host::owned::registered_databases(&host.home);
     for database in databases {
@@ -140,4 +147,27 @@ async fn upload_outbox(
         history_store::persist_outbox(home, database_id, history.outbox())
     })??;
     Ok(())
+}
+
+/// True when any syncable database still has unacked outbox entries.
+fn outbox_pending(host: &Host, histories: &HistoryMap) -> bool {
+    for database in crate::host::owned::registered_databases(&host.home) {
+        if database.kind != "personal" && database.kind != "shareable" {
+            continue;
+        }
+        if mutation_log::DatabaseId::from_hex(&database.id).is_err() {
+            continue;
+        }
+        let memory = histories
+            .peek_with(&database.id, |history| !history.outbox().is_empty())
+            .unwrap_or(false);
+        if memory {
+            return true;
+        }
+        match history_store::load_outbox_entries(&host.home, &database.id) {
+            Ok(entries) if !entries.is_empty() => return true,
+            _ => {}
+        }
+    }
+    false
 }
