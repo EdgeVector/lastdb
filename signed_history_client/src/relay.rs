@@ -1,4 +1,4 @@
-//! Grant-blind HTTP client for `/relay/v1/log/*`.
+//! HTTP client for `/relay/v1/log/*`.
 
 use app_identity_crypto::{hex_lower, sign, SigningKey};
 use base64::Engine as _;
@@ -29,7 +29,7 @@ impl RelayClient {
             signing_key,
             node_key_hex: node_key_hex.into(),
             device_id: device_id.into(),
-            // trace-egress: public — grant-blind relay; node key only in signed headers.
+            // trace-egress: public — relay gates by grants; node key only in signed headers.
             http: reqwest::Client::new(),
         }
     }

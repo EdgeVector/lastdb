@@ -2139,6 +2139,7 @@ dependencies = [
  "base64",
  "clap",
  "hmac 0.12.1",
+ "mutation_log",
  "serde",
  "serde_json",
  "sha2 0.10.9",

@@ -22,9 +22,9 @@ members = [
     "database_policy",
     # Pure published-log state machine (personal and shareable logs; whole-database shares keep a separate pending inbox). No I/O.
     "mutation_log",
-    # In-repo grant-blind reference relay for CI signed-history scenarios.
+    # In-repo grant-gating reference relay for CI signed-history scenarios.
     "reference_relay",
-    # Shared grant-blind relay client + restore-from-start (seq 1 → AcceptEntry).
+    # Shared relay client + restore-from-start (seq 1 → AcceptEntry).
     "signed_history_client",
     # Apply signed-history LWW winners to FoldDB schemas and records.
     "signed_history_materialize",

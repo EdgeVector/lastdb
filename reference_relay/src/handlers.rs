@@ -1,4 +1,4 @@
-//! Relay HTTP handlers. Grant-blind: store and serve only.
+//! Relay HTTP handlers. Each authenticated call is gated by the grant index in `gate.rs`.
 
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -8,11 +8,15 @@ use axum::extract::{Path, Query, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
+use mutation_log::{DatabaseId, NodeKey};
 use serde::Deserialize;
 use serde_json::{json, Value};
+use tokio::sync::Mutex;
 
 use crate::auth;
 use crate::error::{ApiError, ApiResult};
+use crate::gate;
+use crate::grant_index::GrantIndex;
 use crate::presign;
 use crate::store::{self, Store};
 
@@ -22,6 +26,17 @@ pub(crate) struct AppState {
     pub(crate) store: Store,
     pub(crate) public_base: String,
     pub(crate) secret: Vec<u8>,
+    pub(crate) grants: Mutex<GrantIndex>,
+}
+
+impl AppState {
+    async fn check_read(&self, db: &DatabaseId, caller: &NodeKey) -> ApiResult<()> {
+        gate::authorize_read(&self.grants.lock().await, db, caller)
+    }
+
+    async fn check_blob_put(&self, db: &DatabaseId, caller: &NodeKey) -> ApiResult<()> {
+        gate::authorize_blob_put(&self.grants.lock().await, db, caller)
+    }
 }
 
 pub(crate) async fn log_append(
@@ -29,14 +44,18 @@ pub(crate) async fn log_append(
     headers: HeaderMap,
     body: Bytes,
 ) -> ApiResult<Json<Value>> {
-    auth::verify_request(&headers, "/relay/v1/log/append", &body)?;
+    let caller = auth::verify_request(&headers, "/relay/v1/log/append", &body)?;
     let req: LogAppendBody =
         serde_json::from_slice(&body).map_err(|_| ApiError::invalid("body"))?;
-    require_hex64(&req.database_id, "database_id")?;
+    let db = gate::parse_id(&req.database_id, "database_id")?;
+    let signed = gate::parse_entries(&req.entries)?;
+    let mut grants = state.grants.lock().await;
+    let plan = gate::authorize_append(&grants, &db, &caller, &signed)?;
     let (stored, duplicate) = state
         .store
         .append_entries(&req.database_id, &req.entries)
         .await?;
+    plan.commit(&mut grants, db);
     Ok(Json(json!({ "stored": stored, "duplicate": duplicate })))
 }
 
@@ -45,9 +64,10 @@ pub(crate) async fn log_read(
     headers: HeaderMap,
     body: Bytes,
 ) -> ApiResult<Json<Value>> {
-    auth::verify_request(&headers, "/relay/v1/log/read", &body)?;
+    let caller = auth::verify_request(&headers, "/relay/v1/log/read", &body)?;
     let req: LogReadBody = serde_json::from_slice(&body).map_err(|_| ApiError::invalid("body"))?;
-    require_hex64(&req.database_id, "database_id")?;
+    let db = gate::parse_id(&req.database_id, "database_id")?;
+    state.check_read(&db, &caller).await?;
     let (node_key, device_id, from_seq) = read_position(&req)?;
     let limit = req.limit.unwrap_or(90) as usize;
     let (entries, cursor) = state
@@ -66,9 +86,10 @@ pub(crate) async fn blob_put(
     headers: HeaderMap,
     body: Bytes,
 ) -> ApiResult<Json<Value>> {
-    auth::verify_request(&headers, "/relay/v1/blob/put", &body)?;
+    let caller = auth::verify_request(&headers, "/relay/v1/blob/put", &body)?;
     let req: BlobPutBody = serde_json::from_slice(&body).map_err(|_| ApiError::invalid("body"))?;
-    require_hex64(&req.database_id, "database_id")?;
+    let db = gate::parse_id(&req.database_id, "database_id")?;
+    state.check_blob_put(&db, &caller).await?;
     require_hex64(&req.sha256, "sha256")?;
     if req.bytes == 0 {
         return Err(ApiError::invalid("bytes"));
@@ -102,9 +123,10 @@ pub(crate) async fn blob_get(
     headers: HeaderMap,
     body: Bytes,
 ) -> ApiResult<Json<Value>> {
-    auth::verify_request(&headers, "/relay/v1/blob/get", &body)?;
+    let caller = auth::verify_request(&headers, "/relay/v1/blob/get", &body)?;
     let req: BlobGetBody = serde_json::from_slice(&body).map_err(|_| ApiError::invalid("body"))?;
-    require_hex64(&req.database_id, "database_id")?;
+    let db = gate::parse_id(&req.database_id, "database_id")?;
+    state.check_read(&db, &caller).await?;
     require_hex64(&req.sha256, "sha256")?;
     let (bytes, _) = state.store.blob_meta(&req.sha256).await?;
     if bytes == 0 {

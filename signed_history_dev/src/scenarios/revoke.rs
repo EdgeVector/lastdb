@@ -1,4 +1,5 @@
 //! B. Write grant → write → on-chain revoke with cutoff.
+//! Relay returns 403 for the revoked member's new append (stored entries stay).
 //! Ordinary next-seq member append after revoke → AcceptEntry Reject (Unauthorized).
 //! Also: new device_id after revoke → cutoff 0 → Reject.
 //! (Backdated rewrite is the same cutoff gate; this scenario proves the ordinary case.)
@@ -57,6 +58,18 @@ pub async fn run(relay: &RelayHandle) -> Result<String, String> {
             other => return Err(format!("member view accept: {other:?}")),
         }
     }
+    let db = birth.database_id.to_hex();
+    RelayClient::new(&relay.base_url, &owner)
+        .append(
+            &db,
+            &[
+                birth_entry.clone(),
+                grant.clone(),
+                member_entry.clone(),
+                revoke.clone(),
+            ],
+        )
+        .await?;
     reject_post_cutoff(
         &mut history,
         &member_view,
@@ -75,7 +88,7 @@ pub async fn run(relay: &RelayHandle) -> Result<String, String> {
         birth.database_id,
         t0 + 5,
     )?;
-    Ok("post-cutoff + new-device cutoff-0 Reject(Unauthorized); relay stored grant-blind".into())
+    Ok("post-cutoff + new-device cutoff-0 Reject(Unauthorized); relay 403 on revoked-member append".into())
 }
 
 fn accept_member_write(
@@ -134,9 +147,13 @@ async fn reject_post_cutoff(
         },
     )?;
     let client = RelayClient::new(&relay.base_url, member);
-    client
+    match client
         .append(&database_id.to_hex(), std::slice::from_ref(&post))
-        .await?;
+        .await
+    {
+        Err(e) if e.contains("HTTP 403") && e.contains("forbidden") => {}
+        other => return Err(format!("relay must 403 revoked member append: {other:?}")),
+    }
     expect_cutoff(must_reject(history, post)?)
 }
 

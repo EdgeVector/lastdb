@@ -1,4 +1,5 @@
-//! HTTP `nodeSignature` verification. Grant-blind: no grant or AcceptEntry checks.
+//! HTTP `nodeSignature` verification. Returns the verified caller node key;
+//! grant gating lives in `gate.rs` and never runs AcceptEntry.
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -6,6 +7,7 @@ use app_identity_crypto::{hex_lower, verify, VerifyingKey};
 use axum::http::HeaderMap;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
+use mutation_log::NodeKey;
 use sha2::{Digest, Sha256};
 
 use crate::error::{ApiError, ApiResult};
@@ -13,8 +15,8 @@ use crate::error::{ApiError, ApiResult};
 const SKEW_MS: u64 = 60_000;
 const PROTOCOL: &str = "1";
 
-/// Verify `X-LastDB-*` headers over the raw request body for `path`.
-pub(crate) fn verify_request(headers: &HeaderMap, path: &str, body: &[u8]) -> ApiResult<()> {
+/// Verify `X-LastDB-*` headers over the raw request body for `path`; returns the caller node key.
+pub(crate) fn verify_request(headers: &HeaderMap, path: &str, body: &[u8]) -> ApiResult<NodeKey> {
     let protocol = header(headers, "x-lastdb-relay-protocol")?;
     if protocol != PROTOCOL {
         return Err(ApiError::upgrade_required("request.protocol"));
@@ -33,7 +35,9 @@ pub(crate) fn verify_request(headers: &HeaderMap, path: &str, body: &[u8]) -> Ap
     let vk = verifying_key_hex(&node_key)?;
     let sig = decode_signature(&signature)?;
     verify(&vk, &sig, message.as_bytes()).map_err(|_| ApiError::unauthorized("signature"))?;
-    Ok(())
+    Ok(NodeKey::from_bytes(
+        decode_hex32(&node_key).ok_or_else(|| ApiError::unauthorized("node_key"))?,
+    ))
 }
 
 fn header(headers: &HeaderMap, name: &str) -> ApiResult<String> {

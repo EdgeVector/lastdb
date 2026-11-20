@@ -58,5 +58,5 @@ pub async fn run(relay: &RelayHandle) -> Result<String, String> {
         ));
     }
 
-    Ok("AcceptEntry rejected tampered+forged signatures; relay stored bytes grant-blind".into())
+    Ok("AcceptEntry rejected tampered+forged signatures; publisher-appended bytes stored as-is by relay".into())
 }

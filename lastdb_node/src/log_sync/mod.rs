@@ -1,7 +1,7 @@
 //! Signed-history sync: AcceptEntry locally, relay as blind transport.
 //!
 //! No snapshots, checkpoints, landed field, or manage/access side channel.
-//! Grants exist only as signed chain entries. Relays stay grant-blind.
+//! Grants exist only as signed chain entries. Relays gate access from publisher-signed grant entries and never run AcceptEntry.
 
 #[allow(dead_code)]
 mod apply;

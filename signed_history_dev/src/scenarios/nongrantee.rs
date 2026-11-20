@@ -1,4 +1,4 @@
-//! E. Node without grant presents a direct data entry → AcceptEntry Reject.
+//! E. Node without grant: relay 403 on append/read; AcceptEntry still rejects the entry.
 
 use mutation_log::{AcceptOutcome, VerifiedHistory};
 
@@ -36,9 +36,22 @@ pub async fn run(relay: &RelayHandle) -> Result<String, String> {
         },
     )?;
 
-    let client = RelayClient::new(&relay.base_url, &stranger);
     let db = birth.database_id.to_hex();
-    client.append(&db, std::slice::from_ref(&forged)).await?;
+    RelayClient::new(&relay.base_url, &owner)
+        .append(&db, &[birth_entry.clone(), grant.clone()])
+        .await?;
+    let client = RelayClient::new(&relay.base_url, &stranger);
+    match client.append(&db, std::slice::from_ref(&forged)).await {
+        Err(e) if e.contains("HTTP 403") && e.contains("forbidden") => {}
+        other => return Err(format!("relay must 403 non-grantee append: {other:?}")),
+    }
+    match client
+        .read(&db, &owner.node_key_hex(), &owner.device_id_str(), 1, 90)
+        .await
+    {
+        Err(e) if e.contains("HTTP 403") && e.contains("forbidden") => {}
+        other => return Err(format!("relay must 403 non-grantee read: {other:?}")),
+    }
 
     let reason = must_reject(&mut history, forged.clone())?;
     match &reason {
@@ -53,29 +66,18 @@ pub async fn run(relay: &RelayHandle) -> Result<String, String> {
             other => return Err(format!("receiver setup: {other:?}")),
         }
     }
-    let pulled = client
-        .read(
-            &db,
-            &stranger.node_key_hex(),
-            &stranger.device_id_str(),
-            1,
-            90,
-        )
-        .await?;
-    if pulled.is_empty() {
-        return Err("relay did not store non-grantee entry".into());
-    }
-    for e in pulled {
-        match receiver.accept_entry(e) {
-            AcceptOutcome::Reject {
-                reason: mutation_log::RejectReason::Unauthorized(msg),
-            } if msg.contains("non-grantee") => {}
-            other => {
-                return Err(format!(
-                    "receiver expected non-grantee reject, got {other:?}"
-                ))
-            }
+    match receiver.accept_entry(forged) {
+        AcceptOutcome::Reject {
+            reason: mutation_log::RejectReason::Unauthorized(msg),
+        } if msg.contains("non-grantee") => {}
+        other => {
+            return Err(format!(
+                "receiver expected non-grantee reject, got {other:?}"
+            ))
         }
     }
-    Ok("AcceptEntry Reject Unauthorized(non-grantee); relay stored grant-blind".into())
+    Ok(
+        "relay 403 for non-grantee append+read; AcceptEntry Reject Unauthorized(non-grantee)"
+            .into(),
+    )
 }

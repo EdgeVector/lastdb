@@ -1,4 +1,4 @@
-//! DEV CI proofs for Phase 1 signed history against grant-blind `reference_relay`.
+//! DEV CI proofs for Phase 1 signed history against grant-gating `reference_relay`.
 //!
 //! Exit 0 only when every scenario prints PASS. No AWS/IAM/secrets.
 

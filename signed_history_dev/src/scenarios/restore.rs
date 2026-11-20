@@ -1,8 +1,11 @@
-//! D. Bootstrap on A, upload all, restore_from_relay on B, FoldDB holds winners.
+//! D. Bootstrap on A (with a read grant for B), upload all, restore_from_relay on B,
+//! FoldDB holds winners.
 
 use std::path::Path;
 
-use mutation_log::{bootstrap_from_records, BootstrapParams, BootstrapRecord};
+use mutation_log::{
+    bootstrap_from_records, BootstrapGrant, BootstrapParams, BootstrapRecord, Grantee, Role,
+};
 
 use signed_history_client::{restore_from_relay, RestoreRequest, StreamRef};
 use signed_history_materialize::encode_string_field;
@@ -13,6 +16,7 @@ use crate::relay::{RelayClient, RelayHandle};
 
 pub async fn run(relay: &RelayHandle, store_dir: &Path) -> Result<String, String> {
     let owner = Device::generate();
+    let reader = Device::generate();
     let birth = DbBirth::generate(owner.node_key);
     let t0 = now_ms();
     let records = [
@@ -36,7 +40,10 @@ pub async fn run(relay: &RelayHandle, store_dir: &Path) -> Result<String, String
         birth_signature: birth.birth_signature.clone(),
         authored_at_ms: t0,
         records: &records,
-        grants: &[],
+        grants: &[BootstrapGrant {
+            grantee: Grantee::Member(reader.node_key),
+            role: Role::Read,
+        }],
     })
     .map_err(|e| e.to_string())?;
 
@@ -45,7 +52,6 @@ pub async fn run(relay: &RelayHandle, store_dir: &Path) -> Result<String, String
     client.append(&db, &boot.entries).await?;
 
     // Same restore path as CLI: page from seq 1 through AcceptEntry.
-    let reader = Device::generate();
     let report = restore_from_relay(RestoreRequest {
         relay_url: relay.base_url.clone(),
         signing_key: reader.signing_key.clone(),

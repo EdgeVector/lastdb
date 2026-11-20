@@ -78,7 +78,7 @@ jobs:
           {
             echo "## Signed history DEV proofs"
             echo "Source: $GITHUB_SHA"
-            echo "Grant-blind reference_relay only. No AWS/IAM/secrets."
+            echo "Grant-gating reference_relay only. No AWS/IAM/secrets."
             echo "Scenarios: forge_reject, revoke_cutoff, converge, restore_replay, nongrantee_reject, blob_perf."
             echo "converge and restore_replay also check real FoldDB records after replay."
             if [[ -f "${RUNNER_TEMP}/signed-history-dev/summary.json" ]]; then

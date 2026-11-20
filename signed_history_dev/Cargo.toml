@@ -4,7 +4,7 @@ name = "signed_history_dev"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
-description = "DEV CI proofs for Phase 1 signed history against the grant-blind reference_relay."
+description = "DEV CI proofs for Phase 1 signed history against the grant-gating reference_relay."
 
 [lints]
 workspace = true

@@ -13,7 +13,7 @@ use std::path::Path;
 use crate::relay::RelayHandle;
 use crate::report::{ScenarioResult, ScenarioRun};
 
-/// Run every scenario against the (grant-blind) reference relay.
+/// Run every scenario against the grant-gating reference relay.
 pub async fn run_all(relay: &RelayHandle, blob_bytes: u64, work: &Path) -> Vec<ScenarioResult> {
     let mut out = Vec::with_capacity(7);
     out.push(run_named("forge_reject", forge::run(relay)).await);

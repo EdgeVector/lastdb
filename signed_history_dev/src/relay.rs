@@ -1,4 +1,4 @@
-//! Grant-blind HTTP client and optional child-process spawn for reference_relay.
+//! HTTP client and optional child-process spawn for reference_relay.
 
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};

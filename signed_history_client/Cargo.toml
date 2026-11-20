@@ -4,7 +4,7 @@ name = "signed_history_client"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
-description = "Grant-blind relay HTTP client and signed-history restore (seq 1 → AcceptEntry)."
+description = "Relay HTTP client and signed-history restore (seq 1 → AcceptEntry)."
 
 [lints]
 workspace = true
