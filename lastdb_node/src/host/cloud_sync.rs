@@ -5,7 +5,7 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
-use tokio::sync::{futures::Notified, Notify};
+use tokio::sync::Notify;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub(crate) struct CloudSyncStatus {
@@ -33,36 +33,11 @@ pub(crate) struct UploadSyncStatus {
     pub(crate) last_error: Option<String>,
 }
 
-/// Position in the database's cloud delivery sequence.
+/// Local applied tip for signed-history pull (stream writer_seq).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
 pub(crate) struct DownloadSyncStatus {
     pub(crate) applied_through: Option<u64>,
     pub(crate) last_error: Option<String>,
-    pub(crate) blocked: Option<BlockedDelivery>,
-}
-
-/// A specific delivery refusing replay while the local cursor stays behind it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-pub(crate) struct BlockedDelivery {
-    pub(crate) delivery_sequence: u64,
-    pub(crate) reason: ReplayBlockReason,
-}
-
-/// The local rule preventing a delivered mutation from being acknowledged.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum ReplayBlockReason {
-    SchemaConflict,
-    MissingEarlierRecord,
-}
-
-impl ReplayBlockReason {
-    pub(crate) fn message(self) -> &'static str {
-        match self {
-            Self::SchemaConflict => "a local schema change or write awaits ordered replay",
-            Self::MissingEarlierRecord => "replay lacks the earlier accepted record",
-        }
-    }
 }
 
 pub(crate) struct CloudSyncTracker {
@@ -90,33 +65,6 @@ impl CloudSyncTracker {
         self.wake_notify.notify_one();
     }
 
-    pub(crate) fn notified(&self) -> Notified<'_> {
-        self.wake_notify.notified()
-    }
-
-    pub(crate) fn refresh(&self, home: &Path, captures_accepted: bool) {
-        let (connected, environment, cred_err) = read_home_connection(home);
-        let mut guard = self.lock();
-        if guard.environment != environment {
-            guard.databases.clear();
-        }
-        guard.connected = connected;
-        guard.environment = environment;
-        guard.captures_accepted = captures_accepted;
-        if let Some(err) = cred_err {
-            guard.last_error = Some(err);
-        } else if !connected {
-            guard.payment_hold = false;
-            guard.last_error = None;
-        }
-    }
-
-    pub(crate) fn record_payment_hold(&self) {
-        let mut guard = self.lock();
-        guard.payment_hold = true;
-        guard.last_error = Some(crate::cloud::PAYMENT_REQUIRED_MESSAGE.to_owned());
-    }
-
     pub(crate) fn record_error(&self, error: impl Into<String>) {
         let message = error.into();
         let mut guard = self.lock();
@@ -124,71 +72,6 @@ impl CloudSyncTracker {
             guard.payment_hold = true;
         }
         guard.last_error = Some(message);
-    }
-
-    pub(crate) fn record_healthy(&self) {
-        let mut guard = self.lock();
-        guard.payment_hold = false;
-        guard.last_error = None;
-    }
-
-    pub(crate) fn retain_databases(&self, keep: impl Fn(&str) -> bool) {
-        self.lock().databases.retain(|id, _| keep(id));
-    }
-
-    pub(crate) fn record_upload(
-        &self,
-        database_id: &str,
-        head: u64,
-        confirmed: u64,
-        error: Option<&str>,
-    ) {
-        self.lock()
-            .databases
-            .entry(database_id.to_owned())
-            .or_default()
-            .upload = UploadSyncStatus {
-            spool_head: Some(head),
-            spool_confirmed_through: Some(confirmed),
-            last_error: error.map(str::to_owned),
-        };
-    }
-
-    pub(crate) fn record_upload_error(&self, database_id: &str, error: &str) {
-        self.lock()
-            .databases
-            .entry(database_id.to_owned())
-            .or_default()
-            .upload
-            .last_error = Some(error.to_owned());
-    }
-
-    pub(crate) fn record_download(
-        &self,
-        database_id: &str,
-        through: u64,
-        error: Option<String>,
-        blocked: Option<BlockedDelivery>,
-    ) {
-        self.lock()
-            .databases
-            .entry(database_id.to_owned())
-            .or_default()
-            .download = DownloadSyncStatus {
-            applied_through: Some(through),
-            last_error: error,
-            blocked,
-        };
-    }
-
-    pub(crate) fn clear_payment_hold(&self) {
-        let mut guard = self.lock();
-        if guard.payment_hold {
-            guard.payment_hold = false;
-            if guard.last_error.as_deref() == Some(crate::cloud::PAYMENT_REQUIRED_MESSAGE) {
-                guard.last_error = None;
-            }
-        }
     }
 
     pub(crate) fn snapshot(&self) -> CloudSyncStatus {

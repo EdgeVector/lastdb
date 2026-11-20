@@ -55,7 +55,6 @@ jobs:
           scripts/operations/*.py
           scripts/benchmarks/*.py
           scripts/cloud_backup/*.py
-          scripts/mutation_log_load/*.py
           scripts/release/*.py
           scripts/ci/*.py
       - name: No build-artifact blobs in tree

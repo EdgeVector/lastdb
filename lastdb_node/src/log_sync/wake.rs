@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use crate::cloud::{FIRST_BACKUP_INTENT, FIRST_BACKUP_INTENT_FILE};
+use crate::cloud::{SIGNED_HISTORY_INTENT, SIGNED_HISTORY_INTENT_FILE};
 use crate::offline_home::Directory;
 use crate::profile::private_fs as disk;
 
@@ -26,7 +26,7 @@ pub(super) fn consume_wake(home: &Path) -> bool {
 }
 
 /// Record that this home should bootstrap signed history on next sync.
-pub fn publish_first_backup_intent(dir: &Directory) -> Result<(), String> {
-    dir.publish(FIRST_BACKUP_INTENT_FILE, None, FIRST_BACKUP_INTENT)
+pub fn publish_signed_history_intent(dir: &Directory) -> Result<(), String> {
+    dir.publish(SIGNED_HISTORY_INTENT_FILE, None, SIGNED_HISTORY_INTENT)
         .map_err(|error| error.to_string())
 }

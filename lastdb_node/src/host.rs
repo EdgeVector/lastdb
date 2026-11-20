@@ -22,9 +22,7 @@ pub(crate) mod ops;
 pub(crate) mod owned;
 mod recovery;
 pub(crate) mod share_identity;
-pub(crate) use cloud_sync::{BlockedDelivery, ReplayBlockReason};
 pub use logging::init_daemon_logging;
-pub(crate) use logging::publish_category_allowed;
 
 const SHUTDOWN_FLUSH_READY_FILE: &str = ".shutdown_flush_ready";
 
@@ -116,7 +114,7 @@ impl Host {
         let has_spool = !signed_restore
             && fold_db::storage::disk_backup::accepted::has_spool(&data_dir)
                 .map_err(|e| recovery::map_and_record_boot_error(home, existing, e))?;
-        let wants_bootstrap = !signed_restore && crate::cloud::first_backup_intent(home);
+        let wants_bootstrap = !signed_restore && crate::cloud::signed_history_intent(home);
         let creds_at_boot = has_cloud_credentials(home);
         let connected = !signed_restore && (!has_spool || wants_bootstrap) && creds_at_boot;
         let opts = fold_db::fold_db_core::factory::FoldDbOptions {

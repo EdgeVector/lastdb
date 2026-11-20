@@ -305,42 +305,6 @@ fn protocol_code(code: &ErrorCode) -> String {
         .unwrap_or_else(|| "invalid_input".into())
 }
 
-/// The member-write map on the statement this publisher just confirmed.
-///
-/// The caller holds the member lock. This does not take that lock: the lock
-/// is not re-entrant. The read is `POST /api/cloud/backups/v2/share/members/settings/get`.
-/// `exchange::get_settings` accepts the body only when this publisher's
-/// signature verifies. No stored statement is a confirmed empty map. A failed
-/// read is unconfirmed. The caller must not treat that failure as `owner_only`
-/// and must not discard a proposal because of it.
-pub(crate) async fn confirmed_member_writes(
-    home: &Path,
-    database_id: &str,
-) -> Result<BTreeMap<String, MemberWriteBehaviour>, String> {
-    let session = open(home)
-        .await
-        .map_err(|_| "share settings are unconfirmed".to_owned())?;
-    let current = exchange::get_settings(&session, database_id)
-        .await
-        .map_err(|_| "share settings are unconfirmed".to_owned())?;
-    Ok(settings::writes(current.as_ref()))
-}
-
-/// Hold the member lock and read one member's entry, verified as this
-/// publisher's own. The lock keeps the entry current through a member commit.
-pub(crate) async fn lock_member(
-    home: &Path,
-    database_id: &str,
-    node: &Digest,
-) -> Result<(std::fs::File, Option<MemberEntry>), ConfigError> {
-    let lock = lock::hold(home, database_id).map_err(|_| ConfigError::Unconfirmed)?;
-    let session = open(home).await?;
-    let (_, entry) = exchange::get(&session, database_id, node)
-        .await
-        .map_err(|error| cloud_failure(home, database_id, &error))?;
-    Ok((lock, entry))
-}
-
 pub(super) async fn open(home: &Path) -> Result<PublisherSession, ConfigError> {
     PublisherSession::open(home).await.map_err(|error| {
         if super::cloud_state::no_cloud_account(home) {

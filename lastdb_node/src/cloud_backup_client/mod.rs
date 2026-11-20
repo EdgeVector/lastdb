@@ -1,14 +1,13 @@
 //! HTTPS client, shared runtime connection pooling, and bounded storage transport.
-use cloud_backup_protocol::{bytes_sha256, Digest, ErrorCode, ProtocolError};
+use cloud_backup_protocol::{ErrorCode, ProtocolError};
 use futures::StreamExt;
 use reqwest::{header::HeaderMap, Client, Url};
 use serde::de::DeserializeOwned;
 use std::{
     fmt,
     sync::{Arc, Mutex},
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::Duration,
 };
-use tokio::sync::OwnedSemaphorePermit;
 
 mod guest_permission;
 mod signed_blob;
@@ -16,7 +15,6 @@ mod signed_blob;
 pub(crate) use guest_permission::{
     authorization_post, GuestReadPermission, PathPostTarget, ShareEnvironment,
 };
-pub(crate) use signed_blob::BlobUploadTarget;
 pub use signed_blob::{canonical_backup_endpoint, SignedBlobClient};
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
@@ -99,7 +97,6 @@ pub enum BackupTransportError {
     Transport,
     Http(u16),
     InvalidResponse(&'static str),
-    Integrity(&'static str),
 }
 
 impl From<ProtocolError> for BackupTransportError {
@@ -125,7 +122,6 @@ impl fmt::Display for BackupTransportError {
             Self::Transport => f.write_str("native backup transport failed"),
             Self::Http(s) => write!(f, "native backup HTTP status {s}"),
             Self::InvalidResponse(s) => write!(f, "native backup invalid response: {s}"),
-            Self::Integrity(s) => write!(f, "native backup byte integrity: {s}"),
         }
     }
 }
@@ -171,19 +167,11 @@ pub async fn read_bounded_bytes(
     Ok(body)
 }
 
-struct PresignedPut<'a> {
-    sha256: &'a Digest,
-    bytes: u64,
-    grant_url: &'a str,
-    expires_ms: u64,
-}
-
 #[derive(Clone)]
 struct BackupTransport {
     auth: AuthClient,
     http: Client,
     base: Url,
-    uploads: Arc<tokio::sync::Semaphore>,
 }
 
 impl BackupTransport {
@@ -193,13 +181,7 @@ impl BackupTransport {
             return Err(BackupTransportError::Configuration("endpoint"));
         }
         let http = build_storage_http_client()?;
-        let streams = fold_db::storage_policy::BACKUP_RESOURCES.concurrent_streams;
-        Ok(Self {
-            auth,
-            http,
-            base,
-            uploads: Arc::new(tokio::sync::Semaphore::new(streams)),
-        })
+        Ok(Self { auth, http, base })
     }
 
     fn api_endpoint(&self, operation: &str) -> Url {
@@ -249,86 +231,4 @@ impl BackupTransport {
         .await
         .map_err(|_| BackupTransportError::Timeout)?
     }
-
-    async fn put_presigned(&self, put: &PresignedPut<'_>, data: Vec<u8>) -> TransportResult<()> {
-        let (url, if_none_match) = upload_url(put.grant_url)?;
-        if data.len() as u64 != put.bytes || bytes_sha256(&data) != *put.sha256 {
-            return Err(BackupTransportError::Integrity("upload source"));
-        }
-        let (deadline, _permit) = self.acquire(put.bytes, put.expires_ms).await?;
-        let mut req = self
-            .http
-            .put(url)
-            .header(reqwest::header::CONTENT_LENGTH, put.bytes);
-        if if_none_match {
-            req = req.header(reqwest::header::IF_NONE_MATCH, "*");
-        }
-        let resp = tokio::time::timeout_at(deadline, req.body(data).send())
-            .await
-            .map_err(|_| BackupTransportError::Timeout)?
-            .map_err(|_| BackupTransportError::Transport)?;
-        match resp.status() {
-            s if s.is_success() || s == reqwest::StatusCode::PRECONDITION_FAILED => Ok(()),
-            s => Err(BackupTransportError::Http(s.as_u16())),
-        }
-    }
-
-    async fn acquire(
-        &self,
-        bytes: u64,
-        expires_ms: u64,
-    ) -> TransportResult<(tokio::time::Instant, OwnedSemaphorePermit)> {
-        let deadline = tokio::time::Instant::now() + transfer_timeout(bytes, expires_ms)?;
-        let permit = tokio::time::timeout_at(deadline, Arc::clone(&self.uploads).acquire_owned())
-            .await
-            .map_err(|_| BackupTransportError::Timeout)?
-            .map_err(|_| BackupTransportError::Transport)?;
-        Ok((deadline, permit))
-    }
-}
-
-fn signed_headers(url: &Url) -> TransportResult<String> {
-    let mut it = url
-        .query_pairs()
-        .filter(|(k, _)| k.eq_ignore_ascii_case("x-amz-signedheaders"));
-    if let (Some((_, h)), None) = (it.next(), it.next()) {
-        Ok(h.into_owned())
-    } else {
-        Err(BackupTransportError::InvalidResponse("signed headers"))
-    }
-}
-
-fn upload_url(value: &str) -> TransportResult<(Url, bool)> {
-    let url = https(value)?;
-    let if_none_match = match signed_headers(&url)?.as_str() {
-        "content-length;host;if-none-match" => true,
-        "content-length;host" => false,
-        _ => return Err(BackupTransportError::InvalidResponse("signed headers")),
-    };
-    if url
-        .query_pairs()
-        .any(|(k, _)| k == "uploadId" || k == "partNumber")
-    {
-        return Err(BackupTransportError::InvalidResponse("upload operation"));
-    }
-    Ok((url, if_none_match))
-}
-
-fn transfer_timeout(bytes: u64, expires_ms: u64) -> TransportResult<Duration> {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(|_| BackupTransportError::Configuration("clock"))?
-        .as_millis();
-    let rem = u128::from(expires_ms)
-        .checked_sub(now)
-        .and_then(|ms| u64::try_from(ms / 1000).ok())
-        .filter(|&s| s > 0)
-        .ok_or(BackupTransportError::Timeout)?;
-    usize::try_from(bytes).map_err(|_| BackupTransportError::Configuration("platform size"))?;
-    let timeout = Duration::from_secs(300.max(30u64.saturating_add(bytes.div_ceil(256 * 1024))));
-    let (exp, max) = (
-        Duration::from_secs(rem),
-        Duration::from_secs(rem.saturating_sub(30)),
-    );
-    Ok(timeout.min(if max.is_zero() { exp } else { max }))
 }

@@ -75,7 +75,7 @@ pub(super) fn run(home: &Path, args: BackupRestoreArgs) -> Result<(), String> {
     print_backup(
         &serde_json::json!({
             "ok": true, "database_id": database, "name": restored.name,
-            "through_delivery_seq": restored.through,
+            "through": restored.through,
             "replayed": restored.replayed,
             "destination": destination,
         }),

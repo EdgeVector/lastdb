@@ -2,7 +2,7 @@
 use super::setup::{canonical_backup_endpoint, encode_connected_credentials, PHRASE_FILE};
 use cloud_backup_protocol::AccountId;
 use lastdb_node::cloud::{
-    SavedCredentials, CLOUD_CREDENTIALS_FILE, FIRST_BACKUP_INTENT, FIRST_BACKUP_INTENT_FILE,
+    SavedCredentials, CLOUD_CREDENTIALS_FILE, SIGNED_HISTORY_INTENT, SIGNED_HISTORY_INTENT_FILE,
 };
 use lastdb_node::offline_home::{
     dir_entry_names, entry_present, open_directory, open_private_at, read_identity_seed_at,
@@ -208,17 +208,17 @@ impl PreparedHome {
         self.sync()
     }
 
-    pub(super) fn mark_first_backup(&self) -> Result<(), String> {
-        if !entry_present(&self.directory, FIRST_BACKUP_INTENT_FILE)? {
-            self.write_new(FIRST_BACKUP_INTENT_FILE, FIRST_BACKUP_INTENT)?;
+    pub(super) fn mark_signed_history_intent(&self) -> Result<(), String> {
+        if !entry_present(&self.directory, SIGNED_HISTORY_INTENT_FILE)? {
+            self.write_new(SIGNED_HISTORY_INTENT_FILE, SIGNED_HISTORY_INTENT)?;
         }
         let bytes = read_private_file(
             &self.directory,
-            FIRST_BACKUP_INTENT_FILE,
-            FIRST_BACKUP_INTENT.len() as u64,
+            SIGNED_HISTORY_INTENT_FILE,
+            SIGNED_HISTORY_INTENT.len() as u64,
         )?;
-        if bytes != FIRST_BACKUP_INTENT {
-            return Err("invalid first backup intent".into());
+        if bytes != SIGNED_HISTORY_INTENT {
+            return Err("invalid signed-history intent".into());
         }
         self.sync()
     }

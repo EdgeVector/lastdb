@@ -22,7 +22,7 @@ use cloud_backup_protocol::Digest;
 use fold_db::schema::types::Schema;
 
 pub use spawn::spawn;
-pub use wake::{ensure_wake, publish_first_backup_intent, request_wake};
+pub use wake::{ensure_wake, publish_signed_history_intent, request_wake};
 
 /// No-op: snapshot native recovery is retired. Restore uses signed history.
 pub fn install_prepared_native_recovery(_home: &std::path::Path) -> Result<bool, String> {
