@@ -14,7 +14,7 @@ use std::path::Path;
 
 mod store;
 
-pub(crate) use store::{content_material, receiver_store};
+pub(crate) use store::receiver_store;
 
 pub(crate) const REGISTRY_LOCK: &str = "registry.lock";
 /// Sync writes this when the publisher has no snapshot, so replay may open an empty store.

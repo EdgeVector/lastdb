@@ -16,7 +16,7 @@ pub async fn run(relay: &RelayHandle) -> Result<String, String> {
     let good = owner_write(
         &mut history,
         &owner,
-        DataWrite {
+        &DataWrite {
             database_id: birth.database_id,
             namespace: "demo",
             record_key: "k1",

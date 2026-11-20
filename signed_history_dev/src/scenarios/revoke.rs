@@ -95,7 +95,7 @@ fn accept_member_write(
         &mut member_hist,
         member,
         grant,
-        DataWrite {
+        &DataWrite {
             database_id,
             namespace: "demo",
             record_key: "row",
@@ -123,7 +123,7 @@ async fn reject_post_cutoff(
         member_view,
         member,
         grant,
-        DataWrite {
+        &DataWrite {
             database_id,
             namespace: "demo",
             record_key: "row",
@@ -133,7 +133,7 @@ async fn reject_post_cutoff(
     )?;
     let client = RelayClient::new(&relay.base_url, member);
     client
-        .append(&database_id.to_hex(), &[post.clone()])
+        .append(&database_id.to_hex(), std::slice::from_ref(&post))
         .await?;
     expect_cutoff(must_reject(history, post)?)
 }
@@ -155,7 +155,7 @@ fn reject_new_device_cutoff(
         member_view,
         &member_new,
         grant,
-        DataWrite {
+        &DataWrite {
             database_id,
             namespace: "demo",
             record_key: "row",

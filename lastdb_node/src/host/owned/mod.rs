@@ -18,9 +18,7 @@ use crate::profile::PublicationSpec;
 mod registry;
 mod store;
 
-pub(crate) use registry::{
-    find_shareable, registered_databases, registry_claims, validate_create, RegisteredDatabase,
-};
+pub(crate) use registry::{find_shareable, registered_databases, registry_claims, validate_create};
 
 /// AES content key for one owned sibling. Callers must not treat this as a
 /// signing seed.

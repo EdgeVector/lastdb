@@ -22,10 +22,7 @@ use std::path::Path;
 use std::sync::Arc;
 use zeroize::Zeroizing;
 
-pub(crate) use config::{
-    cloud_failure, confirmed_member_writes, lock_member, read_config, set_config, ConfigError,
-    ConfigUpdate,
-};
+pub(crate) use config::{cloud_failure, read_config, set_config, ConfigError, ConfigUpdate};
 
 /// What the publisher wants the member row to become.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

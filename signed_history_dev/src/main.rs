@@ -59,12 +59,11 @@ async fn run() -> Result<bool, String> {
     if work.starts_with(shellexpand_home_lastdb()) {
         return Err("refusing work-dir under ~/.lastdb".into());
     }
-    let relay = match cli.relay_url {
-        Some(url) => RelayHandle::connect(url),
-        None => {
-            let data_dir = work.join("relay-data");
-            RelayHandle::spawn(&cli.relay_bin, data_dir)?
-        }
+    let relay = if let Some(url) = cli.relay_url.as_deref() {
+        RelayHandle::connect(url)
+    } else {
+        let data_dir = work.join("relay-data");
+        RelayHandle::spawn(&cli.relay_bin, data_dir)?
     };
     println!("relay_url {}", relay.base_url);
     println!("blob_bytes {}", cli.blob_bytes);
@@ -84,8 +83,6 @@ async fn run() -> Result<bool, String> {
 }
 
 fn shellexpand_home_lastdb() -> PathBuf {
-    let home = std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("/"));
+    let home = std::env::var_os("HOME").map_or_else(|| PathBuf::from("/"), PathBuf::from);
     home.join(".lastdb")
 }

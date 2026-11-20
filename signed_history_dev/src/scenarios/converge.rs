@@ -18,7 +18,7 @@ pub async fn run(relay: &RelayHandle) -> Result<String, String> {
     let entry_a = owner_write(
         &mut hist_a,
         &owner_a,
-        DataWrite {
+        &DataWrite {
             database_id: birth.database_id,
             namespace: "demo",
             record_key: "from_a",
@@ -32,7 +32,7 @@ pub async fn run(relay: &RelayHandle) -> Result<String, String> {
     let entry_b = owner_write(
         &mut hist_b,
         &owner_b,
-        DataWrite {
+        &DataWrite {
             database_id: birth.database_id,
             namespace: "demo",
             record_key: "from_b",
@@ -47,7 +47,7 @@ pub async fn run(relay: &RelayHandle) -> Result<String, String> {
         .append(&db, &[birth_entry.clone(), entry_a.clone()])
         .await?;
     let client_b = RelayClient::new(&relay.base_url, &owner_b);
-    client_b.append(&db, &[entry_b.clone()]).await?;
+    client_b.append(&db, std::slice::from_ref(&entry_b)).await?;
 
     for e in client
         .read(

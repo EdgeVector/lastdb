@@ -98,8 +98,7 @@ pub struct DataWrite<'a> {
 pub fn now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
+        .map_or(0, |d| d.as_millis() as u64)
 }
 
 pub fn nonce_hex() -> String {
@@ -163,7 +162,7 @@ pub fn bootstrap_owner(
 pub fn owner_write(
     history: &mut VerifiedHistory,
     owner: &Device,
-    write: DataWrite<'_>,
+    write: &DataWrite<'_>,
 ) -> Result<SignedEntry, String> {
     let head = stream_head_of(history, owner);
     let ctx = owner.author_ctx(
@@ -222,7 +221,7 @@ pub fn member_write(
     history: &mut VerifiedHistory,
     member: &Device,
     grant: &SignedEntry,
-    write: DataWrite<'_>,
+    write: &DataWrite<'_>,
 ) -> Result<SignedEntry, String> {
     let entry = author_member_write(history, member, grant, write)?;
     must_accept(history, entry.clone())?;
@@ -234,7 +233,7 @@ pub fn author_member_write(
     history: &VerifiedHistory,
     member: &Device,
     grant: &SignedEntry,
-    write: DataWrite<'_>,
+    write: &DataWrite<'_>,
 ) -> Result<SignedEntry, String> {
     let grant_hash = entry_hash(grant).map_err(|e| e.to_string())?;
     let grant_hdr = grant.header();

@@ -27,7 +27,7 @@ pub async fn run(relay: &RelayHandle) -> Result<String, String> {
         &history,
         &stranger,
         &grant,
-        DataWrite {
+        &DataWrite {
             database_id: birth.database_id,
             namespace: "demo",
             record_key: "sneak",
@@ -38,7 +38,7 @@ pub async fn run(relay: &RelayHandle) -> Result<String, String> {
 
     let client = RelayClient::new(&relay.base_url, &stranger);
     let db = birth.database_id.to_hex();
-    client.append(&db, &[forged.clone()]).await?;
+    client.append(&db, std::slice::from_ref(&forged)).await?;
 
     let reason = must_reject(&mut history, forged.clone())?;
     match &reason {

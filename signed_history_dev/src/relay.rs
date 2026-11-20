@@ -21,7 +21,7 @@ pub struct RelayHandle {
 
 impl RelayHandle {
     /// Connect to an already-running relay.
-    pub fn connect(url: String) -> Self {
+    pub fn connect(url: &str) -> Self {
         Self {
             base_url: url.trim_end_matches('/').to_owned(),
             child: None,
