@@ -1772,7 +1772,6 @@ dependencies = [
  "serde",
  "sha2 0.10.9",
  "thiserror 1.0.69",
- "uuid",
 ]
 
 [[package]]
@@ -2139,11 +2138,11 @@ dependencies = [
  "base64",
  "clap",
  "hmac 0.12.1",
+ "mutation_log",
  "serde",
  "serde_json",
  "sha2 0.10.9",
  "tokio",
- "uuid",
 ]
 
 [[package]]
@@ -2688,7 +2687,6 @@ dependencies = [
  "signed_history_client",
  "signed_history_materialize",
  "tokio",
- "uuid",
 ]
 
 [[package]]
@@ -2698,6 +2696,28 @@ dependencies = [
  "fold_db",
  "mutation_log",
  "serde_json",
+ "uuid",
+]
+
+[[package]]
+name = "signed_history_relay_e2e"
+version = "0.1.0"
+dependencies = [
+ "aes-gcm",
+ "app_identity_crypto",
+ "base64",
+ "bytes",
+ "clap",
+ "fold_db",
+ "futures",
+ "hkdf",
+ "mutation_log",
+ "rand 0.8.8",
+ "reqwest 0.12.28",
+ "serde_json",
+ "sha2 0.10.9",
+ "signed_history_materialize",
+ "tokio",
  "uuid",
 ]
 

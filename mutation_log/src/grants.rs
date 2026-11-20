@@ -47,6 +47,11 @@ impl GrantState {
             .filter(|r| *r != Role::Revoked)
     }
 
+    /// Active members and their roles, ascending by node key. Revoked keys are absent.
+    pub fn members(&self) -> impl Iterator<Item = (NodeKey, Role)> + '_ {
+        self.members.iter().map(|(key, role)| (*key, *role))
+    }
+
     /// Public-read role when `any` is granted.
     #[must_use]
     pub fn any_role(&self) -> Option<Role> {

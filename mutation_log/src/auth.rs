@@ -1,10 +1,59 @@
 //! Publisher authorization and grant-window checks (AcceptEntry step 6).
 
 use crate::accept::RejectReason;
-use crate::entry::{DataBody, EntryHeader, SignedEntry};
+use crate::entry::{BundleBody, DataBody, EntryHeader, SignedEntry};
 use crate::grants::{past_cutoff, AcceptedMeta, GrantState};
 use crate::ids::{DeviceId, EntryHash, NodeKey};
 use crate::kinds::{Role, StreamKind};
+
+/// Authorize a bundle entry (direct write / grant window / cutoffs like data).
+pub fn authorize_bundle<'s>(
+    entry: &SignedEntry,
+    body: &BundleBody,
+    owner: Option<NodeKey>,
+    grants: &GrantState,
+    lookup: &dyn Fn(&EntryHash) -> Option<&'s AcceptedMeta>,
+) -> Option<RejectReason> {
+    let h = entry.header();
+    if owner == Some(h.node_key) {
+        if body.grant_at_device.is_some() || body.grant_at_seq.is_some() {
+            return Some(RejectReason::Malformed(
+                "publisher bundle must omit grant_at",
+            ));
+        }
+        return None;
+    }
+    let Some(grant_device) = body.grant_at_device else {
+        return Some(RejectReason::Unauthorized(
+            "member bundle requires grant_at",
+        ));
+    };
+    let Some(grant_seq) = body.grant_at_seq else {
+        return Some(RejectReason::Unauthorized(
+            "member bundle requires grant_at",
+        ));
+    };
+    if !seen_names_grant(&h.seen_heads, grant_device, grant_seq, lookup) {
+        return Some(RejectReason::Unauthorized(
+            "grant_at must name a publisher grant in seen_heads",
+        ));
+    }
+    let window = GrantState::fold_window_from_seen(&h.seen_heads, |hash| lookup(hash));
+    match window.role_of(&h.node_key) {
+        Some(Role::Write) => {}
+        Some(_) => {
+            return Some(RejectReason::Unauthorized(
+                "member bundle requires write role at grant window",
+            ))
+        }
+        None => {
+            return Some(RejectReason::Unauthorized(
+                "non-grantee bundle write rejected",
+            ))
+        }
+    }
+    check_cutoff(h, grants)
+}
 
 /// Authorize a data entry using the entry's `seen_heads` and S cutoffs.
 pub fn authorize_data<'s>(

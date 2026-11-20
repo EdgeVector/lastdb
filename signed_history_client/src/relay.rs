@@ -1,4 +1,4 @@
-//! Grant-blind HTTP client for `/relay/v1/log/*`.
+//! HTTP client for `/relay/v1/log/*`.
 
 use app_identity_crypto::{hex_lower, sign, SigningKey};
 use base64::Engine as _;
@@ -29,7 +29,7 @@ impl RelayClient {
             signing_key,
             node_key_hex: node_key_hex.into(),
             device_id: device_id.into(),
-            // trace-egress: public — grant-blind relay; node key only in signed headers.
+            // trace-egress: public — relay gates by grants; node key only in signed headers.
             http: reqwest::Client::new(),
         }
     }
@@ -44,7 +44,9 @@ impl RelayClient {
             "database_id": database_id,
             "entries": entries,
         });
-        let value = self.post("/relay/v1/log/append", &body).await?;
+        let value = self
+            .post("/relay/v1/log/append", database_id, &body)
+            .await?;
         Ok((
             value["stored"].as_u64().unwrap_or(0),
             value["duplicate"].as_u64().unwrap_or(0),
@@ -67,19 +69,20 @@ impl RelayClient {
             "from_seq": from_seq,
             "limit": limit,
         });
-        let value = self.post("/relay/v1/log/read", &body).await?;
+        let value = self.post("/relay/v1/log/read", database_id, &body).await?;
         let entries: Vec<SignedEntry> = serde_json::from_value(value["entries"].clone())
             .map_err(|_| "relay log.read returned invalid entries".to_owned())?;
         let cursor = value["cursor"].as_str().map(str::to_owned);
         Ok((entries, cursor))
     }
 
-    async fn post(&self, path: &str, body: &Value) -> Result<Value, String> {
+    async fn post(&self, path: &str, database_id: &str, body: &Value) -> Result<Value, String> {
         let raw = serde_json::to_vec(body).map_err(|_| "cannot encode relay body")?;
         let headers = sign_headers(
             &self.signing_key,
             &self.node_key_hex,
             &self.device_id,
+            database_id,
             path,
             &raw,
         )?;
@@ -108,21 +111,24 @@ fn sign_headers(
     key: &SigningKey,
     node_key_hex: &str,
     device_id: &str,
+    database_id: &str,
     path: &str,
     body: &[u8],
 ) -> Result<Vec<(&'static str, String)>, String> {
     let issued_at = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map_or_else(|_| "0".into(), |d| d.as_millis().to_string());
+        .map_or_else(|_| "0".into(), |d| d.as_secs().to_string());
     let nonce = hex_lower(&rand_32());
     let body_hash = hex_lower(&Sha256::digest(body));
-    let message =
-        format!("POST\n{path}\n1\n{node_key_hex}\n{device_id}\n{issued_at}\n{nonce}\n{body_hash}");
+    let message = format!(
+        "POST\n{path}\n1\n{node_key_hex}\n{database_id}\n{body_hash}\n{issued_at}\n{nonce}"
+    );
     let sig = sign(key, message.as_bytes());
     let signature = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(sig);
     Ok(vec![
         ("X-LastDB-Relay-Protocol", "1".into()),
         ("X-LastDB-Node-Key", node_key_hex.to_owned()),
+        ("X-LastDB-Database-Id", database_id.to_owned()),
         ("X-LastDB-Device-Id", device_id.to_owned()),
         ("X-LastDB-Issued-At", issued_at),
         ("X-LastDB-Nonce", nonce),

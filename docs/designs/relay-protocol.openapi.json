@@ -640,7 +640,10 @@
         "required": true,
         "schema": {
           "type": "string",
-          "format": "uuid"
+          "pattern": "^[0-9a-f]{64}$",
+          "minLength": 64,
+          "maxLength": 64,
+          "description": "Hex32 device stream id (32 bytes)"
         }
       },
       "IssuedAt": {
@@ -650,7 +653,8 @@
         "schema": {
           "type": "string",
           "pattern": "^[0-9]+$",
-          "maxLength": 20
+          "maxLength": 20,
+          "description": "Unix seconds"
         }
       },
       "Nonce": {
@@ -772,7 +776,9 @@
           },
           "device_id": {
             "type": "string",
-            "format": "uuid"
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
           },
           "writer_seq": {
             "type": "integer",
@@ -922,7 +928,9 @@
           },
           "device_id": {
             "type": "string",
-            "format": "uuid"
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
           },
           "from_seq": {
             "type": "integer",

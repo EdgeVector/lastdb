@@ -3,10 +3,18 @@
 use std::path::Path;
 
 use mutation_log::DeviceId;
+use rand::RngCore;
 
 use crate::profile::private_fs as disk;
 
 const LIMIT: usize = 4096;
+
+/// Fresh random 32-byte device stream id.
+pub(super) fn random_device_id() -> DeviceId {
+    let mut bytes = [0u8; 32];
+    rand::thread_rng().fill_bytes(&mut bytes);
+    DeviceId::from_bytes(bytes)
+}
 
 pub(super) fn device_id(home: &Path) -> Result<DeviceId, String> {
     let path = home.join("log-sync").join("device-id");
@@ -14,11 +22,10 @@ pub(super) fn device_id(home: &Path) -> Result<DeviceId, String> {
         let text = std::str::from_utf8(&bytes)
             .map_err(|_| "device id is not text")?
             .trim();
-        return DeviceId::parse(text).map_err(|_| "device id is not a UUID".into());
+        return DeviceId::parse(text).map_err(|_| "device id is not 64 lowercase hex".into());
     }
-    let fresh = uuid::Uuid::new_v4();
-    let text = fresh.to_string();
-    disk::write_private(&path, format!("{text}\n").as_bytes())
+    let fresh = random_device_id();
+    disk::write_private(&path, format!("{fresh}\n").as_bytes())
         .map_err(|_| "cannot write device id")?;
-    DeviceId::parse(&text).map_err(|_| "device id is not a UUID".into())
+    Ok(fresh)
 }

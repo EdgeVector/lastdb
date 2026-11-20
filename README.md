@@ -194,7 +194,7 @@ the records.
 [App SDK sharing guide](lastdb_app_sdk/README.md#set-up-sharing-with-people)
 
 Personal and shared databases sync through signed history (AcceptEntry) and a
-grant-blind relay. See [cloud API](docs/designs/cloud-api.md) and
+grant-gating relay. See [cloud API](docs/designs/cloud-api.md) and
 [relay protocol](docs/designs/relay-protocol.md).
 
 Never restart Tom's primary `lastdbd` / brain from agent work. Never use

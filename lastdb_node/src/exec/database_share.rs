@@ -3,21 +3,15 @@
 use super::*;
 use crate::host::owned;
 use crate::lastdb_uds::uds_router::method_not_allowed_response;
-use crate::named_grant::{self, ConfigError, ConfigUpdate, MemberIntent};
+use crate::named_grant::{self, ConfigError, MemberIntent};
 use crate::share_invitation::ShareContact;
 use cloud_backup_protocol::Digest;
 
-/// Size limit of a whole-configuration write. The body names every member,
-/// about 110 bytes each plus any write scope, so this bounds the member set a
-/// single write can name at roughly 100,000. The service has no such bound:
-/// the node sends it only the entries that change, a few at a time.
-const CONFIG_BODY_MAX: u64 = 16 * 1024 * 1024;
 const NO_ACCOUNT: &str = "this node has no cloud account";
 const ENROLLING: &str = "the database is still enrolling with the cloud; retry";
 pub(super) const RETRY_AFTER_SECS: u64 = 2;
 
 pub(super) enum Route {
-    Config,
     Members,
     Invitation,
     Link,
@@ -26,7 +20,6 @@ pub(super) enum Route {
 impl Route {
     pub(super) fn parse(path: &str) -> Option<Self> {
         match path {
-            "share/config" => Some(Self::Config),
             "share/members" => Some(Self::Members),
             "share/link" => Some(Self::Link),
             "invitations" => Some(Self::Invitation),
@@ -54,41 +47,14 @@ pub(super) async fn execute(
         }
     };
     let result = match (route, req.method.as_str()) {
-        (Route::Config, "GET") => {
-            async {
-                ensure_enrolled(host, &entry.id)?;
-                named_grant::read_config(&host.home, &entry.id)
-                    .await
-                    .and_then(|config| {
-                        serde_json::to_value(config).map_err(|_| ConfigError::Unconfirmed)
-                    })
-            }
-            .await
-        }
-        (Route::Config, "PUT") => set(req, host, &entry).await,
         (Route::Members, "POST") => return members(req, ctx, host, &entry.id).await,
         (Route::Invitation, "POST") => invite(req, host, &entry.id).await,
         (Route::Link, "POST") => return link(req, ctx, host, &entry).await,
-        (Route::Config, _) => return method_not_allowed_response("GET, PUT"),
         (Route::Members | Route::Invitation | Route::Link, _) => {
             return method_not_allowed_response("POST")
         }
     };
     render(result.map_err(host_error), ctx)
-}
-
-async fn set(req: &UdsRequest, host: &Host, entry: &owned::Entry) -> Result<Value, ConfigError> {
-    let update: ConfigUpdate = decode(req, CONFIG_BODY_MAX)?;
-    ensure_enrolled(host, &entry.id)?;
-    let id = &entry.id;
-    let request_id = update.request_id.clone();
-    let revision = named_grant::set_config(&host.home, id, update).await?;
-    Ok(json!({
-        "databaseId": id,
-        "requestId": request_id,
-        "revision": revision,
-        "committed": true,
-    }))
 }
 
 #[derive(Deserialize)]
@@ -211,6 +177,13 @@ async fn invite(req: &UdsRequest, host: &Host, id: &str) -> Result<Value, Config
         &invitation.contact_code,
         &invitation.expected_node_key,
         invitation.expires_in_hours.unwrap_or(24),
+        |database_id| {
+            crate::log_sync::chain_read::has_active_grant(
+                host,
+                database_id,
+                invitation.expected_node_key.as_str(),
+            )
+        },
     )
     .await?;
     Ok(json!({
@@ -284,11 +257,6 @@ fn host_error(error: ConfigError) -> HostError {
             "invalid_share_configuration".to_owned(),
             json!({ "reason": reason }),
         ),
-        ConfigError::Conflict(revision) => (
-            409,
-            "share_revision_conflict".to_owned(),
-            json!({ "revision": revision }),
-        ),
         ConfigError::PaymentRequired => (
             402,
             "payment_required".to_owned(),
@@ -312,11 +280,6 @@ fn host_error(error: ConfigError) -> HostError {
             "share_configuration_unconfirmed".to_owned(),
             json!({ "message": "share configuration is not confirmed" }),
         ),
-        ConfigError::Refused {
-            status,
-            code,
-            message,
-        } => (shown_status(status), code, json!({ "message": message })),
     };
     let mut body = body;
     body["ok"] = json!(false);
@@ -325,14 +288,5 @@ fn host_error(error: ConfigError) -> HostError {
     match retry {
         Some(seconds) => built.with_retry_after(seconds),
         None => built,
-    }
-}
-
-/// A status outside the owner-visible set becomes a content-free 500 and drops
-/// the service code. 400 stays visible, so the body is kept.
-fn shown_status(status: u16) -> u16 {
-    match status {
-        400 | 401 | 402 | 403 | 404 | 409 | 413 | 422 | 423 | 503 | 507 => status,
-        _ => 400,
     }
 }

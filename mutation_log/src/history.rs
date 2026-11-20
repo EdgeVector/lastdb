@@ -5,13 +5,17 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use crate::accept::{
     evaluate, position_of, stream_id_of, AcceptContext, AcceptOutcome, RejectReason, StreamHead,
 };
-use crate::entry::{GrantBody, SignedEntry};
+use crate::entry::SignedEntry;
 use crate::grants::{AcceptedMeta, GrantState};
 use crate::ids::{DatabaseId, DeviceId, EntryHash, NodeKey, StreamId};
 use crate::kinds::EntryKind;
 use crate::outbox::Outbox;
 use crate::payload::{decode_record_payload, MaterializedRecord, RecordPosition};
 use crate::wire::entry_hash;
+
+mod view;
+
+pub use view::GrantTip;
 
 /// Equivocation evidence kept when a stream freezes.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -58,6 +62,8 @@ pub struct VerifiedHistory {
     records: BTreeMap<(String, String), MaterializedRecord>,
     /// Blob hashes marked deleted.
     deleted_blobs: BTreeSet<EntryHash>,
+    /// Digests referenced by accepted bundle entries (blocks invalid `blob_delete`).
+    live_bundle_blobs: BTreeSet<crate::ids::Hex32>,
     /// Latest publisher relay URLs.
     relays: Vec<String>,
     /// Latest publisher heads tips.
@@ -86,6 +92,7 @@ impl VerifiedHistory {
             grants: GrantState::empty(),
             records: BTreeMap::new(),
             deleted_blobs: BTreeSet::new(),
+            live_bundle_blobs: BTreeSet::new(),
             relays: Vec::new(),
             publisher_heads: Vec::new(),
             pending: VecDeque::new(),
@@ -201,7 +208,7 @@ impl VerifiedHistory {
         outcome
     }
 
-    fn evaluate_entry(&self, entry: &SignedEntry) -> AcceptOutcome {
+    pub(crate) fn evaluate_entry(&self, entry: &SignedEntry) -> AcceptOutcome {
         let stream = stream_id_of(entry);
         let seq = entry.header().writer_seq;
         let ctx = AcceptContext {
@@ -236,7 +243,7 @@ impl VerifiedHistory {
         self.rejects.push(RejectEvidence { reason, entry });
     }
 
-    fn apply_accepted(&mut self, hash: EntryHash, entry: SignedEntry) {
+    pub(crate) fn apply_accepted(&mut self, hash: EntryHash, entry: SignedEntry) {
         let stream = stream_id_of(&entry);
         let h = entry.header().clone();
         let position = position_of(&entry);
@@ -293,8 +300,13 @@ impl VerifiedHistory {
                     self.merge_data(&body.namespace, &body.payload, position);
                 }
             }
+            SignedEntry::Bundle { body, .. } => {
+                self.live_bundle_blobs.insert(body.blob_sha256);
+            }
             SignedEntry::BlobDelete { body, .. } => {
-                self.deleted_blobs.insert(body.sha256);
+                if !self.live_bundle_blobs.contains(&body.sha256) {
+                    self.deleted_blobs.insert(body.sha256);
+                }
             }
             SignedEntry::Heads { body, .. } => {
                 self.publisher_heads = body.publisher_heads.clone();
@@ -306,7 +318,7 @@ impl VerifiedHistory {
         }
     }
 
-    fn merge_data(&mut self, namespace: &str, payload: &[u8], position: RecordPosition) {
+    pub(crate) fn merge_data(&mut self, namespace: &str, payload: &[u8], position: RecordPosition) {
         let Ok(decoded) = decode_record_payload(payload) else {
             return;
         };
@@ -325,7 +337,12 @@ impl VerifiedHistory {
         }
     }
 
-    fn drain_pending(&mut self) {
+    pub(crate) fn drop_pending_hash(&mut self, hash: &EntryHash) {
+        self.pending
+            .retain(|e| entry_hash(e).ok().as_ref() != Some(hash));
+    }
+
+    pub(crate) fn drain_pending(&mut self) {
         let mut progressed = true;
         while progressed {
             progressed = false;
@@ -374,20 +391,4 @@ impl VerifiedHistory {
             device_id,
         }
     }
-}
-
-/// Compute expected next lamport for authoring.
-#[must_use]
-pub fn next_lamport(prev_lamport: u64, seen_lamports: impl Iterator<Item = u64>) -> u64 {
-    let mut max = prev_lamport;
-    for l in seen_lamports {
-        max = max.max(l);
-    }
-    1 + max
-}
-
-/// Borrow grant body from accepted meta helper for external folders.
-#[must_use]
-pub fn grant_body_of(meta: &AcceptedMeta) -> Option<&GrantBody> {
-    meta.grant_body.as_ref()
 }

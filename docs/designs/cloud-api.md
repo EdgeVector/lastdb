@@ -176,7 +176,7 @@ silently disagree once heads and dependencies meet.
 
 Length-prefixed, big-endian. Domain + `0x00`, then:
 
-`database_id`(32) · `node_key`(32) · `device_id`(16) · `writer_seq`(u64) ·
+`database_id`(32) · `node_key`(32) · `device_id`(32, Hex32) · `writer_seq`(u64) ·
 `prev_hash`(32) · `authored_at_ms`(u64) · `lamport`(u64) ·
 `seen_heads` (u16 count + `entry_hash`(32)×, sorted ascending).
 
@@ -352,11 +352,14 @@ a **presigned URL**. Push result has **no** `landed` field.
 
 ## Auth (`nodeSignature`)
 
-Headers: `X-LastDB-Node-Key`, `Device-Id`, `Issued-At`, `Nonce`,
-`Signature`, `X-LastDB-Cloud-Protocol: 3` (not on account).
+Headers: `X-LastDB-Node-Key`, `X-LastDB-Database-Id`, `Issued-At` (unix
+seconds), `Nonce`, `Signature`, `X-LastDB-Relay-Protocol: 1`.
+`X-LastDB-Device-Id` (Hex32 stream id) is a companion header only; it is not
+signed.
 
-Signed lines: `POST\n<path>\n<protocol|->\n<node key>\n<device id>\n
-<issued-at>\n<nonce>\n<body sha256 hex>`.
+Signed lines: `POST\n<path>\n<protocol>\n<node_key>\n<database_id>\n
+<body_sha256 hex>\n<issued_at>\n<nonce>`. `relay-protocol.openapi.json`
+is authoritative.
 
 Skew ±60s; nonces ≥2× skew. Request signatures authorize HTTP only.
 
@@ -394,7 +397,7 @@ Publisher pays. Lapsed: reads work; push/grant/create →
 16. Envelope `{database_id?, intent, args|result}`.
 17. Batching; caps above; per-item errors.
 18. Account surface as listed; no login; no `em_` keys.
-19. Node public key + device id in signed headers.
+19. Node public key + database id in signed material; device id (Hex32) as a companion stream header.
 20. Ed25519 `nodeSignature`.
 21. No per-device keys; new `device_id` starts a new stream (also the fork
     recovery path).

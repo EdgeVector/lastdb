@@ -4,7 +4,7 @@ name = "reference_relay"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
-description = "In-repo grant-blind reference relay for CI signed-history scenarios."
+description = "In-repo grant-gating reference relay (publisher-signed birth/grant index) for CI signed-history scenarios."
 
 [lints]
 workspace = true
@@ -21,8 +21,8 @@ axum = { version = "0.8", default-features = false, features = ["http1", "json",
 base64 = { workspace = true }
 clap = { workspace = true }
 hmac = { workspace = true }
+mutation_log = { path = "../mutation_log" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 tokio = { workspace = true, features = ["fs", "io-util", "net", "rt", "sync", "time"] }
-uuid = { workspace = true }

@@ -5,7 +5,9 @@ use std::path::Path;
 use mutation_log::{AcceptOutcome, VerifiedHistory};
 use signed_history_materialize::encode_string_field;
 
-use crate::device::{bootstrap_owner, now_ms, owner_write, DataWrite, DbBirth, Device};
+use crate::device::{
+    bootstrap_owner, now_ms, owner_write, random_device_id, DataWrite, DbBirth, Device,
+};
 use crate::proof_store::{replay_and_check, Expected, NAMESPACE};
 use crate::relay::{RelayClient, RelayHandle};
 
@@ -14,7 +16,7 @@ pub async fn run(relay: &RelayHandle, store_dir: &Path) -> Result<String, String
     let owner_b = Device {
         signing_key: owner_a.signing_key.clone(),
         node_key: owner_a.node_key,
-        device_id: mutation_log::DeviceId::from_uuid(uuid::Uuid::new_v4()),
+        device_id: random_device_id(),
     };
     let birth = DbBirth::generate(owner_a.node_key);
     let t0 = now_ms();

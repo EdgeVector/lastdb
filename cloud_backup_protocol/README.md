@@ -7,7 +7,7 @@ Scalar and wire helpers shared by LastDB clients. Prefer the cloud API v3 design
 
 ExeMem account/billing paths may still use types in this crate. Grant
 authorization and snapshots are **not** part of the live contract: grants live
-only as signed chain entries; relays are grant-blind; there are no snapshots.
+only as signed chain entries; relays gate access from publisher-signed grant entries; there are no snapshots.
 
 `src/v2/share_access` still holds legacy share-settings wire shapes used by
 People-facing invitation code that has not yet moved. Do not add new ExeMem

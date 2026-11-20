@@ -16,6 +16,8 @@ pub mod domain {
     pub const HEADS: &str = "lastdb-heads-v1";
     /// Publisher relay list domain.
     pub const RELAYS: &str = "lastdb-relays-v1";
+    /// Multi-change bundle domain.
+    pub const BUNDLE: &str = "lastdb-bundle-v1";
 }
 
 /// Wire kind discriminant (OpenAPI `kind` field).
@@ -26,6 +28,8 @@ pub enum EntryKind {
     Birth,
     /// Record mutation (direct or proposal).
     Data,
+    /// Encrypted multi-change batch (members may author with `grant_at`).
+    Bundle,
     /// Grant / role change / revoke.
     Grant,
     /// Publisher blob reclaim marker.
@@ -43,6 +47,7 @@ impl EntryKind {
         match self {
             Self::Birth => domain::BIRTH,
             Self::Data => domain::DATA,
+            Self::Bundle => domain::BUNDLE,
             Self::Grant => domain::GRANT,
             Self::BlobDelete => domain::BLOB_DELETE,
             Self::Heads => domain::HEADS,

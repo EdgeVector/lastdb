@@ -33,8 +33,11 @@ export type DatabasesReplyFor<T extends Api.DatabasesRequest> =
   : T extends { action: 'create' | 'accept' } ? Api.DatabasesDatabaseReply
   : T extends { action: 'schemas' } ? Api.DatabasesSchemasReply
   : T extends { action: 'declare_schema' } ? Api.DatabasesDeclareReply
-  : T extends { action: 'share_config' } ? Api.DatabasesShareConfigReply
-  : T extends { action: 'set_share_config' } ? Api.DatabasesShareUpdateReply
+  : T extends { action: 'grant' | 'revoke' } ? Api.DatabasesGrantReply
+  : T extends { action: 'grants' } ? Api.DatabasesGrantsReply
+  : T extends { action: 'heads' } ? Api.DatabasesHeadsReply
+  : T extends { action: 'relays' } ? Api.DatabasesRelaysReply
+  : T extends { action: 'bootstrap_relay' } ? Api.DatabasesBootstrapRelayReply
   : T extends { action: 'invite' } ? Api.DatabasesInviteReply
   : T extends { action: 'share_link' } ? Api.DatabasesShareLinkReply
   : T extends { action: 'submit' } ? Api.DatabasesSubmitReply

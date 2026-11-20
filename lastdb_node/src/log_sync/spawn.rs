@@ -27,7 +27,7 @@ pub fn spawn(
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(
         async move {
-            let histories = HistoryMap::new();
+            let histories = super::histories_for(&host.home);
             while !shutdown.load(Ordering::Acquire) {
                 wake::consume_wake(&host.home);
                 match config::relay_base_url(&host.home) {

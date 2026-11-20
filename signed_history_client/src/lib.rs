@@ -1,4 +1,4 @@
-//! Grant-blind relay client and restore-from-start for Phase 1 signed history.
+//! Relay client and restore-from-start for Phase 1 signed history.
 //!
 //! Relays store and forward only. This crate pages each device stream from
 //! `writer_seq = 1`, runs local [`mutation_log::VerifiedHistory::accept_entry`],

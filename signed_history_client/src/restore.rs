@@ -9,15 +9,15 @@ use crate::relay::RelayClient;
 pub struct StreamRef {
     /// Hex-encoded writer node key.
     pub writer_key: String,
-    /// UUID device id for that writer stream.
+    /// Hex32 device id for that writer stream.
     pub device_id: String,
 }
 
-/// Inputs for a restore-from-start against a grant-blind relay.
+/// Inputs for a restore-from-start against a grant-gating relay.
 pub struct RestoreRequest {
     /// Relay origin URL.
     pub relay_url: String,
-    /// Signing key for HTTP `nodeSignature` (any valid key; relay is grant-blind).
+    /// Signing key for HTTP `nodeSignature` (the relay requires publisher, a read grant, or `grant#any`).
     pub signing_key: app_identity_crypto::SigningKey,
     /// Hex node key matching `signing_key`.
     pub node_key_hex: String,

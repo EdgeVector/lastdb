@@ -3,7 +3,7 @@
 //! # Common header (big-endian)
 //!
 //! `Domain UTF-8` + `0x00`, then:
-//! `database_id`(32) · `node_key`(32) · `device_id`(16 UUID bytes) ·
+//! `database_id`(32) · `node_key`(32) · `device_id`(32, Hex32) ·
 //! `writer_seq`(u64) · `prev_hash`(32) · `authored_at_ms`(u64) ·
 //! `lamport`(u64) · `seen_heads`(u16 count + `entry_hash`(32)× sorted ascending).
 //!
@@ -15,14 +15,16 @@
 //!   `payload`(u32+bytes) · `flags` u8 (bit0=file, bit1=incorporated_from,
 //!   bit2=grant_at) · optionals in that bit order
 //! - **grant:** grantee tag (0=any / 1+node_key32) · `role` u8 ·
-//!   cutoffs (`u16` count + `device_id`(16)·`writer_seq`(u64)·`entry_hash`(32)×)
+//!   cutoffs (`u16` count + `device_id`(32)·`writer_seq`(u64)·`entry_hash`(32)×)
 //! - **blob_delete:** `sha256`(32)
-//! - **heads:** tips (`u16` + `device_id`(16)·`writer_seq`(u64)·`entry_hash`(32)×)
+//! - **heads:** tips (`u16` + `device_id`(32)·`writer_seq`(u64)·`entry_hash`(32)×)
 //! - **relays:** urls (`u16` + per url `u16` len + utf8)
+//! - **bundle:** `blob_sha256`(32) · `blob_size`(u64) · `change_count`(u32) ·
+//!   `flags` u8 (bit2=`grant_at`) · grant optionals
 
 use crate::entry::{
-    DataBody, DeviceHead, GrantBody, HeadsBody, IncorporatedFrom, MutationFileRef, RelaysBody,
-    RevocationCutoff, SignedEntry,
+    BundleBody, DataBody, DeviceHead, GrantBody, HeadsBody, IncorporatedFrom, MutationFileRef,
+    RelaysBody, RevocationCutoff, SignedEntry,
 };
 use crate::ids::Hex32;
 use crate::kinds::Grantee;
@@ -46,6 +48,7 @@ pub fn signed_bytes(entry: &SignedEntry) -> Result<Vec<u8>, EncodeError> {
     match entry {
         SignedEntry::Birth { body, .. } => encode_birth(&mut buf, body)?,
         SignedEntry::Data { body, .. } => encode_data(&mut buf, body)?,
+        SignedEntry::Bundle { body, .. } => encode_bundle(&mut buf, body)?,
         SignedEntry::Grant { body, .. } => encode_grant(&mut buf, body)?,
         SignedEntry::BlobDelete { body, .. } => {
             buf.extend_from_slice(body.sha256.as_bytes());
@@ -77,6 +80,24 @@ fn encode_birth(buf: &mut Vec<u8>, body: &crate::entry::BirthBody) -> Result<(),
     buf.extend_from_slice(body.db_salt.as_bytes());
     let sig = decode_signature_b64url(&body.birth_signature)?;
     buf.extend_from_slice(&sig);
+    Ok(())
+}
+
+fn encode_bundle(buf: &mut Vec<u8>, body: &BundleBody) -> Result<(), EncodeError> {
+    buf.extend_from_slice(body.blob_sha256.as_bytes());
+    put_u64(buf, body.blob_size);
+    put_u32(buf, body.change_count);
+    let mut flags = 0u8;
+    if body.grant_at_device.is_some() || body.grant_at_seq.is_some() {
+        flags |= 0x04;
+    }
+    buf.push(flags);
+    if flags & 0x04 != 0 {
+        let device = body.grant_at_device.ok_or(EncodeError::GrantAtIncomplete)?;
+        let seq = body.grant_at_seq.ok_or(EncodeError::GrantAtIncomplete)?;
+        buf.extend_from_slice(&device.to_bytes());
+        put_u64(buf, seq);
+    }
     Ok(())
 }
 
@@ -174,6 +195,10 @@ fn encode_relays(buf: &mut Vec<u8>, body: &RelaysBody) -> Result<(), EncodeError
 }
 
 fn put_u16(buf: &mut Vec<u8>, v: u16) {
+    buf.extend_from_slice(&v.to_be_bytes());
+}
+
+fn put_u32(buf: &mut Vec<u8>, v: u32) {
     buf.extend_from_slice(&v.to_be_bytes());
 }
 

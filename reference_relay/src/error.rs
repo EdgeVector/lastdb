@@ -19,6 +19,10 @@ impl ApiError {
         Self::new(StatusCode::UNAUTHORIZED, "unauthorized", field)
     }
 
+    pub(crate) fn forbidden(field: impl Into<String>) -> Self {
+        Self::new(StatusCode::FORBIDDEN, "forbidden", field)
+    }
+
     pub(crate) fn invalid(field: impl Into<String>) -> Self {
         Self::new(StatusCode::BAD_REQUEST, "invalid_request", field)
     }

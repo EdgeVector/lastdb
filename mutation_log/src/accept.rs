@@ -6,7 +6,8 @@
 //! `owner(32) ‖ db_salt(32)`, signed by that key (`birth_signature` on the
 //! wire). See [`birth_proof_bytes`] and [`verify_birth_signature`].
 
-use crate::auth::authorize_data;
+use crate::auth::{authorize_bundle, authorize_data};
+use crate::bundle::validate_bundle_body;
 use crate::entry::SignedEntry;
 use crate::grants::{AcceptedMeta, GrantState};
 use crate::ids::{DatabaseId, EntryHash, Hex32, NodeKey, StreamId};
@@ -50,6 +51,17 @@ pub enum PendingReason {
     MissingSeenHead {
         /// Missing hash.
         entry_hash: EntryHash,
+    },
+    /// Bundle metadata accepted; encrypted blob not yet verified/applied.
+    BundleBlob {
+        /// Entry hash if checks 1–6 pass.
+        entry_hash: EntryHash,
+        /// Expected blob digest.
+        blob_sha256: Hex32,
+        /// Claimed encrypted size.
+        blob_size: u64,
+        /// Claimed inner change count.
+        change_count: u32,
     },
 }
 
@@ -151,6 +163,19 @@ pub fn evaluate(entry: &SignedEntry, ctx: &AcceptContext<'_>) -> AcceptOutcome {
     if let Some(reason) = check_auth(entry, ctx) {
         return reject(reason);
     }
+    if let SignedEntry::Bundle { body, .. } = entry {
+        if let Some(reason) = validate_bundle_body(body) {
+            return reject(reason);
+        }
+        return AcceptOutcome::Pending {
+            reason: PendingReason::BundleBlob {
+                entry_hash: hash,
+                blob_sha256: body.blob_sha256,
+                blob_size: body.blob_size,
+                change_count: body.change_count,
+            },
+        };
+    }
     AcceptOutcome::Accept {
         entry_hash: hash,
         duplicate: false,
@@ -245,6 +270,12 @@ fn check_auth(entry: &SignedEntry, ctx: &AcceptContext<'_>) -> Option<RejectReas
                 authorize_data(entry, body, ctx.owner, ctx.grants, ctx.lookup)
             }
             _ => Some(RejectReason::Malformed("data kind mismatch")),
+        },
+        EntryKind::Bundle => match entry {
+            SignedEntry::Bundle { body, .. } => {
+                authorize_bundle(entry, body, ctx.owner, ctx.grants, ctx.lookup)
+            }
+            _ => Some(RejectReason::Malformed("bundle kind mismatch")),
         },
         _ => None,
     }

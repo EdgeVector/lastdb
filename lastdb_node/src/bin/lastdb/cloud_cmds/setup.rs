@@ -9,6 +9,7 @@ use lastdb_node::cloud::{
 use lastdb_node::host::{user_hash_from_pubkey, IDENTITY_KEY_FILE};
 use lastdb_node::offline_home::Directory;
 use lastdb_node::profile::endpoints::{exemem_api_url_for, Environment};
+use rand::RngCore;
 use std::path::{Path, PathBuf};
 use zeroize::Zeroizing;
 
@@ -123,8 +124,7 @@ pub(super) fn encode_connected_credentials(
     let source_home = if let Some(id) = existing_home {
         id
     } else {
-        Id::try_from(uuid::Uuid::new_v4().to_string())
-            .map_err(|_| "cannot name this home".to_owned())?
+        fresh_connection_home_id()?
     };
     let mut creds = SavedCredentials::new(exemem_api_url_for(env), api_key);
     creds.connection = Some(SavedConnection {
@@ -136,6 +136,19 @@ pub(super) fn encode_connected_credentials(
     creds
         .to_json()
         .map_err(|_| "cannot encode cloud credentials".into())
+}
+
+fn fresh_connection_home_id() -> Result<Id, String> {
+    for _ in 0..8 {
+        let mut seed = [0u8; 32];
+        rand::rngs::OsRng.fill_bytes(&mut seed);
+        let key = app_identity_crypto::SigningKey::from_bytes(&seed);
+        let hex = app_identity_crypto::hex_lower(&key.verifying_key().to_bytes());
+        if let Ok(id) = Id::try_from(hex) {
+            return Ok(id);
+        }
+    }
+    Err("cannot name this home".to_owned())
 }
 
 fn account_from_seed_bytes(seed: &[u8]) -> Result<(Ed25519KeyPair, AccountId), String> {

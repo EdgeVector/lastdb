@@ -83,6 +83,23 @@ pub struct BirthBody {
     pub birth_signature: String,
 }
 
+/// Bundle body fields (encrypted blob uploaded before append).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BundleBody {
+    /// SHA-256 of encrypted bundle blob bytes.
+    pub blob_sha256: Hex32,
+    /// Encrypted blob length in bytes.
+    pub blob_size: u64,
+    /// Inner direct data changes (must match decrypted body).
+    pub change_count: u32,
+    /// Grant device binding for member bundles.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grant_at_device: Option<DeviceId>,
+    /// Grant seq binding for member bundles.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grant_at_seq: Option<u64>,
+}
+
 /// Data body fields.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DataBody {
@@ -188,6 +205,17 @@ pub enum SignedEntry {
         #[serde(flatten)]
         body: DataBody,
     },
+    /// Multi-change bundle.
+    Bundle {
+        /// Common signed header.
+        #[serde(flatten)]
+        header: EntryHeader,
+        /// Const namespace `"bundle"`.
+        namespace: String,
+        /// Bundle body fields.
+        #[serde(flatten)]
+        body: BundleBody,
+    },
     /// Grant / revoke.
     Grant {
         /// Common signed header.
@@ -242,6 +270,7 @@ impl SignedEntry {
         match self {
             Self::Birth { header, .. }
             | Self::Data { header, .. }
+            | Self::Bundle { header, .. }
             | Self::Grant { header, .. }
             | Self::BlobDelete { header, .. }
             | Self::Heads { header, .. }
@@ -254,6 +283,7 @@ impl SignedEntry {
         match self {
             Self::Birth { header, .. }
             | Self::Data { header, .. }
+            | Self::Bundle { header, .. }
             | Self::Grant { header, .. }
             | Self::BlobDelete { header, .. }
             | Self::Heads { header, .. }
@@ -267,6 +297,7 @@ impl SignedEntry {
         match self {
             Self::Birth { .. } => EntryKind::Birth,
             Self::Data { .. } => EntryKind::Data,
+            Self::Bundle { .. } => EntryKind::Bundle,
             Self::Grant { .. } => EntryKind::Grant,
             Self::BlobDelete { .. } => EntryKind::BlobDelete,
             Self::Heads { .. } => EntryKind::Heads,

@@ -1,8 +1,7 @@
-//! Fixed-size identifiers: 32-byte hex keys/hashes and UUID device ids.
+//! Fixed-size identifiers: 32-byte hex keys, hashes and device stream ids.
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use uuid::Uuid;
 
 /// Parse / format failure for wire identifiers.
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
@@ -10,9 +9,6 @@ pub enum IdError {
     /// Value is not 64 lowercase hex characters.
     #[error("expected 64 lowercase hex characters")]
     BadHex,
-    /// Value is not a UUID string.
-    #[error("expected UUID device_id")]
-    BadUuid,
 }
 
 /// 32 raw bytes shown on the wire as 64 lowercase hex characters.
@@ -40,6 +36,11 @@ impl Hex32 {
     #[must_use]
     pub const fn to_bytes(self) -> [u8; 32] {
         self.0
+    }
+
+    /// Parse 64 lowercase hex characters (alias of [`Hex32::from_hex`]).
+    pub fn parse(s: &str) -> Result<Self, IdError> {
+        Self::from_hex(s)
     }
 
     /// Parse 64 lowercase hex characters.
@@ -104,47 +105,8 @@ pub type DatabaseId = Hex32;
 /// SHA-256 digest / entry hash as lowercase hex.
 pub type EntryHash = Hex32;
 
-/// Device stream id (UUID string on the wire, 16 bytes in signed material).
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct DeviceId(Uuid);
-
-impl DeviceId {
-    /// Wrap a UUID.
-    #[must_use]
-    pub const fn from_uuid(id: Uuid) -> Self {
-        Self(id)
-    }
-
-    /// Parse a UUID string.
-    pub fn parse(s: &str) -> Result<Self, IdError> {
-        Uuid::parse_str(s).map(Self).map_err(|_| IdError::BadUuid)
-    }
-
-    /// Raw 16 bytes (big-endian UUID layout).
-    #[must_use]
-    pub fn to_bytes(self) -> [u8; 16] {
-        *self.0.as_bytes()
-    }
-
-    /// Borrow the UUID.
-    #[must_use]
-    pub const fn as_uuid(&self) -> &Uuid {
-        &self.0
-    }
-}
-
-impl std::fmt::Debug for DeviceId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.0.to_string())
-    }
-}
-
-impl std::fmt::Display for DeviceId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.0.to_string())
-    }
-}
+/// Device stream id: 64 lowercase hex characters, 32 bytes in signed material.
+pub type DeviceId = Hex32;
 
 /// Stream identity: one hash chain per `(node_key, device_id)`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]

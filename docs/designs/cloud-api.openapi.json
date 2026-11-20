@@ -51,6 +51,9 @@
             "$ref": "#/components/parameters/NodeKey"
           },
           {
+            "$ref": "#/components/parameters/DatabaseId"
+          },
+          {
             "$ref": "#/components/parameters/DeviceId"
           },
           {
@@ -282,6 +285,9 @@
             "$ref": "#/components/parameters/NodeKey"
           },
           {
+            "$ref": "#/components/parameters/DatabaseId"
+          },
+          {
             "$ref": "#/components/parameters/DeviceId"
           },
           {
@@ -312,7 +318,7 @@
                           "kind": "data",
                           "database_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                           "node_key": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-                          "device_id": "11111111-1111-4111-8111-111111111111",
+                          "device_id": "1111111111111111111111111111111111111111111111111111111111111111",
                           "writer_seq": 1,
                           "prev_hash": "0000000000000000000000000000000000000000000000000000000000000000",
                           "authored_at_ms": 1730000000000,
@@ -505,6 +511,9 @@
             "$ref": "#/components/parameters/NodeKey"
           },
           {
+            "$ref": "#/components/parameters/DatabaseId"
+          },
+          {
             "$ref": "#/components/parameters/DeviceId"
           },
           {
@@ -535,7 +544,7 @@
                         "kind": "birth",
                         "database_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                         "node_key": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-                        "device_id": "11111111-1111-4111-8111-111111111111",
+                        "device_id": "1111111111111111111111111111111111111111111111111111111111111111",
                         "writer_seq": 1,
                         "prev_hash": "0000000000000000000000000000000000000000000000000000000000000000",
                         "authored_at_ms": 1730000000000,
@@ -561,7 +570,7 @@
                           "kind": "grant",
                           "database_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                           "node_key": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-                          "device_id": "11111111-1111-4111-8111-111111111111",
+                          "device_id": "1111111111111111111111111111111111111111111111111111111111111111",
                           "writer_seq": 3,
                           "prev_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
                           "authored_at_ms": 1730000002000,
@@ -588,7 +597,7 @@
                           "kind": "grant",
                           "database_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                           "node_key": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-                          "device_id": "11111111-1111-4111-8111-111111111111",
+                          "device_id": "1111111111111111111111111111111111111111111111111111111111111111",
                           "writer_seq": 2,
                           "prev_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
                           "authored_at_ms": 1730000001000,
@@ -614,7 +623,7 @@
                           "kind": "grant",
                           "database_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                           "node_key": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-                          "device_id": "11111111-1111-4111-8111-111111111111",
+                          "device_id": "1111111111111111111111111111111111111111111111111111111111111111",
                           "writer_seq": 3,
                           "prev_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
                           "authored_at_ms": 1730000002000,
@@ -624,7 +633,7 @@
                           "role": "revoked",
                           "cutoffs": [
                             {
-                              "device_id": "22222222-2222-4222-8222-222222222222",
+                              "device_id": "2222222222222222222222222222222222222222222222222222222222222222",
                               "writer_seq": 5,
                               "entry_hash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
                             }
@@ -812,6 +821,9 @@
             "$ref": "#/components/parameters/NodeKey"
           },
           {
+            "$ref": "#/components/parameters/DatabaseId"
+          },
+          {
             "$ref": "#/components/parameters/DeviceId"
           },
           {
@@ -992,7 +1004,7 @@
         "type": "apiKey",
         "in": "header",
         "name": "X-LastDB-Signature",
-        "description": "Ed25519 over POST\\n<path>\\n<protocol|->\\n<node key>\\n<device id>\\n<issued-at>\\n<nonce>\\n<body sha256 hex>. Skew \u00b160s. Companion headers required."
+        "description": "Ed25519 over POST\\n<path>\\n<protocol>\\n<node_key>\\n<database_id>\\n<body_sha256 hex>\\n<issued_at>\\n<nonce>. Companion headers: X-LastDB-Node-Key, X-LastDB-Database-Id, X-LastDB-Issued-At (unix seconds), X-LastDB-Nonce, X-LastDB-Relay-Protocol; X-LastDB-Device-Id (Hex32 stream id) is not signed. Skew \u00b160s. relay-protocol.openapi.json is authoritative."
       }
     },
     "parameters": {
@@ -1019,14 +1031,28 @@
           "maxLength": 64
         }
       },
+      "DatabaseId": {
+        "name": "X-LastDB-Database-Id",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "minLength": 64,
+          "maxLength": 64
+        },
+        "description": "Target database_id; covered by nodeSignature"
+      },
       "DeviceId": {
         "name": "X-LastDB-Device-Id",
         "in": "header",
         "required": true,
         "schema": {
           "type": "string",
-          "format": "uuid",
-          "description": "UUID"
+          "pattern": "^[0-9a-f]{64}$",
+          "minLength": 64,
+          "maxLength": 64,
+          "description": "Hex32 device stream id (32 bytes)"
         }
       },
       "IssuedAt": {
@@ -1035,7 +1061,7 @@
         "required": true,
         "schema": {
           "type": "string",
-          "description": "Unix ms",
+          "description": "Unix seconds",
           "pattern": "^[0-9]+$",
           "maxLength": 20
         }
@@ -1168,8 +1194,10 @@
           },
           "device_id": {
             "type": "string",
-            "format": "uuid",
-            "description": "UUID"
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64,
+            "description": "Hex32 device stream id (32 bytes)"
           },
           "writer_seq": {
             "type": "integer",
@@ -1626,7 +1654,9 @@
         "properties": {
           "device_id": {
             "type": "string",
-            "format": "uuid",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64,
             "description": "Device to remove"
           }
         }
@@ -1716,8 +1746,10 @@
         "properties": {
           "device_id": {
             "type": "string",
-            "format": "uuid",
-            "description": "UUID"
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64,
+            "description": "Hex32 device stream id (32 bytes)"
           },
           "added_at_ms": {
             "type": "integer",
@@ -3245,7 +3277,9 @@
           },
           "device_id": {
             "type": "string",
-            "format": "uuid"
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
           },
           "writer_seq": {
             "type": "integer",
@@ -3298,7 +3332,9 @@
           },
           "grant_at_device": {
             "type": "string",
-            "format": "uuid"
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
           },
           "grant_at_seq": {
             "type": "integer",
@@ -3346,7 +3382,9 @@
               },
               "device_id": {
                 "type": "string",
-                "format": "uuid"
+                "pattern": "^[0-9a-f]{64}$",
+                "minLength": 64,
+                "maxLength": 64
               },
               "writer_seq": {
                 "type": "integer",
@@ -3429,7 +3467,9 @@
               },
               "device_id": {
                 "type": "string",
-                "format": "uuid"
+                "pattern": "^[0-9a-f]{64}$",
+                "minLength": 64,
+                "maxLength": 64
               },
               "writer_seq": {
                 "type": "integer",
@@ -3519,7 +3559,9 @@
               },
               "device_id": {
                 "type": "string",
-                "format": "uuid"
+                "pattern": "^[0-9a-f]{64}$",
+                "minLength": 64,
+                "maxLength": 64
               },
               "writer_seq": {
                 "type": "integer",
@@ -3616,7 +3658,9 @@
         "properties": {
           "device_id": {
             "type": "string",
-            "format": "uuid"
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
           },
           "writer_seq": {
             "type": "integer",
@@ -3641,7 +3685,9 @@
         "properties": {
           "device_id": {
             "type": "string",
-            "format": "uuid"
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
           },
           "writer_seq": {
             "type": "integer",
@@ -3692,7 +3738,9 @@
           },
           "device_id": {
             "type": "string",
-            "format": "uuid"
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
           },
           "writer_seq": {
             "type": "integer",
@@ -3775,7 +3823,9 @@
           },
           "device_id": {
             "type": "string",
-            "format": "uuid"
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
           },
           "writer_seq": {
             "type": "integer",
@@ -3866,7 +3916,9 @@
           },
           "device_id": {
             "type": "string",
-            "format": "uuid"
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
           },
           "writer_seq": {
             "type": "integer",
@@ -3946,7 +3998,9 @@
           },
           "device_id": {
             "type": "string",
-            "format": "uuid"
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
           },
           "writer_seq": {
             "type": "integer",
@@ -4052,7 +4106,9 @@
           },
           "device_id": {
             "type": "string",
-            "format": "uuid"
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
           },
           "writer_seq": {
             "type": "integer",
@@ -4108,7 +4164,9 @@
           },
           "grant_at_device": {
             "type": "string",
-            "format": "uuid",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64,
             "description": "Publisher device_id of the grant entry this member bundle binds to. Required for non-publisher bundles; omit for publisher."
           },
           "grant_at_seq": {

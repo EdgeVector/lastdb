@@ -11,6 +11,7 @@ use std::sync::{Arc, RwLock};
 use fold_db::fold_db_core::FoldDB;
 use fold_db::security::Ed25519KeyPair;
 use serde::{Deserialize, Serialize};
+use zeroize::Zeroizing;
 
 use super::Host;
 use crate::profile::PublicationSpec;
@@ -18,7 +19,10 @@ use crate::profile::PublicationSpec;
 mod registry;
 mod store;
 
-pub(crate) use registry::{find_shareable, registered_databases, registry_claims, validate_create};
+pub(crate) use registry::{
+    find_shareable, find_shareable_database, registered_databases, registry_claims, validate_create,
+};
+pub(crate) use store::CreateArgs;
 
 /// AES content key for one owned sibling. Callers must not treat this as a
 /// signing seed.
@@ -229,10 +233,10 @@ impl Tables {
         }
     }
 
-    fn allocate(&self, name: &str) -> Result<String, OwnedError> {
+    fn allocate(&self, name: &str) -> Result<(String, Zeroizing<[u8; 32]>), OwnedError> {
         let state = self.read()?;
         ensure_free(&state, name)?;
-        registry::fresh_id(&registry::used_ids(&state.registry_owner, &state.owned))
+        registry::fresh_db_key(&registry::used_ids(&state.registry_owner, &state.owned))
     }
 
     fn commit_create(

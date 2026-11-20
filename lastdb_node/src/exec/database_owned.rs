@@ -25,7 +25,7 @@ pub(super) async fn create(req: &UdsRequest, ctx: &AccessContext, host: &Host) -
         Some(_) => return error_response(400, "invalid database access policy", ctx),
     };
     // Shareable databases are whole-database only. A filtered or app catalog
-    // `spec` on create is refused; People and other apps set memberWrites.
+    // `spec` on create is refused.
     if body.spec.is_some() {
         return error_response(400, "invalid database sharing mode", ctx);
     }
@@ -45,24 +45,26 @@ pub(super) async fn create(req: &UdsRequest, ctx: &AccessContext, host: &Host) -
     }
     let requested_id = match req.header("Idempotency-Key") {
         None => None,
-        Some(key) => match uuid::Uuid::parse_str(key) {
-            Ok(id)
-                if id.get_version_num() == 4
-                    && body.sharing_mode.as_deref() == Some("whole_database")
-                    && id.to_string() == key =>
-            {
-                Some(id)
-            }
-            _ => {
+        Some(key) if body.sharing_mode.as_deref() == Some("whole_database") => {
+            if mutation_log::DatabaseId::from_hex(key).is_ok() {
+                Some(key.to_owned())
+            } else {
                 return error_response(
                     400,
-                    "whole-database creation uses a v4 UUID idempotency key",
+                    "whole-database creation uses a 64-hex database id idempotency key",
                     ctx,
-                )
+                );
             }
-        },
+        }
+        Some(_) => {
+            return error_response(
+                400,
+                "whole-database creation uses a 64-hex database id idempotency key",
+                ctx,
+            );
+        }
     };
-    if let Some(response) = share_conflict(host, &body.name, requested_id, ctx) {
+    if let Some(response) = share_conflict(host, &body.name, requested_id.as_deref(), ctx) {
         return response;
     }
     match host
@@ -70,10 +72,15 @@ pub(super) async fn create(req: &UdsRequest, ctx: &AccessContext, host: &Host) -
         .create(
             &host.home,
             Arc::clone(&host.keypair),
-            &body.name,
-            kind,
-            spec,
-            requested_id,
+            owned::CreateArgs {
+                name: &body.name,
+                kind,
+                spec,
+                requested_id,
+            },
+            |id, seed| {
+                crate::log_sync::birth::mint(&host.home, id, host.keypair.public_key_bytes(), seed)
+            },
         )
         .await
     {
@@ -194,11 +201,12 @@ fn shared_database(host: &Host, share: &RegisteredShare) -> Value {
         share.signed_log && crate::database_replay::prefix_durable(&host.home, share.id.as_str());
     value["state"] = json!(if ready { "ready" } else { "restoring" });
     value["access"] = json!("reader");
-    if share.signed_log {
-        value["selfAccess"] = json!(crate::log_sync::received::view(
-            &host.home,
-            share.id.as_str()
-        ));
+    if let Some(access) = share
+        .signed_log
+        .then(|| crate::log_sync::received::view(host, share.id.as_str()))
+        .flatten()
+    {
+        value["selfAccess"] = access;
     }
     value["kind"] = json!("received");
     if share.whole_database() {
@@ -246,14 +254,13 @@ fn registration_reply(
 fn share_conflict(
     host: &Host,
     name: &str,
-    requested_id: Option<uuid::Uuid>,
+    id: Option<&str>,
     ctx: &AccessContext,
 ) -> Option<UdsResponse> {
-    let id = requested_id.map(|id| id.to_string());
     match registered_share::list(&host.home) {
         Ok(shares)
             if shares.iter().any(|share| {
-                share.name.as_deref() == Some(name) || id.as_deref() == Some(share.id.as_str())
+                share.name.as_deref() == Some(name) || id == Some(share.id.as_str())
             }) =>
         {
             Some(error_response(

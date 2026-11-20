@@ -1,11 +1,17 @@
-//! In-repo grant-blind reference relay for CI signed-history proofs.
+//! In-repo reference relay for CI signed-history proofs.
 //!
 //! `reference_relay --listen 127.0.0.1:0 --data-dir DIR` prints the bound
-//! address, then serves the relay OpenAPI surface. No grant checks and no
-//! `AcceptEntry` — HTTP `nodeSignature` only.
+//! address, then serves the relay OpenAPI surface. HTTP `nodeSignature` is
+//! verified, then access is gated by a per-database grant index built from
+//! publisher-signed `birth` / `grant` entries (rebuilt from the stored logs on
+//! open). No `AcceptEntry`: record payloads are never decrypted or applied.
 
 mod auth;
 mod error;
+mod gate;
+mod grant_index;
+mod grant_load;
+mod grant_verify;
 mod handlers;
 mod presign;
 mod store;
@@ -19,6 +25,7 @@ use axum::routing::{get, post, put};
 use axum::Router;
 use clap::Parser;
 use tokio::net::TcpListener;
+use tokio::sync::Mutex;
 
 use handlers::{blob_bytes, blob_get, blob_put, blob_upload, log_append, log_read, AppState};
 use store::Store;
@@ -58,10 +65,12 @@ async fn run() -> Result<(), String> {
         .local_addr()
         .map_err(|e| format!("local_addr: {e}"))?;
     println!("{addr}");
+    let grants = grant_load::rebuild(store.root()).await;
     let state = Arc::new(AppState {
         store,
         public_base: format!("http://{addr}"),
         secret,
+        grants: Mutex::new(grants),
     });
     let app = Router::new()
         .route("/relay/v1/log/append", post(log_append))

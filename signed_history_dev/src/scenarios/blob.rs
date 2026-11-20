@@ -19,6 +19,7 @@ pub async fn run(relay: &RelayHandle, blob_bytes: u64) -> Result<String, String>
     let (mut history, birth_entry) = bootstrap_owner(&owner, &birth, t0)?;
     let client = RelayClient::new(&relay.base_url, &owner);
     let db = birth.database_id.to_hex();
+    client.append(&db, &[birth_entry]).await?;
 
     let payload = build_blob(blob_bytes as usize);
     let digest = sha256_hex(&payload);
@@ -31,9 +32,7 @@ pub async fn run(relay: &RelayHandle, blob_bytes: u64) -> Result<String, String>
     }
 
     let entry = author_blob_ref(&mut history, &owner, birth.database_id, &digest, t0 + 1)?;
-    client
-        .append(&db, &[birth_entry.clone(), entry.clone()])
-        .await?;
+    client.append(&db, &[entry]).await?;
 
     let download_secs = restore_download(&client, &db, &digest, payload.len()).await?;
     if download_secs >= LIMIT_SECS {
