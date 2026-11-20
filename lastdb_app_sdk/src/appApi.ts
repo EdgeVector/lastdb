@@ -38,7 +38,6 @@ export type DatabasesReplyFor<T extends Api.DatabasesRequest> =
   : T extends { action: 'heads' } ? Api.DatabasesHeadsReply
   : T extends { action: 'relays' } ? Api.DatabasesRelaysReply
   : T extends { action: 'bootstrap_relay' } ? Api.DatabasesBootstrapRelayReply
-  : T extends { action: 'invite' } ? Api.DatabasesInviteReply
   : T extends { action: 'share_link' } ? Api.DatabasesShareLinkReply
   : T extends { action: 'submit' } ? Api.DatabasesSubmitReply
   : T extends { action: 'submission_status' } ? Api.DatabasesStatusReply
