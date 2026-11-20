@@ -154,7 +154,7 @@ impl Store {
         let expected = meta
             .get("bytes")
             .and_then(|v| v.as_u64())
-            .ok_or_else(|| ApiError::invalid("bytes"))?;
+            .ok_or(ApiError::invalid("bytes"))?;
         if body.len() as u64 != expected {
             return Err(ApiError::invalid("bytes"));
         }
@@ -246,7 +246,7 @@ impl EntryKey {
             .get("writer_seq")
             .and_then(|v| v.as_u64())
             .filter(|&s| s >= 1)
-            .ok_or_else(|| ApiError::invalid("entries.writer_seq"))?;
+            .ok_or(ApiError::invalid("entries.writer_seq"))?;
         Ok(Self {
             database_id,
             node_key,
@@ -298,8 +298,7 @@ async fn atomic_write(path: &Path, bytes: &[u8]) -> ApiResult<()> {
 fn now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
+        .map_or(0, |d| d.as_millis() as u64)
 }
 
 /// Parse an opaque delivery cursor `node_key:device_id:next_seq`.

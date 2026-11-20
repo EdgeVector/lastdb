@@ -74,8 +74,7 @@ fn check_skew(issued_at: &str) -> ApiResult<()> {
         .map_err(|_| ApiError::unauthorized("issued_at"))?;
     let now_ms = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0);
+        .map_or(0, |d| d.as_millis() as u64);
     // Accept either unix-ms or unix-seconds (legacy clients).
     let issued_ms = if issued > 10_000_000_000 {
         issued

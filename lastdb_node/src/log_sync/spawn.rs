@@ -60,7 +60,7 @@ async fn one_turn(host: &Host, histories: &HistoryMap, base: &str) -> Result<(),
         base.to_owned(),
         signing_key,
         node_key_hex.clone(),
-        device_id,
+        &device_id,
     );
 
     let databases = crate::host::owned::registered_databases(&host.home);

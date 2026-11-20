@@ -24,10 +24,7 @@ pub(super) async fn restore_stream(
         if entries.is_empty() {
             break;
         }
-        let last_seq = entries
-            .last()
-            .map(|e| e.header().writer_seq)
-            .unwrap_or(from_seq);
+        let last_seq = entries.last().map_or(from_seq, |e| e.header().writer_seq);
         for entry in entries {
             if accept_restore(histories, home, database_id, entry)? {
                 total += 1;

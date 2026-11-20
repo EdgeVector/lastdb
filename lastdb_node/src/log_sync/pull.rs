@@ -20,9 +20,8 @@ pub(super) async fn pull_stream(
         .await?;
     let mut accepted = 0u64;
     for entry in entries {
-        match accept_one(histories, home, database_id, entry)? {
-            true => accepted += 1,
-            false => {}
+        if accept_one(histories, home, database_id, entry)? {
+            accepted += 1;
         }
     }
     Ok(accepted)

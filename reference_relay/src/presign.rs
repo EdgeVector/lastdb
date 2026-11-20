@@ -65,8 +65,7 @@ pub(crate) fn new_secret_hex() -> String {
     if fill_os(&mut bytes).is_err() {
         let t = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0);
+            .map_or(0, |d| d.as_nanos());
         for (i, b) in bytes.iter_mut().enumerate() {
             *b = ((t >> ((i % 16) * 4)) as u8).wrapping_add(i as u8);
         }

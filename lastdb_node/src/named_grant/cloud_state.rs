@@ -17,8 +17,6 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Mutex, OnceLock};
 
-use tokio::sync::Notify;
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum CloudState {
     NoAccount,
@@ -61,21 +59,10 @@ pub(crate) fn identity(environment: &str, account_id: &str) -> String {
     format!("{environment}:{account_id}")
 }
 
-/// Record a live cloud log and wake share calls that are already waiting.
-/// A waiter that has not registered yet misses the signal. The wait polls.
-pub(crate) fn remember(database_id: &str, identity: String) {
-    confirmed_set().insert(database_id.to_owned(), identity);
-    signal().notify_waiters();
-}
-
 pub(crate) fn confirmed(database_id: &str, identity: &str) -> bool {
     confirmed_set()
         .get(database_id)
         .is_some_and(|recorded| recorded == identity)
-}
-
-pub(crate) fn notified() -> tokio::sync::futures::Notified<'static> {
-    signal().notified()
 }
 
 fn confirmed_set() -> std::sync::MutexGuard<'static, HashMap<String, String>> {
@@ -84,9 +71,4 @@ fn confirmed_set() -> std::sync::MutexGuard<'static, HashMap<String, String>> {
         .get_or_init(|| Mutex::new(HashMap::new()))
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
-}
-
-fn signal() -> &'static Notify {
-    static SIGNAL: OnceLock<Notify> = OnceLock::new();
-    SIGNAL.get_or_init(Notify::new)
 }

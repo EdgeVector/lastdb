@@ -47,12 +47,6 @@ pub(crate) fn format_protocol_error(error: &ProtocolError) -> String {
     }
 }
 
-pub(crate) fn describe_protocol_error(body: &[u8]) -> Option<String> {
-    serde_json::from_slice::<ProtocolError>(body)
-        .ok()
-        .map(|err| format_protocol_error(&err))
-}
-
 pub(crate) fn signed_history_intent(home: &Path) -> bool {
     read_private_named(
         &home.join(SIGNED_HISTORY_INTENT_FILE),

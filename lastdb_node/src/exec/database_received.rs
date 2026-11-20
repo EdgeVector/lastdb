@@ -7,7 +7,7 @@ use cloud_backup_protocol::Id;
 use super::*;
 use crate::registered_share::{self, RegisteredShare};
 
-pub(super) async fn submit_signed(
+pub(super) fn submit_signed(
     req: &UdsRequest,
     ctx: &AccessContext,
     host: &Host,
@@ -37,12 +37,6 @@ pub(super) async fn submit_signed(
                 response.reason = "Accepted";
             }
             response
-        }
-        Err(ContributionError::Invalid) => {
-            error_response(400, "invalid shared mutation or schema definition", ctx)
-        }
-        Err(ContributionError::Forbidden) => {
-            error_response(403, "this member cannot submit this shared mutation", ctx)
         }
         Err(ContributionError::Unavailable) => render(
             Err(HostError::new(503, "shared mutation was not confirmed")
@@ -78,7 +72,7 @@ pub(super) async fn read_signed(
     response
 }
 
-pub(super) async fn submission_status(
+pub(super) fn submission_status(
     req: &UdsRequest,
     ctx: &AccessContext,
     host: &Host,
@@ -99,12 +93,6 @@ pub(super) async fn submission_status(
     match crate::log_sync::share_write_status(host, share, &body.mutation_id) {
         Ok(status) => {
             json_ok(&json!({"ok": true, "mutation_id": body.mutation_id, "status": status}))
-        }
-        Err(ContributionError::Forbidden) => {
-            error_response(403, "submission status access refused", ctx)
-        }
-        Err(ContributionError::Invalid) => {
-            error_response(400, "invalid submission status request", ctx)
         }
         Err(ContributionError::Unavailable) => {
             error_response(503, "submission status is unavailable", ctx)

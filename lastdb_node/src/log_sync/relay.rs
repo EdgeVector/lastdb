@@ -19,7 +19,7 @@ impl RelayClient {
         base: String,
         signing_key: SigningKey,
         node_key_hex: String,
-        device_id: mutation_log::DeviceId,
+        device_id: &mutation_log::DeviceId,
     ) -> Self {
         Self {
             base: base.trim_end_matches('/').to_owned(),
@@ -151,8 +151,7 @@ fn sign_headers(
 ) -> Result<Vec<(&'static str, String)>, String> {
     let issued_at = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis().to_string())
-        .unwrap_or_else(|_| "0".into());
+        .map_or_else(|| "0".into(), |d| d.as_millis().to_string());
     let nonce = hex_lower(&rand_32());
     let body_hash = hex_lower(&Sha256::digest(body));
     let message =

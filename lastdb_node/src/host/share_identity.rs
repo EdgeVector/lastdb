@@ -39,49 +39,6 @@ impl RecordWriteLog for IdentityLog {
     }
 }
 
-pub(crate) fn receipt_recorded(
-    home: &Path,
-    database_id: &str,
-    id: &[u8; 32],
-) -> Result<bool, String> {
-    let path = receipt_path(home, database_id, id)?;
-    disk::read_limited(&path, 8)
-        .map(|found| found.is_some())
-        .map_err(|_| "member write receipt is unavailable".to_owned())
-}
-
-pub(crate) fn store_receipt(home: &Path, database_id: &str, id: &[u8; 32]) -> Result<(), String> {
-    let path = receipt_path(home, database_id, id)?;
-    if receipt_recorded(home, database_id, id)? {
-        return Ok(());
-    }
-    disk::write_private(&path, b"1").map_err(|_| "member write receipt was not stored".to_owned())
-}
-
-pub(crate) struct LocalIdentity {
-    pub(crate) local_revision: String,
-    pub(crate) mutation_id: String,
-    /// Filled by the caller from the live record. This module does not store it.
-    pub(crate) created_by: Option<String>,
-}
-
-pub(crate) fn local_identity(
-    home: &Path,
-    database_id: &str,
-    address: &str,
-    revision: &str,
-) -> Result<Option<LocalIdentity>, String> {
-    let mutation = mutation_path(home, database_id, address).map_err(|error| error.to_string())?;
-    let Some(mutation_id) = marker_at(&mutation, revision)? else {
-        return Ok(None);
-    };
-    Ok(Some(LocalIdentity {
-        local_revision: revision.to_owned(),
-        mutation_id,
-        created_by: None,
-    }))
-}
-
 fn plan(log: &IdentityLog, notes: &[RecordWriteNote]) -> Result<Vec<PlannedWrite>, SchemaError> {
     let mut mutation: BTreeMap<String, Option<Vec<u8>>> = BTreeMap::new();
     for note in notes {
@@ -120,34 +77,6 @@ fn marker(revision: &str, value: &str) -> Result<Vec<u8>, SchemaError> {
         ));
     }
     Ok(text.into_bytes())
-}
-
-fn marker_at(path: &Path, revision: &str) -> Result<Option<String>, String> {
-    match read_marker(path).map_err(|error| error.to_string())? {
-        Some(bytes) => value_at(&bytes, revision).map_err(|error| error.to_string()),
-        None => Ok(None),
-    }
-}
-
-fn value_at(bytes: &[u8], revision: &str) -> Result<Option<String>, SchemaError> {
-    let marker = std::str::from_utf8(bytes)
-        .map_err(|_| SchemaError::InvalidData("invalid record identity marker".into()))?;
-    let (saved, value) = marker
-        .split_once(':')
-        .ok_or_else(|| SchemaError::InvalidData("invalid record identity marker".into()))?;
-    Ok((saved == revision).then(|| value.to_owned()))
-}
-
-fn read_marker(path: &Path) -> Result<Option<Vec<u8>>, SchemaError> {
-    disk::read_limited(path, MARKER_LIMIT).map_err(|_| SchemaError::StorageRead {
-        detail: "record identity could not be read".into(),
-    })
-}
-
-fn receipt_path(home: &Path, database_id: &str, id: &[u8; 32]) -> Result<PathBuf, String> {
-    Ok(root(home, database_id)?
-        .join("receipt")
-        .join(fold_db::hex::hex_lower(id)))
 }
 
 fn mutation_path(home: &Path, database_id: &str, address: &str) -> Result<PathBuf, SchemaError> {

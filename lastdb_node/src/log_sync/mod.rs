@@ -61,7 +61,7 @@ pub(crate) fn database_cloud_state(home: &std::path::Path, _database_id: &str) -
     CloudState::Enrolled
 }
 
-pub(crate) async fn wait_for_enrollment(host: &crate::host::Host, database_id: &str) -> CloudState {
+pub(crate) fn wait_for_enrollment(host: &crate::host::Host, database_id: &str) -> CloudState {
     database_cloud_state(&host.home, database_id)
 }
 
@@ -105,16 +105,12 @@ pub(crate) fn publish_row(_database_id: &str, signed_log: bool) -> serde_json::V
 /// Share-write contribution API retired with unsigned mutation log.
 #[derive(Debug)]
 pub(crate) enum ContributionError {
-    Invalid,
-    Forbidden,
     Unavailable,
 }
 
 impl std::fmt::Display for ContributionError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
-            Self::Invalid => "invalid shared mutation",
-            Self::Forbidden => "shared mutation forbidden",
             Self::Unavailable => "shared mutation unavailable",
         })
     }

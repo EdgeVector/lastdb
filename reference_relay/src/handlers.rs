@@ -181,8 +181,7 @@ fn require_hex64(s: &str, field: &str) -> ApiResult<()> {
 fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
+        .map_or(0, |d| d.as_millis() as u64)
 }
 
 #[derive(Deserialize)]

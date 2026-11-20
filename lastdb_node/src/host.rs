@@ -59,7 +59,6 @@ pub struct Host {
     pub uds_workers: OnceLock<crate::lastdb_uds::UdsWorkerPool>,
     /// The app socket's pool. `/api/status` reports it beside [`Self::uds_workers`].
     pub app_uds_workers: OnceLock<crate::lastdb_uds::UdsWorkerPool>,
-    pub(crate) booted_with_credentials: bool,
     pub(crate) cloud_sync: cloud_sync::CloudSyncTracker,
     pub(crate) owned: owned::Tables,
     pub(crate) received: tokio::sync::Mutex<HashMap<String, Arc<FoldDB>>>,
@@ -115,8 +114,8 @@ impl Host {
             && fold_db::storage::disk_backup::accepted::has_spool(&data_dir)
                 .map_err(|e| recovery::map_and_record_boot_error(home, existing, e))?;
         let wants_bootstrap = !signed_restore && crate::cloud::signed_history_intent(home);
-        let creds_at_boot = has_cloud_credentials(home);
-        let connected = !signed_restore && (!has_spool || wants_bootstrap) && creds_at_boot;
+        let connected =
+            !signed_restore && (!has_spool || wants_bootstrap) && has_cloud_credentials(home);
         let opts = fold_db::fold_db_core::factory::FoldDbOptions {
             offline_maintenance: false,
             capture_accepted: signed_restore || has_spool || connected,
@@ -148,7 +147,6 @@ impl Host {
             user_hash,
             uds_workers: OnceLock::new(),
             app_uds_workers: OnceLock::new(),
-            booted_with_credentials: creds_at_boot,
             cloud_sync,
             owned,
             received: tokio::sync::Mutex::new(HashMap::new()),

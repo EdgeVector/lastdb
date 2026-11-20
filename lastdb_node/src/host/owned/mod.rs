@@ -170,24 +170,6 @@ impl Tables {
         Ok(ResolvedStore::Owned(store))
     }
 
-    pub(crate) fn registered_store(&self, database_id: &str) -> Result<ResolvedStore, OwnedError> {
-        let state = self.read()?;
-        if state.registry_owner.id == database_id {
-            return Ok(ResolvedStore::Owner);
-        }
-        Ok(match state.stores.get(database_id) {
-            Some(store) => ResolvedStore::Owned(Arc::clone(store)),
-            None => ResolvedStore::Absent,
-        })
-    }
-
-    pub(crate) fn is_private_id(&self, database_id: &str) -> Result<bool, OwnedError> {
-        let state = self.read()?;
-        Ok(std::iter::once(&state.registry_owner)
-            .chain(&state.owned)
-            .any(|entry| entry.id == database_id && entry.kind == Kind::Personal))
-    }
-
     pub(crate) fn bind_spec(
         &self,
         home: &Path,

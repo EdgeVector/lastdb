@@ -58,7 +58,7 @@ pub(super) fn run(home: &Path, args: BackupRestoreArgs) -> Result<(), String> {
         // DESIGN: Phase 1 restore boots a signed-restore home and pulls every
         // known stream from relay seq 1 via log_sync::restore. Stream discovery
         // (publisher heads / People) is not wired here yet.
-        let _ = (scope, database, seed);
+        let _ = (scope, seed);
         let host = Arc::new(Host::boot_for_signed_restore(&staged.path).await?);
         let owned_closed = host.shutdown_owned_databases().await;
         let owner_closed = host.db.shutdown().await;

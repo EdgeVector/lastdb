@@ -155,7 +155,7 @@ async fn run_submission_status(
 ) -> UdsResponse {
     match resolve_database(selector, ctx, host) {
         Ok(Selection::Signed(share)) => {
-            super::database_received::submission_status(req, ctx, host, &share).await
+            super::database_received::submission_status(req, ctx, host, &share)
         }
         Ok(_) => error_response(404, "this database has no received submissions", ctx),
         Err(response) => response,
@@ -170,7 +170,7 @@ async fn run_submission(
 ) -> UdsResponse {
     match resolve_database(selector, ctx, host) {
         Ok(Selection::Signed(share)) => {
-            super::database_received::submit_signed(req, ctx, host, &share).await
+            super::database_received::submit_signed(req, ctx, host, &share)
         }
         // An owned database is not a receiver. The route does not write a record.
         Ok(_) => error_response(404, "this database has no received submissions", ctx),
