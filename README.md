@@ -193,13 +193,9 @@ get its stable database ID. Use `@lastdb/app-sdk`'s data client to work with
 the records.
 [App SDK sharing guide](lastdb_app_sdk/README.md#set-up-sharing-with-people)
 
-The publisher sets read access and schema write permissions in People. Apps
-use those settings to show available actions. In a whole-database share, any
-active receiver can send an encrypted change to the pending mutation log.
-Only the publisher reads it and checks the proposed change against the
-current rules. The publisher saves and uploads accepted changes to a separate
-published log, which all active receivers follow.
-[How sharing works](docs/designs/shared-database-mutation-logs.md)
+Personal and shared databases sync through signed history (AcceptEntry) and a
+grant-blind relay. See [cloud API](docs/designs/cloud-api.md) and
+[relay protocol](docs/designs/relay-protocol.md).
 
 Never restart Tom's primary `lastdbd` / brain from agent work. Never use
 the live `~/.lastdb` home as the first place a candidate binary is proven —

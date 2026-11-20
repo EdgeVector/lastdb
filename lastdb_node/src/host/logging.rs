@@ -43,7 +43,7 @@ impl Visit for Metrics {
     fn record_debug(&mut self, _: &Field, _: &dyn fmt::Debug) {}
 }
 
-pub(crate) fn publish_category_allowed(value: &str) -> bool {
+fn publish_category_allowed(value: &str) -> bool {
     let (head, tail) = match value.split_once(':') {
         Some((head, tail)) => (head, Some(tail)),
         None => (value, None),

@@ -4,6 +4,7 @@ use super::super::super::io;
 use super::super::super::Error;
 use super::super::{Inner, Meta, Note, PendingNote};
 use lastdb_model::hex::sha256_hex;
+use serde::de::IgnoredAny;
 use std::path::Path;
 
 const BODY_MAX: u64 = 2 * 1024 * 1024;
@@ -224,10 +225,6 @@ pub(super) fn install(
         .state
         .as_ref()
         .map_or(pending.frontier_before, |state| state.opened_frontier);
-    let snapshot = inner
-        .state
-        .as_ref()
-        .map_or(inner.history, |state| state.snapshot_required);
     let acked = inner.state.as_ref().map_or(0, |state| state.acked);
     let retained = inner
         .state
@@ -243,7 +240,7 @@ pub(super) fn install(
             head,
             acked,
             retained_bytes: retained,
-            snapshot_required: snapshot,
+            _snapshot_required: IgnoredAny,
             gap: false,
             armed: false,
         },

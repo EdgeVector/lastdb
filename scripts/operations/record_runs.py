@@ -45,6 +45,16 @@ def require(value, message):
         raise RuntimeError(message)
 
 
+def require_hex32_id(database_id, label="create"):
+    """Database ids are Hex32 (db verifying key), not UUID."""
+    require(
+        isinstance(database_id, str)
+        and len(database_id) == 64
+        and set(database_id) <= set("0123456789abcdef"),
+        f"{label} did not return a Hex32 database id",
+    )
+
+
 def ids(rows):
     return [row["record"]["id"] for row in rows]
 

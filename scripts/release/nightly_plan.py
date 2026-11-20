@@ -17,8 +17,7 @@ import time
 
 REPOSITORY = "EdgeVector/lastdb"
 ACTIONS_APP_ID = 15368
-CHECKS = ("ci-required", "benchmark-complete", "snapshot-roundtrip-dev",
-          "CodeQL security (actions)", "CodeQL security (python)", "CodeQL security (rust)",
+CHECKS = ("ci-required", "benchmark-complete", "CodeQL security (actions)", "CodeQL security (python)", "CodeQL security (rust)",
           "CodeQL security (ruby)", "CodeQL security (javascript-typescript)")
 SHA = re.compile(r"[0-9a-f]{40}\Z")
 CORE_VERSION = r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)"
@@ -236,8 +235,7 @@ def _latest_checks(source):
     raise ValueError("The exact-source check list did not finish within its bound")
 
 
-# The snapshot gate includes the exact-source build and operation. It does not
-# wait for provider retirement. Keep the release wait within the 7200s cap below.
+# Keep the release wait within the 7200s cap below.
 RELEASE_GATE_WAIT_SECONDS = 5400
 
 

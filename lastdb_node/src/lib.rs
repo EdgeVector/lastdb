@@ -1,6 +1,5 @@
 //! Library surface of the minimal `lastdbd` daemon.
 
-pub(crate) mod accepted_writes;
 pub mod cloud;
 pub mod cloud_backup_client;
 pub(crate) mod database_replay;

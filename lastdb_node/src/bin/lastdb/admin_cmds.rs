@@ -60,20 +60,26 @@ fn resolve_database(socket: &Path, selector: &str) -> Result<String, String> {
     {
         return resolved_row(selector, db);
     }
-    if cloud_backup_protocol::Id::try_from(selector.to_owned()).is_ok() {
+    if is_database_id(selector) {
         return Ok(selector.to_owned());
     }
     Err("database is not registered on this node".into())
 }
 
 fn resolved_row(selector: &str, db: &Value) -> Result<String, String> {
-    if cloud_backup_protocol::Id::try_from(selector.to_owned()).is_ok() {
+    if is_database_id(selector) {
         return Ok(selector.to_owned());
     }
     let id = db["id"].as_str().ok_or("missing database list")?;
-    cloud_backup_protocol::Id::try_from(id.to_owned())
-        .map_err(|_| "database is not registered on this node".to_string())?;
+    if !is_database_id(id) {
+        return Err("database is not registered on this node".into());
+    }
     Ok(id.to_owned())
+}
+
+/// Local owned database ids are Hex32 (db verifying key).
+fn is_database_id(value: &str) -> bool {
+    mutation_log::DatabaseId::from_hex(value).is_ok()
 }
 
 pub(super) fn list_databases(data_dir: Option<PathBuf>, json_only: bool) -> Result<(), String> {

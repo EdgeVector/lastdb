@@ -1,43 +1,28 @@
-//! Node-signed cold-blob upload and account-context client
-//! (`POST /api/cloud/backups/v2/mutation-log/blob/bytes`).
+//! Node-signed account-context client for cloud backup control plane calls.
 
 use super::{
     authorization_post, AuthClient, BackupTransport, BackupTransportError as E, PathPostTarget,
-    PresignedPut, TransportResult,
+    TransportResult,
 };
 use crate::profile::endpoints::{environment_for_exemem_api_url, Environment};
-use cloud_backup_protocol::v2::blobs::BlobPath;
 use cloud_backup_protocol::v2::context::{ContextReadRequest, ContextReadResponse};
 use cloud_backup_protocol::v2::limits::CONTROL_JSON_MAX_BYTES;
 use cloud_backup_protocol::v2::share_access::{ShareEnvironment, MUTATION_LOG_BLOB_BYTES_PATH};
-use cloud_backup_protocol::v2::transfer::UploadGrant;
 use cloud_backup_protocol::v2::Destination;
-use cloud_backup_protocol::{
-    bytes_sha256, AccountId, CloudScope, DecimalU64, Digest, Id, ProtocolError,
-};
+use cloud_backup_protocol::{AccountId, CloudScope, DecimalU64, Id};
 use fold_db::security::Ed25519KeyPair;
 use reqwest::header::{HeaderMap, HeaderValue};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::de::DeserializeOwned;
+use serde::Serialize;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-
-const BLOB_BYTES_OP: &str = "cloud/backups/v2/mutation-log/blob/bytes";
 
 /// Resolve the canonical `/api/cloud/backups/v2/` endpoint for `auth`.
 pub fn canonical_backup_endpoint(auth: AuthClient) -> TransportResult<String> {
     BackupTransport::from_auth(auth).map(|t| t.api_endpoint("cloud/backups/v2/").to_string())
 }
 
-/// Verified parameters of one signed `FileMarker` blob upload.
-#[derive(Clone, Copy)]
-pub(crate) struct BlobUploadTarget<'a> {
-    pub(crate) scope: &'a CloudScope,
-    pub(crate) path: &'a BlobPath,
-    pub(crate) bytes: DecimalU64,
-    pub(crate) sha256: &'a Digest,
-}
-
-/// Dual `X-API-Key` + Ed25519 `LastDBNode` client for account context and cold-blob uploads.
+/// Dual `X-API-Key` + Ed25519 `LastDBNode` client for account context reads.
 #[derive(Clone)]
 pub struct SignedBlobClient {
     transport: BackupTransport,
@@ -51,31 +36,6 @@ struct ContextWire<'a> {
     account_id: &'a AccountId,
     #[serde(skip_serializing_if = "<[_]>::is_empty")]
     required_destinations: &'a [Destination],
-}
-
-#[derive(Serialize)]
-struct BlobWire<'a> {
-    action: &'static str,
-    database_id: &'a Id,
-    scope: &'a CloudScope,
-    path: &'a BlobPath,
-    bytes: DecimalU64,
-    sha256: &'a Digest,
-}
-
-#[derive(Deserialize)]
-#[serde(tag = "status", rename_all = "snake_case", deny_unknown_fields)]
-enum PrepareReply {
-    AlreadyVerified { scope: CloudScope, path: BlobPath },
-    Upload { grant: UploadGrant },
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct CompleteReply {
-    status: String,
-    scope: CloudScope,
-    path: BlobPath,
 }
 
 impl SignedBlobClient {
@@ -125,73 +85,6 @@ impl SignedBlobClient {
         Ok(response)
     }
 
-    pub(crate) async fn upload_blob(
-        &self,
-        target: BlobUploadTarget<'_>,
-        data: Vec<u8>,
-    ) -> TransportResult<()> {
-        target.scope.validate()?;
-        target.path.validate()?;
-        let len = u64::try_from(data.len()).map_err(|_| ProtocolError::invalid("blob.bytes"))?;
-        if target.bytes.get() == 0
-            || target.bytes.get() != len
-            || bytes_sha256(&data) != *target.sha256
-        {
-            return Err(E::Integrity("upload source"));
-        }
-        let prepare_wire = BlobWire {
-            action: "prepare",
-            database_id: &target.path.database,
-            scope: target.scope,
-            path: target.path,
-            bytes: target.bytes,
-            sha256: target.sha256,
-        };
-        let prepared: PrepareReply = self
-            .signed_post(target.scope, &target.path.database, &prepare_wire)
-            .await?;
-        match prepared {
-            PrepareReply::AlreadyVerified { scope, path } => {
-                if scope != *target.scope || path != *target.path {
-                    return Err(E::InvalidResponse("blob verified identity"));
-                }
-                return Ok(());
-            }
-            PrepareReply::Upload { grant } => {
-                grant.validate()?;
-                let put = PresignedPut {
-                    sha256: target.sha256,
-                    bytes: target.bytes.get(),
-                    grant_url: grant.url.as_str(),
-                    expires_ms: grant.expires_ms.get(),
-                };
-                if let Err(error) = self.transport.put_presigned(&put, data).await {
-                    if !retryable_put(&error) {
-                        return Err(error);
-                    }
-                }
-            }
-        }
-        let complete_wire = BlobWire {
-            action: "complete",
-            database_id: &target.path.database,
-            scope: target.scope,
-            path: target.path,
-            bytes: target.bytes,
-            sha256: target.sha256,
-        };
-        let completed: CompleteReply = self
-            .signed_post(target.scope, &target.path.database, &complete_wire)
-            .await?;
-        if completed.status != "verified"
-            || completed.scope != *target.scope
-            || completed.path != *target.path
-        {
-            return Err(E::InvalidResponse("blob complete reply"));
-        }
-        Ok(())
-    }
-
     async fn signed_post<Q: Serialize, R: DeserializeOwned>(
         &self,
         scope: &CloudScope,
@@ -221,16 +114,11 @@ impl SignedBlobClient {
         let parsed = HeaderValue::from_str(&auth_value)
             .map_err(|_| E::Configuration("authorization header"))?;
         headers.insert(reqwest::header::AUTHORIZATION, parsed);
-        let url = self.transport.api_endpoint(BLOB_BYTES_OP);
+        let url = self
+            .transport
+            .api_endpoint("cloud/backups/v2/mutation-log/blob/bytes");
         self.transport
             .post_bounded_with_headers(url, body, CONTROL_JSON_MAX_BYTES, headers)
             .await
     }
-}
-
-fn retryable_put(error: &E) -> bool {
-    matches!(
-        error,
-        E::Timeout | E::Transport | E::Http(408 | 429 | 500 | 502 | 503 | 504)
-    )
 }

@@ -7,36 +7,15 @@ on:
 
 permissions:
   contents: read
-  actions: read
 
 concurrency:
   group: cloud-backup-recovery-daily
   cancel-in-progress: false
 
+# Unsigned mutation-log DEV load and snapshot roundtrip are retired.
+# The DEV gate is signed-history-dev.yml (AcceptEntry + reference_relay).
 jobs:
-  recovery:
-    # Private level only: device sync, recovery, and the created_by checks.
-    name: Signed owner-device sync and recovery in DEV
+  signed_history:
+    name: Signed-history DEV proofs
     if: github.ref == 'refs/heads/main'
-    permissions:
-      contents: read
-      actions: read
-      id-token: write
-    uses: ./.github/workflows/mutation-log-dev-load.yml
-    with:
-      confirm_deployed: 'yes'
-      level: private
-      duration: preliminary
-    secrets: inherit
-
-  notify:
-    name: Notify on failure
-    needs: recovery
-    if: always() && github.ref == 'refs/heads/main'
-    permissions:
-      contents: read
-      issues: write
-    uses: ./.github/workflows/notify-scheduled-failure.yml
-    with:
-      workflow_file: cloud-backup-daily.yml
-      job_results: ${{ needs.recovery.result }}
+    uses: ./.github/workflows/signed-history-dev.yml

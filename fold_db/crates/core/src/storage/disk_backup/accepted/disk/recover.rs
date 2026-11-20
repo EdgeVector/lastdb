@@ -303,7 +303,7 @@ pub(super) fn arm(root: &Path, inner: &mut Inner) -> Result<(), Error> {
     let mut state = inner
         .state
         .clone()
-        .unwrap_or_else(|| inner.fresh(inner.frontier, inner.history));
+        .unwrap_or_else(|| inner.fresh(inner.frontier));
     state.armed = true;
     inner.store(root, state)
 }
@@ -317,12 +317,11 @@ pub(super) fn persist_gap(root: &Path, inner: &mut Inner) {
     }
     match io::read_json::<super::State>(&root.join("state.json")) {
         Ok(None) => {
-            let mut state = inner.fresh(inner.frontier, inner.history);
+            let mut state = inner.fresh(inner.frontier);
             state.gap = true;
             if ensure_tree(root).is_ok() && io::write_json(&root.join("state.json"), &state).is_ok()
             {
                 inner.state = Some(state);
-                inner.history = false;
             }
         }
         Ok(Some(mut state)) => {

@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "LastDB app API",
-    "version": "42",
+    "version": "43",
     "description": "The app API lastdbd serves today: POST /v1/read, POST /v1/write, and POST /v1/x/<name>. info.version is the node api_version. Extensions carry no version: adding one does not change api_version, and removing one is refused. The app socket accepts a request body of at most 8388608 bytes. The owner socket does not use that cap. On the app socket a whole-request refusal uses the error object. A read that fails one item returns HTTP 200 and puts the same error object in that item."
   },
   "x-lastdb-extensions-carry-version": false,
@@ -961,7 +961,7 @@
         "type": "object",
         "additionalProperties": false,
         "required": ["at", "outcome", "status"],
-        "description": "The last publish attempt for one received database. It is kept in memory and is absent again after a restart. at is RFC 3339 UTC. status is the HTTP status when the service answered, or a string when the turn stopped before that answer: access_unknown, no_credentials, snapshot_required, gap, spool_position_mismatch, empty_page, writer_tip, upload_identity, upload_position, reader_stopped, writer_stopped, confirm_failed, prepare_failed, queue_unreadable, spool_position, batch_invalid, entry_too_large, undo_failed, policy_unknown, local_store_unavailable, capture_disabled, payment_required, writer_sequence_unknown, or upload_unconfirmed. access_unknown means the self-access view was unknown or stale. no_credentials means the node had no usable cloud credentials for the share. policy_unknown, local_store_unavailable, and capture_disabled mean the node stopped for a local reason before it asked the cloud. payment_required means the account is unpaid. writer_sequence_unknown means the node lost its saved upload position and the cloud no longer keeps the delivered entries that show this device's last writer sequence, so the node does not guess one. status is null when the attempt failed before a status and the node had usable credentials.",
+        "description": "The last publish attempt for one received database. It is kept in memory and is absent again after a restart. at is RFC 3339 UTC. status is the HTTP status when the service answered, or a string when the turn stopped before that answer: access_unknown, no_credentials, gap, spool_position_mismatch, empty_page, writer_tip, upload_identity, upload_position, reader_stopped, writer_stopped, confirm_failed, prepare_failed, queue_unreadable, spool_position, batch_invalid, entry_too_large, undo_failed, policy_unknown, local_store_unavailable, capture_disabled, payment_required, writer_sequence_unknown, or upload_unconfirmed. access_unknown means the self-access view was unknown or stale. no_credentials means the node had no usable cloud credentials for the share. policy_unknown, local_store_unavailable, and capture_disabled mean the node stopped for a local reason before it asked the cloud. payment_required means the account is unpaid. writer_sequence_unknown means the node lost its saved upload position and the cloud no longer keeps the delivered entries that show this device's last writer sequence, so the node does not guess one. status is null when the attempt failed before a status and the node had usable credentials.",
         "properties": {
           "at": {"type": "string"},
           "outcome": {"type": "string", "enum": ["confirmed", "refused", "unconfirmed"]},

@@ -33,6 +33,8 @@ sentry-telemetry = ["observability/sentry"]
 cloud_backup_protocol = { path = "../cloud_backup_protocol" }
 database_policy = { path = "../database_policy" }
 mutation_log = { path = "../mutation_log" }
+signed_history_client = { path = "../signed_history_client" }
+signed_history_materialize = { path = "../signed_history_materialize" }
 zeroize = { workspace = true }
 fold_db = { workspace = true }
 rustix = { version = "1", features = ["fs", "process"] }

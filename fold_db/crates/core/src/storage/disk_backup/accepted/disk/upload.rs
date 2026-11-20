@@ -153,9 +153,6 @@ pub(in crate::storage::disk_backup::accepted) fn stopped_confirmation(
     {
         return Err(Error::Gap);
     }
-    if state.snapshot_required {
-        return Err(Error::Snapshot);
-    }
     match Checkpoint::read(root, identity)? {
         Some(position) if position.spool_through == state.head => Ok(position),
         _ => Err(Error::Behind),
@@ -273,9 +270,6 @@ impl Log {
         }
         if position.spool_through > status.head || position.writer_seq == u64::MAX {
             return Err(Error::Ahead);
-        }
-        if status.snapshot_required {
-            return Err(Error::Snapshot);
         }
         if let Some(previous) = Checkpoint::read(&self.root, identity)? {
             if previous.spool_through > after || previous.writer_seq > position.writer_seq {

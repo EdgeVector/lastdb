@@ -30,13 +30,12 @@ on this fresh home has no cloud account and answers 409 no_cloud_account at once
 """
 import json
 import time
-import uuid
 from pathlib import Path
 
 import record_app_api_calls
 import v1_records as v1
 from record_app_api_calls import create
-from record_runs import definition, require
+from record_runs import definition, require, require_hex32_id
 
 APP = "databasesproof"
 # The owner handler requires schema.name to be "{app_id}/{local}".
@@ -112,7 +111,7 @@ def create_database(node, sock):
     require(row["name"] == NAME and row["sharingMode"] == "whole_database"
             and row["kind"] == "shareable" and row["access"] == "owner" and row["state"] == "ready",
             "create returned another row")
-    require(uuid.UUID(row["id"]).version == 4, "create did not return a v4 id")
+    require_hex32_id(row["id"], label="app create")
     listed = same_list(node, sock)
     owned_rows_omit_publish(listed)
     found = [item for item in listed["databases"] if item.get("name") == NAME]

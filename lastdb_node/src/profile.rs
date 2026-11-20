@@ -43,11 +43,6 @@ pub(crate) fn valid_label_64(value: &str) -> bool {
 }
 
 #[must_use]
-pub(crate) fn valid_label_128(value: &str) -> bool {
-    valid_label(value, 128)
-}
-
-#[must_use]
 pub fn valid_database_name(name: &str) -> bool {
     valid_label_64(name)
         && !name.eq_ignore_ascii_case("personal")

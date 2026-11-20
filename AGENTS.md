@@ -40,78 +40,13 @@ The docs folders were removed on 2026-11-02. `docs/app-api.md` is the app
 API contract. `docs/designs/` keeps designs for work in progress. Read a
 removed page with `git show 13a2cf188:<path>`.
 
-## Preserve whole-database sharing (Tom, 2026-11-14)
+## Signed history and sharing (cloud API v3)
 
-Read the [sharing design](docs/designs/shared-database-mutation-logs.md) before
-changing this path. That document is the decided state: the mutation log is the
-database, the proposal log is separate, and the two settings are independent
-(Tom, 2026-11-18).
-
-Decided later on 2026-11-18 and not built: direct write is per member, not a
-database-wide setting. Each member's entry carries read, propose, or write, and
-the `write` setting below goes away. Org is every member with write. The text
-below describes the `write` setting as the code has it until that rework. See
-"Decided change: direct write is per member" in the sharing design.
-
-The mutation log is the database. Every entry in it is part of the database.
-A caller who may read is served every entry. No entry is hidden because of who
-wrote it. ExeMem alone decides who may append and what a reader is served. A
-member's node applies every entry it is served. It does not reject an entry
-because of who wrote it.
-
-`read` (`members` or `anyone`) says who may read the mutation log, the snapshot,
-and file ranges. `write` (`proposals` or `direct`) says where an append by an
-active member with the Submit role goes from now on. `proposals` means the
-proposal log. `direct` means the mutation log. A publisher may change either
-setting at any time, in any direction. No rule depends on a combination of the
-two, or on what either log already holds. `anyone` with `direct` is valid.
-
-The publisher may always append to the mutation log. An active Submit member
-may append to the mutation log only while `write` is `direct`. While `write`
-is `proposals`, that member appends to the proposal log, and the log model
-refuses a non-publisher append to the mutation log. There is no older path
-that puts a member's proposal on the mutation log.
-
-The default is read `members` and write `proposals`, including when no settings
-exist. Keep these requirements for that default. Change them only at Tom's
-explicit direction.
-
-- A personal database has one log, the mutation log. A shared database has the
-  mutation log and the proposal log under one database ID. Their positions are
-  independent. Do not combine them, or keep a mixed-log path. There is no
-  compatibility with a retired log format. Entries already on the proposal log
-  stay until the publisher settles them.
-- Every active member can read every mutation-log entry and, while `write` is
-  `proposals`, append an encrypted proposal, even with an empty write grant.
-  Only the publisher can read or settle proposal-log entries. Members cannot
-  read even their own entries on that log.
-- Keep the publisher-signed, revisioned configuration per database. ExeMem
-  uses the active roster and the settings for transport. The publisher's LastDB
-  uses the confirmed member-write map on the publisher's machine to check each
-  proposal after downloading and decrypting it. A schema that is not in the map
-  is `owner_only`. The first active proposal of a drain confirms that map with
-  the service and reuses it for the page. When that confirmation fails, the
-  proposal is not accepted and not discarded, so it stays for the next drain.
-  An app's displayed permissions grant no write authority.
-- Commit allowed changes locally and append them to the mutation log under the
-  publisher's key before marking their proposal-log entries processed. Discard
-  denied or invalid changes. A queue receipt confirms delivery to the proposal
-  log.
-
-The three names, as examples of configurations an app might choose:
-
-- Share: `members` and `proposals`. This is the default.
-- Deliver: `anyone` and `proposals`. The reader has no member entry and holds
-  the read key from a link. A Submit member still appends to the proposal log
-  while `write` is `proposals`.
-- Org: `members` and `direct`. An active member with Submit appends to the
-  mutation log. ExeMem checks only that the member may write. Order is the
-  order ExeMem assigns at append. A reader is served that entry with every
-  other entry in the mutation log.
-
-In every case only the publisher publishes a snapshot. A receiver fetches that
-snapshot and replays the mutation log on top. The settings do not change bytes
-already on the mutation log, and they do not refuse a later settings change.
+The unsigned mutation log, proposal log, and snapshot path are retired.
+Read `docs/designs/cloud-api.md` and `docs/designs/relay-protocol.md` before
+changing sync, AcceptEntry, or relay code. Grants live only as signed chain
+entries; relays are grant-blind; there are no snapshots. DEV proofs run in
+`.github/workflows/signed-history-dev.yml` against in-repo `reference_relay`.
 
 ## Code size limits (CI fails a PR that breaks them)
 
@@ -196,30 +131,15 @@ can still publish over one of those listings with the owner key. That rule is
 `lastdb_node/src/bin/lastdb/app_registry_index/mod.rs`, and the pinned CI
 publisher keys stay in `lastdb_node/environments.json`.
 
-### Scoped extension: signed snapshot round trip (Tom, 2026-11-13)
+### Scoped extension: signed snapshot round trip — RETIRED (cloud API v3)
 
-Tom asked for an end-to-end DEV check so the owner signed-database snapshot
-backup and restore path cannot regress. That path was deleted once before, in
-exemem-infra #797 and lastdb #1541.
-
-This authorizes only:
-
-- `scripts/cloud_backup/snapshot_gate.py`
-- `.github/workflows/snapshot-roundtrip-dev.yml`
-- the `snapshot-roundtrip-dev` precondition in `scripts/release/nightly_plan.py`,
-  `.github/workflows/nightly-release.yml`, and `.github/workflows/stable-release.yml`
-
-The check uses a fresh generated home, synthetic records, the public CLI and
-daemon, and the existing `cloud-backup-dev` environment. It runs on a push to
-main, the daily schedule, and `workflow_dispatch`. Pull requests receive no
-cloud credentials. Keep every other test target retired. No local LastDB
-builds, benchmarks, or runtime proofs. No primary data.
+Snapshot roundtrip DEV CI and `snapshot_gate*.py` were removed with the
+unsigned mutation log. Signed-history + relay DEV CI replaces them.
 
 ## Cursor Cloud specific instructions
 
-Owner byte backup and its PROD restore workflow are gone. Personal and private
-databases sync and restore through the signed database-id log. Do not add a
-second backup path, a flag, or a migration.
+Owner byte backup and its PROD restore workflow are gone. Personal databases sync through signed history AcceptEntry and a grant-blind
+relay. No snapshots, dual readers, feature flags, or migration paths.
 
 The image already has Rust (`rust-toolchain.toml`, 1.96.1) and Node 22.
 `install` adds Ruby and the pinned

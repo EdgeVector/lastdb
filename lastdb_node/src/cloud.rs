@@ -25,9 +25,10 @@ pub const DEVELOPER_API_KEY_FILE: &str = "developer-api-key";
 pub const PAYMENT_REQUIRED_MESSAGE: &str =
     "active paid cloud subscription required — run 'lastdb cloud payment checkout' first";
 #[doc(hidden)]
-pub const FIRST_BACKUP_INTENT_FILE: &str = ".native-first-backup";
+pub const SIGNED_HISTORY_INTENT_FILE: &str = ".signed-history-intent";
 #[doc(hidden)]
-pub const FIRST_BACKUP_INTENT: &[u8] = b"snapshot-v1\n";
+/// Marker bytes: this home should bootstrap signed history on next sync.
+pub const SIGNED_HISTORY_INTENT: &[u8] = b"signed-history-v1\n";
 
 #[must_use]
 pub fn is_payment_subscription_error(status: u16, body: &[u8]) -> bool {
@@ -46,20 +47,14 @@ pub(crate) fn format_protocol_error(error: &ProtocolError) -> String {
     }
 }
 
-pub(crate) fn describe_protocol_error(body: &[u8]) -> Option<String> {
-    serde_json::from_slice::<ProtocolError>(body)
-        .ok()
-        .map(|err| format_protocol_error(&err))
-}
-
-pub(crate) fn first_backup_intent(home: &Path) -> bool {
+pub(crate) fn signed_history_intent(home: &Path) -> bool {
     read_private_named(
-        &home.join(FIRST_BACKUP_INTENT_FILE),
-        FIRST_BACKUP_INTENT.len() as u64,
-        "invalid first backup intent file",
-        "invalid first backup intent length",
+        &home.join(SIGNED_HISTORY_INTENT_FILE),
+        SIGNED_HISTORY_INTENT.len() as u64,
+        "invalid signed-history intent file",
+        "invalid signed-history intent length",
     )
-    .is_ok_and(|bytes| bytes.as_deref().map(Vec::as_slice) == Some(FIRST_BACKUP_INTENT))
+    .is_ok_and(|bytes| bytes.as_deref().map(Vec::as_slice) == Some(SIGNED_HISTORY_INTENT))
 }
 
 #[derive(Serialize, Deserialize)]

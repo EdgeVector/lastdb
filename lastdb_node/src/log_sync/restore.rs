@@ -1,143 +1,99 @@
-//! Fetch authenticated ciphertext ranges of record file blobs by database id.
+//! Restore: read streams from seq 1 via signed_history_client, AcceptEntry + LWW.
 
-use base64::Engine as _;
-use cloud_backup_protocol::v2::blobs::BlobPath;
-use cloud_backup_protocol::{canonical_bytes, CloudScope, DecimalU64};
-use serde::{Deserialize, Serialize};
+use app_identity_crypto::SigningKey;
+use mutation_log::VerifiedHistory;
+use signed_history_client::{restore_from_relay, RestoreRequest, StreamRef};
 
-use crate::database_replay::{RestoreError, SnapshotFileRequest};
+use super::materialize;
 
-use super::cloud::CloudLog;
-use super::http::paths;
-
-const OBJECT_RANGE: u64 = 180 * 1024;
-
-pub(crate) struct SnapshotFiles {
-    log: CloudLog,
+/// One owned device stream to restore (`device_id` is a UUID string).
+#[derive(Clone, Debug)]
+pub struct OwnedStream {
+    /// UUID device id on the publisher/owner node key.
+    pub device_id: String,
 }
 
-pub(super) fn file_source(log: CloudLog) -> SnapshotFiles {
-    SnapshotFiles { log }
+/// Parameters for restoring an owned database into a staged home.
+pub struct RestoreOwnedParams<'a> {
+    /// Staged home path (identity key already written).
+    pub home: &'a std::path::Path,
+    /// Relay origin URL.
+    pub relay_url: String,
+    /// Owner recovery seed (32 bytes) → SigningKey / node key.
+    pub seed: &'a [u8; 32],
+    /// Hex32 database id.
+    pub database_id: String,
+    /// Owner device streams to pull (writer_key = seed's public key).
+    pub streams: Vec<OwnedStream>,
 }
 
-impl SnapshotFiles {
-    pub(crate) async fn read_blob(
-        &mut self,
-        request: &SnapshotFileRequest,
-    ) -> Result<Vec<u8>, RestoreError> {
-        if request.database_id != self.log.database_id() {
-            return Err(RestoreError::File("snapshot file"));
-        }
-        let mut offset = 0u64;
-        let mut buffer = Vec::new();
-        let mut total = None;
-        loop {
-            let page = one_range(&self.log, request, offset, total).await?;
-            if page.got == 0 || page.start != offset {
-                return Err(RestoreError::File("snapshot file"));
-            }
-            let size = *total.get_or_insert(page.total);
-            if size != page.total || offset.saturating_add(page.got) > size {
-                return Err(RestoreError::File("snapshot file"));
-            }
-            buffer.extend_from_slice(&page.bytes);
-            offset += page.got;
-            if offset == size {
-                return Ok(buffer);
-            }
-        }
-    }
+/// Counters returned after a successful restore.
+#[derive(Clone, Debug)]
+pub struct RestoreOwnedReport {
+    /// Non-duplicate accepted entries.
+    pub replayed: u64,
+    /// Max writer_seq among accepted entries.
+    pub through: u64,
 }
 
-struct RangeBytes {
-    total: u64,
-    start: u64,
-    got: u64,
-    bytes: Vec<u8>,
-}
-
-async fn one_range(
-    log: &CloudLog,
-    request: &SnapshotFileRequest,
-    offset: u64,
-    total: Option<u64>,
-) -> Result<RangeBytes, RestoreError> {
-    let length = total.map(|size| size.saturating_sub(offset).min(OBJECT_RANGE));
-    let body =
-        object_body(request, offset, length).map_err(|_| RestoreError::File("snapshot file"))?;
-    let raw = log
-        .post(paths::DELIVERY_OBJECT, body)
-        .await
-        .map_err(|_| RestoreError::File("snapshot file"))?;
-    decode_range(&raw, &request.database_id)
-}
-
-fn object_body(
-    request: &SnapshotFileRequest,
-    offset: u64,
-    length: Option<u64>,
-) -> Result<Vec<u8>, ()> {
-    canonical_bytes(&ObjectRequest {
-        database_id: &request.database_id,
-        scope: &request.scope,
-        path: &request.path,
-        offset: DecimalU64::new(offset),
-        length: length.map(DecimalU64::new),
+/// Pull every owned stream from relay seq 1, AcceptEntry, materialize into `home`.
+pub async fn restore_owned_database(
+    params: RestoreOwnedParams<'_>,
+) -> Result<RestoreOwnedReport, String> {
+    let signing_key = SigningKey::from_bytes(params.seed);
+    let node_key_hex = app_identity_crypto::hex_lower(&signing_key.verifying_key().to_bytes());
+    let reader_device = uuid::Uuid::new_v4().to_string();
+    let streams: Vec<StreamRef> = params
+        .streams
+        .into_iter()
+        .map(|s| StreamRef {
+            writer_key: node_key_hex.clone(),
+            device_id: s.device_id,
+        })
+        .collect();
+    let report = restore_from_relay(RestoreRequest {
+        relay_url: params.relay_url,
+        signing_key,
+        node_key_hex,
+        device_id: reader_device,
+        database_id: params.database_id.clone(),
+        streams,
     })
-    .map_err(|_| ())
-}
-
-fn decode_range(raw: &[u8], database_id: &str) -> Result<RangeBytes, RestoreError> {
-    let page: ObjectBody =
-        serde_json::from_slice(raw).map_err(|_| RestoreError::File("snapshot file"))?;
-    if page.database_id != database_id || page.result != "bytes" {
-        return Err(RestoreError::File("snapshot file"));
-    }
-    let total = page.bytes.ok_or(RestoreError::File("snapshot file"))?.get();
-    let start = page
-        .offset
-        .ok_or(RestoreError::File("snapshot file"))?
-        .get();
-    let got = page
-        .length
-        .ok_or(RestoreError::File("snapshot file"))?
-        .get();
-    let text = page.ciphertext.ok_or(RestoreError::File("snapshot file"))?;
-    let bytes = base64::engine::general_purpose::STANDARD
-        .decode(text)
-        .map_err(|_| RestoreError::File("snapshot file"))?;
-    if got == 0 || got > OBJECT_RANGE || bytes.len() as u64 != got {
-        return Err(RestoreError::File("snapshot file"));
-    }
-    Ok(RangeBytes {
-        total,
-        start,
-        got,
-        bytes,
+    .await?;
+    publish_restored(params.home, params.seed, &report.history).await?;
+    Ok(RestoreOwnedReport {
+        replayed: report.replayed,
+        through: report.through,
     })
 }
 
-#[derive(Serialize)]
-struct ObjectRequest<'a> {
-    database_id: &'a str,
-    scope: &'a CloudScope,
-    path: &'a BlobPath,
-    offset: DecimalU64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    length: Option<DecimalU64>,
+async fn publish_restored(
+    home: &std::path::Path,
+    seed: &[u8; 32],
+    history: &VerifiedHistory,
+) -> Result<(), String> {
+    // The staged home has no booted host yet, so open its personal store at
+    // `home/data` and let the next boot find the materialized records.
+    let store = signed_history_materialize::open_store(&home.join("data"), seed, true).await?;
+    let applied = declare_and_apply(&store, history).await;
+    let closed = store.shutdown().await.map_err(|e| e.to_string());
+    applied?;
+    closed
 }
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ObjectBody {
-    database_id: String,
-    result: String,
-    #[serde(default)]
-    bytes: Option<DecimalU64>,
-    #[serde(default)]
-    offset: Option<DecimalU64>,
-    #[serde(default)]
-    length: Option<DecimalU64>,
-    #[serde(default)]
-    ciphertext: Option<String>,
+async fn declare_and_apply(
+    store: &fold_db::fold_db_core::FoldDB,
+    history: &VerifiedHistory,
+) -> Result<(), String> {
+    // DESIGN: Phase 1 history carries no schema entries, so a namespace with no
+    // declared schema gets the one-field Hash schema (`v: String`) before replay.
+    let namespaces: std::collections::BTreeSet<&str> = history
+        .records()
+        .keys()
+        .map(|(namespace, _)| namespace.as_str())
+        .collect();
+    for namespace in namespaces {
+        signed_history_materialize::ensure_hash_schema(store, namespace).await?;
+    }
+    materialize::apply_history_records(store, history).await
 }

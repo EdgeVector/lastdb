@@ -1,12 +1,11 @@
 //! Stable database handles, node-owned Share bindings, and receiver stores that follow the mutation log.
-//! Decided state: docs/designs/shared-database-mutation-logs.md (mutation log, proposal log, share settings).
+//! Decided state: docs/designs/cloud-api.md (signed history; grants in-chain).
 
-use crate::cloud_backup_client::ShareEnvironment;
 use crate::share_cache::{
     private_directory, publish, Lock, Registration, Result, ShareCache, ShareCacheError,
     MANAGED_SHARE_DIRECTORY,
 };
-use cloud_backup_protocol::{v2::Stream, Digest, Id};
+use cloud_backup_protocol::{Digest, Id};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::ErrorKind;
@@ -14,7 +13,7 @@ use std::path::Path;
 
 mod store;
 
-pub(crate) use store::{content_material, receiver_store};
+pub(crate) use store::receiver_store;
 
 pub(crate) const REGISTRY_LOCK: &str = "registry.lock";
 /// Sync writes this when the publisher has no snapshot, so replay may open an empty store.
@@ -45,16 +44,9 @@ pub(crate) struct RegisteredShare {
     pub name: Option<String>,
     pub spec: Option<crate::profile::PublicationSpec>,
     pub expires_ms: u64,
-    #[serde(skip)]
-    pub(crate) stream: Stream,
-    #[serde(skip)]
-    pub(crate) environment: ShareEnvironment,
     /// Named-database signed log. Publication shares leave this false.
     #[serde(skip)]
     pub(crate) signed_log: bool,
-    /// Open read link. It has no member entry and does not submit.
-    #[serde(skip)]
-    pub(crate) link: bool,
 }
 
 impl RegisteredShare {
@@ -62,14 +54,6 @@ impl RegisteredShare {
         self.spec
             .as_ref()
             .is_some_and(crate::profile::PublicationSpec::whole_database)
-    }
-
-    pub(crate) fn stream(&self) -> &Stream {
-        &self.stream
-    }
-
-    pub(crate) fn environment(&self) -> ShareEnvironment {
-        self.environment
     }
 }
 
@@ -221,10 +205,7 @@ pub(crate) fn describe(id: &Id, registration: &Registration) -> Result<Registere
         name: state.name.clone(),
         spec: state.spec.clone(),
         expires_ms: state.expires_ms,
-        stream: registration.stream.clone(),
-        environment: registration.environment,
         signed_log: state.signed_log,
-        link: state.link,
     })
 }
 
@@ -246,17 +227,6 @@ pub(crate) fn accept_signed_log(
     ShareCache::open_managed(home, true)?
         .ok_or(ShareCacheError::Unavailable)?
         .register_signed_log(home, sealed, publisher, name, id.as_ref())
-}
-
-/// Re-open the invitation stored for this stable stream id.
-pub(crate) fn verified_invitation(
-    home: &Path,
-    id: &Id,
-) -> Result<crate::share_invitation::OpenedShareInvitation> {
-    let Some(cache) = ShareCache::open_managed(home, false)? else {
-        return Err(ShareCacheError::Unavailable);
-    };
-    cache.open_verified(id)
 }
 
 /// Return node-owned shared database registrations, including pending ones.

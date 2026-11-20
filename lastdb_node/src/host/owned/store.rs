@@ -13,10 +13,7 @@ use hkdf::Hkdf;
 use sha2::Sha256;
 use zeroize::Zeroizing;
 
-use super::{
-    ensure_free, registry, snapshot, validate_create, Entry, Kind, OwnedError, ResolvedStore,
-    Tables,
-};
+use super::{ensure_free, validate_create, Entry, Kind, OwnedError, Tables};
 use crate::profile::PublicationSpec;
 
 /// Domain for owned-database content keys. Personal uses the node seed through
@@ -65,31 +62,6 @@ impl Tables {
         self.create_registered(home, signer, entry).await
     }
 
-    /// Register the cloud id in an isolated fresh recovery home.
-    pub(crate) async fn register_recovered(
-        &self,
-        home: &Path,
-        signer: Arc<Ed25519KeyPair>,
-        name: &str,
-        id: &cloud_backup_protocol::Id,
-    ) -> Result<Entry, OwnedError> {
-        validate_create(name, None)?;
-        if !matches!(self.registered_store(id.as_str())?, ResolvedStore::Absent) {
-            return Err(OwnedError::AlreadyRegistered);
-        }
-        self.create_registered(
-            home,
-            signer,
-            Entry {
-                id: id.as_str().to_owned(),
-                name: Some(name.to_owned()),
-                kind: Kind::Personal,
-                spec: None,
-            },
-        )
-        .await
-    }
-
     async fn create_registered(
         &self,
         home: &Path,
@@ -108,37 +80,6 @@ impl Tables {
             return Err(error.kind);
         }
         Ok(entry)
-    }
-
-    /// Point the personal row at a restored cloud id. The store stays `<home>/data`.
-    pub(crate) fn adopt_owner_id(&self, home: &Path, database_id: &str) -> Result<(), OwnedError> {
-        if cloud_backup_protocol::Id::try_from(database_id.to_owned()).is_err() {
-            return Err(OwnedError::InvalidName);
-        }
-        let mut state = self.write()?;
-        if state.registry_owner.kind != Kind::Personal
-            || state.registry_owner.name.as_deref() != Some("personal")
-            || state.registry_owner.spec.is_some()
-        {
-            return Err(OwnedError::Unavailable);
-        }
-        if state.registry_owner.id == database_id {
-            return Ok(());
-        }
-        if state.stores.contains_key(database_id)
-            || state.owned.iter().any(|entry| entry.id == database_id)
-        {
-            return Err(OwnedError::AlreadyRegistered);
-        }
-        let previous = state.registry_owner.id.clone();
-        state.registry_owner.id = database_id.to_owned();
-        if let Err(error) = registry::write(home, &snapshot(&state)) {
-            if !error.renamed {
-                state.registry_owner.id = previous;
-            }
-            return Err(OwnedError::Unavailable);
-        }
-        Ok(())
     }
 }
 
@@ -179,7 +120,6 @@ pub(super) async fn open(
             offline_maintenance: false,
             // Owned siblings are shareable. Capture starts here, before cloud enrollment.
             capture_accepted: true,
-            capture_initial_snapshot: false,
             record_log: entry
                 .whole_database()
                 .then(|| crate::host::share_identity::record_log(home, id)),

@@ -7,7 +7,7 @@ use cloud_backup_protocol::Id;
 use super::*;
 use crate::registered_share::{self, RegisteredShare};
 
-pub(super) async fn submit_signed(
+pub(super) fn submit_signed(
     req: &UdsRequest,
     ctx: &AccessContext,
     host: &Host,
@@ -18,7 +18,7 @@ pub(super) async fn submit_signed(
         return error_response(403, "this share is read-only", ctx);
     }
     if !replay_durable(host, share) {
-        return error_response(503, "database snapshot is not durable", ctx);
+        return error_response(503, "signed history prefix is not durable", ctx);
     }
     let Some(id) = req
         .header("Idempotency-Key")
@@ -26,7 +26,7 @@ pub(super) async fn submit_signed(
     else {
         return error_response(400, "a shared write requires a UUID Idempotency-Key", ctx);
     };
-    match crate::log_sync::submit_share_write(host, share, &id, &req.body).await {
+    match crate::log_sync::submit_share_write(host, share, &id, &req.body) {
         Ok(sequence) => {
             let mut response = json_ok(&json!({
                 "ok": true, "status": "submitted", "mutation_id": id,
@@ -37,12 +37,6 @@ pub(super) async fn submit_signed(
                 response.reason = "Accepted";
             }
             response
-        }
-        Err(ContributionError::Invalid) => {
-            error_response(400, "invalid shared mutation or schema definition", ctx)
-        }
-        Err(ContributionError::Forbidden) => {
-            error_response(403, "this member cannot submit this shared mutation", ctx)
         }
         Err(ContributionError::Unavailable) => render(
             Err(HostError::new(503, "shared mutation was not confirmed")
@@ -60,7 +54,7 @@ pub(super) async fn read_signed(
     share: &RegisteredShare,
 ) -> UdsResponse {
     if !replay_durable(host, share) {
-        return error_response(503, "database snapshot is not durable", ctx);
+        return error_response(503, "signed history prefix is not durable", ctx);
     }
     let Ok(store) = registered_share::receiver_store(host, &share.id).await else {
         return error_response(503, "database store is unavailable", ctx);
@@ -73,12 +67,12 @@ pub(super) async fn read_signed(
         )
         .await;
     if !replay_durable(host, share) {
-        return error_response(503, "database snapshot is not durable", ctx);
+        return error_response(503, "signed history prefix is not durable", ctx);
     }
     response
 }
 
-pub(super) async fn submission_status(
+pub(super) fn submission_status(
     req: &UdsRequest,
     ctx: &AccessContext,
     host: &Host,
@@ -96,15 +90,9 @@ pub(super) async fn submission_status(
     let Ok(body) = serde_json::from_slice::<StatusRequest>(&req.body) else {
         return error_response(400, "invalid submission status request", ctx);
     };
-    match crate::log_sync::share_write_status(host, share, &body.mutation_id).await {
+    match crate::log_sync::share_write_status(host, share, &body.mutation_id) {
         Ok(status) => {
             json_ok(&json!({"ok": true, "mutation_id": body.mutation_id, "status": status}))
-        }
-        Err(ContributionError::Forbidden) => {
-            error_response(403, "submission status access refused", ctx)
-        }
-        Err(ContributionError::Invalid) => {
-            error_response(400, "invalid submission status request", ctx)
         }
         Err(ContributionError::Unavailable) => {
             error_response(503, "submission status is unavailable", ctx)

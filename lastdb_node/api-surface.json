@@ -1,5 +1,5 @@
 {
-  "api_version": 42,
+  "api_version": 43,
   "min_supported_api_version": 38,
   "app_api_version": 1,
   "min_supported_app_api_version": 1,
@@ -16,7 +16,6 @@
     "/api/apps/declare-schema",
     "/api/apps/register",
     "/api/apps/unregister",
-    "/api/backup/snapshot",
     "/api/cloud/wake",
     "/api/databases",
     "/api/databases/accept",

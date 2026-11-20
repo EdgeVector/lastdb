@@ -36,11 +36,6 @@ impl DirInode {
     }
 
     #[must_use]
-    pub(crate) fn same_device(self, other: Self) -> bool {
-        self.0 == other.0
-    }
-
-    #[must_use]
     pub fn matches_dir(self, path: &Path) -> bool {
         Self::of_dir(path).is_ok_and(|actual| actual == self)
     }

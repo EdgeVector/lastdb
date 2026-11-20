@@ -1,5 +1,5 @@
 //! Share access v2 wire types for the mutation log, the proposal log, and share settings.
-//! Decided state: docs/designs/shared-database-mutation-logs.md (mutation log, proposal log, share settings).
+//! Legacy share-access wire types. Live contract: docs/designs/cloud-api.md.
 //!
 //! A member entry names one Ed25519 node key that may read one shared database.
 //! On a whole-database share, any active member may submit encrypted mutations.
@@ -67,9 +67,6 @@ pub const SHARE_MEMBER_LIST_READ_PATH: &str = "/api/cloud/backups/v2/share/membe
 
 /// Read or upload signed cold-blob bytes and account context.
 pub const MUTATION_LOG_BLOB_BYTES_PATH: &str = "/api/cloud/backups/v2/mutation-log/blob/bytes";
-/// Read or publish the reference to a client-uploaded encrypted snapshot.
-pub const MUTATION_LOG_SNAPSHOT_BYTES_PATH: &str =
-    "/api/cloud/backups/v2/mutation-log/snapshot/bytes";
 /// Read one signed ciphertext range of a record file.
 pub const MUTATION_LOG_DELIVERY_OBJECT_PATH: &str =
     "/api/cloud/backups/v2/mutation-log/delivery/object";

@@ -22,9 +22,7 @@ pub(crate) mod ops;
 pub(crate) mod owned;
 mod recovery;
 pub(crate) mod share_identity;
-pub(crate) use cloud_sync::{BlockedDelivery, ReplayBlockReason};
 pub use logging::init_daemon_logging;
-pub(crate) use logging::publish_category_allowed;
 
 const SHUTDOWN_FLUSH_READY_FILE: &str = ".shutdown_flush_ready";
 
@@ -61,7 +59,6 @@ pub struct Host {
     pub uds_workers: OnceLock<crate::lastdb_uds::UdsWorkerPool>,
     /// The app socket's pool. `/api/status` reports it beside [`Self::uds_workers`].
     pub app_uds_workers: OnceLock<crate::lastdb_uds::UdsWorkerPool>,
-    pub(crate) booted_with_credentials: bool,
     pub(crate) cloud_sync: cloud_sync::CloudSyncTracker,
     pub(crate) owned: owned::Tables,
     pub(crate) received: tokio::sync::Mutex<HashMap<String, Arc<FoldDB>>>,
@@ -81,12 +78,6 @@ impl Host {
         if home.join("data").exists() {
             return Err("signed restore capture requires a fresh staged home".to_owned());
         }
-        Self::boot_inner(home, true).await
-    }
-
-    /// Boot the isolated restore home after verified snapshot files are installed.
-    #[doc(hidden)]
-    pub async fn boot_for_snapshot_restore(home: &Path) -> Result<Self, String> {
         Self::boot_inner(home, true).await
     }
 
@@ -122,13 +113,12 @@ impl Host {
         let has_spool = !signed_restore
             && fold_db::storage::disk_backup::accepted::has_spool(&data_dir)
                 .map_err(|e| recovery::map_and_record_boot_error(home, existing, e))?;
-        let wants_initial = !signed_restore && crate::cloud::first_backup_intent(home);
-        let creds_at_boot = has_cloud_credentials(home);
-        let connected = !signed_restore && (!has_spool || wants_initial) && creds_at_boot;
+        let wants_bootstrap = !signed_restore && crate::cloud::signed_history_intent(home);
+        let connected =
+            !signed_restore && (!has_spool || wants_bootstrap) && has_cloud_credentials(home);
         let opts = fold_db::fold_db_core::factory::FoldDbOptions {
             offline_maintenance: false,
             capture_accepted: signed_restore || has_spool || connected,
-            capture_initial_snapshot: wants_initial && connected,
             record_log: None,
         };
         let db = fold_db::fold_db_core::factory::create_fold_db_with_options(
@@ -155,7 +145,6 @@ impl Host {
             user_hash,
             uds_workers: OnceLock::new(),
             app_uds_workers: OnceLock::new(),
-            booted_with_credentials: creds_at_boot,
             cloud_sync,
             owned,
             received: tokio::sync::Mutex::new(HashMap::new()),

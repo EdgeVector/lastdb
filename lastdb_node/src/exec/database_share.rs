@@ -1,5 +1,5 @@
 //! Publisher-only sharing configuration, member grant/revoke, and invitation routes.
-//! Decided state: docs/designs/shared-database-mutation-logs.md (mutation log, proposal log, share settings).
+//! Decided state: docs/designs/cloud-api.md (signed history; grants in-chain).
 use super::*;
 use crate::host::owned;
 use crate::lastdb_uds::uds_router::method_not_allowed_response;
@@ -56,7 +56,7 @@ pub(super) async fn execute(
     let result = match (route, req.method.as_str()) {
         (Route::Config, "GET") => {
             async {
-                ensure_enrolled(host, &entry.id).await?;
+                ensure_enrolled(host, &entry.id)?;
                 named_grant::read_config(&host.home, &entry.id)
                     .await
                     .and_then(|config| {
@@ -79,7 +79,7 @@ pub(super) async fn execute(
 
 async fn set(req: &UdsRequest, host: &Host, entry: &owned::Entry) -> Result<Value, ConfigError> {
     let update: ConfigUpdate = decode(req, CONFIG_BODY_MAX)?;
-    ensure_enrolled(host, &entry.id).await?;
+    ensure_enrolled(host, &entry.id)?;
     let id = &entry.id;
     let request_id = update.request_id.clone();
     let revision = named_grant::set_config(&host.home, id, update).await?;
@@ -136,7 +136,7 @@ async fn members(req: &UdsRequest, ctx: &AccessContext, host: &Host, id: &str) -
             "revoke" => (MemberIntent::Revoke, None),
             _ => return Err(HostError::new(400, "invalid member action")),
         };
-        ensure_enrolled(host, id).await.map_err(host_error)?;
+        ensure_enrolled(host, id).map_err(host_error)?;
         let ack = named_grant::update_member(&host.home, id, &b.recipient_key, intent)
             .await
             .map_err(|error| member_cloud_error(host, id, error))?;
@@ -187,7 +187,7 @@ async fn link(
     if !req.body.is_empty() {
         return error_response(400, "invalid sharing request", ctx);
     }
-    if let Err(error) = ensure_enrolled(host, &entry.id).await {
+    if let Err(error) = ensure_enrolled(host, &entry.id) {
         return render(Err(host_error(error)), ctx);
     }
     match crate::share_link::issue(host, entry).await {
@@ -204,7 +204,7 @@ async fn link(
 
 async fn invite(req: &UdsRequest, host: &Host, id: &str) -> Result<Value, ConfigError> {
     let invitation: Invitation = decode(req, 4096)?;
-    ensure_enrolled(host, id).await?;
+    ensure_enrolled(host, id)?;
     let sealed = named_grant::issue_invitation(
         &host.home,
         id,
@@ -229,11 +229,11 @@ fn decode<T: serde::de::DeserializeOwned>(req: &UdsRequest, limit: u64) -> Resul
         .map_err(|_| ConfigError::Invalid("invalid sharing request".into()))
 }
 
-async fn ensure_enrolled(host: &Host, database_id: &str) -> Result<(), ConfigError> {
+fn ensure_enrolled(host: &Host, database_id: &str) -> Result<(), ConfigError> {
     if payment_blocked(host, database_id) {
         return Err(ConfigError::PaymentRequired);
     }
-    match crate::log_sync::wait_for_enrollment(host, database_id).await {
+    match crate::log_sync::wait_for_enrollment(host, database_id) {
         crate::log_sync::CloudState::Enrolled => Ok(()),
         crate::log_sync::CloudState::NoAccount => Err(ConfigError::NoAccount),
         crate::log_sync::CloudState::Enrolling if payment_blocked(host, database_id) => {

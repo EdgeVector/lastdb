@@ -1,0 +1,90 @@
+name: Signed history DEV proofs
+
+# Phase 1 AcceptEntry proofs against the in-repo grant-blind reference_relay.
+# No AWS/IAM/secrets. CI may cargo build; agents must not build on Tom's machine.
+on:
+  pull_request:
+    paths:
+      - "mutation_log/**"
+      - "reference_relay/**"
+      - "signed_history_dev/**"
+      - "signed_history_client/**"
+      - "signed_history_materialize/**"
+      - "lastdb_node/src/log_sync/**"
+      - ".github/workflows/signed-history-dev.yml"
+  push:
+    paths:
+      - "mutation_log/**"
+      - "reference_relay/**"
+      - "signed_history_dev/**"
+      - "signed_history_client/**"
+      - "signed_history_materialize/**"
+      - "lastdb_node/src/log_sync/**"
+      - ".github/workflows/signed-history-dev.yml"
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: signed-history-dev-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  proofs:
+    name: reference_relay scenarios
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      CARGO_BUILD_JOBS: "2"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: signed-history-dev-folddb
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Build reference_relay and signed_history_dev
+        run: |
+          set -euo pipefail
+          cargo build --locked -p reference_relay --bin reference_relay
+          cargo build --locked -p signed_history_dev --bin signed_history_dev
+      - name: Run Phase 1 scenarios
+        run: |
+          set -euo pipefail
+          WORK="${RUNNER_TEMP}/signed-history-dev"
+          mkdir -p "$WORK"
+          ./target/debug/signed_history_dev \
+            --relay-bin "$PWD/target/debug/reference_relay" \
+            --work-dir "$WORK" \
+            --json-out "$WORK/summary.json" \
+            --blob-bytes $((300 * 1024 * 1024)) \
+            | tee "$WORK/stdout.log"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: signed-history-dev-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/signed-history-dev/summary.json
+            ${{ runner.temp }}/signed-history-dev/stdout.log
+          retention-days: 7
+          if-no-files-found: warn
+      - name: Publish summary
+        if: always()
+        run: |
+          {
+            echo "## Signed history DEV proofs"
+            echo "Source: $GITHUB_SHA"
+            echo "Grant-blind reference_relay only. No AWS/IAM/secrets."
+            echo "Scenarios: forge_reject, revoke_cutoff, converge, restore_replay, nongrantee_reject, blob_perf."
+            echo "converge and restore_replay also check real FoldDB records after replay."
+            if [[ -f "${RUNNER_TEMP}/signed-history-dev/summary.json" ]]; then
+              echo
+              echo '```json'
+              cat "${RUNNER_TEMP}/signed-history-dev/summary.json"
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
