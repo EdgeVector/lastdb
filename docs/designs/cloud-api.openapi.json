@@ -3,7 +3,7 @@
   "info": {
     "title": "LastDB ExeMem Cloud API",
     "version": "3.0.0-design",
-    "description": "ExeMem Cloud API v3 (minimal signed history). Local AcceptEntry; seen_heads by hash from any stream; checked Lamport; whole-record LWW; no snapshots; no resolve; no manage/access; no server grant 403s; publisher heads for hidden-entry detection; delete/deactivate product erase. See relay-protocol.md; signed bundle entries for large batches/bootstrap. See relay-protocol.md."
+    "description": "ExeMem Cloud API v3 (minimal signed history). Local AcceptEntry; seen_heads by hash from any stream; checked Lamport; whole-record LWW; no snapshots; no resolve; no manage/access; no server grant 403s; publisher heads for hidden-entry detection; delete/deactivate product erase. See relay-protocol.md; signed bundle entries for large batches/bootstrap. See relay-protocol.md; grant#any reads require a signed caller. Relay may 403 without grant (spam/cost only)."
   },
   "servers": [
     {
@@ -1077,6 +1077,7 @@
             "type": "string",
             "enum": [
               "unauthorized",
+              "forbidden",
               "invalid_request",
               "not_found",
               "conflict",

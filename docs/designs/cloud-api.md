@@ -32,20 +32,26 @@ the key.
 
 ### Acceptance (local node rule)
 
-**Acceptance is a local node rule.** Relays neither enforce nor know about
-it. Optional relay checks are anti-spam/quota only. ExeMem/relay errors
-cover auth/signature, `payment_required`, quota/rate limits, `not_found`,
-and bad request — **not** grant authorization (`forbidden` / `grant.*`).
+**Acceptance is a local node rule.** Relays do **not** run `AcceptEntry`.
+They may apply a **spam/cost grant gate** from publisher-signed birth/grant
+metadata (see `relay-protocol.md`): **401** bad/missing request signature,
+**403** `forbidden` when the caller lacks a current grant. That gate cannot
+make honest nodes disagree; wrong refuse/withhold is data loss, handled by
+`relays` failover. Nodes still verify everything locally. ExeMem account
+errors still include `payment_required`, quota/rate limits, `not_found`,
+and bad request. There is no `manage`/`access` UX that invents grants.
 
 **Role changes live only in the chain.** Every grant and every role
 reduction (including revoke) is a signed `grant`-kind entry on a publisher
 device chain. **Cutoffs are required only when a grant lowers an existing
 role or revokes**; a first grant carries none. **No side channel** — not
-on the relay surface, not in ExeMem rows, not in People. People may carry
-**signed heads for comparison only**. Any relay/ExeMem grant cache is
-**derived from the chain**, optional, never authoritative. A grant/revoke
-seen only off-chain **must be ignored**. Access is derived locally from
-the chain (no `manage`/`access`).
+in ExeMem rows, not in People. People may carry **signed heads for
+comparison only**. The relay’s grant index (and any ExeMem cache) is
+**derived from verified publisher birth/grant entries**, never
+authoritative for AcceptEntry. A grant/revoke seen only off-chain **must
+be ignored** by nodes. Grantee node key, role, and cutoffs are **signed
+plaintext metadata** so the relay can gate without decrypting payloads.
+Access for merge remains local (no `manage`/`access`).
 
 `AcceptEntry(E, S) → accept | pending | reject` — `S` is the node’s
 verified history for `E.database_id`:
@@ -422,15 +428,21 @@ Publisher pays. Lapsed: reads work; push/grant/create →
     heads + grants + per-record positions + outbox. Bootstrap replaces
     unsigned cloud data. Fork freezes the stream; continue on a new
     `device_id`.
-46. No server grant 403s. No `manage`/`access`. `delete` erases that DB’s
-    relay logs/blobs (id tombstoned). `deactivate` erases all publisher
-    ExeMem/relay data, cancels subscriptions, retires the key. App
-    registry is outside this API.
+46. **Superseded by 48 for relays.** No `manage`/`access`. `delete` erases
+    that DB’s relay logs/blobs (id tombstoned). `deactivate` erases all
+    publisher ExeMem/relay data, cancels subscriptions, retires the key.
+    App registry is outside this API.
 47. Signed `bundle` entries (encrypted multi-change blobs via existing
     `blob.put`/`blob.get`); caps 64 MiB / 10_000 changes; missing or bad
     blob → pending/block (not freeze); no in-bundle grants/heads/relays/
     blob_delete; per-db keyed blobs with per-blob nonce (no digest
     dedupe/refcount). Bootstrap = birth + current-state bundles + grants.
+48. Relay spam/cost gate from publisher-signed birth/grant entries: every
+    request signed; append/put need write (or submit for proposals);
+    read/get need read or `grant#any`; revoke cuts off new appends (403);
+    already-stored entries stay. Quota billed to the publisher’s ExeMem
+    account; grantees need no account. Rejected: shared db secret for
+    append auth.
 
 ### Defaults
 
@@ -438,7 +450,7 @@ Publisher pays. Lapsed: reads work; push/grant/create →
 |---|---|
 | Freshness | Head / `heads` comparison only |
 | Reference relay | In `lastdb` for CI |
-| Public reads | `grant#any` open on every conforming relay |
+| Public reads | `grant#any`/`read`: any **signed** caller may read |
 | Relay list | Publisher-signed `relays`; People bootstraps |
 | Birth | First chained publisher-device entry |
 | Fork recovery | New `device_id` (stream frozen; no `resolve`) |
@@ -450,19 +462,21 @@ Publisher pays. Lapsed: reads work; push/grant/create →
 
 ## Server errors (HTTP)
 
-ExeMem/relay cover auth/signature, `payment_required`, quota/rate limits,
-`not_found`, and bad request. **No** server-side `forbidden` / `grant.*`.
+ExeMem/relay cover auth/signature, payment/quota, `not_found`, and bad
+request. Relays additionally return **403** `forbidden` when the caller’s
+`node_key` lacks a current grant (spam/cost only — not AcceptEntry).
 
 | HTTP | code | fields |
 |---|---|---|
 | 400 | `invalid_request` | arg paths, `grants.any.role` (any must be read), `birth_signature`, `cursor` |
 | 400 | `batch_too_large` | `batch.response` |
 | 401 | `unauthorized` | `request.*`, `device.*`, `account.retired` |
-| 403 | `payment_required` | `payment.subscription` |
+| 403 | `payment_required` | `payment.subscription` (ExeMem) |
+| 403 | `forbidden` | relay: no current grant for `node_key` / role |
 | 404 | `not_found` | `database.*`, `file_handle`, `blob.sha256` |
 | 409 | `conflict` | `database.id`, `account.exists`, `device.*`, `entries.writer_seq`, `file.unverified` |
 | 426 | `upgrade_required` | `request.protocol` |
-| 429 | `rate_limited` | `account.register`, `read.public`, relay quota |
+| 429 | `rate_limited` | `account.register`, `read.public`, relay quota (publisher-billed) |
 
 ### Node-side signals
 
@@ -493,6 +507,9 @@ until `seen_heads` deps arrive — local only.
     data via one or more `bundle` entries, and restore of that upload,
     each finish in **under one minute**. Docs-only here; implement in CI
     later — not a unit test.
+16. **Relay grant gate (DEV):** a non-grantee’s `log.append` / `blob.put`
+    is refused (**403**); a revoked member’s new append is refused
+    (**403**); previously accepted entries remain stored.
 
 ## Build work
 
