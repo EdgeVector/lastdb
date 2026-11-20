@@ -129,11 +129,11 @@ pub(super) fn accept(req: &UdsRequest, ctx: &AccessContext, host: &Host) -> UdsR
     let Ok(opened) = crate::share_link::open(&body.link) else {
         return error_response(400, "invalid link", ctx);
     };
-    registration_reply(
-        crate::share_link::register(&host.home, &opened, body.name.as_deref()),
-        ctx,
-        host,
-    )
+    let registered = crate::share_link::register(&host.home, &opened, body.name.as_deref());
+    if registered.is_ok() {
+        crate::log_sync::request_wake(&host.home);
+    }
+    registration_reply(registered, ctx, host)
 }
 
 fn row(entry: &Entry) -> Value {

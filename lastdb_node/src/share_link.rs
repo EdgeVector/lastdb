@@ -34,6 +34,8 @@ pub(crate) struct OpenedLink {
     scope: CloudScope,
     database_id: Id,
     publisher: Digest,
+    /// Publisher device stream the receiver must `log.read` from seq 1.
+    device_id: Digest,
     content_key: [u8; 32],
 }
 
@@ -51,6 +53,8 @@ struct Payload {
     scope: CloudScope,
     database: Id,
     publisher: Digest,
+    /// Publisher `device_id` (Hex32) for the birth/grant stream.
+    device_id: Digest,
     content_key: Digest,
 }
 
@@ -119,6 +123,7 @@ pub(crate) fn issue(host: &Host, entry: &Entry) -> Result<String, IssueError> {
     })?;
     let publisher = Digest::try_from(fold_db::hex::hex_lower(host.keypair.public_key_bytes()))
         .map_err(|_| IssueError::unavailable("node key is not a publisher key"))?;
+    let device_id = local_device_id(&host.home)?;
     let seed = zeroize::Zeroizing::new(host.keypair.secret_key_bytes());
     let content = owned::content_encryption_key(&seed, &entry.id)
         .map_err(|_| IssueError::unavailable("database content key is unavailable"))?;
@@ -135,6 +140,7 @@ pub(crate) fn issue(host: &Host, entry: &Entry) -> Result<String, IssueError> {
         scope,
         database_id,
         publisher,
+        device_id,
         content_key: *content,
     })
     .map_err(IssueError::invalid)
@@ -169,6 +175,7 @@ pub(crate) fn open(token: &str) -> Result<OpenedLink, &'static str> {
         scope: payload.scope,
         database_id: payload.database,
         publisher: payload.publisher,
+        device_id: payload.device_id,
         content_key,
     })
 }
@@ -200,13 +207,17 @@ pub(crate) fn register(
         stream(opened),
         opened.environment,
         opened.content_key,
-        managed(name.map(str::to_owned).or(kept)),
+        managed(
+            name.map(str::to_owned).or(kept),
+            opened.device_id.as_str().to_owned(),
+        ),
     )?;
     publish(
         &entry,
         previous.as_deref().map(Vec::as_slice),
         &registration,
     )?;
+    mark_signed_log_ready(home, id)?;
     describe(id, &registration)
 }
 
@@ -220,6 +231,7 @@ fn payload(opened: &OpenedLink) -> Result<Payload, &'static str> {
         scope: opened.scope.clone(),
         database: opened.database_id.clone(),
         publisher: opened.publisher.clone(),
+        device_id: opened.device_id.clone(),
         content_key: Digest::try_from(fold_db::hex::hex_lower(opened.content_key))
             .map_err(|_| "invalid link")?,
     })
@@ -272,7 +284,7 @@ fn retained_name(
         .and_then(|state| state.name.clone()))
 }
 
-fn managed(name: Option<String>) -> ManagedRegistration {
+fn managed(name: Option<String>, publisher_device_id: String) -> ManagedRegistration {
     let binding = database_policy::SpecBinding::whole_database();
     ManagedRegistration {
         name,
@@ -283,7 +295,44 @@ fn managed(name: Option<String>) -> ManagedRegistration {
         expires_ms: 0,
         signed_log: true,
         link: true,
+        publisher_device_id: Some(publisher_device_id),
     }
+}
+
+/// Empty signed-log receiver store: no publisher snapshot; sync pulls the chain.
+fn mark_signed_log_ready(home: &Path, id: &Id) -> Result<(), ShareCacheError> {
+    let entry = home
+        .canonicalize()
+        .map_err(|_| ShareCacheError::Unavailable)?
+        .join(registered_share::MANAGED_SHARE_DIRECTORY)
+        .join(id.as_str());
+    private_directory(&entry, true)?;
+    let marker = entry.join(registered_share::SNAPSHOT_ABSENT);
+    if marker.exists() {
+        return Ok(());
+    }
+    std::fs::write(&marker, b"").map_err(|_| ShareCacheError::Io)?;
+    Ok(())
+}
+
+/// Same file as `log_sync::device::device_id`. Kept here so open-link mint stays
+/// below the sync layer.
+fn local_device_id(home: &Path) -> Result<Digest, IssueError> {
+    use crate::profile::private_fs as disk;
+    let path = home.join("log-sync").join("device-id");
+    if let Ok(Some(bytes)) = disk::read_limited(&path, 4096) {
+        let text = std::str::from_utf8(&bytes)
+            .map_err(|_| IssueError::unavailable("device id is not text"))?
+            .trim();
+        return Digest::try_from(text.to_owned())
+            .map_err(|_| IssueError::unavailable("device id is not hex32"));
+    }
+    let mut bytes = [0u8; 32];
+    rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut bytes);
+    let hex = fold_db::hex::hex_lower(bytes);
+    disk::write_private(&path, format!("{hex}\n").as_bytes())
+        .map_err(|_| IssueError::unavailable("cannot write device id"))?;
+    Digest::try_from(hex).map_err(|_| IssueError::unavailable("device id is not hex32"))
 }
 
 fn stream(opened: &OpenedLink) -> Stream {

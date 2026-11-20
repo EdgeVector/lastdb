@@ -3,7 +3,6 @@
 
 use crate::share_cache::{
     private_directory, Lock, Registration, Result, ShareCache, ShareCacheError,
-    MANAGED_SHARE_DIRECTORY,
 };
 use cloud_backup_protocol::{Digest, Id};
 use serde::{Deserialize, Serialize};
@@ -13,6 +12,7 @@ use std::path::Path;
 
 mod store;
 
+pub(crate) use crate::share_cache::MANAGED_SHARE_DIRECTORY;
 pub(crate) use store::receiver_store;
 
 pub(crate) const REGISTRY_LOCK: &str = "registry.lock";
@@ -33,6 +33,9 @@ pub(crate) struct ManagedRegistration {
     /// Open read link registration (content key stored locally).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub(crate) link: bool,
+    /// Publisher device stream id (Hex32) for signed-log `log.read`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) publisher_device_id: Option<String>,
 }
 
 /// Local database registration. Public JSON contains only identifying fields.
@@ -46,6 +49,9 @@ pub(crate) struct RegisteredShare {
     /// Named-database signed log. Publication shares leave this false.
     #[serde(skip)]
     pub(crate) signed_log: bool,
+    /// Publisher device stream to pull when `signed_log` is set.
+    #[serde(skip)]
+    pub(crate) publisher_device_id: Option<String>,
 }
 
 impl RegisteredShare {
@@ -141,6 +147,7 @@ pub(crate) fn describe(id: &Id, registration: &Registration) -> Result<Registere
         spec: state.spec.clone(),
         expires_ms: state.expires_ms,
         signed_log: state.signed_log,
+        publisher_device_id: state.publisher_device_id.clone(),
     })
 }
 
