@@ -1,11 +1,10 @@
-//! D. Bootstrap on A, upload all, fresh history on B replays from seq 1.
+//! D. Bootstrap on A, upload all, restore_from_relay on B, FoldDB holds winners.
 
 use std::path::Path;
 
-use mutation_log::{
-    bootstrap_from_records, AcceptOutcome, BootstrapParams, BootstrapRecord, VerifiedHistory,
-};
+use mutation_log::{bootstrap_from_records, BootstrapParams, BootstrapRecord};
 
+use signed_history_client::{restore_from_relay, RestoreRequest, StreamRef};
 use signed_history_materialize::encode_string_field;
 
 use crate::device::{now_ms, DbBirth, Device};
@@ -45,41 +44,31 @@ pub async fn run(relay: &RelayHandle, store_dir: &Path) -> Result<String, String
     let db = birth.database_id.to_hex();
     client.append(&db, &boot.entries).await?;
 
-    // Fresh device B (any reader identity for nodeSignature) restores from seq 1.
+    // Same restore path as CLI: page from seq 1 through AcceptEntry.
     let reader = Device::generate();
-    let pull = RelayClient::new(&relay.base_url, &reader);
-    let remote = pull
-        .read(&db, &owner.node_key_hex(), &owner.device_id_str(), 1, 90)
-        .await?;
-    if remote.len() != boot.entries.len() {
-        return Err(format!(
-            "relay returned {} entries, expected {}",
-            remote.len(),
-            boot.entries.len()
-        ));
-    }
+    let report = restore_from_relay(RestoreRequest {
+        relay_url: relay.base_url.clone(),
+        signing_key: reader.signing_key.clone(),
+        node_key_hex: reader.node_key_hex(),
+        device_id: reader.device_id_str(),
+        database_id: db,
+        streams: vec![StreamRef {
+            writer_key: owner.node_key_hex(),
+            device_id: owner.device_id_str(),
+        }],
+    })
+    .await?;
 
-    let mut restored = VerifiedHistory::new(birth.database_id);
-    for entry in remote {
-        match restored.accept_entry(entry) {
-            AcceptOutcome::Accept { .. } => {}
-            AcceptOutcome::Pending { reason } => {
-                return Err(format!("restore pending: {reason:?}"))
-            }
-            AcceptOutcome::Reject { reason } => return Err(format!("restore reject: {reason:?}")),
-        }
-    }
-
-    if restored.records() != boot.history.records() {
+    if report.history.records() != boot.history.records() {
         return Err(format!(
             "restored records {:?} != source {:?}",
-            restored.records(),
+            report.history.records(),
             boot.history.records()
         ));
     }
     replay_and_check(
         store_dir,
-        &restored,
+        &report.history,
         &[
             Expected {
                 record_key: "r1",
@@ -93,7 +82,7 @@ pub async fn run(relay: &RelayHandle, store_dir: &Path) -> Result<String, String
     )
     .await?;
     Ok(format!(
-        "replayed {} entries; records equal source; FoldDB holds r1=one r2=two",
-        boot.entries.len()
+        "restore_from_relay replayed {}; records equal source; FoldDB holds r1=one r2=two",
+        report.replayed
     ))
 }

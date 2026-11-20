@@ -1,5 +1,7 @@
-//! B. Write grant → write → revoke with cutoff → post-cutoff AcceptEntry Reject.
+//! B. Write grant → write → on-chain revoke with cutoff.
+//! Ordinary next-seq member append after revoke → AcceptEntry Reject (Unauthorized).
 //! Also: new device_id after revoke → cutoff 0 → Reject.
+//! (Backdated rewrite is the same cutoff gate; this scenario proves the ordinary case.)
 
 use mutation_log::{
     entry_hash, DeviceId, RejectReason, RevocationCutoff, SignedEntry, VerifiedHistory,

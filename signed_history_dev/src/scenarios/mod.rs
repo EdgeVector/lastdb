@@ -1,9 +1,10 @@
-//! Phase 1 signed-history DEV scenarios A–F.
+//! Phase 1 signed-history DEV scenarios (7 proofs).
 
 mod blob;
 mod converge;
 mod forge;
 mod nongrantee;
+mod offchain_revoke;
 mod restore;
 mod revoke;
 
@@ -14,9 +15,10 @@ use crate::report::{ScenarioResult, ScenarioRun};
 
 /// Run every scenario against the (grant-blind) reference relay.
 pub async fn run_all(relay: &RelayHandle, blob_bytes: u64, work: &Path) -> Vec<ScenarioResult> {
-    let mut out = Vec::with_capacity(6);
+    let mut out = Vec::with_capacity(7);
     out.push(run_named("forge_reject", forge::run(relay)).await);
     out.push(run_named("revoke_cutoff", revoke::run(relay)).await);
+    out.push(run_named("offchain_revoke", async { offchain_revoke::run() }).await);
     out.push(
         run_named(
             "converge",
