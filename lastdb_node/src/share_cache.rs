@@ -1,13 +1,16 @@
-//! Recipient-owned registration store for received Share databases.
+//! Recipient-owned registration store for received signed-log databases.
+//!
+//! Registrations are open-material (link) only. The at-rest key still uses the
+//! historical recipient HKDF so existing link registrations stay readable.
 
 use crate::cloud_backup_client::ShareEnvironment;
 use crate::offline_home::Directory;
 use crate::registered_share::ManagedRegistration;
-use crate::share_invitation::{OpenedShareInvitation, ShareRecipient};
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use cloud_backup_protocol::{v2::Stream, Digest, Id};
 use fold_db::crypto::at_rest::{open_at_rest_bounded, seal_at_rest_raw};
+use hkdf::Hkdf;
 use serde::{Deserialize, Serialize};
+use sha2::Sha256;
 use std::fs::{self, File, OpenOptions};
 use std::io::ErrorKind;
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
@@ -17,11 +20,13 @@ use zeroize::{Zeroize, Zeroizing};
 pub(crate) const MANAGED_SHARE_DIRECTORY: &str = "received-shares-v1";
 const STATE_FILE: &str = "registration";
 const STATE_BYTES: u64 = 16 * 1024;
+const RECIPIENT_KEY_INFO: &[u8] = b"lastdb:share-recipient-x25519:v1";
+const CACHE_KEY_DOMAIN: &[u8] = b"lastdb:share-recipient-cache:v1";
 
 /// A stable node-owned registry for received shares.
 pub(crate) struct ShareCache {
     pub(crate) root: PathBuf,
-    pub(crate) recipient: ShareRecipient,
+    cache_seed: Zeroizing<[u8; 32]>,
 }
 
 #[derive(Debug)]
@@ -29,7 +34,6 @@ pub(crate) enum ShareCacheError {
     Busy,
     Unavailable,
     Invalid(&'static str),
-    Invitation(crate::share_invitation::ShareInvitationError),
     Io,
 }
 
@@ -43,8 +47,9 @@ pub(crate) struct Registration {
     pub(crate) stream: Stream,
     pub(crate) environment: ShareEnvironment,
     content_key: [u8; 32],
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    invitation: Option<String>,
+    /// Retired sealed-invitation field. New registrations never set it.
+    #[serde(rename = "invitation", default, skip_serializing)]
+    _retired_invitation: Option<String>,
     #[serde(rename = "active", default, skip_serializing)]
     _retired_active: serde::de::IgnoredAny,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -96,6 +101,9 @@ impl Entry {
         let registration: Registration = serde_json::from_slice(&decoded).map_err(|_| invalid())?;
         if registration.version != 1 {
             return Err(invalid());
+        }
+        if registration._retired_invitation.is_some() {
+            return Err(ShareCacheError::Invalid("sealed invitation registration"));
         }
         Ok((Some(registration), previous))
     }
@@ -170,43 +178,22 @@ pub(crate) fn private_directory(path: &Path, create: bool) -> Result<Directory> 
 }
 
 impl ShareCache {
-    pub(crate) fn open_verified(&self, id: &Id) -> Result<OpenedShareInvitation> {
-        let entry = self.entry(id, false)?;
-        let _pointer = entry.lock(Lock::PointerRead)?;
-        let (registration, _) = entry.load()?;
-        let registration = registration.ok_or(ShareCacheError::Unavailable)?;
-        self.require_management(&registration)?;
-        let invitation = registration
-            .invitation
-            .as_deref()
-            .ok_or(ShareCacheError::Invalid("stored invitation"))?;
-        let invitation = URL_SAFE_NO_PAD
-            .decode(invitation.as_bytes())
-            .map_err(|_| ShareCacheError::Invalid("stored invitation"))?;
-        let signed_log = registration
-            .managed
-            .as_ref()
-            .is_some_and(|state| state.signed_log);
-        let opened = if signed_log {
-            self.recipient
-                .open_stored(&invitation, &registration.publisher)?
-        } else {
-            self.recipient.open(&invitation, &registration.publisher)?
-        };
-        registration.require_binding(&opened, &registration.publisher)?;
-        if opened.permission.stream().stream_id.as_str() != id.as_str() {
-            return Err(ShareCacheError::Invalid("stored invitation"));
+    pub(crate) fn open_managed(home: &Path, create: bool) -> Result<Option<Self>> {
+        let root = home.join(MANAGED_SHARE_DIRECTORY);
+        if !create
+            && matches!(fs::symlink_metadata(&root), Err(e) if e.kind() == ErrorKind::NotFound)
+        {
+            return Ok(None);
         }
-        Ok(opened)
+        let home = home.canonicalize()?;
+        let root = home.join(MANAGED_SHARE_DIRECTORY);
+        let cache_seed = recipient_cache_seed(&home)?;
+        private_directory(&root, create)?;
+        Ok(Some(Self { root, cache_seed }))
     }
 
     pub(crate) fn entry(&self, handle: &Id, create: bool) -> Result<Entry> {
-        Entry::open(
-            &self.root,
-            handle,
-            self.recipient.cache_key(handle)?,
-            create,
-        )
+        Entry::open(&self.root, handle, self.cache_key(handle)?, create)
     }
 
     pub(crate) fn require_management(&self, registration: &Registration) -> Result<()> {
@@ -215,30 +202,17 @@ impl ShareCache {
         }
         Ok(())
     }
+
+    fn cache_key(&self, handle: &Id) -> Result<Zeroizing<[u8; 32]>> {
+        let mut key = Zeroizing::new([0u8; 32]);
+        Hkdf::<Sha256>::new(Some(CACHE_KEY_DOMAIN), self.cache_seed.as_ref())
+            .expand(handle.as_str().as_bytes(), &mut *key)
+            .map_err(|_| ShareCacheError::Invalid("recipient identity"))?;
+        Ok(key)
+    }
 }
 
 impl Registration {
-    pub(crate) fn with_invitation(
-        registration: Option<Self>,
-        opened: &OpenedShareInvitation,
-        publisher: &Digest,
-        invitation: &[u8],
-    ) -> Result<Self> {
-        let mut registration = registration.unwrap_or_else(|| Self {
-            version: 1,
-            publisher: publisher.clone(),
-            stream: opened.permission.stream().clone(),
-            environment: opened.permission.environment(),
-            content_key: *opened.publication_key,
-            invitation: None,
-            _retired_active: serde::de::IgnoredAny,
-            managed: None,
-        });
-        registration.require_binding(opened, publisher)?;
-        registration.invitation = Some(URL_SAFE_NO_PAD.encode(invitation));
-        Ok(registration)
-    }
-
     pub(crate) fn with_link(
         publisher: Digest,
         stream: Stream,
@@ -255,23 +229,15 @@ impl Registration {
             stream,
             environment,
             content_key,
-            invitation: None,
+            _retired_invitation: None,
             _retired_active: serde::de::IgnoredAny,
             managed: Some(managed),
         })
     }
 
-    pub(crate) fn has_invitation(&self) -> bool {
-        self.invitation.is_some()
-    }
-
-    /// Stored content key of a link registration. An invitation registration
-    /// still opens the sealed invitation.
+    /// Stored content key of a link registration.
     pub(crate) fn link_key(&self) -> Result<Zeroizing<[u8; 32]>> {
-        if self.invitation.is_some()
-            || self.content_key == [0; 32]
-            || !self.managed.as_ref().is_some_and(|state| state.link)
-        {
+        if self.content_key == [0; 32] || !self.managed.as_ref().is_some_and(|state| state.link) {
             return Err(ShareCacheError::Invalid("content key"));
         }
         Ok(Zeroizing::new(self.content_key))
@@ -284,24 +250,10 @@ impl Registration {
         environment: ShareEnvironment,
         key: &[u8; 32],
     ) -> bool {
-        self.invitation.is_none()
-            && &self.publisher == publisher
+        &self.publisher == publisher
             && &self.stream == stream
             && self.environment == environment
             && self.content_key == *key
-    }
-
-    fn require_binding(&self, opened: &OpenedShareInvitation, publisher: &Digest) -> Result<()> {
-        if &self.publisher != publisher
-            || &self.stream != opened.permission.stream()
-            || self.environment != opened.permission.environment()
-            || self.content_key != *opened.publication_key
-        {
-            return Err(ShareCacheError::Invalid(
-                "invitation differs from this share handle",
-            ));
-        }
-        Ok(())
     }
 }
 
@@ -314,13 +266,25 @@ pub(crate) fn publish(
     entry.publish(previous, registration)
 }
 
+fn recipient_cache_seed(home: &Path) -> Result<Zeroizing<[u8; 32]>> {
+    let seed = crate::offline_home::Directory::open(home)
+        .map_err(|_| ShareCacheError::Invalid("recipient identity"))?
+        .identity_seed()
+        .map_err(|_| ShareCacheError::Invalid("recipient identity"))?
+        .ok_or(ShareCacheError::Invalid("recipient identity"))?;
+    let mut key = Zeroizing::new([0u8; 32]);
+    Hkdf::<Sha256>::new(None, seed.as_ref())
+        .expand(RECIPIENT_KEY_INFO, &mut *key)
+        .map_err(|_| ShareCacheError::Invalid("recipient identity"))?;
+    Ok(key)
+}
+
 impl std::fmt::Display for ShareCacheError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Busy => f.write_str("share cache is busy"),
             Self::Unavailable => f.write_str("no verified snapshot is available for this share"),
             Self::Invalid(field) => write!(f, "invalid share cache {field}"),
-            Self::Invitation(error) => write!(f, "{error}"),
             Self::Io => f.write_str("share cache disk operation failed"),
         }
     }
@@ -331,11 +295,5 @@ impl std::error::Error for ShareCacheError {}
 impl From<std::io::Error> for ShareCacheError {
     fn from(_: std::io::Error) -> Self {
         Self::Io
-    }
-}
-
-impl From<crate::share_invitation::ShareInvitationError> for ShareCacheError {
-    fn from(error: crate::share_invitation::ShareInvitationError) -> Self {
-        Self::Invitation(error)
     }
 }

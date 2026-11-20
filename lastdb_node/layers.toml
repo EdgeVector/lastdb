@@ -39,18 +39,9 @@ modules = [
 ]
 
 [[layer]]
-name = "share_primitives"
-doc = "Content-key invitation checks and sealed share invitations."
-modules = [
-  "log_envelope",
-  "share_invitation",
-]
-
-[[layer]]
 name = "share_state"
-doc = "Local share caches, registered shares, and named-database member grants."
+doc = "Local open-material registrations and received signed-log databases."
 modules = [
-  "named_grant",
   "registered_share",
   "share_cache",
   "share_link",

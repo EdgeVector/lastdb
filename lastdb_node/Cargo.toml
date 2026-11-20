@@ -61,11 +61,8 @@ libc = "0.2"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "charset", "http2", "json", "stream"] }
 chrono = "0.4"
 bip39 = "2"
-# Seal path (mirrors fold_db_node auth_envelope + connection crypto).
-aes-gcm = "0.10"
 hkdf = "0.12"
 sha2 = { workspace = true }
-x25519-dalek = { version = "2", features = ["static_secrets"] }
 base64 = { workspace = true }
 rand = "0.8"
 uuid = { workspace = true, features = ["v4"] }

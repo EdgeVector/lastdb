@@ -3,7 +3,7 @@
 //! Nothing here asks a side channel. Every answer is a view of the
 //! `VerifiedHistory` this node holds for the database.
 
-use mutation_log::{DatabaseId, NodeKey, VerifiedHistory};
+use mutation_log::{DatabaseId, VerifiedHistory};
 use serde_json::{json, Value};
 
 use super::chain_error::{require_enrolled, ChainError};
@@ -120,17 +120,4 @@ pub(crate) fn bootstrap_relay(host: &Host, selector: &str) -> Result<Value, Chai
         super::store_relay_base_url(&host.home, &url).map_err(|_| ChainError::Unconfirmed)?;
         Ok(json!({ "databaseId": id, "url": url }))
     })
-}
-
-/// True when the folded grants of `database_id` give `node_key` an active role.
-pub(crate) fn has_active_grant(host: &Host, database_id: &str, node_key: &str) -> bool {
-    let Ok(node) = NodeKey::from_hex(node_key) else {
-        return false;
-    };
-    let histories = super::histories_for(&host.home);
-    histories
-        .with_mut(database_id, |history| {
-            history.grants().role_of(&node).is_some()
-        })
-        .unwrap_or(false)
 }

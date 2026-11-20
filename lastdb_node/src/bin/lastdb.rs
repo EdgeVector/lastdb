@@ -107,17 +107,7 @@ fn run(cli: Cli) -> Result<(), String> {
     });
     let db_scoped = matches!(
         &cmd,
-        Command::Get { .. }
-            | Command::GetKeys(_)
-            | Command::Mutate { .. }
-            | Command::Share(
-                ShareCommand::Invite { .. }
-                    | ShareCommand::Accept { .. }
-                    | ShareCommand::Contributors(
-                        ShareContributorCommand::Grant { .. }
-                            | ShareContributorCommand::Revoke { .. }
-                    )
-            )
+        Command::Get { .. } | Command::GetKeys(_) | Command::Mutate { .. }
     );
     if cli.db.is_some() && !db_scoped {
         return Err("--db requires a record command or a database-scoped share command".into());

@@ -3,10 +3,9 @@
 use std::future::Future;
 use std::time::Duration;
 
-use base64::Engine as _;
 use fold_db::access::AccessContext;
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::json;
 
 use crate::host::Host;
 use crate::lastdb_uds::uds_http::{UdsRequest, UdsResponse};

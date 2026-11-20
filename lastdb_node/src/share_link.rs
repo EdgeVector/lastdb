@@ -1,23 +1,24 @@
-//! Open read link.
+//! Local open-material hand-off token.
 //!
 //! The token is opaque, not a URL. The content key must not land in a query
-//! string, a browser history, or a proxy log. The node does not read the
-//! share settings when it makes the token. The service decides who may use it.
+//! string, a browser history, or a proxy log. Minting uses only saved local
+//! cloud credentials and the home identity: it does not call ExeMem. People
+//! wraps this token as a consent code. Membership is the signed grant chain.
 
 use std::fs::File;
 use std::path::Path;
-use std::sync::Arc;
 
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use cloud_backup_protocol::v2::share_access::ShareEnvironment;
 use cloud_backup_protocol::v2::Stream;
-use cloud_backup_protocol::{canonical_bytes, CloudScope, Digest, Id};
+use cloud_backup_protocol::{canonical_bytes, CloudScope, DecimalU64, Digest, Id};
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
 
-use crate::cloud::load_connected_home_context;
+use crate::cloud::load_verified_cloud_credentials;
 use crate::host::owned::{self, Entry};
 use crate::host::Host;
+use crate::profile::endpoints::Environment;
 use crate::profile::PublicationSpec;
 use crate::registered_share::{self, describe, ManagedRegistration, RegisteredShare};
 use crate::share_cache::{
@@ -55,8 +56,7 @@ struct Payload {
 pub(crate) struct IssueError {
     status: u16,
     message: &'static str,
-    /// The cloud connection could not be opened. The caller classifies it by
-    /// the database's enrollment instead of reporting the message.
+    /// Saved cloud credentials could not be read for a local mint.
     cloud_connection: bool,
 }
 
@@ -80,7 +80,7 @@ impl IssueError {
     const fn cloud_connection() -> Self {
         Self {
             status: 503,
-            message: "cloud connection is unavailable",
+            message: "cloud credentials are unavailable",
             cloud_connection: true,
         }
     }
@@ -94,23 +94,34 @@ impl IssueError {
     }
 }
 
-/// Mint the token for one shareable database. This does not read share settings.
-pub(crate) async fn issue(host: &Host, entry: &Entry) -> Result<String, IssueError> {
-    let ctx = match load_connected_home_context(&host.home, Some(Arc::clone(&host.keypair))).await {
-        Ok(ctx) => ctx,
+/// Local open materials for one shareable database.
+///
+/// Environment, publisher account scope, and content key come from saved
+/// credentials and the home identity. This does not call ExeMem.
+pub(crate) fn issue(host: &Host, entry: &Entry) -> Result<String, IssueError> {
+    let materials = local_open_materials(host, entry)?;
+    encode(&materials).map_err(IssueError::invalid)
+}
+
+fn local_open_materials(host: &Host, entry: &Entry) -> Result<OpenedLink, IssueError> {
+    let creds = match load_verified_cloud_credentials(&host.home) {
+        Ok(Some(creds)) => creds,
+        Ok(None) => return Err(IssueError::cloud_connection()),
         Err(error) => {
-            tracing::warn!(target: "lastdbd::log_sync", %error, "open read link is unavailable");
+            tracing::warn!(target: "lastdbd::log_sync", %error, "open material mint needs local credentials");
             return Err(IssueError::cloud_connection());
         }
     };
-    if ctx.account_id.as_str() != host.user_hash {
+    let connection = creds
+        .connection
+        .as_ref()
+        .ok_or_else(IssueError::cloud_connection)?;
+    if connection.account_id.as_str() != host.user_hash {
         return Err(IssueError::unavailable(
             "node account id does not match the node key",
         ));
     }
-    let environment = ShareEnvironment::parse(ctx.env.as_str()).map_err(|_| {
-        IssueError::unavailable("saved cloud environment is not a share environment")
-    })?;
+    let environment = share_environment(creds.env)?;
     let publisher = Digest::try_from(fold_db::hex::hex_lower(host.keypair.public_key_bytes()))
         .map_err(|_| IssueError::unavailable("node key is not a publisher key"))?;
     let seed = zeroize::Zeroizing::new(host.keypair.secret_key_bytes());
@@ -118,14 +129,21 @@ pub(crate) async fn issue(host: &Host, entry: &Entry) -> Result<String, IssueErr
         .map_err(|_| IssueError::unavailable("database content key is unavailable"))?;
     let database_id =
         Id::try_from(entry.id.clone()).map_err(|_| IssueError::invalid("database id"))?;
-    encode(&OpenedLink {
+    Ok(OpenedLink {
         environment,
-        scope: ctx.scope,
+        scope: CloudScope {
+            account_id: connection.account_id.clone(),
+            account_generation: DecimalU64::new(0),
+        },
         database_id,
         publisher,
         content_key: *content,
     })
-    .map_err(IssueError::invalid)
+}
+
+fn share_environment(env: Environment) -> Result<ShareEnvironment, IssueError> {
+    ShareEnvironment::parse(env.as_str())
+        .map_err(|_| IssueError::unavailable("saved cloud environment is not a share environment"))
 }
 
 pub(crate) fn encode(opened: &OpenedLink) -> Result<String, &'static str> {

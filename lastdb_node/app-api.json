@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "LastDB app API",
-    "version": "43",
+    "version": "44",
     "description": "The app API lastdbd serves today: POST /v1/read, POST /v1/write, and POST /v1/x/<name>. info.version is the node api_version. Extensions carry no version: adding one does not change api_version, and removing one is refused. The app socket accepts a request body of at most 8388608 bytes. The owner socket does not use that cap. On the app socket a whole-request refusal uses the error object. A read that fails one item returns HTTP 200 and puts the same error object in that item."
   },
   "x-lastdb-extensions-carry-version": false,
@@ -789,24 +789,11 @@
           "sharingMode": {"const": "whole_database"}
         }
       },
-      "DatabasesAcceptRequest": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["action", "invitation", "publisher"],
-        "description": "POST /api/databases/accept. This action has no database field. The owner body names database_id.",
-        "properties": {
-          "action": {"const": "accept"},
-          "invitation": {"type": "string", "description": "Base64 sealed invitation."},
-          "publisher": {"type": "string", "description": "64 lowercase hex characters."},
-          "name": {"type": "string"},
-          "database_id": {"type": "string"}
-        }
-      },
       "DatabasesAcceptLinkRequest": {
         "type": "object",
         "additionalProperties": false,
         "required": ["action", "link"],
-        "description": "POST /api/databases/accept. link replaces invitation and publisher. This action has no database field. The token is opaque, not a URL.",
+        "description": "POST /api/databases/accept. Registers open material as a received signed_log database. This action has no database field. The token is opaque, not a URL. People may wrap it as a consent code.",
         "properties": {
           "action": {"const": "accept"},
           "link": {"type": "string", "description": "Opaque lastdb-read-v1 token."},
@@ -901,24 +888,11 @@
           "database": {"$ref": "#/components/schemas/DatabaseSelector"}
         }
       },
-      "DatabasesInviteRequest": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["action", "contactCode", "expectedNodeKey"],
-        "description": "Seal an invitation. No cloud account is 409 no_cloud_account and is final. Still enrolling waits, then 503 enrolling with Retry-After. Enrolled but unconfirmed, or credentials that could not be verified, is 503 busy.",
-        "properties": {
-          "action": {"const": "invite"},
-          "database": {"$ref": "#/components/schemas/DatabaseSelector"},
-          "contactCode": {"type": "string"},
-          "expectedNodeKey": {"type": "string", "description": "64 lowercase hex characters."},
-          "expiresInHours": {"type": "integer", "minimum": 0}
-        }
-      },
       "DatabasesShareLinkRequest": {
         "type": "object",
         "additionalProperties": false,
         "required": ["action"],
-        "description": "POST /api/databases/{id}/share/link. The owner body is empty. The node does not read the share settings. No cloud account is 409 no_cloud_account and is final. Still enrolling waits, then 503 enrolling with Retry-After. Enrolled but unconfirmed, or credentials that could not be verified, is 503 busy.",
+        "description": "POST /api/databases/{id}/share/link. Mint local open material from saved credentials and the home identity. Empty owner body. Does not call ExeMem blob/bytes or share members. No cloud account is 409 no_cloud_account. Still enrolling waits, then 503 enrolling with Retry-After. Saved credentials that cannot be verified is 503 busy.",
         "properties": {
           "action": {"const": "share_link"},
           "database": {"$ref": "#/components/schemas/DatabaseSelector"}
@@ -951,7 +925,6 @@
         "oneOf": [
           {"$ref": "#/components/schemas/DatabasesListRequest"},
           {"$ref": "#/components/schemas/DatabasesCreateRequest"},
-          {"$ref": "#/components/schemas/DatabasesAcceptRequest"},
           {"$ref": "#/components/schemas/DatabasesAcceptLinkRequest"},
           {"$ref": "#/components/schemas/DatabasesSchemasRequest"},
           {"$ref": "#/components/schemas/DatabasesDeclareRequest"},
@@ -961,7 +934,6 @@
           {"$ref": "#/components/schemas/DatabasesHeadsRequest"},
           {"$ref": "#/components/schemas/DatabasesRelaysRequest"},
           {"$ref": "#/components/schemas/DatabasesBootstrapRelayRequest"},
-          {"$ref": "#/components/schemas/DatabasesInviteRequest"},
           {"$ref": "#/components/schemas/DatabasesShareLinkRequest"},
           {"$ref": "#/components/schemas/DatabasesSubmitRequest"},
           {"$ref": "#/components/schemas/DatabasesStatusRequest"}
@@ -1134,23 +1106,11 @@
           "url": {"type": "string"}
         }
       },
-      "DatabasesInviteReply": {
-        "type": "object",
-        "additionalProperties": true,
-        "required": ["ok", "user_hash", "databaseId", "invitation"],
-        "description": "The owner invitation envelope. invitation is the base64 sealed invitation.",
-        "properties": {
-          "ok": {"type": "boolean"},
-          "user_hash": {"type": "string"},
-          "databaseId": {"type": "string"},
-          "invitation": {"type": "string"}
-        }
-      },
       "DatabasesShareLinkReply": {
         "type": "object",
         "additionalProperties": true,
         "required": ["ok", "user_hash", "databaseId", "link"],
-        "description": "The owner open read link envelope. link is one opaque token, not a URL.",
+        "description": "The owner open-material envelope. link is one opaque token People can wrap as a consent code, not a URL.",
         "properties": {
           "ok": {"type": "boolean"},
           "user_hash": {"type": "string"},
@@ -1191,7 +1151,6 @@
           {"$ref": "#/components/schemas/DatabasesHeadsReply"},
           {"$ref": "#/components/schemas/DatabasesRelaysReply"},
           {"$ref": "#/components/schemas/DatabasesBootstrapRelayReply"},
-          {"$ref": "#/components/schemas/DatabasesInviteReply"},
           {"$ref": "#/components/schemas/DatabasesShareLinkReply"},
           {"$ref": "#/components/schemas/DatabasesStatusReply"}
         ]

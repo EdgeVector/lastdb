@@ -186,11 +186,12 @@ stored in sorted order. The older form, a `fields` array plus separate
 ### Share a database
 
 Use [People](https://github.com/EdgeVector/people) to share a named database with verified
-contacts and circles. TypeScript apps use `peopleClient` from
+contacts and circles. LastDB mints local open material (`share_link`) and accepts it
+(`accept` with `link`); People wraps that token as a hand-off consent code. Membership
+is signed grant entries on the chain (`grant` / `revoke` / `grants`), not ExeMem share
+members. TypeScript apps use `peopleClient` from
 [`@lastdb/people-client`](https://github.com/EdgeVector/people/tree/main/client),
-which ships with People, to create a share, seal or accept an invitation, and
-get its stable database ID. Use `@lastdb/app-sdk`'s data client to work with
-the records.
+which ships with People. Use `@lastdb/app-sdk`'s data client to work with the records.
 [App SDK sharing guide](lastdb_app_sdk/README.md#set-up-sharing-with-people)
 
 Personal and shared databases sync through signed history (AcceptEntry) and a

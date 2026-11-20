@@ -2,13 +2,11 @@
 //! Decided state: docs/designs/cloud-api.md (signed history; grants in-chain).
 
 use crate::share_cache::{
-    private_directory, publish, Lock, Registration, Result, ShareCache, ShareCacheError,
-    MANAGED_SHARE_DIRECTORY,
+    private_directory, Lock, Registration, Result, ShareCache, ShareCacheError,
 };
 use cloud_backup_protocol::{Digest, Id};
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::io::ErrorKind;
 use std::path::Path;
 
 mod store;
@@ -30,7 +28,7 @@ pub(crate) struct ManagedRegistration {
     /// Named-database signed log. Publication shares omit this.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub(crate) signed_log: bool,
-    /// Open read link. The registration has no sealed invitation.
+    /// Open read material. The registration has no sealed invitation.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub(crate) link: bool,
 }
@@ -58,21 +56,6 @@ impl RegisteredShare {
 }
 
 impl ShareCache {
-    pub(crate) fn open_managed(home: &Path, create: bool) -> Result<Option<Self>> {
-        let root = home.join(MANAGED_SHARE_DIRECTORY);
-        if !create
-            && matches!(fs::symlink_metadata(root), Err(e) if e.kind() == ErrorKind::NotFound)
-        {
-            return Ok(None);
-        }
-        let home = home.canonicalize()?;
-        let root = home.join(MANAGED_SHARE_DIRECTORY);
-        let recipient = crate::share_invitation::recipient(&home)
-            .map_err(|_| ShareCacheError::Invalid("recipient identity"))?;
-        private_directory(&root, create)?;
-        Ok(Some(Self { root, recipient }))
-    }
-
     fn managed_ids(&self) -> Result<Vec<Id>> {
         let directory = private_directory(&self.root, false)?;
         let mut ids = Vec::new();
@@ -110,70 +93,6 @@ impl ShareCache {
             .transpose()
     }
 
-    /// Sealed registration marked as a signed log.
-    ///
-    /// `expected` is the stable database id. It must equal the invitation stream.
-    /// A mismatch writes nothing.
-    fn register_signed_log(
-        &self,
-        home: &Path,
-        invitation: &[u8],
-        publisher: &Digest,
-        name: Option<&str>,
-        expected: Option<&Id>,
-    ) -> Result<RegisteredShare> {
-        let opened = self.recipient.open(invitation, publisher)?;
-        let id = &opened.permission.stream().stream_id;
-        if expected.is_some_and(|expected| expected.as_str() != id.as_str()) {
-            return Err(ShareCacheError::Invalid("database id"));
-        }
-        let directory = private_directory(&self.root, false)?;
-        let lock = directory
-            .open_lock(REGISTRY_LOCK)
-            .map_err(|_| ShareCacheError::Invalid("registry lock"))?;
-        lock.try_lock().map_err(|_| ShareCacheError::Busy)?;
-        if crate::host::owned::registry_claims(home, id.as_str(), name)
-            .map_err(|()| ShareCacheError::Unavailable)?
-        {
-            return Err(ShareCacheError::Invalid("database selector already in use"));
-        }
-        self.admit_name(id, name)?;
-        let entry = self.entry(id, true)?;
-        let _writer = entry.lock(Lock::Writer)?;
-        let (registration, previous) = entry.load()?;
-        if let Some(registration) = &registration {
-            self.require_management(registration)?;
-        }
-        let mut registration =
-            Registration::with_invitation(registration, &opened, publisher, invitation)?;
-        let state = registration.managed.get_or_insert(ManagedRegistration {
-            name: None,
-            spec: None,
-            expires_ms: 0,
-            signed_log: false,
-            link: false,
-        });
-        if let Some(name) = name {
-            state.name = Some(name.to_owned());
-        }
-        if let Some(spec) = opened.spec {
-            if state.spec.as_ref().is_some_and(|current| current != &spec) {
-                return Err(ShareCacheError::Invalid(
-                    "invitation spec differs from this share handle",
-                ));
-            }
-            state.spec = Some(spec);
-        }
-        state.expires_ms = opened.permission.expires_ms();
-        state.signed_log = true;
-        publish(
-            &entry,
-            previous.as_deref().map(Vec::as_slice),
-            &registration,
-        )?;
-        describe(id, &registration)
-    }
-
     pub(crate) fn admit_name(&self, id: &Id, name: Option<&str>) -> Result<()> {
         let ids = self.managed_ids()?;
         if ids.len() == MAX_REGISTERED && !ids.contains(id) {
@@ -207,26 +126,6 @@ pub(crate) fn describe(id: &Id, registration: &Registration) -> Result<Registere
         expires_ms: state.expires_ms,
         signed_log: state.signed_log,
     })
-}
-
-/// Save a verified invitation and stable database handle marked as a signed log.
-pub(crate) fn accept_signed_log(
-    home: &Path,
-    sealed: &[u8],
-    publisher: &Digest,
-    name: Option<&str>,
-    database_id: Option<&str>,
-) -> Result<RegisteredShare> {
-    let id = database_id
-        .map(|id| Id::try_from(id.to_owned()))
-        .transpose()
-        .map_err(|_| ShareCacheError::Invalid("database selector"))?;
-    if let Some(name) = name {
-        require_name(name)?;
-    }
-    ShareCache::open_managed(home, true)?
-        .ok_or(ShareCacheError::Unavailable)?
-        .register_signed_log(home, sealed, publisher, name, id.as_ref())
 }
 
 /// Return node-owned shared database registrations, including pending ones.

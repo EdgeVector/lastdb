@@ -1,7 +1,6 @@
 //! Account identity, saved cloud/developer credentials, and explicit backup enrollment.
 mod enrollment;
 
-pub(crate) use enrollment::load_connected_home_context;
 pub use enrollment::{
     account_from_phrase, app_publisher_signing_key, client_from_home_with_keypair,
     load_verified_cloud_credentials, pin_schema_service_environment_from_home,
@@ -37,14 +36,6 @@ pub fn is_payment_subscription_error(status: u16, body: &[u8]) -> bool {
             err.code == cloud_backup_protocol::ErrorCode::Unauthorized
                 && err.field == "payment.subscription"
         })
-}
-
-pub(crate) fn format_protocol_error(error: &ProtocolError) -> String {
-    if error.field.is_empty() {
-        format!("{:?}", error.code)
-    } else {
-        format!("{:?} ({})", error.code, error.field)
-    }
 }
 
 pub(crate) fn signed_history_intent(home: &Path) -> bool {
