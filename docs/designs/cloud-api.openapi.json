@@ -3,7 +3,7 @@
   "info": {
     "title": "LastDB ExeMem Cloud API",
     "version": "3.0.0-design",
-    "description": "Cloud API v3 redesign 2026-11-19. database_id is a 64-hex Ed25519 db public key. nodeSignature auth. See docs/designs/cloud-api.md."
+    "description": "ExeMem Cloud API v3 (minimal signed history). Local AcceptEntry; seen_heads by hash from any stream; checked Lamport; whole-record LWW; no snapshots; no resolve; no manage/access; no server grant 403s; publisher heads for hidden-entry detection; delete/deactivate product erase. See relay-protocol.md."
   },
   "servers": [
     {
@@ -27,10 +27,6 @@
     },
     {
       "name": "account"
-    },
-    {
-      "name": "maintenance",
-      "description": "DEV-only; no batching"
     }
   ],
   "paths": {
@@ -40,7 +36,7 @@
           "fetch"
         ],
         "summary": "Fetch",
-        "description": "mutations_since | snapshot | file. Presigned GET for files. Anyone under grant#any (rate-limited read.public).",
+        "description": "mutations_since | file. Presigned GET for files. Anyone under grant#any (rate-limited read.public).",
         "operationId": "cloudFetch",
         "security": [
           {
@@ -142,19 +138,13 @@
             }
           },
           "403": {
-            "description": "grant.* / payment.subscription",
+            "description": "payment_required",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 },
                 "examples": {
-                  "forbidden": {
-                    "value": {
-                      "code": "forbidden",
-                      "field": "example"
-                    }
-                  },
                   "payment_required": {
                     "value": {
                       "code": "payment_required",
@@ -166,7 +156,7 @@
             }
           },
           "400": {
-            "description": "arg paths / grants.any.role / batch.response",
+            "description": "arg paths / grants.any.role / batch.response, entries.signature, incorporated_from",
             "content": {
               "application/json": {
                 "schema": {
@@ -184,13 +174,20 @@
                       "code": "batch_too_large",
                       "field": "example"
                     }
+                  },
+                  "grants_any_role": {
+                    "summary": "any grantee must be read",
+                    "value": {
+                      "code": "invalid_request",
+                      "field": "grants.any.role"
+                    }
                   }
                 }
               }
             }
           },
           "404": {
-            "description": "database.id|deleted / file_handle / restore_point_id / snapshot_upload",
+            "description": "database.id|deleted / file_handle",
             "content": {
               "application/json": {
                 "schema": {
@@ -208,7 +205,7 @@
             }
           },
           "409": {
-            "description": "database.id / account.exists / device.* / entries.writer_seq / file.unverified / cursor",
+            "description": "database.id / account.exists / device.* / entries.writer_seq / incorporated_from / file.unverified / cursor",
             "content": {
               "application/json": {
                 "schema": {
@@ -218,12 +215,6 @@
                   "conflict": {
                     "value": {
                       "code": "conflict",
-                      "field": "example"
-                    }
-                  },
-                  "cursor_expired": {
-                    "value": {
-                      "code": "cursor_expired",
                       "field": "example"
                     }
                   }
@@ -276,7 +267,7 @@
           "push"
         ],
         "summary": "Push",
-        "description": "mutations | file begin/commit | snapshot begin/commit. Node PUTs between begin and commit.",
+        "description": "mutations | file begin/commit. Node PUTs between begin and commit. No snapshots.",
         "operationId": "cloudPush",
         "security": [
           {
@@ -318,10 +309,19 @@
                     "args": {
                       "entries": [
                         {
+                          "kind": "data",
+                          "database_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                          "node_key": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                          "device_id": "11111111-1111-4111-8111-111111111111",
                           "writer_seq": 1,
+                          "prev_hash": "0000000000000000000000000000000000000000000000000000000000000000",
                           "authored_at_ms": 1730000000000,
+                          "lamport": 1,
+                          "stream": "direct",
                           "namespace": "default",
-                          "payload_b64": "AQID"
+                          "payload_b64": "AQID",
+                          "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                          "seen_heads": []
                         }
                       ]
                     }
@@ -361,19 +361,13 @@
             }
           },
           "403": {
-            "description": "grant.* / payment.subscription",
+            "description": "payment_required",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 },
                 "examples": {
-                  "forbidden": {
-                    "value": {
-                      "code": "forbidden",
-                      "field": "example"
-                    }
-                  },
                   "payment_required": {
                     "value": {
                       "code": "payment_required",
@@ -385,7 +379,7 @@
             }
           },
           "400": {
-            "description": "arg paths / grants.any.role / batch.response",
+            "description": "arg paths / grants.any.role / batch.response, entries.signature, incorporated_from",
             "content": {
               "application/json": {
                 "schema": {
@@ -403,13 +397,20 @@
                       "code": "batch_too_large",
                       "field": "example"
                     }
+                  },
+                  "grants_any_role": {
+                    "summary": "any grantee must be read",
+                    "value": {
+                      "code": "invalid_request",
+                      "field": "grants.any.role"
+                    }
                   }
                 }
               }
             }
           },
           "404": {
-            "description": "database.id|deleted / file_handle / restore_point_id / snapshot_upload",
+            "description": "database.id|deleted / file_handle",
             "content": {
               "application/json": {
                 "schema": {
@@ -427,7 +428,7 @@
             }
           },
           "409": {
-            "description": "database.id / account.exists / device.* / entries.writer_seq / file.unverified / cursor",
+            "description": "database.id / account.exists / device.* / entries.writer_seq / incorporated_from / file.unverified / cursor",
             "content": {
               "application/json": {
                 "schema": {
@@ -437,12 +438,6 @@
                   "conflict": {
                     "value": {
                       "code": "conflict",
-                      "field": "example"
-                    }
-                  },
-                  "cursor_expired": {
-                    "value": {
-                      "code": "cursor_expired",
                       "field": "example"
                     }
                   }
@@ -495,7 +490,7 @@
           "manage"
         ],
         "summary": "Manage",
-        "description": "create (db_salt+birth_signature) | grant | revoke | access | delete. Public read via grantee any / role read.",
+        "description": "create (db_salt+birth_signature) | grant | revoke | delete. Public read via grantee any / role read. Access is derived locally from the chain (no manage/access). delete erases that database's relay logs and blobs; database_id stays tombstoned.",
         "operationId": "cloudManage",
         "security": [
           {
@@ -531,31 +526,111 @@
               },
               "examples": {
                 "create": {
+                  "summary": "Signed BirthEntry",
                   "value": {
                     "database_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                     "intent": "create",
                     "args": {
-                      "db_salt": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
-                      "birth_signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+                      "entry": {
+                        "kind": "birth",
+                        "database_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                        "node_key": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                        "device_id": "11111111-1111-4111-8111-111111111111",
+                        "writer_seq": 1,
+                        "prev_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+                        "authored_at_ms": 1730000000000,
+                        "lamport": 1,
+                        "namespace": "birth",
+                        "owner": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                        "db_salt": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                        "birth_signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                        "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                        "seen_heads": []
+                      }
                     }
                   }
                 },
-                "access": {
-                  "value": {
-                    "database_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                    "intent": "access",
-                    "args": {}
-                  }
-                },
                 "grant_any": {
+                  "summary": "Publisher-signed public-read grant",
                   "value": {
                     "database_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                     "intent": "grant",
                     "args": {
-                      "grants": [
+                      "entries": [
                         {
+                          "kind": "grant",
+                          "database_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                          "node_key": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                          "device_id": "11111111-1111-4111-8111-111111111111",
+                          "writer_seq": 3,
+                          "prev_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                          "authored_at_ms": 1730000002000,
+                          "lamport": 3,
+                          "last_seen_publisher_seq": 2,
+                          "last_seen_publisher_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+                          "namespace": "grant",
                           "grantee": "any",
-                          "role": "read"
+                          "role": "read",
+                          "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+                        }
+                      ]
+                    }
+                  }
+                },
+                "grant_member": {
+                  "summary": "Signed write grant",
+                  "value": {
+                    "database_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "intent": "grant",
+                    "args": {
+                      "entries": [
+                        {
+                          "kind": "grant",
+                          "database_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                          "node_key": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                          "device_id": "11111111-1111-4111-8111-111111111111",
+                          "writer_seq": 2,
+                          "prev_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                          "authored_at_ms": 1730000001000,
+                          "lamport": 2,
+                          "namespace": "grant",
+                          "grantee": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                          "role": "write",
+                          "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                          "seen_heads": []
+                        }
+                      ]
+                    }
+                  }
+                },
+                "revoke_cutoff": {
+                  "summary": "Revocation with per-device cutoff",
+                  "value": {
+                    "database_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    "intent": "revoke",
+                    "args": {
+                      "entries": [
+                        {
+                          "kind": "grant",
+                          "database_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                          "node_key": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                          "device_id": "11111111-1111-4111-8111-111111111111",
+                          "writer_seq": 3,
+                          "prev_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+                          "authored_at_ms": 1730000002000,
+                          "lamport": 3,
+                          "namespace": "grant",
+                          "grantee": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                          "role": "revoked",
+                          "cutoffs": [
+                            {
+                              "device_id": "22222222-2222-4222-8222-222222222222",
+                              "writer_seq": 5,
+                              "entry_hash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+                            }
+                          ],
+                          "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                          "seen_heads": []
                         }
                       ]
                     }
@@ -573,22 +648,7 @@
                 "schema": {
                   "$ref": "#/components/schemas/ManageResponseBody"
                 },
-                "examples": {
-                  "access": {
-                    "value": {
-                      "database_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                      "intent": "access",
-                      "result": {
-                        "role": "publisher",
-                        "level": "write",
-                        "public_read": true,
-                        "owner": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-                        "db_salt": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
-                        "birth_signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
-                      }
-                    }
-                  }
-                }
+                "examples": {}
               }
             }
           },
@@ -611,19 +671,13 @@
             }
           },
           "403": {
-            "description": "grant.* / payment.subscription",
+            "description": "payment_required",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 },
                 "examples": {
-                  "forbidden": {
-                    "value": {
-                      "code": "forbidden",
-                      "field": "example"
-                    }
-                  },
                   "payment_required": {
                     "value": {
                       "code": "payment_required",
@@ -635,7 +689,7 @@
             }
           },
           "400": {
-            "description": "arg paths / grants.any.role / batch.response",
+            "description": "arg paths / grants.any.role / batch.response, entries.signature, incorporated_from",
             "content": {
               "application/json": {
                 "schema": {
@@ -653,13 +707,20 @@
                       "code": "batch_too_large",
                       "field": "example"
                     }
+                  },
+                  "grants_any_role": {
+                    "summary": "any grantee must be read",
+                    "value": {
+                      "code": "invalid_request",
+                      "field": "grants.any.role"
+                    }
                   }
                 }
               }
             }
           },
           "404": {
-            "description": "database.id|deleted / file_handle / restore_point_id / snapshot_upload",
+            "description": "database.id|deleted / file_handle",
             "content": {
               "application/json": {
                 "schema": {
@@ -677,7 +738,7 @@
             }
           },
           "409": {
-            "description": "database.id / account.exists / device.* / entries.writer_seq / file.unverified / cursor",
+            "description": "database.id / account.exists / device.* / entries.writer_seq / incorporated_from / file.unverified / cursor",
             "content": {
               "application/json": {
                 "schema": {
@@ -687,12 +748,6 @@
                   "conflict": {
                     "value": {
                       "code": "conflict",
-                      "field": "example"
-                    }
-                  },
-                  "cursor_expired": {
-                    "value": {
-                      "code": "cursor_expired",
                       "field": "example"
                     }
                   }
@@ -745,7 +800,7 @@
           "account"
         ],
         "summary": "Account",
-        "description": "No protocol header. register/payment/deactivate/add_device/remove_device/databases/status.",
+        "description": "No protocol header. register/payment/deactivate/add_device/remove_device/databases/status. deactivate erases everything that publisher has in ExeMem and on the relay (logs, blobs, account), cancels subscriptions, and retires the key. The app registry is a separate ExeMem service outside this API.",
         "operationId": "cloudAccount",
         "security": [
           {
@@ -825,19 +880,13 @@
             }
           },
           "403": {
-            "description": "grant.* / payment.subscription",
+            "description": "payment_required",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Error"
                 },
                 "examples": {
-                  "forbidden": {
-                    "value": {
-                      "code": "forbidden",
-                      "field": "example"
-                    }
-                  },
                   "payment_required": {
                     "value": {
                       "code": "payment_required",
@@ -849,7 +898,7 @@
             }
           },
           "400": {
-            "description": "arg paths / grants.any.role / batch.response",
+            "description": "arg paths / grants.any.role / batch.response, entries.signature, incorporated_from",
             "content": {
               "application/json": {
                 "schema": {
@@ -867,13 +916,20 @@
                       "code": "batch_too_large",
                       "field": "example"
                     }
+                  },
+                  "grants_any_role": {
+                    "summary": "any grantee must be read",
+                    "value": {
+                      "code": "invalid_request",
+                      "field": "grants.any.role"
+                    }
                   }
                 }
               }
             }
           },
           "404": {
-            "description": "database.id|deleted / file_handle / restore_point_id / snapshot_upload",
+            "description": "database.id|deleted / file_handle",
             "content": {
               "application/json": {
                 "schema": {
@@ -891,7 +947,7 @@
             }
           },
           "409": {
-            "description": "database.id / account.exists / device.* / entries.writer_seq / file.unverified / cursor",
+            "description": "database.id / account.exists / device.* / entries.writer_seq / incorporated_from / file.unverified / cursor",
             "content": {
               "application/json": {
                 "schema": {
@@ -901,12 +957,6 @@
                   "conflict": {
                     "value": {
                       "code": "conflict",
-                      "field": "example"
-                    }
-                  },
-                  "cursor_expired": {
-                    "value": {
-                      "code": "cursor_expired",
                       "field": "example"
                     }
                   }
@@ -934,96 +984,6 @@
           }
         }
       }
-    },
-    "/api/cloud/v3/maintenance": {
-      "post": {
-        "tags": [
-          "maintenance"
-        ],
-        "summary": "Maintenance (DEV)",
-        "description": "Single envelope only. githubOidc.",
-        "operationId": "cloudMaintenance",
-        "security": [
-          {
-            "githubOidc": []
-          }
-        ],
-        "parameters": [
-          {
-            "$ref": "#/components/parameters/CloudProtocol"
-          }
-        ],
-        "x-lastdb-environment": "dev",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/MaintenanceRequestBody"
-              },
-              "examples": {
-                "status": {
-                  "value": {
-                    "intent": "snapshot_proof_status",
-                    "args": {
-                      "run_id": "1",
-                      "run_attempt": 1
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/MaintenanceResponseBody"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Not DEV / bad OIDC",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                },
-                "examples": {
-                  "forbidden": {
-                    "value": {
-                      "code": "forbidden",
-                      "field": "example"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "426": {
-            "description": "request.protocol",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                },
-                "examples": {
-                  "upgrade_required": {
-                    "value": {
-                      "code": "upgrade_required",
-                      "field": "example"
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
     }
   },
   "components": {
@@ -1032,13 +992,7 @@
         "type": "apiKey",
         "in": "header",
         "name": "X-LastDB-Signature",
-        "description": "Ed25519 over POST\\n<path>\\n<protocol|->\\n<node key>\\n<device id>\\n<issued-at>\\n<nonce>\\n<body sha256 hex>. Skew ±60s. Companion headers required."
-      },
-      "githubOidc": {
-        "type": "http",
-        "scheme": "bearer",
-        "bearerFormat": "JWT",
-        "description": "GitHub Actions OIDC for DEV maintenance."
+        "description": "Ed25519 over POST\\n<path>\\n<protocol|->\\n<node key>\\n<device id>\\n<issued-at>\\n<nonce>\\n<body sha256 hex>. Skew \u00b160s. Companion headers required."
       }
     },
     "parameters": {
@@ -1123,13 +1077,11 @@
             "type": "string",
             "enum": [
               "unauthorized",
-              "forbidden",
               "invalid_request",
               "not_found",
               "conflict",
               "rate_limited",
               "upgrade_required",
-              "cursor_expired",
               "batch_too_large",
               "payment_required"
             ]
@@ -1173,12 +1125,6 @@
         "minLength": 1,
         "maxLength": 256
       },
-      "OpaqueSnapshotUpload": {
-        "type": "string",
-        "description": "Opaque snapshot upload session",
-        "minLength": 1,
-        "maxLength": 256
-      },
       "GrantGrantee": {
         "oneOf": [
           {
@@ -1195,14 +1141,6 @@
           }
         ]
       },
-      "AccessLevel": {
-        "type": "string",
-        "enum": [
-          "read",
-          "submit",
-          "write"
-        ]
-      },
       "StreamKind": {
         "type": "string",
         "enum": [
@@ -1215,16 +1153,17 @@
         "required": [
           "node_key",
           "device_id",
-          "writer_seq"
+          "writer_seq",
+          "signature_sha256"
         ],
         "additionalProperties": false,
         "properties": {
           "node_key": {
             "type": "string",
-            "description": "64 lowercase hex",
             "pattern": "^[0-9a-f]{64}$",
             "minLength": 64,
-            "maxLength": 64
+            "maxLength": 64,
+            "description": "Proposal writer node public key"
           },
           "device_id": {
             "type": "string",
@@ -1234,7 +1173,14 @@
           "writer_seq": {
             "type": "integer",
             "minimum": 1,
-            "description": "Source writer_seq"
+            "description": "Proposal writer_seq"
+          },
+          "signature_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64,
+            "description": "SHA-256 of proposal signature bytes"
           }
         }
       },
@@ -1260,7 +1206,7 @@
               "maxLength": 1024
             },
             "maxProperties": 32,
-            "description": "Header map for presigned transfer (≤32 entries)."
+            "description": "Header map for presigned transfer (\u226432 entries)."
           },
           "expires_at_ms": {
             "type": "integer",
@@ -1286,63 +1232,7 @@
         }
       },
       "MutationOut": {
-        "type": "object",
-        "required": [
-          "stream",
-          "node_key",
-          "device_id",
-          "writer_seq",
-          "authored_at_ms",
-          "namespace",
-          "payload_b64"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "stream": {
-            "$ref": "#/components/schemas/StreamKind"
-          },
-          "node_key": {
-            "type": "string",
-            "description": "64 lowercase hex",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          },
-          "device_id": {
-            "type": "string",
-            "format": "uuid",
-            "description": "UUID"
-          },
-          "writer_seq": {
-            "type": "integer",
-            "minimum": 1,
-            "description": "Writer sequence"
-          },
-          "authored_at_ms": {
-            "type": "integer",
-            "minimum": 0,
-            "description": "Unix ms"
-          },
-          "namespace": {
-            "type": "string",
-            "description": "Namespace",
-            "minLength": 1,
-            "maxLength": 128
-          },
-          "payload_b64": {
-            "type": "string",
-            "description": "base64url payload ≤96 KiB decoded",
-            "pattern": "^[A-Za-z0-9_-]+$",
-            "minLength": 1,
-            "maxLength": 131072
-          },
-          "file": {
-            "$ref": "#/components/schemas/OpaqueFileHandle"
-          },
-          "incorporated_from": {
-            "$ref": "#/components/schemas/IncorporatedFrom"
-          }
-        }
+        "$ref": "#/components/schemas/SignedEntry"
       },
       "FetchMutationsSinceResult": {
         "type": "object",
@@ -1361,50 +1251,6 @@
             "items": {
               "$ref": "#/components/schemas/MutationOut"
             }
-          }
-        }
-      },
-      "FetchSnapshotArgs": {
-        "type": "object",
-        "required": [],
-        "additionalProperties": false,
-        "properties": {
-          "restore_point_id": {
-            "type": "string",
-            "description": "Omit for latest",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          }
-        }
-      },
-      "FetchSnapshotResult": {
-        "type": "object",
-        "required": [
-          "restore_point_id",
-          "manifest",
-          "cursor",
-          "held_until_ms"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "restore_point_id": {
-            "type": "string",
-            "description": "64 lowercase hex",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          },
-          "manifest": {
-            "$ref": "#/components/schemas/OpaqueFileHandle"
-          },
-          "cursor": {
-            "$ref": "#/components/schemas/OpaqueCursor"
-          },
-          "held_until_ms": {
-            "type": "integer",
-            "minimum": 0,
-            "description": "Hold deadline (1 h from call)"
           }
         }
       },
@@ -1444,7 +1290,7 @@
               "maxLength": 1024
             },
             "maxProperties": 32,
-            "description": "Header map for presigned transfer (≤32 entries)."
+            "description": "Header map for presigned transfer (\u226432 entries)."
           },
           "expires_at_ms": {
             "type": "integer",
@@ -1466,45 +1312,26 @@
         }
       },
       "MutationIn": {
-        "type": "object",
-        "required": [
-          "writer_seq",
-          "authored_at_ms",
-          "namespace",
-          "payload_b64"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "writer_seq": {
-            "type": "integer",
-            "minimum": 1,
-            "description": ""
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/DataEntry"
           },
-          "authored_at_ms": {
-            "type": "integer",
-            "minimum": 0,
-            "description": ""
+          {
+            "$ref": "#/components/schemas/GrantEntry"
           },
-          "namespace": {
-            "type": "string",
-            "description": "",
-            "minLength": 1,
-            "maxLength": 128
+          {
+            "$ref": "#/components/schemas/BlobDeleteEntry"
           },
-          "payload_b64": {
-            "type": "string",
-            "description": "≤96 KiB decoded",
-            "pattern": "^[A-Za-z0-9_-]+$",
-            "minLength": 1,
-            "maxLength": 131072
+          {
+            "$ref": "#/components/schemas/HeadsEntry"
           },
-          "file": {
-            "$ref": "#/components/schemas/OpaqueFileHandle"
+          {
+            "$ref": "#/components/schemas/RelaysEntry"
           },
-          "incorporated_from": {
-            "$ref": "#/components/schemas/IncorporatedFrom"
+          {
+            "$ref": "#/components/schemas/BirthEntry"
           }
-        }
+        ]
       },
       "PushMutationsArgs": {
         "type": "object",
@@ -1526,22 +1353,17 @@
       "PushMutationsResult": {
         "type": "object",
         "required": [
-          "landed",
           "next_writer_seq"
         ],
         "additionalProperties": false,
         "properties": {
-          "landed": {
-            "$ref": "#/components/schemas/StreamKind"
-          },
           "next_writer_seq": {
             "type": "integer",
-            "minimum": 1,
-            "description": ""
+            "minimum": 1
           },
           "duplicate": {
             "type": "boolean",
-            "description": "Replay of same writer_seq"
+            "description": "Identical entry_hash replay"
           }
         }
       },
@@ -1637,181 +1459,16 @@
           }
         ]
       },
-      "SnapshotFileSpec": {
-        "type": "object",
-        "required": [
-          "bytes",
-          "sha256"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "bytes": {
-            "type": "integer",
-            "minimum": 1,
-            "description": ""
-          },
-          "sha256": {
-            "type": "string",
-            "description": "64 lowercase hex",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          }
-        }
-      },
-      "SnapshotFileBegun": {
-        "type": "object",
-        "required": [
-          "file_handle"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "file_handle": {
-            "$ref": "#/components/schemas/OpaqueFileHandle"
-          },
-          "upload": {
-            "$ref": "#/components/schemas/Upload"
-          }
-        }
-      },
-      "PushSnapshotBeginArgs": {
-        "type": "object",
-        "required": [
-          "stage",
-          "files"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "stage": {
-            "type": "string",
-            "const": "begin"
-          },
-          "snapshot_upload": {
-            "$ref": "#/components/schemas/OpaqueSnapshotUpload"
-          },
-          "files": {
-            "type": "array",
-            "minItems": 1,
-            "maxItems": 32,
-            "items": {
-              "$ref": "#/components/schemas/SnapshotFileSpec"
-            }
-          }
-        }
-      },
-      "PushSnapshotBeginResult": {
-        "type": "object",
-        "required": [
-          "stage",
-          "snapshot_upload",
-          "files"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "stage": {
-            "type": "string",
-            "const": "begin"
-          },
-          "snapshot_upload": {
-            "$ref": "#/components/schemas/OpaqueSnapshotUpload"
-          },
-          "files": {
-            "type": "array",
-            "minItems": 1,
-            "maxItems": 32,
-            "items": {
-              "$ref": "#/components/schemas/SnapshotFileBegun"
-            }
-          }
-        }
-      },
-      "PushSnapshotCommitArgs": {
-        "type": "object",
-        "required": [
-          "stage",
-          "snapshot_upload",
-          "manifest",
-          "cursor"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "stage": {
-            "type": "string",
-            "const": "commit"
-          },
-          "snapshot_upload": {
-            "$ref": "#/components/schemas/OpaqueSnapshotUpload"
-          },
-          "manifest": {
-            "$ref": "#/components/schemas/OpaqueFileHandle"
-          },
-          "cursor": {
-            "$ref": "#/components/schemas/OpaqueCursor"
-          }
-        }
-      },
-      "PushSnapshotCommitResult": {
-        "type": "object",
-        "required": [
-          "stage",
-          "restore_point_id"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "stage": {
-            "type": "string",
-            "const": "commit"
-          },
-          "restore_point_id": {
-            "type": "string",
-            "description": "sha256 of manifest file",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          }
-        }
-      },
-      "PushSnapshotArgs": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/PushSnapshotBeginArgs"
-          },
-          {
-            "$ref": "#/components/schemas/PushSnapshotCommitArgs"
-          }
-        ]
-      },
-      "PushSnapshotResult": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/PushSnapshotBeginResult"
-          },
-          {
-            "$ref": "#/components/schemas/PushSnapshotCommitResult"
-          }
-        ]
-      },
       "ManageCreateArgs": {
         "type": "object",
         "required": [
-          "db_salt",
-          "birth_signature"
+          "entry"
         ],
         "additionalProperties": false,
+        "description": "Full signed BirthEntry; ExeMem cannot sign one",
         "properties": {
-          "db_salt": {
-            "type": "string",
-            "description": "32-byte salt as 64 hex",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          },
-          "birth_signature": {
-            "type": "string",
-            "description": "Db-key Ed25519 over lastdb-db-birth-v1\\n… (64 bytes)",
-            "pattern": "^[A-Za-z0-9_-]+$",
-            "minLength": 1,
-            "maxLength": 88
+          "entry": {
+            "$ref": "#/components/schemas/BirthEntry"
           }
         }
       },
@@ -1822,35 +1479,20 @@
         "properties": {},
         "description": "Empty object"
       },
-      "ManageGrantEntry": {
-        "type": "object",
-        "required": [
-          "grantee",
-          "role"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "grantee": {
-            "$ref": "#/components/schemas/GrantGrantee"
-          },
-          "role": {
-            "$ref": "#/components/schemas/AccessLevel"
-          }
-        }
-      },
       "ManageGrantArgs": {
         "type": "object",
         "required": [
-          "grants"
+          "entries"
         ],
         "additionalProperties": false,
+        "description": "Append signed grant entries to the publisher chain (transport sugar)",
         "properties": {
-          "grants": {
+          "entries": {
             "type": "array",
             "minItems": 1,
             "maxItems": 90,
             "items": {
-              "$ref": "#/components/schemas/ManageGrantEntry"
+              "$ref": "#/components/schemas/GrantEntry"
             }
           }
         }
@@ -1865,16 +1507,17 @@
       "ManageRevokeArgs": {
         "type": "object",
         "required": [
-          "grantees"
+          "entries"
         ],
         "additionalProperties": false,
+        "description": "Append signed grant entries with role reductions/revokes (chain only)",
         "properties": {
-          "grantees": {
+          "entries": {
             "type": "array",
             "minItems": 1,
             "maxItems": 90,
             "items": {
-              "$ref": "#/components/schemas/GrantGrantee"
+              "$ref": "#/components/schemas/GrantEntry"
             }
           }
         }
@@ -1885,63 +1528,6 @@
         "additionalProperties": false,
         "properties": {},
         "description": "Empty object"
-      },
-      "ManageAccessArgs": {
-        "type": "object",
-        "required": [],
-        "additionalProperties": false,
-        "properties": {},
-        "description": "Empty object"
-      },
-      "ManageAccessResult": {
-        "type": "object",
-        "required": [
-          "role",
-          "owner",
-          "db_salt",
-          "birth_signature"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "role": {
-            "type": "string",
-            "enum": [
-              "publisher",
-              "member",
-              "public",
-              "none"
-            ]
-          },
-          "level": {
-            "$ref": "#/components/schemas/AccessLevel",
-            "description": "Omitted when role is none"
-          },
-          "public_read": {
-            "type": "boolean",
-            "description": "Publisher only: grant#any active"
-          },
-          "owner": {
-            "type": "string",
-            "description": "Owner node public key",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          },
-          "db_salt": {
-            "type": "string",
-            "description": "64 lowercase hex",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          },
-          "birth_signature": {
-            "type": "string",
-            "description": "Birth certificate",
-            "pattern": "^[A-Za-z0-9_-]+$",
-            "minLength": 1,
-            "maxLength": 88
-          }
-        }
       },
       "ManageDeleteArgs": {
         "type": "object",
@@ -2176,166 +1762,6 @@
           }
         }
       },
-      "MaintProvisionArgs": {
-        "type": "object",
-        "required": [
-          "node_key",
-          "device_id",
-          "database_id",
-          "db_salt",
-          "birth_signature"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "node_key": {
-            "type": "string",
-            "description": "64 lowercase hex",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          },
-          "device_id": {
-            "type": "string",
-            "format": "uuid",
-            "description": "UUID"
-          },
-          "database_id": {
-            "type": "string",
-            "description": "64 lowercase hex",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          },
-          "db_salt": {
-            "type": "string",
-            "description": "64 lowercase hex",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          },
-          "birth_signature": {
-            "type": "string",
-            "description": "",
-            "pattern": "^[A-Za-z0-9_-]+$",
-            "minLength": 1,
-            "maxLength": 88
-          }
-        }
-      },
-      "MaintProvisionResult": {
-        "type": "object",
-        "required": [],
-        "additionalProperties": false,
-        "properties": {},
-        "description": "Empty object"
-      },
-      "MaintRunArgs": {
-        "type": "object",
-        "required": [
-          "run_id",
-          "run_attempt"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "run_id": {
-            "type": "string",
-            "description": "",
-            "minLength": 1,
-            "maxLength": 128
-          },
-          "run_attempt": {
-            "type": "integer",
-            "minimum": 1,
-            "description": ""
-          }
-        }
-      },
-      "MaintStatusResult": {
-        "type": "object",
-        "required": [
-          "phase",
-          "database_id"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "phase": {
-            "type": "string",
-            "enum": [
-              "open",
-              "retiring",
-              "complete"
-            ]
-          },
-          "database_id": {
-            "type": "string",
-            "description": "64 lowercase hex",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          },
-          "retry_after_ms": {
-            "type": "integer",
-            "minimum": 0,
-            "description": "",
-            "maximum": 900000
-          },
-          "released_bytes": {
-            "type": "string",
-            "description": "Decimal string",
-            "pattern": "^[0-9]+$",
-            "maxLength": 32
-          }
-        }
-      },
-      "MaintInspectArgs": {
-        "type": "object",
-        "required": [
-          "through"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "through": {
-            "type": "integer",
-            "minimum": 1,
-            "description": "",
-            "maximum": 32
-          }
-        }
-      },
-      "MaintInspectResult": {
-        "type": "object",
-        "required": [
-          "database_id",
-          "entries",
-          "facts"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "database_id": {
-            "type": "string",
-            "description": "64 lowercase hex",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          },
-          "entries": {
-            "type": "object",
-            "additionalProperties": {
-              "type": "string",
-              "maxLength": 4096
-            },
-            "maxProperties": 32
-          },
-          "facts": {
-            "type": "object",
-            "additionalProperties": {
-              "type": "string",
-              "maxLength": 4096
-            },
-            "maxProperties": 256
-          }
-        }
-      },
       "Fetch_mutations_since_Ok": {
         "type": "object",
         "required": [
@@ -2418,91 +1844,6 @@
           },
           {
             "$ref": "#/components/schemas/Fetch_mutations_since_Err"
-          }
-        ]
-      },
-      "Fetch_snapshot_Ok": {
-        "type": "object",
-        "required": [
-          "database_id",
-          "intent",
-          "result"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "database_id": {
-            "type": "string",
-            "description": "Database Ed25519 public key",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          },
-          "intent": {
-            "type": "string",
-            "const": "snapshot"
-          },
-          "result": {
-            "$ref": "#/components/schemas/FetchSnapshotResult"
-          }
-        }
-      },
-      "Fetch_snapshot_Req": {
-        "type": "object",
-        "required": [
-          "database_id",
-          "intent",
-          "args"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "database_id": {
-            "type": "string",
-            "description": "Database Ed25519 public key",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          },
-          "intent": {
-            "type": "string",
-            "const": "snapshot"
-          },
-          "args": {
-            "$ref": "#/components/schemas/FetchSnapshotArgs"
-          }
-        }
-      },
-      "Fetch_snapshot_Err": {
-        "type": "object",
-        "required": [
-          "intent",
-          "error"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "database_id": {
-            "type": "string",
-            "description": "Database id when known",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          },
-          "intent": {
-            "type": "string",
-            "const": "snapshot"
-          },
-          "error": {
-            "$ref": "#/components/schemas/Error"
-          }
-        },
-        "description": "Per-item batch error"
-      },
-      "Fetch_snapshot_Item": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/Fetch_snapshot_Ok"
-          },
-          {
-            "$ref": "#/components/schemas/Fetch_snapshot_Err"
           }
         ]
       },
@@ -2597,9 +1938,6 @@
             "$ref": "#/components/schemas/Fetch_mutations_since_Req"
           },
           {
-            "$ref": "#/components/schemas/Fetch_snapshot_Req"
-          },
-          {
             "$ref": "#/components/schemas/Fetch_file_Req"
           }
         ],
@@ -2607,7 +1945,6 @@
           "propertyName": "intent",
           "mapping": {
             "mutations_since": "#/components/schemas/Fetch_mutations_since_Req",
-            "snapshot": "#/components/schemas/Fetch_snapshot_Req",
             "file": "#/components/schemas/Fetch_file_Req"
           }
         }
@@ -2616,9 +1953,6 @@
         "oneOf": [
           {
             "$ref": "#/components/schemas/Fetch_mutations_since_Item"
-          },
-          {
-            "$ref": "#/components/schemas/Fetch_snapshot_Item"
           },
           {
             "$ref": "#/components/schemas/Fetch_file_Item"
@@ -2825,91 +2159,6 @@
           }
         ]
       },
-      "Push_snapshot_Ok": {
-        "type": "object",
-        "required": [
-          "database_id",
-          "intent",
-          "result"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "database_id": {
-            "type": "string",
-            "description": "Database Ed25519 public key",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          },
-          "intent": {
-            "type": "string",
-            "const": "snapshot"
-          },
-          "result": {
-            "$ref": "#/components/schemas/PushSnapshotResult"
-          }
-        }
-      },
-      "Push_snapshot_Req": {
-        "type": "object",
-        "required": [
-          "database_id",
-          "intent",
-          "args"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "database_id": {
-            "type": "string",
-            "description": "Database Ed25519 public key",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          },
-          "intent": {
-            "type": "string",
-            "const": "snapshot"
-          },
-          "args": {
-            "$ref": "#/components/schemas/PushSnapshotArgs"
-          }
-        }
-      },
-      "Push_snapshot_Err": {
-        "type": "object",
-        "required": [
-          "intent",
-          "error"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "database_id": {
-            "type": "string",
-            "description": "Database id when known",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          },
-          "intent": {
-            "type": "string",
-            "const": "snapshot"
-          },
-          "error": {
-            "$ref": "#/components/schemas/Error"
-          }
-        },
-        "description": "Per-item batch error"
-      },
-      "Push_snapshot_Item": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/Push_snapshot_Ok"
-          },
-          {
-            "$ref": "#/components/schemas/Push_snapshot_Err"
-          }
-        ]
-      },
       "PushEnvelope": {
         "oneOf": [
           {
@@ -2917,17 +2166,13 @@
           },
           {
             "$ref": "#/components/schemas/Push_file_Req"
-          },
-          {
-            "$ref": "#/components/schemas/Push_snapshot_Req"
           }
         ],
         "discriminator": {
           "propertyName": "intent",
           "mapping": {
             "mutations": "#/components/schemas/Push_mutations_Req",
-            "file": "#/components/schemas/Push_file_Req",
-            "snapshot": "#/components/schemas/Push_snapshot_Req"
+            "file": "#/components/schemas/Push_file_Req"
           }
         }
       },
@@ -2938,9 +2183,6 @@
           },
           {
             "$ref": "#/components/schemas/Push_file_Item"
-          },
-          {
-            "$ref": "#/components/schemas/Push_snapshot_Item"
           }
         ]
       },
@@ -3229,91 +2471,6 @@
           }
         ]
       },
-      "Manage_access_Ok": {
-        "type": "object",
-        "required": [
-          "database_id",
-          "intent",
-          "result"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "database_id": {
-            "type": "string",
-            "description": "Database Ed25519 public key",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          },
-          "intent": {
-            "type": "string",
-            "const": "access"
-          },
-          "result": {
-            "$ref": "#/components/schemas/ManageAccessResult"
-          }
-        }
-      },
-      "Manage_access_Req": {
-        "type": "object",
-        "required": [
-          "database_id",
-          "intent",
-          "args"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "database_id": {
-            "type": "string",
-            "description": "Database Ed25519 public key",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          },
-          "intent": {
-            "type": "string",
-            "const": "access"
-          },
-          "args": {
-            "$ref": "#/components/schemas/ManageAccessArgs"
-          }
-        }
-      },
-      "Manage_access_Err": {
-        "type": "object",
-        "required": [
-          "intent",
-          "error"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "database_id": {
-            "type": "string",
-            "description": "Database id when known",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          },
-          "intent": {
-            "type": "string",
-            "const": "access"
-          },
-          "error": {
-            "$ref": "#/components/schemas/Error"
-          }
-        },
-        "description": "Per-item batch error"
-      },
-      "Manage_access_Item": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/Manage_access_Ok"
-          },
-          {
-            "$ref": "#/components/schemas/Manage_access_Err"
-          }
-        ]
-      },
       "Manage_delete_Ok": {
         "type": "object",
         "required": [
@@ -3337,7 +2494,8 @@
           "result": {
             "$ref": "#/components/schemas/ManageDeleteResult"
           }
-        }
+        },
+        "description": "Database erased from relay storage; id remains tombstoned."
       },
       "Manage_delete_Req": {
         "type": "object",
@@ -3362,7 +2520,8 @@
           "args": {
             "$ref": "#/components/schemas/ManageDeleteArgs"
           }
-        }
+        },
+        "description": "Erase this database's relay logs and blobs; database_id stays tombstoned."
       },
       "Manage_delete_Err": {
         "type": "object",
@@ -3411,9 +2570,6 @@
             "$ref": "#/components/schemas/Manage_revoke_Req"
           },
           {
-            "$ref": "#/components/schemas/Manage_access_Req"
-          },
-          {
             "$ref": "#/components/schemas/Manage_delete_Req"
           }
         ],
@@ -3423,7 +2579,6 @@
             "create": "#/components/schemas/Manage_create_Req",
             "grant": "#/components/schemas/Manage_grant_Req",
             "revoke": "#/components/schemas/Manage_revoke_Req",
-            "access": "#/components/schemas/Manage_access_Req",
             "delete": "#/components/schemas/Manage_delete_Req"
           }
         }
@@ -3438,9 +2593,6 @@
           },
           {
             "$ref": "#/components/schemas/Manage_revoke_Item"
-          },
-          {
-            "$ref": "#/components/schemas/Manage_access_Item"
           },
           {
             "$ref": "#/components/schemas/Manage_delete_Item"
@@ -3616,7 +2768,8 @@
           "result": {
             "$ref": "#/components/schemas/AccountDeactivateResult"
           }
-        }
+        },
+        "description": "Publisher account deactivated; data erased; key retired."
       },
       "Account_deactivate_Req": {
         "type": "object",
@@ -3633,7 +2786,8 @@
           "args": {
             "$ref": "#/components/schemas/AccountDeactivateArgs"
           }
-        }
+        },
+        "description": "Erase all publisher data in ExeMem and on the relay; cancel subscriptions; retire the key."
       },
       "Account_deactivate_Err": {
         "type": "object",
@@ -4003,300 +3157,854 @@
           }
         ]
       },
-      "Maintenance_snapshot_proof_provision_Ok": {
+      "MutationFileRef": {
         "type": "object",
         "required": [
-          "intent",
-          "result"
+          "file_handle",
+          "sha256"
         ],
         "additionalProperties": false,
         "properties": {
-          "intent": {
-            "type": "string",
-            "const": "snapshot_proof_provision"
+          "file_handle": {
+            "$ref": "#/components/schemas/OpaqueFileHandle"
           },
-          "result": {
-            "$ref": "#/components/schemas/MaintProvisionResult"
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64,
+            "description": "SHA-256 of committed file bytes"
           }
         }
       },
-      "Maintenance_snapshot_proof_provision_Req": {
+      "GrantRole": {
+        "type": "string",
+        "enum": [
+          "read",
+          "submit",
+          "write",
+          "revoked"
+        ],
+        "description": "Signed grant role; revoked = revoke entry"
+      },
+      "GrantGranteeWire": {
+        "oneOf": [
+          {
+            "type": "string",
+            "description": "Member node public key",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          {
+            "type": "string",
+            "const": "any",
+            "description": "Public-read grantee"
+          }
+        ]
+      },
+      "DataEntry": {
         "type": "object",
         "required": [
-          "intent",
-          "args"
+          "kind",
+          "database_id",
+          "node_key",
+          "device_id",
+          "writer_seq",
+          "prev_hash",
+          "authored_at_ms",
+          "lamport",
+          "seen_heads",
+          "signature",
+          "stream",
+          "namespace",
+          "payload_b64"
         ],
         "additionalProperties": false,
+        "description": "lastdb-mutation-v1; stream=proposal for proposals",
         "properties": {
-          "intent": {
+          "kind": {
             "type": "string",
-            "const": "snapshot_proof_provision"
+            "const": "data"
           },
-          "args": {
-            "$ref": "#/components/schemas/MaintProvisionArgs"
+          "database_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "node_key": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "device_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "writer_seq": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "prev_hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "authored_at_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Display-only wall clock"
+          },
+          "lamport": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "1 + max(prev lamport, lamports of seen_heads entries)"
+          },
+          "seen_heads": {
+            "$ref": "#/components/schemas/SeenHeads"
+          },
+          "signature": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{86}$",
+            "minLength": 86,
+            "maxLength": 86
+          },
+          "stream": {
+            "$ref": "#/components/schemas/StreamKind"
+          },
+          "namespace": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "payload_b64": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "minLength": 1,
+            "maxLength": 131072
+          },
+          "file": {
+            "$ref": "#/components/schemas/MutationFileRef"
+          },
+          "incorporated_from": {
+            "$ref": "#/components/schemas/IncorporatedFrom"
+          },
+          "grant_at_device": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "grant_at_seq": {
+            "type": "integer",
+            "minimum": 1
           }
         }
       },
-      "Maintenance_snapshot_proof_provision_Err": {
+      "GrantEntry": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "kind",
+              "database_id",
+              "node_key",
+              "device_id",
+              "writer_seq",
+              "prev_hash",
+              "authored_at_ms",
+              "lamport",
+              "seen_heads",
+              "signature",
+              "namespace",
+              "grantee",
+              "role"
+            ],
+            "additionalProperties": false,
+            "description": "Public-read grant; any + read only",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "grant"
+              },
+              "database_id": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$",
+                "minLength": 64,
+                "maxLength": 64
+              },
+              "node_key": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$",
+                "minLength": 64,
+                "maxLength": 64
+              },
+              "device_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "writer_seq": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "prev_hash": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$",
+                "minLength": 64,
+                "maxLength": 64
+              },
+              "authored_at_ms": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Display-only wall clock"
+              },
+              "lamport": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "1 + max(prev lamport, lamports of seen_heads entries)"
+              },
+              "seen_heads": {
+                "$ref": "#/components/schemas/SeenHeads"
+              },
+              "signature": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{86}$",
+                "minLength": 86,
+                "maxLength": 86
+              },
+              "namespace": {
+                "type": "string",
+                "const": "grant"
+              },
+              "grantee": {
+                "type": "string",
+                "const": "any"
+              },
+              "role": {
+                "type": "string",
+                "const": "read"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind",
+              "database_id",
+              "node_key",
+              "device_id",
+              "writer_seq",
+              "prev_hash",
+              "authored_at_ms",
+              "lamport",
+              "seen_heads",
+              "signature",
+              "namespace",
+              "grantee",
+              "role"
+            ],
+            "additionalProperties": false,
+            "description": "Member grant that does not lower an existing role (first grant or raise). Cutoffs are not required.",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "grant"
+              },
+              "database_id": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$",
+                "minLength": 64,
+                "maxLength": 64
+              },
+              "node_key": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$",
+                "minLength": 64,
+                "maxLength": 64
+              },
+              "device_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "writer_seq": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "prev_hash": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$",
+                "minLength": 64,
+                "maxLength": 64
+              },
+              "authored_at_ms": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Display-only wall clock"
+              },
+              "lamport": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "1 + max(prev lamport, lamports of seen_heads entries)"
+              },
+              "seen_heads": {
+                "$ref": "#/components/schemas/SeenHeads"
+              },
+              "signature": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{86}$",
+                "minLength": 86,
+                "maxLength": 86
+              },
+              "namespace": {
+                "type": "string",
+                "const": "grant"
+              },
+              "grantee": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$",
+                "minLength": 64,
+                "maxLength": 64
+              },
+              "role": {
+                "type": "string",
+                "enum": [
+                  "read",
+                  "submit",
+                  "write"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind",
+              "database_id",
+              "node_key",
+              "device_id",
+              "writer_seq",
+              "prev_hash",
+              "authored_at_ms",
+              "lamport",
+              "seen_heads",
+              "signature",
+              "namespace",
+              "grantee",
+              "role",
+              "cutoffs"
+            ],
+            "additionalProperties": false,
+            "description": "Role reduction or revoke; cutoffs required. Cutoffs are not used on a first grant.",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "grant"
+              },
+              "database_id": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$",
+                "minLength": 64,
+                "maxLength": 64
+              },
+              "node_key": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$",
+                "minLength": 64,
+                "maxLength": 64
+              },
+              "device_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "writer_seq": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "prev_hash": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$",
+                "minLength": 64,
+                "maxLength": 64
+              },
+              "authored_at_ms": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Display-only wall clock"
+              },
+              "lamport": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "1 + max(prev lamport, lamports of seen_heads entries)"
+              },
+              "seen_heads": {
+                "$ref": "#/components/schemas/SeenHeads"
+              },
+              "signature": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{86}$",
+                "minLength": 86,
+                "maxLength": 86
+              },
+              "namespace": {
+                "type": "string",
+                "const": "grant"
+              },
+              "grantee": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$",
+                "minLength": 64,
+                "maxLength": 64
+              },
+              "role": {
+                "type": "string",
+                "enum": [
+                  "read",
+                  "submit",
+                  "revoked"
+                ]
+              },
+              "cutoffs": {
+                "type": "array",
+                "maxItems": 256,
+                "items": {
+                  "$ref": "#/components/schemas/RevocationCutoff"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "SignedEntry": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/BirthEntry"
+          },
+          {
+            "$ref": "#/components/schemas/DataEntry"
+          },
+          {
+            "$ref": "#/components/schemas/GrantEntry"
+          },
+          {
+            "$ref": "#/components/schemas/BlobDeleteEntry"
+          },
+          {
+            "$ref": "#/components/schemas/HeadsEntry"
+          },
+          {
+            "$ref": "#/components/schemas/RelaysEntry"
+          }
+        ]
+      },
+      "DeviceHead": {
         "type": "object",
         "required": [
-          "intent",
-          "error"
+          "device_id",
+          "writer_seq",
+          "entry_hash"
+        ],
+        "additionalProperties": false,
+        "description": "Tip used in publisher heads entries",
+        "properties": {
+          "device_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "writer_seq": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "entry_hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          }
+        }
+      },
+      "RevocationCutoff": {
+        "type": "object",
+        "required": [
+          "device_id",
+          "writer_seq",
+          "entry_hash"
         ],
         "additionalProperties": false,
         "properties": {
-          "intent": {
+          "device_id": {
             "type": "string",
-            "const": "snapshot_proof_provision"
+            "format": "uuid"
           },
-          "error": {
-            "$ref": "#/components/schemas/Error"
+          "writer_seq": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "entry_hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
           }
+        }
+      },
+      "HeadsEntry": {
+        "type": "object",
+        "required": [
+          "kind",
+          "database_id",
+          "node_key",
+          "device_id",
+          "writer_seq",
+          "prev_hash",
+          "authored_at_ms",
+          "lamport",
+          "seen_heads",
+          "signature",
+          "namespace",
+          "publisher_heads"
+        ],
+        "additionalProperties": false,
+        "description": "lastdb-heads-v1; hidden-entry detection across devices/People",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "heads"
+          },
+          "database_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "node_key": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "device_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "writer_seq": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "prev_hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "authored_at_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Display-only wall clock"
+          },
+          "lamport": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "1 + max(prev lamport, lamports of seen_heads entries)"
+          },
+          "seen_heads": {
+            "$ref": "#/components/schemas/SeenHeads"
+          },
+          "signature": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{86}$",
+            "minLength": 86,
+            "maxLength": 86
+          },
+          "namespace": {
+            "type": "string",
+            "const": "heads"
+          },
+          "publisher_heads": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 256,
+            "items": {
+              "$ref": "#/components/schemas/DeviceHead"
+            }
+          }
+        }
+      },
+      "BirthEntry": {
+        "type": "object",
+        "required": [
+          "kind",
+          "database_id",
+          "node_key",
+          "device_id",
+          "writer_seq",
+          "prev_hash",
+          "authored_at_ms",
+          "lamport",
+          "seen_heads",
+          "signature",
+          "namespace",
+          "db_salt",
+          "birth_signature",
+          "owner"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "birth"
+          },
+          "database_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "node_key": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "device_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "writer_seq": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "prev_hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "authored_at_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Display-only wall clock"
+          },
+          "lamport": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "1 + max(prev lamport, lamports of seen_heads entries)"
+          },
+          "seen_heads": {
+            "$ref": "#/components/schemas/SeenHeads"
+          },
+          "signature": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{86}$",
+            "minLength": 86,
+            "maxLength": 86
+          },
+          "namespace": {
+            "type": "string",
+            "const": "birth"
+          },
+          "owner": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "db_salt": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "birth_signature": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{86}$",
+            "minLength": 86,
+            "maxLength": 86
+          }
+        }
+      },
+      "BlobDeleteEntry": {
+        "type": "object",
+        "required": [
+          "kind",
+          "database_id",
+          "node_key",
+          "device_id",
+          "writer_seq",
+          "prev_hash",
+          "authored_at_ms",
+          "lamport",
+          "seen_heads",
+          "signature",
+          "namespace",
+          "sha256"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "blob_delete"
+          },
+          "database_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "node_key": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "device_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "writer_seq": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "prev_hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "authored_at_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Display-only wall clock"
+          },
+          "lamport": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "1 + max(prev lamport, lamports of seen_heads entries)"
+          },
+          "seen_heads": {
+            "$ref": "#/components/schemas/SeenHeads"
+          },
+          "signature": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{86}$",
+            "minLength": 86,
+            "maxLength": 86
+          },
+          "namespace": {
+            "type": "string",
+            "const": "blob_delete"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          }
+        }
+      },
+      "RelaysEntry": {
+        "type": "object",
+        "required": [
+          "kind",
+          "database_id",
+          "node_key",
+          "device_id",
+          "writer_seq",
+          "prev_hash",
+          "authored_at_ms",
+          "lamport",
+          "seen_heads",
+          "signature",
+          "namespace",
+          "relays"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "relays"
+          },
+          "database_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "node_key": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "device_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "writer_seq": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "prev_hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "authored_at_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Display-only wall clock"
+          },
+          "lamport": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "1 + max(prev lamport, lamports of seen_heads entries)"
+          },
+          "seen_heads": {
+            "$ref": "#/components/schemas/SeenHeads"
+          },
+          "signature": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{86}$",
+            "minLength": 86,
+            "maxLength": 86
+          },
+          "namespace": {
+            "type": "string",
+            "const": "relays"
+          },
+          "relays": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 32,
+            "items": {
+              "type": "object",
+              "required": [
+                "url"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "url": {
+                  "type": "string",
+                  "format": "uri",
+                  "maxLength": 8192
+                }
+              }
+            }
+          }
+        }
+      },
+      "SeenHeads": {
+        "type": "array",
+        "maxItems": 256,
+        "items": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "minLength": 64,
+          "maxLength": 64,
+          "description": "entry_hash of an accepted entry from any stream"
         },
-        "description": "Per-item batch error"
-      },
-      "Maintenance_snapshot_proof_provision_Item": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/Maintenance_snapshot_proof_provision_Ok"
-          },
-          {
-            "$ref": "#/components/schemas/Maintenance_snapshot_proof_provision_Err"
-          }
-        ]
-      },
-      "Maintenance_snapshot_proof_status_Ok": {
-        "type": "object",
-        "required": [
-          "intent",
-          "result"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "snapshot_proof_status"
-          },
-          "result": {
-            "$ref": "#/components/schemas/MaintStatusResult"
-          }
-        }
-      },
-      "Maintenance_snapshot_proof_status_Req": {
-        "type": "object",
-        "required": [
-          "intent",
-          "args"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "snapshot_proof_status"
-          },
-          "args": {
-            "$ref": "#/components/schemas/MaintRunArgs"
-          }
-        }
-      },
-      "Maintenance_snapshot_proof_status_Err": {
-        "type": "object",
-        "required": [
-          "intent",
-          "error"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "snapshot_proof_status"
-          },
-          "error": {
-            "$ref": "#/components/schemas/Error"
-          }
-        },
-        "description": "Per-item batch error"
-      },
-      "Maintenance_snapshot_proof_status_Item": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/Maintenance_snapshot_proof_status_Ok"
-          },
-          {
-            "$ref": "#/components/schemas/Maintenance_snapshot_proof_status_Err"
-          }
-        ]
-      },
-      "Maintenance_snapshot_proof_retire_Ok": {
-        "type": "object",
-        "required": [
-          "intent",
-          "result"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "snapshot_proof_retire"
-          },
-          "result": {
-            "$ref": "#/components/schemas/MaintStatusResult"
-          }
-        }
-      },
-      "Maintenance_snapshot_proof_retire_Req": {
-        "type": "object",
-        "required": [
-          "intent",
-          "args"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "snapshot_proof_retire"
-          },
-          "args": {
-            "$ref": "#/components/schemas/MaintRunArgs"
-          }
-        }
-      },
-      "Maintenance_snapshot_proof_retire_Err": {
-        "type": "object",
-        "required": [
-          "intent",
-          "error"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "snapshot_proof_retire"
-          },
-          "error": {
-            "$ref": "#/components/schemas/Error"
-          }
-        },
-        "description": "Per-item batch error"
-      },
-      "Maintenance_snapshot_proof_retire_Item": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/Maintenance_snapshot_proof_retire_Ok"
-          },
-          {
-            "$ref": "#/components/schemas/Maintenance_snapshot_proof_retire_Err"
-          }
-        ]
-      },
-      "Maintenance_snapshot_proof_inspect_Ok": {
-        "type": "object",
-        "required": [
-          "intent",
-          "result"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "snapshot_proof_inspect"
-          },
-          "result": {
-            "$ref": "#/components/schemas/MaintInspectResult"
-          }
-        }
-      },
-      "Maintenance_snapshot_proof_inspect_Req": {
-        "type": "object",
-        "required": [
-          "intent",
-          "args"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "snapshot_proof_inspect"
-          },
-          "args": {
-            "$ref": "#/components/schemas/MaintInspectArgs"
-          }
-        }
-      },
-      "Maintenance_snapshot_proof_inspect_Err": {
-        "type": "object",
-        "required": [
-          "intent",
-          "error"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "intent": {
-            "type": "string",
-            "const": "snapshot_proof_inspect"
-          },
-          "error": {
-            "$ref": "#/components/schemas/Error"
-          }
-        },
-        "description": "Per-item batch error"
-      },
-      "Maintenance_snapshot_proof_inspect_Item": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/Maintenance_snapshot_proof_inspect_Ok"
-          },
-          {
-            "$ref": "#/components/schemas/Maintenance_snapshot_proof_inspect_Err"
-          }
-        ]
-      },
-      "MaintenanceEnvelope": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/Maintenance_snapshot_proof_provision_Req"
-          },
-          {
-            "$ref": "#/components/schemas/Maintenance_snapshot_proof_status_Req"
-          },
-          {
-            "$ref": "#/components/schemas/Maintenance_snapshot_proof_retire_Req"
-          },
-          {
-            "$ref": "#/components/schemas/Maintenance_snapshot_proof_inspect_Req"
-          }
-        ],
-        "discriminator": {
-          "propertyName": "intent",
-          "mapping": {
-            "snapshot_proof_provision": "#/components/schemas/Maintenance_snapshot_proof_provision_Req",
-            "snapshot_proof_status": "#/components/schemas/Maintenance_snapshot_proof_status_Req",
-            "snapshot_proof_retire": "#/components/schemas/Maintenance_snapshot_proof_retire_Req",
-            "snapshot_proof_inspect": "#/components/schemas/Maintenance_snapshot_proof_inspect_Req"
-          }
-        }
-      },
-      "MaintenanceResultItem": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/Maintenance_snapshot_proof_provision_Item"
-          },
-          {
-            "$ref": "#/components/schemas/Maintenance_snapshot_proof_status_Item"
-          },
-          {
-            "$ref": "#/components/schemas/Maintenance_snapshot_proof_retire_Item"
-          },
-          {
-            "$ref": "#/components/schemas/Maintenance_snapshot_proof_inspect_Item"
-          }
-        ]
-      },
-      "MaintenanceRequestBody": {
-        "$ref": "#/components/schemas/MaintenanceEnvelope"
-      },
-      "MaintenanceResponseBody": {
-        "$ref": "#/components/schemas/MaintenanceResultItem"
+        "description": "Sorted ascending; every hash must be held+accepted or entry stays pending"
       }
     }
   }
