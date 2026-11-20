@@ -2,20 +2,22 @@
 //!
 //! The token is opaque, not a URL. The content key must not land in a query
 //! string, a browser history, or a proxy log. The node does not read the
-//! share settings when it makes the token. The service decides who may use it.
+//! share settings when it makes the token. Minting is local: saved credentials
+//! supply environment and account id. There is no ExeMem blob/bytes round-trip.
+//! People wraps this token inside a hand-off consent code; ExeMem and the relay
+//! only see signed grant entries on the chain.
 
 use std::fs::File;
 use std::path::Path;
-use std::sync::Arc;
 
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use cloud_backup_protocol::v2::share_access::ShareEnvironment;
 use cloud_backup_protocol::v2::Stream;
-use cloud_backup_protocol::{canonical_bytes, CloudScope, Digest, Id};
+use cloud_backup_protocol::{canonical_bytes, AccountId, CloudScope, DecimalU64, Digest, Id};
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
 
-use crate::cloud::load_connected_home_context;
+use crate::cloud::load_verified_cloud_credentials;
 use crate::host::owned::{self, Entry};
 use crate::host::Host;
 use crate::profile::PublicationSpec;
@@ -55,8 +57,7 @@ struct Payload {
 pub(crate) struct IssueError {
     status: u16,
     message: &'static str,
-    /// The cloud connection could not be opened. The caller classifies it by
-    /// the database's enrollment instead of reporting the message.
+    /// Saved credentials could not be opened. The caller classifies enrollment.
     cloud_connection: bool,
 }
 
@@ -94,21 +95,26 @@ impl IssueError {
     }
 }
 
-/// Mint the token for one shareable database. This does not read share settings.
-pub(crate) async fn issue(host: &Host, entry: &Entry) -> Result<String, IssueError> {
-    let ctx = match load_connected_home_context(&host.home, Some(Arc::clone(&host.keypair))).await {
-        Ok(ctx) => ctx,
+/// Mint the token for one shareable database from local credentials only.
+pub(crate) fn issue(host: &Host, entry: &Entry) -> Result<String, IssueError> {
+    let creds = match load_verified_cloud_credentials(&host.home) {
+        Ok(Some(creds)) => creds,
+        Ok(None) => return Err(IssueError::cloud_connection()),
         Err(error) => {
             tracing::warn!(target: "lastdbd::log_sync", %error, "open read link is unavailable");
             return Err(IssueError::cloud_connection());
         }
     };
-    if ctx.account_id.as_str() != host.user_hash {
-        return Err(IssueError::unavailable(
-            "node account id does not match the node key",
-        ));
+    let account_id = AccountId::try_from(host.user_hash.clone())
+        .map_err(|_| IssueError::unavailable("node account id is unavailable"))?;
+    if let Some(conn) = &creds.connection {
+        if conn.account_id != account_id {
+            return Err(IssueError::unavailable(
+                "saved cloud connection account does not match this home's identity",
+            ));
+        }
     }
-    let environment = ShareEnvironment::parse(ctx.env.as_str()).map_err(|_| {
+    let environment = ShareEnvironment::parse(creds.env.as_str()).map_err(|_| {
         IssueError::unavailable("saved cloud environment is not a share environment")
     })?;
     let publisher = Digest::try_from(fold_db::hex::hex_lower(host.keypair.public_key_bytes()))
@@ -118,9 +124,15 @@ pub(crate) async fn issue(host: &Host, entry: &Entry) -> Result<String, IssueErr
         .map_err(|_| IssueError::unavailable("database content key is unavailable"))?;
     let database_id =
         Id::try_from(entry.id.clone()).map_err(|_| IssueError::invalid("database id"))?;
+    // Phase 2 open tokens carry account identity only. Generation is not fetched
+    // from ExeMem; zero matches the local signed-history publisher scope.
+    let scope = CloudScope {
+        account_id,
+        account_generation: DecimalU64::new(0),
+    };
     encode(&OpenedLink {
         environment,
-        scope: ctx.scope,
+        scope,
         database_id,
         publisher,
         content_key: *content,

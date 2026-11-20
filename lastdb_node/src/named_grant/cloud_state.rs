@@ -25,16 +25,6 @@ pub(crate) enum CloudState {
     Enrolled,
 }
 
-/// True only when the credentials say there is no account: none saved, or
-/// saved with no account connection. A read or verify failure is not that.
-pub(crate) fn no_cloud_account(home: &Path) -> bool {
-    match crate::cloud::load_verified_cloud_credentials(home) {
-        Ok(Some(creds)) => creds.connection.is_none(),
-        Ok(None) => true,
-        Err(_) => false,
-    }
-}
-
 pub(crate) fn database_cloud_state(home: &Path, database_id: &str) -> CloudState {
     match crate::cloud::load_verified_cloud_credentials(home) {
         Ok(Some(creds)) => match &creds.connection {

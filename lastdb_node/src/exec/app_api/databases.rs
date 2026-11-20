@@ -110,7 +110,6 @@ fn build(
         "accept" => accept_request(body),
         "schemas" => schemas_request(body, host),
         "declare_schema" => declare_request(body, host),
-        "invite" => invite_request(body, host),
         "share_link" => share_link_request(body, host),
         "submit" => submit_request(body, host),
         "submission_status" => status_request(body, host),
@@ -136,18 +135,10 @@ fn create_request(body: &Map<String, Value>, req: &UdsRequest) -> Result<OwnerCa
 }
 
 fn accept_request(body: &Map<String, Value>) -> Result<OwnerCall, HostError> {
-    if body.contains_key("link") {
-        allow(body, &["link", "name"])?;
-        let mut owner = Map::new();
-        copy_string(body, &mut owner, "link")?;
-        copy_present(body, &mut owner, &["name"]);
-        return OwnerCall::json("POST", ACCEPT_PATH.to_owned(), &Value::Object(owner));
-    }
-    allow(body, &["invitation", "publisher", "name", "database_id"])?;
+    allow(body, &["link", "name"])?;
     let mut owner = Map::new();
-    copy_string(body, &mut owner, "invitation")?;
-    copy_string(body, &mut owner, "publisher")?;
-    copy_present(body, &mut owner, &["name", "database_id"]);
+    copy_string(body, &mut owner, "link")?;
+    copy_present(body, &mut owner, &["name"]);
     OwnerCall::json("POST", ACCEPT_PATH.to_owned(), &Value::Object(owner))
 }
 
@@ -201,27 +192,6 @@ fn declared_app_id(body: &Map<String, Value>) -> Result<String, HostError> {
         });
     }
     Ok(required_string(body, "app_id")?.to_owned())
-}
-
-fn invite_request(body: &Map<String, Value>, host: &Host) -> Result<OwnerCall, HostError> {
-    allow(
-        body,
-        &[
-            "database",
-            "contactCode",
-            "expectedNodeKey",
-            "expiresInHours",
-        ],
-    )?;
-    let mut owner = Map::new();
-    copy_string(body, &mut owner, "contactCode")?;
-    copy_required(body, &mut owner, "expectedNodeKey")?;
-    copy_present(body, &mut owner, &["expiresInHours"]);
-    OwnerCall::json(
-        "POST",
-        scoped(&database_id(body, host)?, "invitations"),
-        &Value::Object(owner),
-    )
 }
 
 fn submit_request(body: &Map<String, Value>, host: &Host) -> Result<OwnerCall, HostError> {
@@ -304,18 +274,6 @@ fn copy_string(
         key.to_owned(),
         Value::String(required_string(body, key)?.to_owned()),
     );
-    Ok(())
-}
-
-fn copy_required(
-    body: &Map<String, Value>,
-    owner: &mut Map<String, Value>,
-    key: &str,
-) -> Result<(), HostError> {
-    let value = body
-        .get(key)
-        .ok_or_else(|| bad(format!("{key} is required")))?;
-    owner.insert(key.to_owned(), value.clone());
     Ok(())
 }
 

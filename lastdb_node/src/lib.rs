@@ -7,7 +7,6 @@ pub mod exec;
 pub mod host;
 pub mod jobs;
 pub mod lastdb_uds;
-pub(crate) mod log_envelope;
 pub mod log_sync;
 pub(crate) mod named_grant;
 pub mod offline_home;

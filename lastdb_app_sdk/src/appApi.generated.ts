@@ -379,9 +379,6 @@ export interface DatabasesListRequest {
   name?: never;
   kind?: never;
   sharingMode?: never;
-  invitation?: never;
-  publisher?: never;
-  database_id?: never;
   link?: never;
   database?: never;
   include_full?: never;
@@ -392,9 +389,6 @@ export interface DatabasesListRequest {
   app_id?: never;
   grantee?: never;
   role?: never;
-  contactCode?: never;
-  expectedNodeKey?: never;
-  expiresInHours?: never;
   mutation?: never;
   idempotency_key?: never;
   mutationId?: never;
@@ -407,9 +401,6 @@ export interface DatabasesCreateRequest {
   /** Omit it for shareable. */
   kind?: 'shareable' | 'personal';
   sharingMode?: 'whole_database';
-  invitation?: never;
-  publisher?: never;
-  database_id?: never;
   link?: never;
   database?: never;
   include_full?: never;
@@ -420,44 +411,12 @@ export interface DatabasesCreateRequest {
   app_id?: never;
   grantee?: never;
   role?: never;
-  contactCode?: never;
-  expectedNodeKey?: never;
-  expiresInHours?: never;
   mutation?: never;
   idempotency_key?: never;
   mutationId?: never;
 }
 
-/** POST /api/databases/accept. This action has no database field. The owner body names database_id. */
-export interface DatabasesAcceptRequest {
-  action: 'accept';
-  /** Base64 sealed invitation. */
-  invitation: string;
-  /** 64 lowercase hex characters. */
-  publisher: string;
-  name?: string;
-  database_id?: string;
-  kind?: never;
-  sharingMode?: never;
-  link?: never;
-  database?: never;
-  include_full?: never;
-  include_definition_ids?: never;
-  schema?: never;
-  intent?: never;
-  retention?: never;
-  app_id?: never;
-  grantee?: never;
-  role?: never;
-  contactCode?: never;
-  expectedNodeKey?: never;
-  expiresInHours?: never;
-  mutation?: never;
-  idempotency_key?: never;
-  mutationId?: never;
-}
-
-/** POST /api/databases/accept. link replaces invitation and publisher. This action has no database field. The token is opaque, not a URL. */
+/** POST /api/databases/accept. Registers open material as a received signed_log database. This action has no database field. The token is opaque, not a URL. People may wrap it as a consent code. */
 export interface DatabasesAcceptLinkRequest {
   action: 'accept';
   /** Opaque lastdb-read-v1 token. */
@@ -465,9 +424,6 @@ export interface DatabasesAcceptLinkRequest {
   name?: string;
   kind?: never;
   sharingMode?: never;
-  invitation?: never;
-  publisher?: never;
-  database_id?: never;
   database?: never;
   include_full?: never;
   include_definition_ids?: never;
@@ -477,9 +433,6 @@ export interface DatabasesAcceptLinkRequest {
   app_id?: never;
   grantee?: never;
   role?: never;
-  contactCode?: never;
-  expectedNodeKey?: never;
-  expiresInHours?: never;
   mutation?: never;
   idempotency_key?: never;
   mutationId?: never;
@@ -493,9 +446,6 @@ export interface DatabasesSchemasRequest {
   name?: never;
   kind?: never;
   sharingMode?: never;
-  invitation?: never;
-  publisher?: never;
-  database_id?: never;
   link?: never;
   schema?: never;
   intent?: never;
@@ -503,9 +453,6 @@ export interface DatabasesSchemasRequest {
   app_id?: never;
   grantee?: never;
   role?: never;
-  contactCode?: never;
-  expectedNodeKey?: never;
-  expiresInHours?: never;
   mutation?: never;
   idempotency_key?: never;
   mutationId?: never;
@@ -523,17 +470,11 @@ export interface DatabasesDeclareRequest {
   name?: never;
   kind?: never;
   sharingMode?: never;
-  invitation?: never;
-  publisher?: never;
-  database_id?: never;
   link?: never;
   include_full?: never;
   include_definition_ids?: never;
   grantee?: never;
   role?: never;
-  contactCode?: never;
-  expectedNodeKey?: never;
-  expiresInHours?: never;
   mutation?: never;
   idempotency_key?: never;
   mutationId?: never;
@@ -549,9 +490,6 @@ export interface DatabasesGrantRequest {
   name?: never;
   kind?: never;
   sharingMode?: never;
-  invitation?: never;
-  publisher?: never;
-  database_id?: never;
   link?: never;
   include_full?: never;
   include_definition_ids?: never;
@@ -559,9 +497,6 @@ export interface DatabasesGrantRequest {
   intent?: never;
   retention?: never;
   app_id?: never;
-  contactCode?: never;
-  expectedNodeKey?: never;
-  expiresInHours?: never;
   mutation?: never;
   idempotency_key?: never;
   mutationId?: never;
@@ -576,9 +511,6 @@ export interface DatabasesRevokeRequest {
   name?: never;
   kind?: never;
   sharingMode?: never;
-  invitation?: never;
-  publisher?: never;
-  database_id?: never;
   link?: never;
   include_full?: never;
   include_definition_ids?: never;
@@ -587,9 +519,6 @@ export interface DatabasesRevokeRequest {
   retention?: never;
   app_id?: never;
   role?: never;
-  contactCode?: never;
-  expectedNodeKey?: never;
-  expiresInHours?: never;
   mutation?: never;
   idempotency_key?: never;
   mutationId?: never;
@@ -602,9 +531,6 @@ export interface DatabasesGrantsRequest {
   name?: never;
   kind?: never;
   sharingMode?: never;
-  invitation?: never;
-  publisher?: never;
-  database_id?: never;
   link?: never;
   include_full?: never;
   include_definition_ids?: never;
@@ -614,9 +540,6 @@ export interface DatabasesGrantsRequest {
   app_id?: never;
   grantee?: never;
   role?: never;
-  contactCode?: never;
-  expectedNodeKey?: never;
-  expiresInHours?: never;
   mutation?: never;
   idempotency_key?: never;
   mutationId?: never;
@@ -629,9 +552,6 @@ export interface DatabasesHeadsRequest {
   name?: never;
   kind?: never;
   sharingMode?: never;
-  invitation?: never;
-  publisher?: never;
-  database_id?: never;
   link?: never;
   include_full?: never;
   include_definition_ids?: never;
@@ -641,9 +561,6 @@ export interface DatabasesHeadsRequest {
   app_id?: never;
   grantee?: never;
   role?: never;
-  contactCode?: never;
-  expectedNodeKey?: never;
-  expiresInHours?: never;
   mutation?: never;
   idempotency_key?: never;
   mutationId?: never;
@@ -656,9 +573,6 @@ export interface DatabasesRelaysRequest {
   name?: never;
   kind?: never;
   sharingMode?: never;
-  invitation?: never;
-  publisher?: never;
-  database_id?: never;
   link?: never;
   include_full?: never;
   include_definition_ids?: never;
@@ -668,9 +582,6 @@ export interface DatabasesRelaysRequest {
   app_id?: never;
   grantee?: never;
   role?: never;
-  contactCode?: never;
-  expectedNodeKey?: never;
-  expiresInHours?: never;
   mutation?: never;
   idempotency_key?: never;
   mutationId?: never;
@@ -683,41 +594,6 @@ export interface DatabasesBootstrapRelayRequest {
   name?: never;
   kind?: never;
   sharingMode?: never;
-  invitation?: never;
-  publisher?: never;
-  database_id?: never;
-  link?: never;
-  include_full?: never;
-  include_definition_ids?: never;
-  schema?: never;
-  intent?: never;
-  retention?: never;
-  app_id?: never;
-  grantee?: never;
-  role?: never;
-  contactCode?: never;
-  expectedNodeKey?: never;
-  expiresInHours?: never;
-  mutation?: never;
-  idempotency_key?: never;
-  mutationId?: never;
-}
-
-/** Seal an invitation. No cloud account is 409 no_cloud_account and is final. Still enrolling waits, then 503 enrolling with Retry-After. Enrolled but unconfirmed, or credentials that could not be verified, is 503 busy. */
-export interface DatabasesInviteRequest {
-  action: 'invite';
-  database?: DatabaseSelector;
-  contactCode: string;
-  /** 64 lowercase hex characters. */
-  expectedNodeKey: string;
-  /** Integer. Minimum 0. */
-  expiresInHours?: number;
-  name?: never;
-  kind?: never;
-  sharingMode?: never;
-  invitation?: never;
-  publisher?: never;
-  database_id?: never;
   link?: never;
   include_full?: never;
   include_definition_ids?: never;
@@ -732,16 +608,13 @@ export interface DatabasesInviteRequest {
   mutationId?: never;
 }
 
-/** POST /api/databases/{id}/share/link. The owner body is empty. The node does not read the share settings. No cloud account is 409 no_cloud_account and is final. Still enrolling waits, then 503 enrolling with Retry-After. Enrolled but unconfirmed, or credentials that could not be verified, is 503 busy. */
+/** POST /api/databases/{id}/share/link. Mint local open material from saved credentials and the home identity. Empty owner body. Does not call ExeMem blob/bytes or share members. No cloud account is 409 no_cloud_account. Still enrolling waits, then 503 enrolling with Retry-After. Saved credentials that cannot be verified is 503 busy. */
 export interface DatabasesShareLinkRequest {
   action: 'share_link';
   database?: DatabaseSelector;
   name?: never;
   kind?: never;
   sharingMode?: never;
-  invitation?: never;
-  publisher?: never;
-  database_id?: never;
   link?: never;
   include_full?: never;
   include_definition_ids?: never;
@@ -751,9 +624,6 @@ export interface DatabasesShareLinkRequest {
   app_id?: never;
   grantee?: never;
   role?: never;
-  contactCode?: never;
-  expectedNodeKey?: never;
-  expiresInHours?: never;
   mutation?: never;
   idempotency_key?: never;
   mutationId?: never;
@@ -769,9 +639,6 @@ export interface DatabasesSubmitRequest {
   name?: never;
   kind?: never;
   sharingMode?: never;
-  invitation?: never;
-  publisher?: never;
-  database_id?: never;
   link?: never;
   include_full?: never;
   include_definition_ids?: never;
@@ -781,9 +648,6 @@ export interface DatabasesSubmitRequest {
   app_id?: never;
   grantee?: never;
   role?: never;
-  contactCode?: never;
-  expectedNodeKey?: never;
-  expiresInHours?: never;
   mutationId?: never;
 }
 
@@ -794,9 +658,6 @@ export interface DatabasesStatusRequest {
   name?: never;
   kind?: never;
   sharingMode?: never;
-  invitation?: never;
-  publisher?: never;
-  database_id?: never;
   link?: never;
   include_full?: never;
   include_definition_ids?: never;
@@ -806,15 +667,12 @@ export interface DatabasesStatusRequest {
   app_id?: never;
   grantee?: never;
   role?: never;
-  contactCode?: never;
-  expectedNodeKey?: never;
-  expiresInHours?: never;
   mutation?: never;
   idempotency_key?: never;
 }
 
 /** One action. A field from another action is invalid_request. */
-export type DatabasesRequest = DatabasesListRequest | DatabasesCreateRequest | DatabasesAcceptRequest | DatabasesAcceptLinkRequest | DatabasesSchemasRequest | DatabasesDeclareRequest | DatabasesGrantRequest | DatabasesRevokeRequest | DatabasesGrantsRequest | DatabasesHeadsRequest | DatabasesRelaysRequest | DatabasesBootstrapRelayRequest | DatabasesInviteRequest | DatabasesShareLinkRequest | DatabasesSubmitRequest | DatabasesStatusRequest;
+export type DatabasesRequest = DatabasesListRequest | DatabasesCreateRequest | DatabasesAcceptLinkRequest | DatabasesSchemasRequest | DatabasesDeclareRequest | DatabasesGrantRequest | DatabasesRevokeRequest | DatabasesGrantsRequest | DatabasesHeadsRequest | DatabasesRelaysRequest | DatabasesBootstrapRelayRequest | DatabasesShareLinkRequest | DatabasesSubmitRequest | DatabasesStatusRequest;
 
 /** The last publish attempt for one received database. It is kept in memory and is absent again after a restart. at is RFC 3339 UTC. status is the HTTP status when the service answered, or a string when the turn stopped before that answer: access_unknown, no_credentials, gap, spool_position_mismatch, empty_page, writer_tip, upload_identity, upload_position, reader_stopped, writer_stopped, confirm_failed, prepare_failed, queue_unreadable, spool_position, batch_invalid, entry_too_large, undo_failed, policy_unknown, local_store_unavailable, capture_disabled, payment_required, writer_sequence_unknown, or upload_unconfirmed. access_unknown means the self-access view was unknown or stale. no_credentials means the node had no usable cloud credentials for the share. policy_unknown, local_store_unavailable, and capture_disabled mean the node stopped for a local reason before it asked the cloud. payment_required means the account is unpaid. writer_sequence_unknown means the node lost its saved upload position and the cloud no longer keeps the delivered entries that show this device's last writer sequence, so the node does not guess one. status is null when the attempt failed before a status and the node had usable credentials. */
 export interface DatabasesPublishAttempt {
@@ -934,16 +792,7 @@ export interface DatabasesBootstrapRelayReply {
   [key: string]: unknown;
 }
 
-/** The owner invitation envelope. invitation is the base64 sealed invitation. */
-export interface DatabasesInviteReply {
-  ok: boolean;
-  user_hash: string;
-  databaseId: string;
-  invitation: string;
-  [key: string]: unknown;
-}
-
-/** The owner open read link envelope. link is one opaque token, not a URL. */
+/** The owner open-material envelope. link is one opaque token People can wrap as a consent code, not a URL. */
 export interface DatabasesShareLinkReply {
   ok: boolean;
   user_hash: string;
@@ -969,7 +818,7 @@ export interface DatabasesStatusReply {
 }
 
 /** Success JSON for an action other than submit. submit answers 202. */
-export type DatabasesReply = DatabasesListReply | DatabasesDatabaseReply | DatabasesSchemasReply | DatabasesDeclareReply | DatabasesGrantReply | DatabasesGrantsReply | DatabasesHeadsReply | DatabasesRelaysReply | DatabasesBootstrapRelayReply | DatabasesInviteReply | DatabasesShareLinkReply | DatabasesStatusReply;
+export type DatabasesReply = DatabasesListReply | DatabasesDatabaseReply | DatabasesSchemasReply | DatabasesDeclareReply | DatabasesGrantReply | DatabasesGrantsReply | DatabasesHeadsReply | DatabasesRelaysReply | DatabasesBootstrapRelayReply | DatabasesShareLinkReply | DatabasesStatusReply;
 
 /** Maximum items 256. */
 export type ManifestNameList = string[];

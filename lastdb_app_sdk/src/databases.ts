@@ -20,7 +20,7 @@ export const LASTDB_API_ROUTES = {
   databases: '/api/databases',
   /** Owner socket owned-database spec binding endpoint. */
   databasesSpec: '/api/databases/spec',
-  /** Owner socket signed-log share invitation acceptance endpoint. */
+  /** Owner socket open-material acceptance endpoint. */
   databasesAccept: '/api/databases/accept',
   /** The client↔node compatibility handshake. */
   version: '/api/version',
