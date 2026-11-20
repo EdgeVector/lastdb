@@ -25,6 +25,7 @@ impl RelayClient {
             signing_key,
             node_key_hex,
             device_id: device_id.to_string(),
+            // trace-egress: public — grant-blind relay; node key only in signed headers.
             http: reqwest::Client::new(),
         }
     }
@@ -53,9 +54,10 @@ impl RelayClient {
         from_seq: u64,
         limit: u32,
     ) -> Result<(Vec<SignedEntry>, Option<String>), String> {
+        // OpenAPI LogReadBody names the stream key `writer_key` (hex node key).
         let body = json!({
             "database_id": database_id,
-            "node_key": node_key,
+            "writer_key": node_key,
             "device_id": device_id,
             "from_seq": from_seq,
             "limit": limit,

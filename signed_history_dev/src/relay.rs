@@ -106,6 +106,7 @@ impl RelayClient {
             signing_key: device.signing_key.clone(),
             node_key_hex: device.node_key_hex(),
             device_id: device.device_id_str(),
+            // trace-egress: public — local reference_relay only; no credentials.
             http: reqwest::Client::builder()
                 .timeout(Duration::from_secs(300))
                 .build()
