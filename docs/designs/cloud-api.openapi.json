@@ -1110,7 +1110,8 @@
               "rate_limited",
               "upgrade_required",
               "batch_too_large",
-              "payment_required"
+              "payment_required",
+              "unavailable"
             ]
           },
           "field": {

@@ -484,6 +484,7 @@ request. Relays additionally return **403** `forbidden` when the caller’s
 | 409 | `conflict` | `database.id`, `account.exists`, `device.*`, `entries.writer_seq`, `file.unverified` |
 | 426 | `upgrade_required` | `request.protocol` |
 | 429 | `rate_limited` | `account.register`, `read.public`, relay quota (publisher-billed) |
+| 500 | `unavailable` | unknown or service Dynamo errors (`provider.dynamo`); retry, same as 429 |
 
 ### Node-side signals
 

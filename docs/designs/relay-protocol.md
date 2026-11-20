@@ -187,9 +187,11 @@ the grant index from verified publisher birth/grant entries in the logs.
 | 404 | `not_found` | missing log/blob (incl. after `blob_delete`) |
 | 426 | `upgrade_required` | `request.protocol` |
 | 429 | `rate_limited` | quota / rate limits (publisher-billed) |
+| 500 | `unavailable` | unknown or service Dynamo errors; retry (same as 429) |
 
 `payment_required` when ExeMem billing refuses the publisher. Relay grant
-refusals use **403** `forbidden` (spam/cost gate), not AcceptEntry.
+refusals use **403** `forbidden` (spam/cost gate), not AcceptEntry. A 500
+`unavailable` is not a chain conflict and is not final.
 
 ## CI conformance
 

@@ -81,6 +81,24 @@
               }
             }
           },
+          "500": {
+            "description": "unknown or service error; retry",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "unavailable": {
+                    "value": {
+                      "code": "unavailable",
+                      "field": "provider.dynamo"
+                    }
+                  }
+                }
+              }
+            }
+          },
           "400": {
             "description": "arg paths / grants.any.role / batch.response, entries.signature, incorporated_from",
             "content": {
@@ -232,6 +250,24 @@
               }
             }
           },
+          "500": {
+            "description": "unknown or service error; retry",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "unavailable": {
+                    "value": {
+                      "code": "unavailable",
+                      "field": "provider.dynamo"
+                    }
+                  }
+                }
+              }
+            }
+          },
           "400": {
             "description": "arg paths / grants.any.role / batch.response, entries.signature, incorporated_from",
             "content": {
@@ -377,6 +413,24 @@
                     "value": {
                       "code": "rate_limited",
                       "field": "quota"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "unknown or service error; retry",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "unavailable": {
+                    "value": {
+                      "code": "unavailable",
+                      "field": "provider.dynamo"
                     }
                   }
                 }
@@ -538,6 +592,24 @@
                     "value": {
                       "code": "rate_limited",
                       "field": "quota"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "unknown or service error; retry",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "unavailable": {
+                    "value": {
+                      "code": "unavailable",
+                      "field": "provider.dynamo"
                     }
                   }
                 }
@@ -722,7 +794,8 @@
               "rate_limited",
               "upgrade_required",
               "batch_too_large",
-              "payment_required"
+              "payment_required",
+              "unavailable"
             ]
           },
           "field": {
