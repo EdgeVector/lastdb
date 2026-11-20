@@ -88,7 +88,6 @@ fn text_at(value: &Value, key: &str) -> Option<String> {
 
 fn share_sentence(code: &str) -> &'static str {
     match code {
-        "share_revision_conflict" => "the share configuration is at another revision",
         "share_configuration_unconfirmed" => "share configuration is not confirmed",
         "database_enrolling" => "the database is still enrolling with the cloud; retry",
         "no_cloud_account" => "this node has no cloud account",

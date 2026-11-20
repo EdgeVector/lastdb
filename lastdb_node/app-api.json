@@ -755,42 +755,6 @@
           "confirm_expire_existing": {"type": "boolean"}
         }
       },
-      "DatabasesShareMember": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["nodeKey", "role", "state"],
-        "properties": {
-          "nodeKey": {"type": "string", "description": "64 lowercase hex characters."},
-          "role": {"type": "string", "enum": ["read", "submit"]},
-          "state": {"type": "string", "enum": ["active", "revoked"]},
-          "regrant": {"type": "boolean"}
-        }
-      },
-      "DatabasesMemberWrites": {
-        "type": "object",
-        "description": "Schema name to member write behaviour. A name that is absent is owner_only. An empty object means every schema is owner_only.",
-        "additionalProperties": {
-          "type": "string",
-          "enum": ["owner_only", "own_records", "shared"]
-        }
-      },
-      "DatabasesShareConfig": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["expectedRevision", "requestId", "members"],
-        "description": "The body of PUT /api/databases/{id}/share/config. read, write, and memberWrites are optional. Omit one to keep the stored value. An empty memberWrites clears the map. No stored statement is members, proposals, and an empty map. Unchanged read, write, and map send no settings statement.",
-        "properties": {
-          "expectedRevision": {"type": "string", "description": "Decimal revision the caller last read."},
-          "requestId": {"type": "string", "description": "Non-nil lowercase UUID."},
-          "members": {
-            "type": "array",
-            "items": {"$ref": "#/components/schemas/DatabasesShareMember"}
-          },
-          "read": {"type": "string", "enum": ["members", "anyone"], "description": "Who may read. Omit it to keep the stored value."},
-          "write": {"type": "string", "enum": ["proposals", "direct"], "description": "Where a submit append goes. Omit it to keep the stored value."},
-          "memberWrites": {"$ref": "#/components/schemas/DatabasesMemberWrites", "description": "Omit it to keep the stored map. An empty object clears it."}
-        }
-      },
       "DatabasesSchema": {
         "type": "object",
         "additionalProperties": true,
@@ -874,25 +838,67 @@
           "app_id": {"type": "string", "description": "Schema namespace. On the app socket, omit it to use the calling app id. On the owner socket it is required."}
         }
       },
-      "DatabasesShareConfigRequest": {
+      "DatabasesGrantRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["action", "grantee", "role"],
+        "description": "Append a publisher-signed grant entry for a member key or for any (public read, which only read can be). The entry is accepted on this node, queued on the outbox, and sync is woken. No cloud account is 409 no_cloud_account and is final. Still enrolling waits, then 503 enrolling with Retry-After. Enrolled but the signed entry could not be confirmed is 503 busy with the message signed grant was not confirmed.",
+        "properties": {
+          "action": {"const": "grant"},
+          "database": {"$ref": "#/components/schemas/DatabaseSelector"},
+          "grantee": {"type": "string", "description": "64 lowercase hex characters (a node key), or any."},
+          "role": {"type": "string", "enum": ["read", "submit", "write"]}
+        }
+      },
+      "DatabasesRevokeRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["action", "grantee"],
+        "description": "Append a publisher-signed revoke for a member key. Its cutoffs name the grantee device streams this node holds. Devices not named fold to cutoff 0. No cloud account is 409 no_cloud_account and is final. Still enrolling waits, then 503 enrolling with Retry-After. Enrolled but the signed entry could not be confirmed is 503 busy with the message signed grant was not confirmed.",
+        "properties": {
+          "action": {"const": "revoke"},
+          "database": {"$ref": "#/components/schemas/DatabaseSelector"},
+          "grantee": {"type": "string", "description": "64 lowercase hex characters."}
+        }
+      },
+      "DatabasesGrantsRequest": {
         "type": "object",
         "additionalProperties": false,
         "required": ["action"],
-        "description": "Read the share configuration. No cloud account is 409 no_cloud_account and is final. Still enrolling waits, then 503 enrolling with Retry-After. Enrolled but unconfirmed, or credentials that could not be verified, is 503 busy.",
+        "description": "Read the folded grants. No cloud account is 409 no_cloud_account and is final. Still enrolling waits, then 503 enrolling with Retry-After. Enrolled but the signed entry could not be confirmed is 503 busy with the message signed grant was not confirmed.",
         "properties": {
-          "action": {"const": "share_config"},
+          "action": {"const": "grants"},
           "database": {"$ref": "#/components/schemas/DatabaseSelector"}
         }
       },
-      "DatabasesSetShareConfigRequest": {
+      "DatabasesHeadsRequest": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["action", "config"],
-        "description": "Write the share configuration. No cloud account is 409 no_cloud_account and is final. Still enrolling waits, then 503 enrolling with Retry-After. Enrolled but unconfirmed, or credentials that could not be verified, is 503 busy.",
+        "required": ["action"],
+        "description": "Read the publisher-signed stream tips this node holds. No cloud account is 409 no_cloud_account and is final. Still enrolling waits, then 503 enrolling with Retry-After. Enrolled but the signed entry could not be confirmed is 503 busy with the message signed grant was not confirmed.",
         "properties": {
-          "action": {"const": "set_share_config"},
-          "database": {"$ref": "#/components/schemas/DatabaseSelector"},
-          "config": {"$ref": "#/components/schemas/DatabasesShareConfig"}
+          "action": {"const": "heads"},
+          "database": {"$ref": "#/components/schemas/DatabaseSelector"}
+        }
+      },
+      "DatabasesRelaysRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["action"],
+        "description": "Read the relay URLs of the latest publisher-signed relays entry. No cloud account is 409 no_cloud_account and is final. Still enrolling waits, then 503 enrolling with Retry-After. Enrolled but the signed entry could not be confirmed is 503 busy with the message signed grant was not confirmed.",
+        "properties": {
+          "action": {"const": "relays"},
+          "database": {"$ref": "#/components/schemas/DatabaseSelector"}
+        }
+      },
+      "DatabasesBootstrapRelayRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["action"],
+        "description": "Save the first signed relay URL as this node's relay base URL. 404 when no relays entry is held. No cloud account is 409 no_cloud_account and is final. Still enrolling waits, then 503 enrolling with Retry-After. Enrolled but the signed entry could not be confirmed is 503 busy with the message signed grant was not confirmed.",
+        "properties": {
+          "action": {"const": "bootstrap_relay"},
+          "database": {"$ref": "#/components/schemas/DatabaseSelector"}
         }
       },
       "DatabasesInviteRequest": {
@@ -949,8 +955,12 @@
           {"$ref": "#/components/schemas/DatabasesAcceptLinkRequest"},
           {"$ref": "#/components/schemas/DatabasesSchemasRequest"},
           {"$ref": "#/components/schemas/DatabasesDeclareRequest"},
-          {"$ref": "#/components/schemas/DatabasesShareConfigRequest"},
-          {"$ref": "#/components/schemas/DatabasesSetShareConfigRequest"},
+          {"$ref": "#/components/schemas/DatabasesGrantRequest"},
+          {"$ref": "#/components/schemas/DatabasesRevokeRequest"},
+          {"$ref": "#/components/schemas/DatabasesGrantsRequest"},
+          {"$ref": "#/components/schemas/DatabasesHeadsRequest"},
+          {"$ref": "#/components/schemas/DatabasesRelaysRequest"},
+          {"$ref": "#/components/schemas/DatabasesBootstrapRelayRequest"},
           {"$ref": "#/components/schemas/DatabasesInviteRequest"},
           {"$ref": "#/components/schemas/DatabasesShareLinkRequest"},
           {"$ref": "#/components/schemas/DatabasesSubmitRequest"},
@@ -1043,34 +1053,85 @@
           "resolution": {"type": "string", "enum": ["register", "reuse"]}
         }
       },
-      "DatabasesShareConfigReply": {
+      "DatabasesGrantReply": {
         "type": "object",
         "additionalProperties": true,
-        "required": ["ok", "user_hash", "databaseId", "revision", "read", "write", "memberWrites", "members"],
-        "description": "The owner share configuration envelope. read, write, and memberWrites are the stored settings. No stored statement is members, proposals, and an empty memberWrites object.",
+        "required": ["ok", "user_hash", "databaseId", "entryHash", "writerSeq", "role"],
+        "description": "grant and revoke. role is revoked after a revoke. entryHash and writerSeq name the signed entry on this node's publisher stream.",
         "properties": {
           "ok": {"type": "boolean"},
           "user_hash": {"type": "string"},
           "databaseId": {"type": "string"},
-          "revision": {"type": "string"},
-          "read": {"type": "string", "enum": ["members", "anyone"]},
-          "write": {"type": "string", "enum": ["proposals", "direct"]},
-          "memberWrites": {"$ref": "#/components/schemas/DatabasesMemberWrites"},
-          "members": {"type": "array", "items": {"type": "object", "additionalProperties": true}}
+          "entryHash": {"type": "string", "description": "64 lowercase hex characters."},
+          "writerSeq": {"type": "integer", "minimum": 1},
+          "role": {"type": "string", "enum": ["read", "submit", "write", "revoked"]}
         }
       },
-      "DatabasesShareUpdateReply": {
+      "DatabasesGrantMember": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["nodeKey", "role"],
+        "properties": {
+          "nodeKey": {"type": "string", "description": "64 lowercase hex characters."},
+          "role": {"type": "string", "enum": ["read", "submit", "write"]}
+        }
+      },
+      "DatabasesGrantsReply": {
         "type": "object",
         "additionalProperties": true,
-        "required": ["ok", "user_hash", "databaseId", "requestId", "revision", "committed"],
-        "description": "The owner share configuration write envelope.",
+        "required": ["ok", "user_hash", "databaseId", "members"],
+        "description": "The folded grants. A revoked member is absent. any is present only for public read. entryHash and writerSeq name the latest signed grant.",
         "properties": {
           "ok": {"type": "boolean"},
           "user_hash": {"type": "string"},
           "databaseId": {"type": "string"},
-          "requestId": {"type": "string"},
-          "revision": {"type": "string"},
-          "committed": {"type": "boolean"}
+          "members": {"type": "array", "items": {"$ref": "#/components/schemas/DatabasesGrantMember"}},
+          "any": {"type": "string", "enum": ["read"]},
+          "entryHash": {"type": "string"},
+          "writerSeq": {"type": "integer", "minimum": 1}
+        }
+      },
+      "DatabasesHead": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["deviceId", "writerSeq", "entryHash"],
+        "properties": {
+          "deviceId": {"type": "string"},
+          "writerSeq": {"type": "integer", "minimum": 1},
+          "entryHash": {"type": "string"}
+        }
+      },
+      "DatabasesHeadsReply": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["ok", "user_hash", "databaseId", "heads"],
+        "properties": {
+          "ok": {"type": "boolean"},
+          "user_hash": {"type": "string"},
+          "databaseId": {"type": "string"},
+          "heads": {"type": "array", "items": {"$ref": "#/components/schemas/DatabasesHead"}}
+        }
+      },
+      "DatabasesRelaysReply": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["ok", "user_hash", "databaseId", "urls"],
+        "properties": {
+          "ok": {"type": "boolean"},
+          "user_hash": {"type": "string"},
+          "databaseId": {"type": "string"},
+          "urls": {"type": "array", "items": {"type": "string"}}
+        }
+      },
+      "DatabasesBootstrapRelayReply": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["ok", "user_hash", "databaseId", "url"],
+        "properties": {
+          "ok": {"type": "boolean"},
+          "user_hash": {"type": "string"},
+          "databaseId": {"type": "string"},
+          "url": {"type": "string"}
         }
       },
       "DatabasesInviteReply": {
@@ -1125,8 +1186,11 @@
           {"$ref": "#/components/schemas/DatabasesDatabaseReply"},
           {"$ref": "#/components/schemas/DatabasesSchemasReply"},
           {"$ref": "#/components/schemas/DatabasesDeclareReply"},
-          {"$ref": "#/components/schemas/DatabasesShareConfigReply"},
-          {"$ref": "#/components/schemas/DatabasesShareUpdateReply"},
+          {"$ref": "#/components/schemas/DatabasesGrantReply"},
+          {"$ref": "#/components/schemas/DatabasesGrantsReply"},
+          {"$ref": "#/components/schemas/DatabasesHeadsReply"},
+          {"$ref": "#/components/schemas/DatabasesRelaysReply"},
+          {"$ref": "#/components/schemas/DatabasesBootstrapRelayReply"},
           {"$ref": "#/components/schemas/DatabasesInviteReply"},
           {"$ref": "#/components/schemas/DatabasesShareLinkReply"},
           {"$ref": "#/components/schemas/DatabasesStatusReply"}

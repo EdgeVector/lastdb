@@ -14,15 +14,6 @@ pub(super) struct Grant {
     pub state: ShareMemberState,
 }
 
-impl Grant {
-    fn of(entry: &MemberEntry) -> Self {
-        Self {
-            role: entry.role,
-            state: entry.state,
-        }
-    }
-}
-
 pub(super) fn stream(session: &PublisherSession, database_id: &str) -> Result<Stream, String> {
     Ok(Stream {
         scope: session.scope.clone(),
@@ -91,45 +82,6 @@ pub(super) fn member_step(
         (Some(ShareMemberState::Active) | None, true) => Err("share.grant.regrant".into()),
         _ => Ok(Some(grant)),
     }
-}
-
-/// The grant a whole-configuration write asks for one member. `None` when the
-/// entry has it already. A revoked key returns only with `regrant`.
-pub(super) fn config_step(
-    current: Option<&MemberEntry>,
-    desired: Grant,
-    regrant: bool,
-) -> Result<Option<Grant>, String> {
-    let Some(current) = current else {
-        return match (desired.state, regrant) {
-            (ShareMemberState::Active, false) => Ok(Some(desired)),
-            (ShareMemberState::Revoked, _) => Err("share.grant.revoke_unknown".into()),
-            (ShareMemberState::Active, true) => Err("share.grant.regrant".into()),
-        };
-    };
-    // A stored entry equal to the asked one is the asked result, whatever
-    // `regrant` says: a repeat of a restore whose answer was lost finds it.
-    if Grant::of(current) == desired {
-        return Ok(None);
-    }
-    match (current.state, desired.state) {
-        (ShareMemberState::Active, ShareMemberState::Active) if !regrant => {}
-        (_, ShareMemberState::Revoked) if !regrant && desired.role == current.role => {}
-        (ShareMemberState::Revoked, ShareMemberState::Active) if regrant => {}
-        (ShareMemberState::Revoked, ShareMemberState::Active) => {
-            return Err("share.grant.regrant_required".into())
-        }
-        (ShareMemberState::Active, ShareMemberState::Revoked) => {
-            return Err("share.grant.revoke".into())
-        }
-        (ShareMemberState::Revoked, ShareMemberState::Revoked) => {
-            return Err("share.grant.revoked_state".into())
-        }
-        (ShareMemberState::Active, ShareMemberState::Active) => {
-            return Err("share.grant.regrant".into())
-        }
-    }
-    Ok(Some(desired))
 }
 
 /// Sign the entry after `current` for `node`.

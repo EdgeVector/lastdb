@@ -6,7 +6,6 @@ mod config;
 mod entries;
 mod exchange;
 mod lock;
-mod settings;
 
 use crate::cloud::load_connected_home_context;
 use crate::cloud_backup_client::{build_shared_http_client, GuestReadPermission};
@@ -22,7 +21,7 @@ use std::path::Path;
 use std::sync::Arc;
 use zeroize::Zeroizing;
 
-pub(crate) use config::{cloud_failure, read_config, set_config, ConfigError, ConfigUpdate};
+pub(crate) use config::{cloud_failure, ConfigError};
 
 /// What the publisher wants the member row to become.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -131,12 +130,13 @@ pub(crate) async fn seal_named_invitation(
 }
 
 pub(crate) async fn issue_invitation(
-    home: &Path,
+    host: &crate::host::Host,
     database_id: &str,
     contact_code: &str,
     expected_key: &Digest,
     lifetime_hours: u32,
 ) -> Result<Vec<u8>, ConfigError> {
+    let home = host.home.as_path();
     let contact = ShareContact::parse(contact_code)
         .map_err(|error| ConfigError::Invalid(error.to_string()))?;
     if contact.identity_public_key() != expected_key || !(1..=168).contains(&lifetime_hours) {
@@ -145,14 +145,11 @@ pub(crate) async fn issue_invitation(
         ));
     }
     let entry = owned::find_shareable(home, database_id).map_err(ConfigError::Invalid)?;
-    let _lock = lock::hold(home, database_id).map_err(|_| ConfigError::Unconfirmed)?;
-    let session = config::open(home).await?;
-    let (_, granted) = exchange::get(&session, database_id, expected_key)
-        .await
-        .map_err(|error| config::cloud_failure(home, database_id, &error))?;
-    if !granted.is_some_and(|entry| entry.is_active()) {
+    if !crate::log_sync::chain_read::has_active_grant(host, &entry.id, expected_key.as_str()) {
         return Err(ConfigError::Invalid("recipient has no active grant".into()));
     }
+    let _lock = lock::hold(home, database_id).map_err(|_| ConfigError::Unconfirmed)?;
+    let session = config::open(home).await?;
     seal_invitation(&session, &entry, &contact, lifetime_hours).map_err(ConfigError::Invalid)
 }
 

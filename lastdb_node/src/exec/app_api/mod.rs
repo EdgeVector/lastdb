@@ -13,6 +13,7 @@ use crate::lastdb_uds::uds_http::UdsResponse;
 mod changes;
 mod database;
 mod databases;
+mod databases_chain;
 mod databases_reply;
 mod file_place;
 mod owner_file;

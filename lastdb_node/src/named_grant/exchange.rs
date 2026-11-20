@@ -4,11 +4,8 @@ use super::{entries, PublisherSession};
 use crate::cloud_backup_client::{authorization_post, read_bounded_bytes, PathPostTarget};
 use cloud_backup_protocol::v2::limits::CONTROL_JSON_MAX_BYTES;
 use cloud_backup_protocol::v2::share_access::{
-    MemberEntry, MemberGetRequest, MemberGetResponse, MemberListRequest, MemberListResponse,
-    MemberSetRequest, MemberSetResponse, ShareSettings, ShareSettingsGetRequest,
-    ShareSettingsGetResponse, ShareSettingsSetRequest, ShareSettingsSetResponse, MEMBER_SET_MAX,
-    SHARE_MEMBER_GET_PATH, SHARE_MEMBER_LIST_PATH, SHARE_MEMBER_SET_PATH, SHARE_SETTINGS_GET_PATH,
-    SHARE_SETTINGS_SET_PATH,
+    MemberEntry, MemberGetRequest, MemberGetResponse, MemberSetRequest, MemberSetResponse,
+    MEMBER_SET_MAX, SHARE_MEMBER_GET_PATH, SHARE_MEMBER_SET_PATH,
 };
 use cloud_backup_protocol::v2::Version;
 use cloud_backup_protocol::{Digest, Id, ProtocolError};
@@ -21,11 +18,11 @@ const UNCONFIRMED: &str = "member service did not answer";
 /// Entry bytes in one write. The request limit is 256 KiB.
 const SET_BYTES: usize = 200 * 1024;
 
-/// Why a settings call did not land. Member calls still collapse this to text.
+/// Why a member call did not land. Callers collapse this to text.
 pub(super) enum CloudRefusal {
     Unconfirmed,
     Payment,
-    Service { status: u16, error: ProtocolError },
+    Service(ProtocolError),
 }
 
 /// The stored entry of one member and the database's member write count.
@@ -47,85 +44,6 @@ pub(super) async fn get(
         entries::verify(session, database_id, entry)?;
     }
     Ok((reply.revision.get(), reply.entry))
-}
-
-/// Every stored entry, in key order, and the member write count.
-pub(super) async fn list(
-    session: &PublisherSession,
-    database_id: &str,
-) -> Result<(u64, Vec<MemberEntry>), String> {
-    let mut all = Vec::new();
-    let mut after = None;
-    loop {
-        let request = MemberListRequest {
-            version: Version::V2,
-            stream: entries::stream(session, database_id)?,
-            after: after.clone(),
-        };
-        let reply: MemberListResponse =
-            signed(session, database_id, SHARE_MEMBER_LIST_PATH, &request)
-                .await
-                .map_err(member_text)?;
-        reply.validate_for(&request).map_err(|error| error.field)?;
-        for entry in &reply.entries {
-            entries::verify(session, database_id, entry)?;
-        }
-        all.extend(reply.entries);
-        match reply.next {
-            Some(next) if after.as_ref().is_none_or(|previous| previous < &next) => {
-                after = Some(next);
-            }
-            Some(_) => return Err(UNCONFIRMED.into()),
-            None => return Ok((reply.revision.get(), all)),
-        }
-    }
-}
-
-/// The stored settings statement. Nothing means the publisher has not written one.
-///
-/// A statement this publisher did not sign is unconfirmed. The caller must not
-/// invent the next sequence from it.
-pub(super) async fn get_settings(
-    session: &PublisherSession,
-    database_id: &str,
-) -> Result<Option<ShareSettings>, CloudRefusal> {
-    let request = ShareSettingsGetRequest {
-        version: Version::V2,
-        stream: entries::stream(session, database_id).map_err(|_| CloudRefusal::Unconfirmed)?,
-    };
-    request.validate().map_err(|_| CloudRefusal::Unconfirmed)?;
-    let reply: ShareSettingsGetResponse =
-        signed(session, database_id, SHARE_SETTINGS_GET_PATH, &request).await?;
-    reply
-        .validate_for(&request)
-        .map_err(|_| CloudRefusal::Unconfirmed)?;
-    if let Some(settings) = &reply.settings {
-        super::settings::verify(session, database_id, settings)
-            .map_err(|_| CloudRefusal::Unconfirmed)?;
-    }
-    Ok(reply.settings)
-}
-
-/// Write one signed settings statement. The statement is the authorization.
-pub(super) async fn set_settings(
-    session: &PublisherSession,
-    database_id: &str,
-    settings: ShareSettings,
-) -> Result<(), CloudRefusal> {
-    let request = ShareSettingsSetRequest {
-        version: Version::V2,
-        stream: entries::stream(session, database_id).map_err(|_| CloudRefusal::Unconfirmed)?,
-        settings,
-    };
-    request.validate().map_err(|_| CloudRefusal::Unconfirmed)?;
-    let sequence = request.settings.sequence;
-    let body = serde_json::to_vec(&request).map_err(|_| CloudRefusal::Unconfirmed)?;
-    let reply: ShareSettingsSetResponse =
-        post(session, SHARE_SETTINGS_SET_PATH, &body, None).await?;
-    if reply.sequence != sequence {
-        return Err(CloudRefusal::Unconfirmed);
-    }
-    Ok(())
 }
 
 /// Write signed entries. Returns the member write count after the last one.
@@ -231,7 +149,7 @@ async fn post<Reply: DeserializeOwned>(
         return Err(CloudRefusal::Payment);
     }
     match serde_json::from_slice::<ProtocolError>(&bytes) {
-        Ok(error) => Err(CloudRefusal::Service { status, error }),
+        Ok(error) => Err(CloudRefusal::Service(error)),
         Err(_) => Err(CloudRefusal::Unconfirmed),
     }
 }
@@ -240,7 +158,7 @@ fn member_text(error: CloudRefusal) -> String {
     match error {
         CloudRefusal::Unconfirmed => UNCONFIRMED.into(),
         CloudRefusal::Payment => crate::cloud::PAYMENT_REQUIRED_MESSAGE.to_owned(),
-        CloudRefusal::Service { error, .. } => refusal(&error),
+        CloudRefusal::Service(error) => refusal(&error),
     }
 }
 

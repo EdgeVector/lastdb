@@ -363,34 +363,6 @@ export interface DatabasesRetention {
   confirm_expire_existing?: boolean;
 }
 
-export interface DatabasesShareMember {
-  /** 64 lowercase hex characters. */
-  nodeKey: string;
-  role: 'read' | 'submit';
-  state: 'active' | 'revoked';
-  regrant?: boolean;
-}
-
-/** Schema name to member write behaviour. A name that is absent is owner_only. An empty object means every schema is owner_only. */
-export interface DatabasesMemberWrites {
-  [key: string]: ('owner_only' | 'own_records' | 'shared');
-}
-
-/** The body of PUT /api/databases/{id}/share/config. read, write, and memberWrites are optional. Omit one to keep the stored value. An empty memberWrites clears the map. No stored statement is members, proposals, and an empty map. Unchanged read, write, and map send no settings statement. */
-export interface DatabasesShareConfig {
-  /** Decimal revision the caller last read. */
-  expectedRevision: string;
-  /** Non-nil lowercase UUID. */
-  requestId: string;
-  members: DatabasesShareMember[];
-  /** Who may read. Omit it to keep the stored value. */
-  read?: 'members' | 'anyone';
-  /** Where a submit append goes. Omit it to keep the stored value. */
-  write?: 'proposals' | 'direct';
-  /** Omit it to keep the stored map. An empty object clears it. */
-  memberWrites?: DatabasesMemberWrites;
-}
-
 /** The schema object the owner declare-schema route parses. name is required. Other fields are that object's fields. */
 export interface DatabasesSchema {
   name: string;
@@ -418,7 +390,8 @@ export interface DatabasesListRequest {
   intent?: never;
   retention?: never;
   app_id?: never;
-  config?: never;
+  grantee?: never;
+  role?: never;
   contactCode?: never;
   expectedNodeKey?: never;
   expiresInHours?: never;
@@ -445,7 +418,8 @@ export interface DatabasesCreateRequest {
   intent?: never;
   retention?: never;
   app_id?: never;
-  config?: never;
+  grantee?: never;
+  role?: never;
   contactCode?: never;
   expectedNodeKey?: never;
   expiresInHours?: never;
@@ -473,7 +447,8 @@ export interface DatabasesAcceptRequest {
   intent?: never;
   retention?: never;
   app_id?: never;
-  config?: never;
+  grantee?: never;
+  role?: never;
   contactCode?: never;
   expectedNodeKey?: never;
   expiresInHours?: never;
@@ -500,7 +475,8 @@ export interface DatabasesAcceptLinkRequest {
   intent?: never;
   retention?: never;
   app_id?: never;
-  config?: never;
+  grantee?: never;
+  role?: never;
   contactCode?: never;
   expectedNodeKey?: never;
   expiresInHours?: never;
@@ -525,7 +501,8 @@ export interface DatabasesSchemasRequest {
   intent?: never;
   retention?: never;
   app_id?: never;
-  config?: never;
+  grantee?: never;
+  role?: never;
   contactCode?: never;
   expectedNodeKey?: never;
   expiresInHours?: never;
@@ -552,7 +529,8 @@ export interface DatabasesDeclareRequest {
   link?: never;
   include_full?: never;
   include_definition_ids?: never;
-  config?: never;
+  grantee?: never;
+  role?: never;
   contactCode?: never;
   expectedNodeKey?: never;
   expiresInHours?: never;
@@ -561,9 +539,65 @@ export interface DatabasesDeclareRequest {
   mutationId?: never;
 }
 
-/** Read the share configuration. No cloud account is 409 no_cloud_account and is final. Still enrolling waits, then 503 enrolling with Retry-After. Enrolled but unconfirmed, or credentials that could not be verified, is 503 busy. */
-export interface DatabasesShareConfigRequest {
-  action: 'share_config';
+/** Append a publisher-signed grant entry for a member key or for any (public read, which only read can be). The entry is accepted on this node, queued on the outbox, and sync is woken. No cloud account is 409 no_cloud_account and is final. Still enrolling waits, then 503 enrolling with Retry-After. Enrolled but the signed entry could not be confirmed is 503 busy with the message signed grant was not confirmed. */
+export interface DatabasesGrantRequest {
+  action: 'grant';
+  database?: DatabaseSelector;
+  /** 64 lowercase hex characters (a node key), or any. */
+  grantee: string;
+  role: 'read' | 'submit' | 'write';
+  name?: never;
+  kind?: never;
+  sharingMode?: never;
+  invitation?: never;
+  publisher?: never;
+  database_id?: never;
+  link?: never;
+  include_full?: never;
+  include_definition_ids?: never;
+  schema?: never;
+  intent?: never;
+  retention?: never;
+  app_id?: never;
+  contactCode?: never;
+  expectedNodeKey?: never;
+  expiresInHours?: never;
+  mutation?: never;
+  idempotency_key?: never;
+  mutationId?: never;
+}
+
+/** Append a publisher-signed revoke for a member key. Its cutoffs name the grantee device streams this node holds. Devices not named fold to cutoff 0. No cloud account is 409 no_cloud_account and is final. Still enrolling waits, then 503 enrolling with Retry-After. Enrolled but the signed entry could not be confirmed is 503 busy with the message signed grant was not confirmed. */
+export interface DatabasesRevokeRequest {
+  action: 'revoke';
+  database?: DatabaseSelector;
+  /** 64 lowercase hex characters. */
+  grantee: string;
+  name?: never;
+  kind?: never;
+  sharingMode?: never;
+  invitation?: never;
+  publisher?: never;
+  database_id?: never;
+  link?: never;
+  include_full?: never;
+  include_definition_ids?: never;
+  schema?: never;
+  intent?: never;
+  retention?: never;
+  app_id?: never;
+  role?: never;
+  contactCode?: never;
+  expectedNodeKey?: never;
+  expiresInHours?: never;
+  mutation?: never;
+  idempotency_key?: never;
+  mutationId?: never;
+}
+
+/** Read the folded grants. No cloud account is 409 no_cloud_account and is final. Still enrolling waits, then 503 enrolling with Retry-After. Enrolled but the signed entry could not be confirmed is 503 busy with the message signed grant was not confirmed. */
+export interface DatabasesGrantsRequest {
+  action: 'grants';
   database?: DatabaseSelector;
   name?: never;
   kind?: never;
@@ -578,7 +612,8 @@ export interface DatabasesShareConfigRequest {
   intent?: never;
   retention?: never;
   app_id?: never;
-  config?: never;
+  grantee?: never;
+  role?: never;
   contactCode?: never;
   expectedNodeKey?: never;
   expiresInHours?: never;
@@ -587,11 +622,10 @@ export interface DatabasesShareConfigRequest {
   mutationId?: never;
 }
 
-/** Write the share configuration. No cloud account is 409 no_cloud_account and is final. Still enrolling waits, then 503 enrolling with Retry-After. Enrolled but unconfirmed, or credentials that could not be verified, is 503 busy. */
-export interface DatabasesSetShareConfigRequest {
-  action: 'set_share_config';
+/** Read the publisher-signed stream tips this node holds. No cloud account is 409 no_cloud_account and is final. Still enrolling waits, then 503 enrolling with Retry-After. Enrolled but the signed entry could not be confirmed is 503 busy with the message signed grant was not confirmed. */
+export interface DatabasesHeadsRequest {
+  action: 'heads';
   database?: DatabaseSelector;
-  config: DatabasesShareConfig;
   name?: never;
   kind?: never;
   sharingMode?: never;
@@ -605,6 +639,62 @@ export interface DatabasesSetShareConfigRequest {
   intent?: never;
   retention?: never;
   app_id?: never;
+  grantee?: never;
+  role?: never;
+  contactCode?: never;
+  expectedNodeKey?: never;
+  expiresInHours?: never;
+  mutation?: never;
+  idempotency_key?: never;
+  mutationId?: never;
+}
+
+/** Read the relay URLs of the latest publisher-signed relays entry. No cloud account is 409 no_cloud_account and is final. Still enrolling waits, then 503 enrolling with Retry-After. Enrolled but the signed entry could not be confirmed is 503 busy with the message signed grant was not confirmed. */
+export interface DatabasesRelaysRequest {
+  action: 'relays';
+  database?: DatabaseSelector;
+  name?: never;
+  kind?: never;
+  sharingMode?: never;
+  invitation?: never;
+  publisher?: never;
+  database_id?: never;
+  link?: never;
+  include_full?: never;
+  include_definition_ids?: never;
+  schema?: never;
+  intent?: never;
+  retention?: never;
+  app_id?: never;
+  grantee?: never;
+  role?: never;
+  contactCode?: never;
+  expectedNodeKey?: never;
+  expiresInHours?: never;
+  mutation?: never;
+  idempotency_key?: never;
+  mutationId?: never;
+}
+
+/** Save the first signed relay URL as this node's relay base URL. 404 when no relays entry is held. No cloud account is 409 no_cloud_account and is final. Still enrolling waits, then 503 enrolling with Retry-After. Enrolled but the signed entry could not be confirmed is 503 busy with the message signed grant was not confirmed. */
+export interface DatabasesBootstrapRelayRequest {
+  action: 'bootstrap_relay';
+  database?: DatabaseSelector;
+  name?: never;
+  kind?: never;
+  sharingMode?: never;
+  invitation?: never;
+  publisher?: never;
+  database_id?: never;
+  link?: never;
+  include_full?: never;
+  include_definition_ids?: never;
+  schema?: never;
+  intent?: never;
+  retention?: never;
+  app_id?: never;
+  grantee?: never;
+  role?: never;
   contactCode?: never;
   expectedNodeKey?: never;
   expiresInHours?: never;
@@ -635,7 +725,8 @@ export interface DatabasesInviteRequest {
   intent?: never;
   retention?: never;
   app_id?: never;
-  config?: never;
+  grantee?: never;
+  role?: never;
   mutation?: never;
   idempotency_key?: never;
   mutationId?: never;
@@ -658,7 +749,8 @@ export interface DatabasesShareLinkRequest {
   intent?: never;
   retention?: never;
   app_id?: never;
-  config?: never;
+  grantee?: never;
+  role?: never;
   contactCode?: never;
   expectedNodeKey?: never;
   expiresInHours?: never;
@@ -687,7 +779,8 @@ export interface DatabasesSubmitRequest {
   intent?: never;
   retention?: never;
   app_id?: never;
-  config?: never;
+  grantee?: never;
+  role?: never;
   contactCode?: never;
   expectedNodeKey?: never;
   expiresInHours?: never;
@@ -711,7 +804,8 @@ export interface DatabasesStatusRequest {
   intent?: never;
   retention?: never;
   app_id?: never;
-  config?: never;
+  grantee?: never;
+  role?: never;
   contactCode?: never;
   expectedNodeKey?: never;
   expiresInHours?: never;
@@ -720,7 +814,7 @@ export interface DatabasesStatusRequest {
 }
 
 /** One action. A field from another action is invalid_request. */
-export type DatabasesRequest = DatabasesListRequest | DatabasesCreateRequest | DatabasesAcceptRequest | DatabasesAcceptLinkRequest | DatabasesSchemasRequest | DatabasesDeclareRequest | DatabasesShareConfigRequest | DatabasesSetShareConfigRequest | DatabasesInviteRequest | DatabasesShareLinkRequest | DatabasesSubmitRequest | DatabasesStatusRequest;
+export type DatabasesRequest = DatabasesListRequest | DatabasesCreateRequest | DatabasesAcceptRequest | DatabasesAcceptLinkRequest | DatabasesSchemasRequest | DatabasesDeclareRequest | DatabasesGrantRequest | DatabasesRevokeRequest | DatabasesGrantsRequest | DatabasesHeadsRequest | DatabasesRelaysRequest | DatabasesBootstrapRelayRequest | DatabasesInviteRequest | DatabasesShareLinkRequest | DatabasesSubmitRequest | DatabasesStatusRequest;
 
 /** The last publish attempt for one received database. It is kept in memory and is absent again after a restart. at is RFC 3339 UTC. status is the HTTP status when the service answered, or a string when the turn stopped before that answer: access_unknown, no_credentials, gap, spool_position_mismatch, empty_page, writer_tip, upload_identity, upload_position, reader_stopped, writer_stopped, confirm_failed, prepare_failed, queue_unreadable, spool_position, batch_invalid, entry_too_large, undo_failed, policy_unknown, local_store_unavailable, capture_disabled, payment_required, writer_sequence_unknown, or upload_unconfirmed. access_unknown means the self-access view was unknown or stale. no_credentials means the node had no usable cloud credentials for the share. policy_unknown, local_store_unavailable, and capture_disabled mean the node stopped for a local reason before it asked the cloud. payment_required means the account is unpaid. writer_sequence_unknown means the node lost its saved upload position and the cloud no longer keeps the delivered entries that show this device's last writer sequence, so the node does not guess one. status is null when the attempt failed before a status and the node had usable credentials. */
 export interface DatabasesPublishAttempt {
@@ -777,27 +871,66 @@ export interface DatabasesDeclareReply {
   [key: string]: unknown;
 }
 
-/** The owner share configuration envelope. read, write, and memberWrites are the stored settings. No stored statement is members, proposals, and an empty memberWrites object. */
-export interface DatabasesShareConfigReply {
+/** grant and revoke. role is revoked after a revoke. entryHash and writerSeq name the signed entry on this node's publisher stream. */
+export interface DatabasesGrantReply {
   ok: boolean;
   user_hash: string;
   databaseId: string;
-  revision: string;
-  read: 'members' | 'anyone';
-  write: 'proposals' | 'direct';
-  memberWrites: DatabasesMemberWrites;
-  members: { [key: string]: unknown }[];
+  /** 64 lowercase hex characters. */
+  entryHash: string;
+  /** Integer. Minimum 1. */
+  writerSeq: number;
+  role: 'read' | 'submit' | 'write' | 'revoked';
   [key: string]: unknown;
 }
 
-/** The owner share configuration write envelope. */
-export interface DatabasesShareUpdateReply {
+export interface DatabasesGrantMember {
+  /** 64 lowercase hex characters. */
+  nodeKey: string;
+  role: 'read' | 'submit' | 'write';
+}
+
+/** The folded grants. A revoked member is absent. any is present only for public read. entryHash and writerSeq name the latest signed grant. */
+export interface DatabasesGrantsReply {
   ok: boolean;
   user_hash: string;
   databaseId: string;
-  requestId: string;
-  revision: string;
-  committed: boolean;
+  members: DatabasesGrantMember[];
+  any?: 'read';
+  entryHash?: string;
+  /** Integer. Minimum 1. */
+  writerSeq?: number;
+  [key: string]: unknown;
+}
+
+export interface DatabasesHead {
+  deviceId: string;
+  /** Integer. Minimum 1. */
+  writerSeq: number;
+  entryHash: string;
+}
+
+export interface DatabasesHeadsReply {
+  ok: boolean;
+  user_hash: string;
+  databaseId: string;
+  heads: DatabasesHead[];
+  [key: string]: unknown;
+}
+
+export interface DatabasesRelaysReply {
+  ok: boolean;
+  user_hash: string;
+  databaseId: string;
+  urls: string[];
+  [key: string]: unknown;
+}
+
+export interface DatabasesBootstrapRelayReply {
+  ok: boolean;
+  user_hash: string;
+  databaseId: string;
+  url: string;
   [key: string]: unknown;
 }
 
@@ -836,7 +969,7 @@ export interface DatabasesStatusReply {
 }
 
 /** Success JSON for an action other than submit. submit answers 202. */
-export type DatabasesReply = DatabasesListReply | DatabasesDatabaseReply | DatabasesSchemasReply | DatabasesDeclareReply | DatabasesShareConfigReply | DatabasesShareUpdateReply | DatabasesInviteReply | DatabasesShareLinkReply | DatabasesStatusReply;
+export type DatabasesReply = DatabasesListReply | DatabasesDatabaseReply | DatabasesSchemasReply | DatabasesDeclareReply | DatabasesGrantReply | DatabasesGrantsReply | DatabasesHeadsReply | DatabasesRelaysReply | DatabasesBootstrapRelayReply | DatabasesInviteReply | DatabasesShareLinkReply | DatabasesStatusReply;
 
 /** Maximum items 256. */
 export type ManifestNameList = string[];

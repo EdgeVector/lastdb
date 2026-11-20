@@ -1,5 +1,6 @@
-//! The `databases` extension. Each action calls the owner route's handler.
+//! The `databases` extension. Most actions call the owner route's handler.
 //! A success reply is that handler's JSON. A refusal uses the app API error shape.
+//! The signed-history grant actions are served in `databases_chain`.
 
 use fold_db::access::AccessContext;
 use serde_json::{Map, Value};
@@ -75,6 +76,9 @@ async fn run(req: &UdsRequest, ctx: &AccessContext, host: &Host) -> Result<UdsRe
     require_extension("databases")?;
     let body = object(&req.body)?;
     let action = required_string(&body, "action")?;
+    if super::databases_chain::handles(action) {
+        return super::databases_chain::run(action, &body, ctx, host);
+    }
     let call = build(action, &body, req, host)?;
     // declare_schema uses the admin budget the owner route uses. The route
     // wrapper is longer, so this deadline is the one that answers, in the
@@ -106,8 +110,6 @@ fn build(
         "accept" => accept_request(body),
         "schemas" => schemas_request(body, host),
         "declare_schema" => declare_request(body, host),
-        "share_config" => share_config_request(body, host),
-        "set_share_config" => set_share_config_request(body, host),
         "invite" => invite_request(body, host),
         "share_link" => share_link_request(body, host),
         "submit" => submit_request(body, host),
@@ -201,27 +203,6 @@ fn declared_app_id(body: &Map<String, Value>) -> Result<String, HostError> {
     Ok(required_string(body, "app_id")?.to_owned())
 }
 
-fn share_config_request(body: &Map<String, Value>, host: &Host) -> Result<OwnerCall, HostError> {
-    allow(body, &["database"])?;
-    Ok(OwnerCall::empty(
-        "GET",
-        scoped(&database_id(body, host)?, "share/config"),
-    ))
-}
-
-fn set_share_config_request(
-    body: &Map<String, Value>,
-    host: &Host,
-) -> Result<OwnerCall, HostError> {
-    allow(body, &["database", "config"])?;
-    let config = required_object(body, "config")?;
-    OwnerCall::json(
-        "PUT",
-        scoped(&database_id(body, host)?, "share/config"),
-        config,
-    )
-}
-
 fn invite_request(body: &Map<String, Value>, host: &Host) -> Result<OwnerCall, HostError> {
     allow(
         body,
@@ -275,7 +256,7 @@ fn object(bytes: &[u8]) -> Result<Map<String, Value>, HostError> {
     }
 }
 
-fn allow(body: &Map<String, Value>, keys: &[&str]) -> Result<(), HostError> {
+pub(super) fn allow(body: &Map<String, Value>, keys: &[&str]) -> Result<(), HostError> {
     for key in body.keys() {
         if key != "action" && !keys.contains(&key.as_str()) {
             return Err(bad(format!("unknown field {key}")));
@@ -284,7 +265,10 @@ fn allow(body: &Map<String, Value>, keys: &[&str]) -> Result<(), HostError> {
     Ok(())
 }
 
-fn required_string<'a>(body: &'a Map<String, Value>, key: &str) -> Result<&'a str, HostError> {
+pub(super) fn required_string<'a>(
+    body: &'a Map<String, Value>,
+    key: &str,
+) -> Result<&'a str, HostError> {
     match body.get(key) {
         Some(Value::String(text)) if !text.is_empty() => Ok(text),
         Some(Value::String(_)) | None => Err(bad(format!("{key} is required"))),
@@ -343,7 +327,7 @@ fn copy_present(body: &Map<String, Value>, owner: &mut Map<String, Value>, keys:
     }
 }
 
-fn database_id(body: &Map<String, Value>, host: &Host) -> Result<String, HostError> {
+pub(super) fn database_id(body: &Map<String, Value>, host: &Host) -> Result<String, HostError> {
     match optional_string(body, "database")? {
         Some(selector) if valid_selector(selector) => Ok(selector.to_owned()),
         Some(_) => Err(bad("invalid database identifier")),
