@@ -8,6 +8,8 @@ on:
       - "mutation_log/**"
       - "reference_relay/**"
       - "signed_history_dev/**"
+      - "signed_history_client/**"
+      - "signed_history_materialize/**"
       - "lastdb_node/src/log_sync/**"
       - ".github/workflows/signed-history-dev.yml"
   push:
@@ -15,6 +17,8 @@ on:
       - "mutation_log/**"
       - "reference_relay/**"
       - "signed_history_dev/**"
+      - "signed_history_client/**"
+      - "signed_history_materialize/**"
       - "lastdb_node/src/log_sync/**"
       - ".github/workflows/signed-history-dev.yml"
   workflow_dispatch:
@@ -31,7 +35,7 @@ jobs:
   proofs:
     name: reference_relay scenarios
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 40
     env:
       CARGO_BUILD_JOBS: "2"
       CARGO_PROFILE_DEV_DEBUG: "0"
@@ -41,7 +45,7 @@ jobs:
           persist-credentials: false
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: signed-history-dev
+          shared-key: signed-history-dev-folddb
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Build reference_relay and signed_history_dev
         run: |
@@ -76,6 +80,7 @@ jobs:
             echo "Source: $GITHUB_SHA"
             echo "Grant-blind reference_relay only. No AWS/IAM/secrets."
             echo "Scenarios: forge_reject, revoke_cutoff, converge, restore_replay, nongrantee_reject, blob_perf."
+            echo "converge and restore_replay also check real FoldDB records after replay."
             if [[ -f "${RUNNER_TEMP}/signed-history-dev/summary.json" ]]; then
               echo
               echo '```json'

@@ -37,6 +37,11 @@ impl HistoryMap {
         Ok(f(hist))
     }
 
+    /// Copy of the database's history, so the lock is not held across `.await`.
+    pub(super) fn snapshot(&self, database_id: &str) -> Result<VerifiedHistory, String> {
+        self.with_mut(database_id, |history| history.clone())
+    }
+
     #[allow(dead_code)]
     pub(super) fn get_clone(&self, database_id: &str) -> Option<VerifiedHistory> {
         let map = self.inner.lock().ok()?;

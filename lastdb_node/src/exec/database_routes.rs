@@ -37,10 +37,10 @@ pub(in crate::exec) async fn execute_database_request(
         _ => {}
     }
     if let Some(selector) = submission_status_selector(req) {
-        return run_submission_status(selector, req, ctx, host).await;
+        return run_submission_status(selector, req, ctx, host);
     }
     if let Some(selector) = submission_selector(req) {
-        return run_submission(selector, req, ctx, host).await;
+        return run_submission(selector, req, ctx, host);
     }
     let Some((selector, path)) = split_database_path(&req.target) else {
         return content_free(404, "Not Found");
@@ -109,19 +109,15 @@ pub(in crate::exec) async fn execute_deferred_database_request(
         return content_free(404, "Not Found");
     }
     if let Some(selector) = submission_status_selector(req) {
-        return with_handler_timeout_budget(
-            ctx,
-            handler_timeout(),
-            run_submission_status(selector, req, ctx, host),
-        )
+        return with_handler_timeout_budget(ctx, handler_timeout(), async {
+            run_submission_status(selector, req, ctx, host)
+        })
         .await;
     }
     if let Some(selector) = submission_selector(req) {
-        return with_handler_timeout_budget(
-            ctx,
-            handler_timeout(),
-            run_submission(selector, req, ctx, host),
-        )
+        return with_handler_timeout_budget(ctx, handler_timeout(), async {
+            run_submission(selector, req, ctx, host)
+        })
         .await;
     }
     if let Some((selector, route)) = split_database_path(&req.target)
@@ -147,7 +143,7 @@ fn submission_selector(req: &UdsRequest) -> Option<&str> {
     (req.method == "POST" && path == "submissions").then_some(selector)
 }
 
-async fn run_submission_status(
+fn run_submission_status(
     selector: &str,
     req: &UdsRequest,
     ctx: &AccessContext,
@@ -162,7 +158,7 @@ async fn run_submission_status(
     }
 }
 
-async fn run_submission(
+fn run_submission(
     selector: &str,
     req: &UdsRequest,
     ctx: &AccessContext,

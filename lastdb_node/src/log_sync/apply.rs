@@ -1,6 +1,7 @@
 //! Local write path: author signed entry → AcceptEntry → outbox.
 
 use app_identity_crypto::SigningKey;
+use fold_db::fold_db_core::FoldDB;
 use mutation_log::{
     author_data, data_record, entry_hash, AcceptOutcome, AuthorCtx, DatabaseId, DeviceId, NodeKey,
     StreamKind,
@@ -24,9 +25,10 @@ pub(super) struct DataWrite<'a> {
 }
 
 /// Author a direct data mutation, accept locally, enqueue outbox.
-pub(super) fn author_and_accept_data(
+pub(super) async fn author_and_accept_data(
     histories: &HistoryMap,
     home: &std::path::Path,
+    store: &FoldDB,
     identity: &AuthorIdentity,
     write: DataWrite<'_>,
 ) -> Result<(), String> {
@@ -59,14 +61,14 @@ pub(super) fn author_and_accept_data(
         match history.accept_entry(entry.clone()) {
             AcceptOutcome::Accept { .. } => {
                 history.outbox_mut().enqueue(hash, entry);
-                history_store::persist_outbox(home, write.database_id, history.outbox())?;
-                materialize::apply_history_records(home, write.database_id, history)?;
-                Ok(())
+                history_store::persist_outbox(home, write.database_id, history.outbox())
             }
             AcceptOutcome::Pending { reason } => {
                 Err(format!("authored entry pending locally: {reason:?}"))
             }
             AcceptOutcome::Reject { reason } => Err(format!("authored entry rejected: {reason:?}")),
         }
-    })?
+    })??;
+    let history = histories.snapshot(write.database_id)?;
+    materialize::apply_history_records(store, &history).await
 }

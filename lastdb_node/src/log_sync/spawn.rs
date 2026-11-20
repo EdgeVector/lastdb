@@ -13,6 +13,7 @@ use crate::host::Host;
 use super::config;
 use super::device;
 use super::history_store::{self, HistoryMap};
+use super::materialize::{self, DatabaseCtx};
 use super::relay::RelayClient;
 use super::wake;
 
@@ -56,12 +57,7 @@ async fn one_turn(host: &Host, histories: &HistoryMap, base: &str) -> Result<(),
     let node_key = NodeKey::from_bytes(host.keypair.public_key_bytes());
     let node_key_hex = node_key.to_hex();
     let device_id = device::device_id(&host.home)?;
-    let client = RelayClient::new(
-        base.to_owned(),
-        signing_key,
-        node_key_hex.clone(),
-        &device_id,
-    );
+    let client = RelayClient::new(base, signing_key, node_key_hex.clone(), &device_id);
 
     let databases = crate::host::owned::registered_databases(&host.home);
     for database in databases {
@@ -79,14 +75,26 @@ async fn one_turn(host: &Host, histories: &HistoryMap, base: &str) -> Result<(),
             );
             continue;
         }
+        let Some(store) = materialize::store_for(host, &database.id) else {
+            tracing::warn!(
+                target: "lastdbd::log_sync",
+                id = %database.id,
+                "skip sync: no FoldDB store is open for this database"
+            );
+            continue;
+        };
         upload_outbox(&client, histories, &host.home, &database.id).await?;
         // Pull own stream tip advances.
         let from = 1u64; // DESIGN: persist per-stream read cursor; Phase 1 re-reads from 1 (idempotent Accept).
+        let db = DatabaseCtx {
+            home: &host.home,
+            database_id: &database.id,
+            store: &store,
+        };
         let _ = super::pull::pull_stream(
             &client,
             histories,
-            &host.home,
-            &database.id,
+            &db,
             &node_key_hex,
             &device_id.to_string(),
             from,

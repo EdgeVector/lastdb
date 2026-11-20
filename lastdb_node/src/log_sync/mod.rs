@@ -13,7 +13,6 @@ mod history_store;
 mod materialize;
 mod pull;
 mod relay;
-#[allow(dead_code)]
 mod restore;
 mod spawn;
 mod wake;
@@ -21,6 +20,8 @@ mod wake;
 use cloud_backup_protocol::Digest;
 use fold_db::schema::types::Schema;
 
+pub use config::{relay_base_url, store_relay_base_url};
+pub use restore::{restore_owned_database, OwnedStream, RestoreOwnedParams, RestoreOwnedReport};
 pub use spawn::spawn;
 pub use wake::{ensure_wake, publish_signed_history_intent, request_wake};
 

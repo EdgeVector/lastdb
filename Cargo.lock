@@ -1658,6 +1658,8 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "signed_history_client",
+ "signed_history_materialize",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -2658,6 +2660,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "signed_history_client"
+version = "0.1.0"
+dependencies = [
+ "app_identity_crypto",
+ "base64",
+ "mutation_log",
+ "rand 0.8.8",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "signed_history_dev"
 version = "0.1.0"
 dependencies = [
@@ -2670,7 +2686,18 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "signed_history_materialize",
  "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "signed_history_materialize"
+version = "0.1.0"
+dependencies = [
+ "fold_db",
+ "mutation_log",
+ "serde_json",
  "uuid",
 ]
 

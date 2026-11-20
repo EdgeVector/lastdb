@@ -3,6 +3,7 @@
 //! Exit 0 only when every scenario prints PASS. No AWS/IAM/secrets.
 
 mod device;
+mod proof_store;
 mod relay;
 mod report;
 mod scenarios;
@@ -68,7 +69,7 @@ async fn run() -> Result<bool, String> {
     println!("relay_url {}", relay.base_url);
     println!("blob_bytes {}", cli.blob_bytes);
 
-    let results = scenarios::run_all(&relay, cli.blob_bytes).await;
+    let results = scenarios::run_all(&relay, cli.blob_bytes, &work).await;
     let all_pass = results.iter().all(|r| r.pass);
     let summary = Summary {
         all_pass,

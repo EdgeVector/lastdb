@@ -16,7 +16,7 @@ pub(super) struct RelayClient {
 
 impl RelayClient {
     pub(super) fn new(
-        base: String,
+        base: &str,
         signing_key: SigningKey,
         node_key_hex: String,
         device_id: &mutation_log::DeviceId,
@@ -151,7 +151,7 @@ fn sign_headers(
 ) -> Result<Vec<(&'static str, String)>, String> {
     let issued_at = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map_or_else(|| "0".into(), |d| d.as_millis().to_string());
+        .map_or_else(|_| "0".into(), |d| d.as_millis().to_string());
     let nonce = hex_lower(&rand_32());
     let body_hash = hex_lower(&Sha256::digest(body));
     let message =

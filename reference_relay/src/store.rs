@@ -153,7 +153,7 @@ impl Store {
         let meta = read_json(&meta_path).await?;
         let expected = meta
             .get("bytes")
-            .and_then(|v| v.as_u64())
+            .and_then(serde_json::Value::as_u64)
             .ok_or(ApiError::invalid("bytes"))?;
         if body.len() as u64 != expected {
             return Err(ApiError::invalid("bytes"));
@@ -244,7 +244,7 @@ impl EntryKey {
         require_uuid(&device_id, "entries.device_id")?;
         let writer_seq = entry
             .get("writer_seq")
-            .and_then(|v| v.as_u64())
+            .and_then(serde_json::Value::as_u64)
             .filter(|&s| s >= 1)
             .ok_or(ApiError::invalid("entries.writer_seq"))?;
         Ok(Self {
@@ -259,7 +259,7 @@ impl EntryKey {
 fn str_field(entry: &Value, field: &str) -> ApiResult<String> {
     entry
         .get(field)
-        .and_then(|v| v.as_str())
+        .and_then(Value::as_str)
         .map(str::to_owned)
         .ok_or_else(|| ApiError::invalid(format!("entries.{field}")))
 }

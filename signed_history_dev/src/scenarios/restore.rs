@@ -1,26 +1,31 @@
 //! D. Bootstrap on A, upload all, fresh history on B replays from seq 1.
 
+use std::path::Path;
+
 use mutation_log::{
     bootstrap_from_records, AcceptOutcome, BootstrapParams, BootstrapRecord, VerifiedHistory,
 };
 
+use signed_history_materialize::encode_string_field;
+
 use crate::device::{now_ms, DbBirth, Device};
+use crate::proof_store::{replay_and_check, Expected, NAMESPACE};
 use crate::relay::{RelayClient, RelayHandle};
 
-pub async fn run(relay: &RelayHandle) -> Result<String, String> {
+pub async fn run(relay: &RelayHandle, store_dir: &Path) -> Result<String, String> {
     let owner = Device::generate();
     let birth = DbBirth::generate(owner.node_key);
     let t0 = now_ms();
     let records = [
         BootstrapRecord {
-            namespace: "demo".into(),
+            namespace: NAMESPACE.into(),
             record_key: "r1".into(),
-            value: b"one".to_vec(),
+            value: encode_string_field("one"),
         },
         BootstrapRecord {
-            namespace: "demo".into(),
+            namespace: NAMESPACE.into(),
             record_key: "r2".into(),
-            value: b"two".to_vec(),
+            value: encode_string_field("two"),
         },
     ];
     let boot = bootstrap_from_records(&BootstrapParams {
@@ -72,8 +77,23 @@ pub async fn run(relay: &RelayHandle) -> Result<String, String> {
             boot.history.records()
         ));
     }
+    replay_and_check(
+        store_dir,
+        &restored,
+        &[
+            Expected {
+                record_key: "r1",
+                value: "one",
+            },
+            Expected {
+                record_key: "r2",
+                value: "two",
+            },
+        ],
+    )
+    .await?;
     Ok(format!(
-        "replayed {} entries; records equal source",
+        "replayed {} entries; records equal source; FoldDB holds r1=one r2=two",
         boot.entries.len()
     ))
 }

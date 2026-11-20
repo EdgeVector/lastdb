@@ -1,0 +1,21 @@
+[package]
+autotests = false
+name = "signed_history_materialize"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "Applies signed-history LWW winners to FoldDB schemas and records."
+
+[lints]
+workspace = true
+
+[dependencies]
+fold_db = { workspace = true }
+mutation_log = { path = "../mutation_log" }
+serde_json = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
+
+[lib]
+test = false
+doctest = false
+bench = false

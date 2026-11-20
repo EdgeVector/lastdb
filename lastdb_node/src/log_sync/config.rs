@@ -10,7 +10,7 @@ const LIMIT: usize = 4096;
 /// Read the configured relay base URL, if any.
 ///
 /// Absent or empty → sync loop idles without erroring the daemon.
-pub(super) fn relay_base_url(home: &Path) -> Option<String> {
+pub fn relay_base_url(home: &Path) -> Option<String> {
     if let Ok(url) = std::env::var("LASTDB_RELAY_URL") {
         let trimmed = url.trim();
         if !trimmed.is_empty() {
@@ -26,8 +26,7 @@ pub(super) fn relay_base_url(home: &Path) -> Option<String> {
 }
 
 /// Persist a relay base URL under the home (for restore / bootstrap tools).
-#[allow(dead_code)]
-pub(super) fn store_relay_base_url(home: &Path, url: &str) -> Result<(), String> {
+pub fn store_relay_base_url(home: &Path, url: &str) -> Result<(), String> {
     let trimmed = url.trim();
     if trimmed.is_empty() {
         return Err("relay URL is empty".into());

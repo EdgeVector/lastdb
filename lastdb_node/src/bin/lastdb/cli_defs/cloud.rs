@@ -101,9 +101,16 @@ pub(crate) struct BackupRestoreArgs {
     /// Recover an owned database from the signed cloud log.
     #[arg(long, required = true)]
     pub(crate) recovery_phrase_stdin: bool,
-    /// Stable database id. `--stream` is the same flag.
+    /// Hex32 self-certifying database id (`--stream` is the same flag).
     #[arg(long, visible_alias = "stream")]
     pub(crate) database: String,
+    /// Publisher device UUID stream(s) to pull from writer_seq = 1.
+    #[arg(long = "device-id", required = true, num_args = 1..)]
+    pub(crate) device_ids: Vec<String>,
+    /// Relay origin. Falls back to `LASTDB_RELAY_URL` or `log-sync/relay-url` under `--data-dir`.
+    #[arg(long)]
+    pub(crate) relay_url: Option<String>,
+    /// Retired snapshot generation; ignored for signed-history restore.
     #[arg(long)]
     pub(crate) generation: Option<u64>,
     #[arg(long)]

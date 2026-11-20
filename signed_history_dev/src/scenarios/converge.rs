@@ -1,11 +1,15 @@
 //! C. Two devices offline-author different records → same LWW via relay exchange.
 
+use std::path::Path;
+
 use mutation_log::{AcceptOutcome, VerifiedHistory};
+use signed_history_materialize::encode_string_field;
 
 use crate::device::{bootstrap_owner, now_ms, owner_write, DataWrite, DbBirth, Device};
+use crate::proof_store::{replay_and_check, Expected, NAMESPACE};
 use crate::relay::{RelayClient, RelayHandle};
 
-pub async fn run(relay: &RelayHandle) -> Result<String, String> {
+pub async fn run(relay: &RelayHandle, store_dir: &Path) -> Result<String, String> {
     let owner_a = Device::generate();
     let owner_b = Device {
         signing_key: owner_a.signing_key.clone(),
@@ -20,9 +24,9 @@ pub async fn run(relay: &RelayHandle) -> Result<String, String> {
         &owner_a,
         &DataWrite {
             database_id: birth.database_id,
-            namespace: "demo",
+            namespace: NAMESPACE,
             record_key: "from_a",
-            value: b"A",
+            value: &encode_string_field("A"),
             authored_at_ms: t0 + 1,
         },
     )?;
@@ -34,9 +38,9 @@ pub async fn run(relay: &RelayHandle) -> Result<String, String> {
         &owner_b,
         &DataWrite {
             database_id: birth.database_id,
-            namespace: "demo",
+            namespace: NAMESPACE,
             record_key: "from_b",
-            value: b"B",
+            value: &encode_string_field("B"),
             authored_at_ms: t0 + 1,
         },
     )?;
@@ -85,7 +89,21 @@ pub async fn run(relay: &RelayHandle) -> Result<String, String> {
     if n < 2 {
         return Err(format!("expected ≥2 records after converge, got {n}"));
     }
-    Ok(format!("both devices materialized {n} records identically"))
+    let want = [
+        Expected {
+            record_key: "from_a",
+            value: "A",
+        },
+        Expected {
+            record_key: "from_b",
+            value: "B",
+        },
+    ];
+    replay_and_check(&store_dir.join("device-a"), &hist_a, &want).await?;
+    replay_and_check(&store_dir.join("device-b"), &hist_b, &want).await?;
+    Ok(format!(
+        "both devices materialized {n} records identically; FoldDB holds from_a=A from_b=B on each"
+    ))
 }
 
 fn accept(history: &mut VerifiedHistory, entry: mutation_log::SignedEntry) -> Result<(), String> {
