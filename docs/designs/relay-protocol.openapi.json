@@ -3,7 +3,7 @@
   "info": {
     "title": "LastDB relay protocol",
     "version": "1.0.0-design",
-    "description": "Append-only never-trimmed log (except product delete/deactivate erase); blobs; presigned GET only. No snapshots. Nodes AcceptEntry with seen_heads deps. Anti-spam/quota only \u2014 no grant authorization. Errors: auth/signature, payment_required, quota/rate limits, not_found, bad request."
+    "description": "Append-only log (except product erase); blobs; signed requests; spam/cost grant gate from publisher birth/grant entries; bundles via blob.put/get; no AcceptEntry on the relay; no snapshots."
   },
   "paths": {
     "/relay/v1/log/append": {
@@ -12,6 +12,9 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/NodeKey"
+          },
+          {
+            "$ref": "#/components/parameters/DatabaseId"
           },
           {
             "$ref": "#/components/parameters/DeviceId"
@@ -126,6 +129,24 @@
                 }
               }
             }
+          },
+          "403": {
+            "description": "no current grant for this node_key / role",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "forbidden": {
+                    "value": {
+                      "code": "forbidden",
+                      "field": "grant"
+                    }
+                  }
+                }
+              }
+            }
           }
         },
         "security": [
@@ -133,7 +154,7 @@
             "nodeSignature": []
           }
         ],
-        "description": "Append signed log entries (append-only, never trimmed) Requires nodeSignature (node-key) auth."
+        "description": "Requires nodeSignature. Accepted only for publisher or a current write grant (submit for proposal data appends). Revoke cuts off new appends immediately (403). Spam/cost gate only \u2014 not AcceptEntry."
       }
     },
     "/relay/v1/log/read": {
@@ -142,6 +163,9 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/NodeKey"
+          },
+          {
+            "$ref": "#/components/parameters/DatabaseId"
           },
           {
             "$ref": "#/components/parameters/DeviceId"
@@ -256,10 +280,32 @@
                 }
               }
             }
+          },
+          "403": {
+            "description": "no current grant for this node_key / role",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "forbidden": {
+                    "value": {
+                      "code": "forbidden",
+                      "field": "grant"
+                    }
+                  }
+                }
+              }
+            }
           }
         },
-        "security": [],
-        "description": "Read signed log entries from seq 1 or cursor Reads of grant#any databases are open; other reads may use nodeSignature."
+        "security": [
+          {
+            "nodeSignature": []
+          }
+        ],
+        "description": "Requires nodeSignature. Allowed with a current read grant, or grant#any/read (any signed caller). Not unsigned/anonymous."
       }
     },
     "/relay/v1/blob/put": {
@@ -268,6 +314,9 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/NodeKey"
+          },
+          {
+            "$ref": "#/components/parameters/DatabaseId"
           },
           {
             "$ref": "#/components/parameters/DeviceId"
@@ -382,6 +431,24 @@
                 }
               }
             }
+          },
+          "403": {
+            "description": "no current grant for this node_key / role",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "forbidden": {
+                    "value": {
+                      "code": "forbidden",
+                      "field": "grant"
+                    }
+                  }
+                }
+              }
+            }
           }
         },
         "security": [
@@ -389,7 +456,7 @@
             "nodeSignature": []
           }
         ],
-        "description": "Put blob Requires nodeSignature (node-key) auth."
+        "description": "Requires nodeSignature. Accepted only for publisher or a current write grant (submit for proposal data appends). Revoke cuts off new appends immediately (403). Spam/cost gate only \u2014 not AcceptEntry."
       }
     },
     "/relay/v1/blob/get": {
@@ -398,6 +465,9 @@
         "parameters": [
           {
             "$ref": "#/components/parameters/NodeKey"
+          },
+          {
+            "$ref": "#/components/parameters/DatabaseId"
           },
           {
             "$ref": "#/components/parameters/DeviceId"
@@ -522,10 +592,32 @@
                 }
               }
             }
+          },
+          "403": {
+            "description": "no current grant for this node_key / role",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "forbidden": {
+                    "value": {
+                      "code": "forbidden",
+                      "field": "grant"
+                    }
+                  }
+                }
+              }
+            }
           }
         },
-        "security": [],
-        "description": "Get blob via presigned URL only Reads of grant#any databases are open; other reads may use nodeSignature."
+        "security": [
+          {
+            "nodeSignature": []
+          }
+        ],
+        "description": "Requires nodeSignature. Allowed with a current read grant, or grant#any/read (any signed caller). Not unsigned/anonymous."
       }
     }
   },
@@ -592,6 +684,18 @@
             1
           ]
         }
+      },
+      "DatabaseId": {
+        "name": "X-LastDB-Database-Id",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "minLength": 64,
+          "maxLength": 64
+        },
+        "description": "Target database_id; covered by nodeSignature"
       }
     },
     "schemas": {
@@ -607,6 +711,7 @@
             "type": "string",
             "enum": [
               "unauthorized",
+              "forbidden",
               "invalid_request",
               "not_found",
               "conflict",
@@ -646,6 +751,7 @@
             "enum": [
               "birth",
               "data",
+              "bundle",
               "grant",
               "blob_delete",
               "heads",
@@ -945,7 +1051,7 @@
         "type": "apiKey",
         "in": "header",
         "name": "X-LastDB-Signature",
-        "description": "Ed25519 over POST\\n<path>\\n<protocol>\\n<node key>\\n<device id>\\n<issued-at>\\n<nonce>\\n<body sha256 hex>. Skew \u00b160s. Companion headers required. Required for relay writes; reads of grant#any databases are open."
+        "description": "Ed25519 request signature. Signed material: POST\\n<path>\\n<protocol>\\n<node_key>\\n<database_id>\\n<body_sha256 hex>\\n<issued_at>\\n<nonce>. Companion headers: X-LastDB-Node-Key, X-LastDB-Database-Id, X-LastDB-Issued-At, X-LastDB-Nonce, X-LastDB-Relay-Protocol. Skew \u00b160s. Required on every relay request (including reads). grant#any means any signed caller may read \u2014 not unsigned access. Append/put also require a current write (or submit for proposals) grant; missing/bad sig \u2192 401; no grant \u2192 403 forbidden."
       }
     }
   }

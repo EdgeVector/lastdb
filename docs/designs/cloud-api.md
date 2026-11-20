@@ -32,20 +32,26 @@ the key.
 
 ### Acceptance (local node rule)
 
-**Acceptance is a local node rule.** Relays neither enforce nor know about
-it. Optional relay checks are anti-spam/quota only. ExeMem/relay errors
-cover auth/signature, `payment_required`, quota/rate limits, `not_found`,
-and bad request — **not** grant authorization (`forbidden` / `grant.*`).
+**Acceptance is a local node rule.** Relays do **not** run `AcceptEntry`.
+They may apply a **spam/cost grant gate** from publisher-signed birth/grant
+metadata (see `relay-protocol.md`): **401** bad/missing request signature,
+**403** `forbidden` when the caller lacks a current grant. That gate cannot
+make honest nodes disagree; wrong refuse/withhold is data loss, handled by
+`relays` failover. Nodes still verify everything locally. ExeMem account
+errors still include `payment_required`, quota/rate limits, `not_found`,
+and bad request. There is no `manage`/`access` UX that invents grants.
 
 **Role changes live only in the chain.** Every grant and every role
 reduction (including revoke) is a signed `grant`-kind entry on a publisher
 device chain. **Cutoffs are required only when a grant lowers an existing
 role or revokes**; a first grant carries none. **No side channel** — not
-on the relay surface, not in ExeMem rows, not in People. People may carry
-**signed heads for comparison only**. Any relay/ExeMem grant cache is
-**derived from the chain**, optional, never authoritative. A grant/revoke
-seen only off-chain **must be ignored**. Access is derived locally from
-the chain (no `manage`/`access`).
+in ExeMem rows, not in People. People may carry **signed heads for
+comparison only**. The relay’s grant index (and any ExeMem cache) is
+**derived from verified publisher birth/grant entries**, never
+authoritative for AcceptEntry. A grant/revoke seen only off-chain **must
+be ignored** by nodes. Grantee node key, role, and cutoffs are **signed
+plaintext metadata** so the relay can gate without decrypting payloads.
+Access for merge remains local (no `manage`/`access`).
 
 `AcceptEntry(E, S) → accept | pending | reject` — `S` is the node’s
 verified history for `E.database_id`:
@@ -68,10 +74,17 @@ verified history for `E.database_id`:
    inconsistent).
 6. **Publisher authorization / cutoffs.** Among `E.seen_heads`, use the
    **publisher** entries for the grant-window. Owner (from birth) may write
-   publisher kinds. Else `kind=data`: grant-window + role-reduction cutoffs
-   below. Direct writes past a cutoff are rejected **regardless of** claimed
-   seen heads.
-7. **On reject:** do not apply; keep evidence. **On pending:** do not apply
+   publisher kinds. Else `kind=data` or `kind=bundle`: grant-window +
+   role-reduction cutoffs below. Direct writes past a cutoff are rejected
+   **regardless of** claimed seen heads.
+7. **Bundle body (only if `kind=bundle`).** After steps 1–6 pass, fetch the
+   referenced encrypted blob (`blob.get`), verify `blob_sha256` and
+   `blob_size`, decrypt under the db key, verify `change_count`, then apply
+   the inner **data** changes in order (see Signed bundles). A missing blob,
+   hash/size/count mismatch, or decrypt failure → **pending** (not applied);
+   the stream **blocks** on that entry until a valid blob is obtained — it
+   does **not** freeze the stream (freeze is equivocation only).
+8. **On reject:** do not apply; keep evidence. **On pending:** do not apply
    yet. A frozen stream (fork) never advances.
 
 ### Local node model
@@ -148,6 +161,8 @@ silently disagree once heads and dependencies meet.
 7. Proposals are **`data` entries with `stream = proposal`**; they count
    as content only after publisher **incorporation**.
 8. Append-only, never-trimmed logs.
+9. Signed `bundle` entries for large batches / bootstrap / restore pushes
+   (ordinary writes stay single `data` entries).
 
 ### Device chains (streams)
 
@@ -171,21 +186,25 @@ Wire `signature`: base64url, 64 bytes.
 |---|---|---|
 | `birth` | birth material in chain | First publisher-device entry (`writer_seq=1`) |
 | `data` | `lastdb-mutation-v1` | `stream` direct\|proposal; payload; optional file / incorporation / grant_at |
+| `bundle` | `lastdb-bundle-v1` | `{blob_sha256, blob_size, change_count}`; member binds `grant_at` |
 | `grant` | `lastdb-grant-v1` | grantee, role; **cutoffs only when lowering/revoking** (not on first grant) |
 | `blob_delete` | `lastdb-blob-delete-v1` | publisher; names blob `sha256` |
 | `heads` | `lastdb-heads-v1` | publisher tip vector for hidden-entry detection |
 | `relays` | `lastdb-relays-v1` | publisher-signed relay URL list |
 
-**Data:** publisher direct needs no grant. Member direct binds `grant_at`
-and `seen_heads`. Proposal: `stream=proposal`, no grant_at; content only
-via incorporation (`incorporated_from`).
+**Data / bundle:** publisher direct or bundle needs no grant. Member
+direct **or** member bundle binds `grant_at` (`grant_at_device` +
+`grant_at_seq`) and `seen_heads`. Proposal: `stream=proposal`, no
+grant_at; content only via incorporation (`incorporated_from`). Bundles
+never carry proposals or grant entries inside the blob.
 
 **Birth:** first chained entry on a publisher device. ExeMem
 `manage`/`create` carries the full signed `BirthEntry`.
 
 ### Grant window
 
-Member direct write `W` with `grant_at = G` and `seen_heads = H`:
+Member direct `data` or member `bundle` write `W` with `grant_at = G`
+and `seen_heads = H`:
 
 1. From the **publisher** entries among the accepted set named by `H`,
    fold grants in merge order. At `G`, effective role must be **`write`**.
@@ -208,9 +227,65 @@ cutoff are rejected regardless of `seen_heads`. `any` is read-only.
 
 ### Blob delete
 
-Publisher `blob_delete` names blob `sha256`. Relays may drop those bytes.
-Normal operation never GC-trims logs; product `delete` / `deactivate`
-erase storage as below.
+Publisher `blob_delete` names blob `sha256`. Relays may drop those bytes
+when no accepted log entry still references that digest. A `blob_delete`
+that names a digest still referenced by an accepted `bundle` (or other
+accepted entry) is **invalid**; readers **ignore** it. Normal operation
+never GC-trims logs; product `delete` / `deactivate` erase storage as
+below.
+
+### Signed bundles
+
+A `bundle` is one ordinary chain entry (same `node_key`, `device_id`,
+`writer_seq`, `prev_hash`, `lamport`, `seen_heads`, Ed25519 signature) whose
+payload is:
+
+| Field | Meaning |
+|---|---|
+| `blob_sha256` | SHA-256 of the encrypted blob bytes |
+| `blob_size` | Encrypted blob length in bytes |
+| `change_count` | Number of inner data changes (1…cap) |
+| `grant_at_device` / `grant_at_seq` | Member grant binding (omit for publisher) |
+
+The encrypted blob holds many **data** changes in a defined order. Upload
+the blob with `blob.put` (presigned; parallel or multipart allowed)
+**before** appending the `bundle` entry. Readers fetch with `blob.get`.
+No new relay endpoints.
+
+**Inner contents:** only record data changes (puts/tombstones). Grants,
+revokes, role reductions, `heads`, `relays`, and `blob_delete` **must not**
+appear inside a bundle.
+
+**AcceptEntry (bundle):** run the common checks first (signature, db bind,
+chain link, seen heads, lamport, write authority, cutoffs, fork). Then
+download, verify sha256 + size, decrypt, verify `change_count`, and apply
+inner changes. Every inner change shares the **entry’s** `lamport` (and
+the entry’s `node_key` / `device_id`). A bundle **must not** hold two
+changes to the same record key. Apply order inside a bundle is ascending
+**record key** (byte-wise). Whole-record LWW against other entries still
+uses position `(lamport, node_key, device_id)`; the in-bundle record-key
+order is only the deterministic apply order among distinct keys. Hash,
+size, or count mismatch, decrypt failure, or a missing blob → entry stays
+**pending** / unavailable; the stream **blocks** until a valid blob is
+obtained (same pending class as missing `seen_heads`; not a freeze). The
+relay stays untrusted.
+
+**Caps (protocol constants):** max encrypted blob size **64 MiB**; max
+`change_count` **10_000**. Readers **reject** bundles over either cap.
+
+**When to use:** ordinary writes stay single `data` entries. Large restore
+pushes, large batch writes, and bootstrap current-state use bundles.
+Bundles are append-only and **replace no history**.
+
+**Blob identity / dedupe:** blob keys are scoped per `database_id`.
+Encryption uses the db key plus a **per-blob nonce**, so identical
+plaintext yields different ciphertext and different digests. There is
+**no** cross-entry content dedupe and **no** refcount. A bundle’s blob
+must not be removed by `blob_delete` while any accepted log entry
+references that digest; such a `blob_delete` is invalid and ignored.
+
+**Deferred (not designed here):** a publisher-signed rebase that replaces
+covered history to bound storage remains a future option.
 
 ## Restore, new device, and local state
 
@@ -220,21 +295,27 @@ No snapshots. No `cursor_expired`. Delivery cursors are pagination only.
 
 1. Discover a relay (People + `relays` entry).
 2. `log.read` every stream from `writer_seq = 1`.
-3. `AcceptEntry` (pending until seen-head deps arrive); LWW merge; replay.
-4. Fetch blobs **lazily** by hash via `blob.get` (presigned URL).
+3. `AcceptEntry` (pending until seen-head deps and bundle blobs arrive);
+   LWW merge; replay. Bundle bodies download via `blob.get` when the entry
+   is reached (stream blocks on that entry until the blob verifies).
+4. Other file blobs **lazily** by hash via `blob.get` (presigned URL).
 
 After replay, keep only materialized state, per-stream heads, grant state,
 per-record positions, and the outbox — enough to validate and author the
-next entry. Relays retain the full log.
+next entry. Relays retain the full log. With current-state bundles,
+bootstrap/restore of a large home is expected to finish well under a
+minute for a few hundred MB of synthetic data (see CI plan).
 
 ## Bootstrap (existing databases)
 
 No migration, no dual path:
 
 1. Publisher device appends `BirthEntry` (`writer_seq = 1`).
-2. Emits current state as ordinary signed `data` mutations (records + blob
-   refs).
-3. Members get **fresh** `grant` entries.
+2. Emits current state as one or more signed `bundle` entries (encrypted
+   current-state blobs uploaded first), not as a long run of single `data`
+   entries.
+3. Members get **fresh** `grant` entries (ordinary chain entries, never
+   inside a bundle).
 4. Old unsigned cloud data is **replaced**, not kept alongside.
 
 ## Shape
@@ -351,10 +432,21 @@ Publisher pays. Lapsed: reads work; push/grant/create →
     heads + grants + per-record positions + outbox. Bootstrap replaces
     unsigned cloud data. Fork freezes the stream; continue on a new
     `device_id`.
-46. No server grant 403s. No `manage`/`access`. `delete` erases that DB’s
-    relay logs/blobs (id tombstoned). `deactivate` erases all publisher
-    ExeMem/relay data, cancels subscriptions, retires the key. App
-    registry is outside this API.
+46. **Superseded by 48 for relays.** No `manage`/`access`. `delete` erases
+    that DB’s relay logs/blobs (id tombstoned). `deactivate` erases all
+    publisher ExeMem/relay data, cancels subscriptions, retires the key.
+    App registry is outside this API.
+47. Signed `bundle` entries (encrypted multi-change blobs via existing
+    `blob.put`/`blob.get`); caps 64 MiB / 10_000 changes; missing or bad
+    blob → pending/block (not freeze); no in-bundle grants/heads/relays/
+    blob_delete; per-db keyed blobs with per-blob nonce (no digest
+    dedupe/refcount). Bootstrap = birth + current-state bundles + grants.
+48. Relay spam/cost gate from publisher-signed birth/grant entries: every
+    request signed; append/put need write (or submit for proposals);
+    read/get need read or `grant#any`; revoke cuts off new appends (403);
+    already-stored entries stay. Quota billed to the publisher’s ExeMem
+    account; grantees need no account. Rejected: shared db secret for
+    append auth.
 
 ### Defaults
 
@@ -362,28 +454,33 @@ Publisher pays. Lapsed: reads work; push/grant/create →
 |---|---|
 | Freshness | Head / `heads` comparison only |
 | Reference relay | In `lastdb` for CI |
-| Public reads | `grant#any` open on every conforming relay |
+| Public reads | `grant#any`/`read`: any **signed** caller may read |
 | Relay list | Publisher-signed `relays`; People bootstraps |
 | Birth | First chained publisher-device entry |
 | Fork recovery | New `device_id` (stream frozen; no `resolve`) |
 | Downloads | Presigned URL only |
 | Concurrent field edits | Split into smaller records (whole-record LWW) |
+| Bundle blob max | 64 MiB encrypted (protocol constant) |
+| Bundle change_count max | 10_000 (protocol constant) |
+| Bundle blob identity | Per-`database_id` + per-blob nonce (no digest dedupe) |
 
 ## Server errors (HTTP)
 
-ExeMem/relay cover auth/signature, `payment_required`, quota/rate limits,
-`not_found`, and bad request. **No** server-side `forbidden` / `grant.*`.
+ExeMem/relay cover auth/signature, payment/quota, `not_found`, and bad
+request. Relays additionally return **403** `forbidden` when the caller’s
+`node_key` lacks a current grant (spam/cost only — not AcceptEntry).
 
 | HTTP | code | fields |
 |---|---|---|
 | 400 | `invalid_request` | arg paths, `grants.any.role` (any must be read), `birth_signature`, `cursor` |
 | 400 | `batch_too_large` | `batch.response` |
 | 401 | `unauthorized` | `request.*`, `device.*`, `account.retired` |
-| 403 | `payment_required` | `payment.subscription` |
+| 403 | `payment_required` | `payment.subscription` (ExeMem) |
+| 403 | `forbidden` | relay: no current grant for `node_key` / role |
 | 404 | `not_found` | `database.*`, `file_handle`, `blob.sha256` |
 | 409 | `conflict` | `database.id`, `account.exists`, `device.*`, `entries.writer_seq`, `file.unverified` |
 | 426 | `upgrade_required` | `request.protocol` |
-| 429 | `rate_limited` | `account.register`, `read.public`, relay quota |
+| 429 | `rate_limited` | `account.register`, `read.public`, relay quota (publisher-billed) |
 
 ### Node-side signals
 
@@ -408,7 +505,15 @@ until `seen_heads` deps arrive — local only.
 11. Reordered delivery → same LWW state; no rewind.
 12. Publisher `heads` cites missing tip → withheld detection.
 13. Bootstrap replay equals source state; fresh member grants.
-14. Restore from start: full replay + lazy blobs.
+14. Restore from start: full replay + lazy blobs (bundle blobs required
+    when a `bundle` entry is accepted).
+15. **Bundle E2E (DEV):** fresh upload of a few hundred MB of synthetic
+    data via one or more `bundle` entries, and restore of that upload,
+    each finish in **under one minute**. Docs-only here; implement in CI
+    later — not a unit test.
+16. **Relay grant gate (DEV):** a non-grantee’s `log.append` / `blob.put`
+    is refused (**403**); a revoked member’s new append is refused
+    (**403**); previously accepted entries remain stored.
 
 ## Build work
 
@@ -416,4 +521,5 @@ until `seen_heads` deps arrive — local only.
 account service ExeMem-specific.
 
 **Node:** local write path (sign/apply/outbox); `AcceptEntry` + pending
-deps; LWW; frozen-stream handling; `heads` compare; bootstrap; blob_delete.
+deps (incl. bundle blobs); LWW; frozen-stream handling; `heads` compare;
+bootstrap via bundles; blob_delete (ignore deletes of live bundle digests).
