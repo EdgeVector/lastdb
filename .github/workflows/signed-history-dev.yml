@@ -4,7 +4,8 @@ name: Signed history DEV proofs
 # No AWS/IAM/secrets. CI may cargo build; agents must not build on Tom's machine.
 #
 # Job `relay_e2e` builds `signed_history_relay_e2e` (release) and runs it against
-# a spawned reference_relay: signed append/read, grant + revoke (403), ~300 MiB of
+# a spawned reference_relay: signed append/read, grant + revoke (403), never-granted
+# append/read (403), ~300 MiB of
 # signed bundles, and a discovering restore into FoldDB. Both phases must finish
 # under 60 s. When `exemem_relay_url` (workflow input) or the repository variable
 # EXEMEM_RELAY_URL is set, the same binary also runs against that relay. No credentials.
@@ -189,7 +190,7 @@ jobs:
           {
             echo "## Signed history relay e2e"
             echo "Source: $GITHUB_SHA"
-            echo "Binary: signed_history_relay_e2e (LASTDB_RELAY_E2E_BIN). Scenarios: signed append/read, grant + revoke (403), ~300 MiB signed bundles, discovering restore into FoldDB. No credentials."
+            echo "Binary: signed_history_relay_e2e (LASTDB_RELAY_E2E_BIN). Scenarios: signed append/read, grant + revoke (403), never-granted append/read (403), ~300 MiB signed bundles, discovering restore into FoldDB. No credentials."
             if [[ -z "${EXEMEM_RELAY_URL}" ]]; then
               echo "Exemem relay: skipped (no exemem_relay_url input or EXEMEM_RELAY_URL variable)."
             else
