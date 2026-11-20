@@ -39,16 +39,25 @@ pub fn spawn(
                         tokio::time::sleep(IDLE).await;
                     }
                     Some(base) => {
-                        if let Err(err) = one_turn(&host, &histories, &base).await {
-                            tracing::warn!(target: "lastdbd::log_sync", %err, "sync turn failed");
-                            host.cloud_sync.record_error(err);
-                            // Unacked outbox (including publisher revoke) must be
-                            // re-pushed promptly; skip the active sleep below.
-                            if outbox_pending(&host, &histories) {
-                                wake::request_wake(&host.home);
+                        let failed = match one_turn(&host, &histories, &base).await {
+                            Ok(()) => false,
+                            Err(err) => {
+                                tracing::warn!(
+                                    target: "lastdbd::log_sync",
+                                    %err,
+                                    "sync turn failed"
+                                );
+                                host.cloud_sync.record_error(err);
+                                true
                             }
+                        };
+                        if failed && outbox_pending(&host, &histories) {
+                            // Mark for another pass; keep ACTIVE delay so fast
+                            // failures (refused / 4xx / 429) cannot spin.
+                            wake::request_wake(&host.home);
                         }
-                        if !wake::consume_wake(&host.home) {
+                        let woken = wake::consume_wake(&host.home);
+                        if failed || !woken {
                             tokio::time::sleep(ACTIVE).await;
                         }
                     }
