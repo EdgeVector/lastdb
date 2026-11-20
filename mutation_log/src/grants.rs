@@ -48,7 +48,6 @@ impl GrantState {
     }
 
     /// Active members and their roles, ascending by node key. Revoked keys are absent.
-    #[must_use]
     pub fn members(&self) -> impl Iterator<Item = (NodeKey, Role)> + '_ {
         self.members.iter().map(|(key, role)| (*key, *role))
     }

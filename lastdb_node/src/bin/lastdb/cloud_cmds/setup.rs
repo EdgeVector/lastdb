@@ -142,8 +142,7 @@ fn fresh_connection_home_id() -> Result<Id, String> {
     for _ in 0..8 {
         let mut seed = [0u8; 32];
         rand::rngs::OsRng.fill_bytes(&mut seed);
-        let key = app_identity_crypto::SigningKey::from_bytes(&seed)
-            .map_err(|_| "cannot name this home".to_owned())?;
+        let key = app_identity_crypto::SigningKey::from_bytes(&seed);
         let hex = app_identity_crypto::hex_lower(&key.verifying_key().to_bytes());
         if let Ok(id) = Id::try_from(hex) {
             return Ok(id);
