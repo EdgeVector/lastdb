@@ -32,6 +32,7 @@ pub(crate) use history_store::histories_for;
 pub(crate) use proposal::{
     status as share_write_status, submit as submit_share_write, ContributionError,
 };
+pub use relay::hung_relay_must_timeout;
 pub use restore::{restore_owned_database, OwnedStream, RestoreOwnedParams, RestoreOwnedReport};
 pub use spawn::spawn;
 pub use wake::{ensure_wake, publish_signed_history_intent, request_wake};

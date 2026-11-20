@@ -1,10 +1,18 @@
 //! HTTP client for `/relay/v1/log/*` and `/relay/v1/blob/*`.
 
+use std::time::{Duration, Instant};
+
 use app_identity_crypto::{hex_lower, sign, SigningKey};
 use base64::Engine as _;
-use mutation_log::SignedEntry;
+use mutation_log::{DatabaseId, DeviceId, SignedEntry};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
+
+/// Bound a hung peer so the sync loop can return and re-push the outbox.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+/// CI probe budget: request timeout plus a little slack.
+const HUNG_PEER_BUDGET: Duration = Duration::from_secs(45);
 
 pub(super) struct RelayClient {
     pub(super) base: String,
@@ -20,15 +28,20 @@ impl RelayClient {
         signing_key: SigningKey,
         node_key_hex: String,
         device_id: &mutation_log::DeviceId,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, String> {
+        // trace-egress: public — relay gates by grants; node key only in signed headers.
+        let http = reqwest::Client::builder()
+            .connect_timeout(CONNECT_TIMEOUT)
+            .timeout(REQUEST_TIMEOUT)
+            .build()
+            .map_err(|e| format!("relay http client: {e}"))?;
+        Ok(Self {
             base: base.trim_end_matches('/').to_owned(),
             signing_key,
             node_key_hex,
             device_id: device_id.to_string(),
-            // trace-egress: public — relay gates by grants; node key only in signed headers.
-            http: reqwest::Client::new(),
-        }
+            http,
+        })
     }
 
     pub(super) async fn append(
@@ -180,4 +193,30 @@ fn rand_32() -> [u8; 32] {
     let mut out = [0u8; 32];
     rand::thread_rng().fill_bytes(&mut out);
     out
+}
+
+/// CI: append against a hung `base` must error inside [`HUNG_PEER_BUDGET`].
+pub async fn hung_relay_must_timeout(base: &str) -> Result<Duration, String> {
+    let signing_key = SigningKey::from_bytes(&[7u8; 32]);
+    let node_key_hex =
+        mutation_log::Hex32::from_bytes(signing_key.verifying_key().to_bytes()).to_hex();
+    let device_id = DeviceId::from_bytes([3u8; 32]);
+    let client = RelayClient::new(base, signing_key, node_key_hex, &device_id)?;
+    let database_id = DatabaseId::from_bytes([9u8; 32]).to_hex();
+    let started = Instant::now();
+    match client.append(&database_id, &[]).await {
+        Err(_) => {
+            let elapsed = started.elapsed();
+            if elapsed <= HUNG_PEER_BUDGET {
+                Ok(elapsed)
+            } else {
+                Err(format!(
+                    "hung peer error took {:.3}s, over {}s",
+                    elapsed.as_secs_f64(),
+                    HUNG_PEER_BUDGET.as_secs()
+                ))
+            }
+        }
+        Ok(_) => Err("hung peer accepted an empty append".into()),
+    }
 }
