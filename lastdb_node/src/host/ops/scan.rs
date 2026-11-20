@@ -134,8 +134,6 @@ fn placeholder(path: &str) -> Option<&'static str> {
         "schemas" => "/api/databases/{database}/schemas",
         "schemas/seed-system" => "/api/databases/{database}/schemas/seed-system",
         "schemas/drop" => "/api/databases/{database}/schemas/drop",
-        "share/members" => "/api/databases/{database}/share/members",
-        "invitations" => "/api/databases/{database}/invitations",
         "apps/declare-schema" => "/api/databases/{database}/apps/declare-schema",
         _ => schema_suffix(suffix)?,
     })
