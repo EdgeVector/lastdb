@@ -72,10 +72,12 @@ pub(super) async fn create(req: &UdsRequest, ctx: &AccessContext, host: &Host) -
         .create(
             &host.home,
             Arc::clone(&host.keypair),
-            &body.name,
-            kind,
-            spec,
-            requested_id,
+            owned::CreateArgs {
+                name: &body.name,
+                kind,
+                spec,
+                requested_id,
+            },
             |id, seed| {
                 crate::log_sync::birth::mint(&host.home, id, host.keypair.public_key_bytes(), seed)
             },

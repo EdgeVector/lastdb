@@ -20,36 +20,41 @@ use crate::profile::PublicationSpec;
 /// `E2eKeys::from_ed25519_seed`. Publication homes use a different salt.
 const OWNED_CONTENT_DOMAIN: &[u8] = b"lastdb:owned-database:content:v1";
 
+/// Inputs for [`Tables::create`] besides the home, signer, and birth mint.
+pub(crate) struct CreateArgs<'a> {
+    pub name: &'a str,
+    pub kind: Kind,
+    pub spec: Option<PublicationSpec>,
+    pub requested_id: Option<String>,
+}
+
 impl Tables {
     pub(crate) async fn create(
         &self,
         home: &Path,
         signer: Arc<Ed25519KeyPair>,
-        name: &str,
-        kind: Kind,
-        spec: Option<PublicationSpec>,
-        requested_id: Option<String>,
+        args: CreateArgs<'_>,
         mint_birth: impl FnOnce(&str, &[u8; 32]) -> Result<(), String>,
     ) -> Result<Entry, OwnedError> {
-        if kind == Kind::Personal && spec.is_some() {
+        if args.kind == Kind::Personal && args.spec.is_some() {
             return Err(OwnedError::InvalidSpec);
         }
-        validate_create(name, spec.as_ref())?;
+        validate_create(args.name, args.spec.as_ref())?;
         let _creating = self.creating.lock().await;
-        let (id, birth_seed) = if let Some(ref id) = requested_id {
+        let (id, birth_seed) = if let Some(ref id) = args.requested_id {
             mutation_log::DatabaseId::from_hex(id).map_err(|_| OwnedError::InvalidName)?;
             (id.clone(), None)
         } else {
-            let (id, seed) = self.allocate(name)?;
+            let (id, seed) = self.allocate(args.name)?;
             (id, Some(seed))
         };
         let entry = Entry {
             id,
-            name: Some(name.to_owned()),
-            kind,
-            spec,
+            name: Some(args.name.to_owned()),
+            kind: args.kind,
+            spec: args.spec,
         };
-        if requested_id.is_some() {
+        if args.requested_id.is_some() {
             let state = self.read()?;
             if let Some(existing) = state.owned.iter().find(|row| row.id == entry.id) {
                 return if existing == &entry {
@@ -58,13 +63,13 @@ impl Tables {
                     Err(OwnedError::AlreadyRegistered)
                 };
             }
-            ensure_free(&state, name)?;
+            ensure_free(&state, args.name)?;
             if state.registry_owner.id == entry.id {
                 return Err(OwnedError::AlreadyRegistered);
             }
         }
-        if let (Kind::Shareable, Some(seed)) = (kind, &birth_seed) {
-            mint_birth(&entry.id, &**seed).map_err(|_| OwnedError::Unavailable)?;
+        if let (Kind::Shareable, Some(seed)) = (entry.kind, &birth_seed) {
+            mint_birth(&entry.id, seed).map_err(|_| OwnedError::Unavailable)?;
         }
         self.create_registered(home, signer, entry).await
     }

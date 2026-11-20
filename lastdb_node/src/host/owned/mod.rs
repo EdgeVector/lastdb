@@ -22,6 +22,7 @@ mod store;
 pub(crate) use registry::{
     find_shareable, find_shareable_database, registered_databases, registry_claims, validate_create,
 };
+pub(crate) use store::CreateArgs;
 
 /// AES content key for one owned sibling. Callers must not treat this as a
 /// signing seed.
