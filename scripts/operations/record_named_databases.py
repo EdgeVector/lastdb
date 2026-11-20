@@ -15,14 +15,14 @@ import os
 from pathlib import Path
 import subprocess
 import sys
-import uuid
 
 _OPS = Path(__file__).resolve().parent
 sys.path[:0] = [str(_OPS), str(_OPS.parent)]
 from harness import mutation  # noqa: E402
 import v1_records as v1  # noqa: E402
 from record_runs import (  # noqa: E402
-    FIELDS, MISSING_DATABASE, RANGED, definition, refused, require, system_seed,
+    FIELDS, MISSING_DATABASE, RANGED, definition, refused, require,
+    require_hex32_id, system_seed,
 )
 
 
@@ -121,7 +121,7 @@ def create(node, name, kind="shareable", sharing_mode=None):
                 "create did not store the whole-database binding")
     else:
         require(database["spec"] is None, "create stored an unexpected spec binding")
-    require(uuid.UUID(database["id"]).version == 4, "create did not return a stable id")
+    require_hex32_id(database["id"])
     return database
 
 

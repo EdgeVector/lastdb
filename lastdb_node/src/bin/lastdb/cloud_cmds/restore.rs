@@ -27,51 +27,32 @@ const RECOVERY_ERRS: [&str; 4] = [
 
 pub(super) fn run(home: &Path, args: BackupRestoreArgs) -> Result<(), String> {
     let phrase = read_stdin_secret(4096, "recovery phrase")?;
+    let database_id = args.database.clone();
     let database = Id::try_from(args.database)
         .map_err(|_| "signed restore requires a canonical database id".to_owned())?;
+    let device_ids = args.device_ids;
+    let relay_override = args.relay_url;
+    let generation = args.generation;
     let destination = args.into;
+    let json = args.json;
     let parent = destination.parent().ok_or("missing recovery parent")?;
     FreshHome::preflight_empty(&destination)?;
-    let restored = signed_restore_worker(|| async {
-        let account_id = lastdb_node::cloud::account_from_phrase(&phrase)?;
-        let seed = Zeroizing::new(lastdb_node::cloud::seed_from_phrase(&phrase)?);
-        let pair = Ed25519KeyPair::from_secret_key(seed.as_ref())
-            .map_err(|_| "invalid recovery identity".to_owned())?;
-        let mut scope = lastdb_node::cloud::client_from_home_with_keypair(home, Arc::new(pair))?
-            .context(&ContextReadRequest {
-                version: Version::V2,
-                account_id,
-                required_destinations: Vec::new(),
-            })
-            .await
-            .map_err(|e| e.to_string())?
-            .scope;
-        if let Some(generation) = args.generation {
-            scope.account_generation = cloud_backup_protocol::DecimalU64::new(generation);
-        }
-        let staged_path = parent.join(format!(".lastdb-signed-restore-{}", uuid::Uuid::new_v4()));
-        let mut fresh = FreshHome::preflight_empty(&staged_path)?.create()?;
-        fresh.write(IDENTITY_KEY_FILE, seed.as_ref())?;
-        fresh.commit()?;
-        drop(fresh);
-        let staged = StagedHome::open(staged_path)?;
-        // DESIGN: Phase 1 restore boots a signed-restore home and pulls every
-        // known stream from relay seq 1 via log_sync::restore. Stream discovery
-        // (publisher heads / People) is not wired here yet.
-        let _ = (scope, seed);
-        let host = Arc::new(Host::boot_for_signed_restore(&staged.path).await?);
-        let owned_closed = host.shutdown_owned_databases().await;
-        let owner_closed = host.db.shutdown().await;
-        drop(host);
-        owned_closed?;
-        owner_closed.map_err(|e| e.to_string())?;
-        let out = Restored {
-            name: "recovered".to_owned(),
-            through: 0,
-            replayed: 0,
-        };
-        staged.publish(&destination).map(|()| out)
-    })?;
+    let relay_url = relay_override
+        .or_else(|| lastdb_node::log_sync::relay_base_url(home))
+        .ok_or(
+            "signed restore requires --relay-url, LASTDB_RELAY_URL, or log-sync/relay-url under --data-dir",
+        )?;
+    let plan = SignedRestorePlan {
+        home,
+        phrase: &phrase,
+        database_id: &database_id,
+        device_ids: &device_ids,
+        relay_url: &relay_url,
+        generation,
+        parent,
+        destination: &destination,
+    };
+    let restored = signed_restore_worker(|| async { restore_into_staged(plan).await })?;
     print_backup(
         &serde_json::json!({
             "ok": true, "database_id": database, "name": restored.name,
@@ -79,8 +60,77 @@ pub(super) fn run(home: &Path, args: BackupRestoreArgs) -> Result<(), String> {
             "replayed": restored.replayed,
             "destination": destination,
         }),
-        args.json,
+        json,
     )
+}
+
+struct SignedRestorePlan<'a> {
+    home: &'a Path,
+    phrase: &'a str,
+    database_id: &'a str,
+    device_ids: &'a [String],
+    relay_url: &'a str,
+    generation: Option<u64>,
+    parent: &'a Path,
+    destination: &'a Path,
+}
+
+async fn restore_into_staged(plan: SignedRestorePlan<'_>) -> Result<Restored, String> {
+    let account_id = lastdb_node::cloud::account_from_phrase(plan.phrase)?;
+    let seed = Zeroizing::new(lastdb_node::cloud::seed_from_phrase(plan.phrase)?);
+    let pair = Ed25519KeyPair::from_secret_key(seed.as_ref())
+        .map_err(|_| "invalid recovery identity".to_owned())?;
+    let mut scope = lastdb_node::cloud::client_from_home_with_keypair(plan.home, Arc::new(pair))?
+        .context(&ContextReadRequest {
+            version: Version::V2,
+            account_id,
+            required_destinations: Vec::new(),
+        })
+        .await
+        .map_err(|e| e.to_string())?
+        .scope;
+    if let Some(generation) = plan.generation {
+        scope.account_generation = cloud_backup_protocol::DecimalU64::new(generation);
+    }
+    let _ = scope; // Phase 1 pulls from the relay; ExeMem scope is account-check only.
+    let staged_path = plan
+        .parent
+        .join(format!(".lastdb-signed-restore-{}", uuid::Uuid::new_v4()));
+    let mut fresh = FreshHome::preflight_empty(&staged_path)?.create()?;
+    fresh.write(IDENTITY_KEY_FILE, seed.as_ref())?;
+    fresh.commit()?;
+    drop(fresh);
+    let staged = StagedHome::open(staged_path)?;
+    let streams = plan
+        .device_ids
+        .iter()
+        .map(|id| lastdb_node::log_sync::OwnedStream {
+            device_id: id.clone(),
+        })
+        .collect();
+    let report =
+        lastdb_node::log_sync::restore_owned_database(lastdb_node::log_sync::RestoreOwnedParams {
+            home: &staged.path,
+            relay_url: plan.relay_url.to_owned(),
+            seed: &seed,
+            database_id: plan.database_id.to_owned(),
+            streams,
+        })
+        .await?;
+    lastdb_node::log_sync::store_relay_base_url(&staged.path, plan.relay_url)?;
+    // FoldDB already holds winners under home/data; boot validates the layout.
+    let host = Arc::new(Host::boot(&staged.path).await?);
+    let owned_closed = host.shutdown_owned_databases().await;
+    let owner_closed = host.db.shutdown().await;
+    drop(host);
+    owned_closed?;
+    owner_closed.map_err(|e| e.to_string())?;
+    let out = Restored {
+        name: "recovered".to_owned(),
+        through: report.through,
+        replayed: report.replayed,
+    };
+    staged.publish(plan.destination).map(|()| out)
 }
 
 struct Restored {
