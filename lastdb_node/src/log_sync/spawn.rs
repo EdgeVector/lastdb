@@ -5,10 +5,12 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use app_identity_crypto::SigningKey;
-use mutation_log::{entry_hash, NodeKey};
+use cloud_backup_protocol::Id;
+use mutation_log::{entry_hash, DeviceId, NodeKey, VerifiedHistory};
 use tracing::Instrument;
 
 use crate::host::Host;
+use crate::registered_share::{self, RegisteredShare};
 
 use super::config;
 use super::device;
@@ -77,9 +79,7 @@ async fn one_turn(host: &Host, histories: &HistoryMap, base: &str) -> Result<(),
 
     let databases = crate::host::owned::registered_databases(&host.home);
     for database in databases {
-        // Sync every registered owned database; received shares pull separately.
         if database.kind != "personal" && database.kind != "shareable" {
-            // DESIGN: received/shareable membership pull paths still TBD.
             continue;
         }
         // Registry ids are Hex32 (db verifying key); refuse non-hex rows.
@@ -117,6 +117,77 @@ async fn one_turn(host: &Host, histories: &HistoryMap, base: &str) -> Result<(),
         )
         .await?;
     }
+    pull_received_shares(host, histories, &client).await?;
+    Ok(())
+}
+
+/// Pull publisher streams for signed-log received databases.
+async fn pull_received_shares(
+    host: &Host,
+    histories: &HistoryMap,
+    client: &RelayClient,
+) -> Result<(), String> {
+    let shares = registered_share::list(&host.home).map_err(|e| e.to_string())?;
+    for share in shares {
+        if !share.signed_log {
+            continue;
+        }
+        let Some(device) = share.publisher_device_id.as_deref() else {
+            tracing::warn!(
+                target: "lastdbd::log_sync",
+                id = %share.id,
+                "skip received sync: open link has no publisher device_id"
+            );
+            continue;
+        };
+        if mutation_log::DatabaseId::from_hex(share.id.as_str()).is_err() {
+            continue;
+        }
+        pull_one_received(host, histories, client, &share, device).await?;
+    }
+    Ok(())
+}
+
+async fn pull_one_received(
+    host: &Host,
+    histories: &HistoryMap,
+    client: &RelayClient,
+    share: &RegisteredShare,
+    publisher_device: &str,
+) -> Result<(), String> {
+    let id = Id::try_from(share.id.as_str().to_owned()).map_err(|e| e.to_string())?;
+    let store = registered_share::receiver_store(host, &id)
+        .await
+        .map_err(|e| e.to_string())?;
+    let publisher = NodeKey::from_hex(share.publisher.as_str())
+        .map_err(|_| "received share publisher is not hex32")?;
+    let device = DeviceId::from_hex(publisher_device)
+        .map_err(|_| "received share device_id is not hex32")?;
+    // Ensure an in-memory history exists so AcceptEntry has a place to land.
+    let _ = histories.with_mut(share.id.as_str(), |_| ())?;
+    let from = histories
+        .peek_with(share.id.as_str(), |history| {
+            let stream = VerifiedHistory::stream(publisher, device);
+            history
+                .stream_head(&stream)
+                .map(|head| head.writer_seq.saturating_add(1))
+                .unwrap_or(1)
+        })
+        .unwrap_or(1);
+    let db = DatabaseCtx {
+        home: &host.home,
+        database_id: share.id.as_str(),
+        store: &store,
+    };
+    let _ = super::pull::pull_stream(
+        client,
+        histories,
+        &db,
+        share.publisher.as_str(),
+        publisher_device,
+        from,
+    )
+    .await?;
     Ok(())
 }
 
