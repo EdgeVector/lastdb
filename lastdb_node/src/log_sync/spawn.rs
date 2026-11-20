@@ -164,14 +164,13 @@ async fn pull_one_received(
     let device = DeviceId::from_hex(publisher_device)
         .map_err(|_| "received share device_id is not hex32")?;
     // Ensure an in-memory history exists so AcceptEntry has a place to land.
-    let _ = histories.with_mut(share.id.as_str(), |_| ())?;
+    histories.with_mut(share.id.as_str(), |_| ())?;
     let from = histories
         .peek_with(share.id.as_str(), |history| {
             let stream = VerifiedHistory::stream(publisher, device);
             history
                 .stream_head(&stream)
-                .map(|head| head.writer_seq.saturating_add(1))
-                .unwrap_or(1)
+                .map_or(1, |head| head.writer_seq.saturating_add(1))
         })
         .unwrap_or(1);
     let db = DatabaseCtx {

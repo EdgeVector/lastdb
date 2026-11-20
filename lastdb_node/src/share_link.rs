@@ -329,7 +329,7 @@ fn local_device_id(home: &Path) -> Result<Digest, IssueError> {
     }
     let mut bytes = [0u8; 32];
     rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut bytes);
-    let hex = fold_db::hex::hex_lower(&bytes);
+    let hex = fold_db::hex::hex_lower(bytes);
     disk::write_private(&path, format!("{hex}\n").as_bytes())
         .map_err(|_| IssueError::unavailable("cannot write device id"))?;
     Digest::try_from(hex).map_err(|_| IssueError::unavailable("device id is not hex32"))
