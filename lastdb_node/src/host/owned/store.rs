@@ -112,7 +112,7 @@ impl Tables {
 
     /// Point the personal row at a restored cloud id. The store stays `<home>/data`.
     pub(crate) fn adopt_owner_id(&self, home: &Path, database_id: &str) -> Result<(), OwnedError> {
-        if cloud_backup_protocol::Id::try_from(database_id.to_owned()).is_err() {
+        if mutation_log::DatabaseId::from_hex(database_id).is_err() {
             return Err(OwnedError::InvalidName);
         }
         let mut state = self.write()?;

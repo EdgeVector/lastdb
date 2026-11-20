@@ -44,7 +44,8 @@ mod payload;
 mod wire;
 
 pub use accept::{
-    position_of, stream_id_of, AcceptOutcome, PendingReason, RejectReason, StreamHead,
+    birth_proof_bytes, position_of, stream_id_of, verify_birth_signature, AcceptOutcome,
+    PendingReason, RejectReason, StreamHead,
 };
 pub use author::{
     author_birth, author_blob_delete, author_data, author_grant, author_heads, author_relays,

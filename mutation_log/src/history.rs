@@ -250,12 +250,8 @@ impl VerifiedHistory {
                 self.owner = Some(body.owner);
             }
         }
-        if let Some(body) = &grant_body {
-            if is_publisher {
-                self.grants.apply_grant(position, body);
-            }
-        }
-        self.apply_effects(&entry, position);
+        self.apply_effects(&entry, position, is_publisher);
+        let rebuild = is_publisher && grant_body.is_some();
         let meta = AcceptedMeta {
             position,
             is_publisher,
@@ -272,14 +268,28 @@ impl VerifiedHistory {
             },
         );
         self.accepted.insert(hash, meta);
+        if rebuild {
+            self.rebuild_grants();
+        }
     }
 
-    fn apply_effects(&mut self, entry: &SignedEntry, position: RecordPosition) {
+    fn rebuild_grants(&mut self) {
+        self.grants = GrantState::rebuild_from(self.accepted.values().filter_map(|m| {
+            if m.is_publisher {
+                m.grant_body.as_ref().map(|b| (m.position, b))
+            } else {
+                None
+            }
+        }));
+    }
+
+    fn apply_effects(&mut self, entry: &SignedEntry, position: RecordPosition, is_publisher: bool) {
         match entry {
             SignedEntry::Data { body, .. } => {
-                if body.stream == crate::kinds::StreamKind::Direct
-                    || body.incorporated_from.is_some()
-                {
+                // Proposals count as content only after publisher incorporation.
+                let merge = body.stream == crate::kinds::StreamKind::Direct
+                    || (is_publisher && body.incorporated_from.is_some());
+                if merge {
                     self.merge_data(&body.namespace, &body.payload, position);
                 }
             }

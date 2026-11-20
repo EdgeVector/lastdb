@@ -10,6 +10,7 @@
 //! # Kind bodies
 //!
 //! - **birth:** `owner`(32) · `db_salt`(32) · `birth_signature` raw 64
+//!   (`birth_signature` verifies `owner ‖ db_salt` under `database_id`)
 //! - **data:** `stream` u8 (0=direct,1=proposal) · `namespace`(u16+utf8) ·
 //!   `payload`(u32+bytes) · `flags` u8 (bit0=file, bit1=incorporated_from,
 //!   bit2=grant_at) · optionals in that bit order

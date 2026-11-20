@@ -2,10 +2,10 @@
 
 use app_identity_crypto::{hex_lower, sign, SigningKey};
 use mutation_log::{
-    author_birth, author_data, author_grant, data_record, encode_signature_b64url, entry_hash,
-    grant_raise, grant_reduce, AcceptOutcome, AuthorCtx, DatabaseId, DeviceId, EntryHash, Grantee,
-    Hex32, NodeKey, RejectReason, RevocationCutoff, Role, SignedEntry, StreamHead, StreamKind,
-    VerifiedHistory,
+    author_birth, author_data, author_grant, birth_proof_bytes, data_record,
+    encode_signature_b64url, entry_hash, grant_raise, grant_reduce, AcceptOutcome, AuthorCtx,
+    DatabaseId, DeviceId, EntryHash, Grantee, Hex32, NodeKey, RejectReason, RevocationCutoff, Role,
+    SignedEntry, StreamHead, StreamKind, VerifiedHistory,
 };
 use rand::RngCore;
 use uuid::Uuid;
@@ -67,7 +67,8 @@ pub struct DbBirth {
 }
 
 impl DbBirth {
-    pub fn generate() -> Self {
+    /// Mint a self-certifying database id and sign `owner ‖ db_salt` with the db key.
+    pub fn generate(owner: NodeKey) -> Self {
         let mut seed = [0u8; 32];
         rand::thread_rng().fill_bytes(&mut seed);
         let db_key = SigningKey::from_bytes(&seed);
@@ -75,7 +76,8 @@ impl DbBirth {
         let mut salt = [0u8; 32];
         rand::thread_rng().fill_bytes(&mut salt);
         let db_salt = Hex32::from_bytes(salt);
-        let birth_signature = encode_signature_b64url(&sign(&db_key, db_salt.as_bytes()));
+        let proof = birth_proof_bytes(owner, db_salt);
+        let birth_signature = encode_signature_b64url(&sign(&db_key, &proof));
         Self {
             database_id,
             db_salt,

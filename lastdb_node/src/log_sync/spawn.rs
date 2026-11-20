@@ -70,13 +70,12 @@ async fn one_turn(host: &Host, histories: &HistoryMap, base: &str) -> Result<(),
             // DESIGN: received/shareable membership pull paths still TBD.
             continue;
         }
-        // DESIGN: cloud API v3 database_id is Hex32 (db public key). Older
-        // registry rows may use non-hex labels; skip until homes are re-created.
+        // Registry ids are Hex32 (db verifying key); refuse non-hex rows.
         if mutation_log::DatabaseId::from_hex(&database.id).is_err() {
-            tracing::debug!(
+            tracing::warn!(
                 target: "lastdbd::log_sync",
                 id = %database.id,
-                "skip sync: database_id is not Hex32"
+                "skip sync: database_id is not a 64-hex database id"
             );
             continue;
         }

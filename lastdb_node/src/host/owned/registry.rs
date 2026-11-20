@@ -112,9 +112,7 @@ pub(crate) fn find_shareable(home: &Path, selector: &str) -> Result<Entry, Strin
     if entry.spec.is_none() {
         return Err("share creation requires a spec binding".into());
     }
-    if cloud_backup_protocol::Id::try_from(entry.id.clone()).is_err() {
-        return Err("database registry is unavailable".into());
-    }
+    require_id(&entry.id).map_err(|_| "database registry is unavailable".to_owned())?;
     Ok(entry)
 }
 
@@ -218,8 +216,11 @@ pub(super) fn used_ids(owner: &Entry, owned: &[Entry]) -> HashSet<String> {
 
 pub(super) fn fresh_id(used: &HashSet<String>) -> Result<String, OwnedError> {
     for _ in 0..8 {
-        let id = uuid::Uuid::new_v4().to_string();
-        if cloud_backup_protocol::Id::try_from(id.clone()).is_ok() && !used.contains(&id) {
+        let mut seed = [0u8; 32];
+        rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut seed);
+        let key = app_identity_crypto::SigningKey::from_bytes(&seed);
+        let id = app_identity_crypto::hex_lower(&key.verifying_key().to_bytes());
+        if require_id(&id).is_ok() && !used.contains(&id) {
             return Ok(id);
         }
     }
@@ -302,9 +303,9 @@ fn accept_sibling(
 }
 
 fn require_id(id: &str) -> Result<(), String> {
-    cloud_backup_protocol::Id::try_from(id.to_owned())
+    mutation_log::DatabaseId::from_hex(id)
         .map(|_| ())
-        .map_err(|_| format!("database id {id} is not a UUID"))
+        .map_err(|_| format!("database id {id} is not a 64-hex database id"))
 }
 
 fn registry_path(home: &Path) -> PathBuf {

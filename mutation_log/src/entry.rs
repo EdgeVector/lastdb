@@ -79,7 +79,7 @@ pub struct BirthBody {
     pub owner: NodeKey,
     /// Database salt (hex).
     pub db_salt: Hex32,
-    /// Birth signature by the database key (base64url 86).
+    /// Db-key signature over `owner ‖ db_salt` (base64url 86).
     pub birth_signature: String,
 }
 

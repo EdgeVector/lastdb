@@ -1,12 +1,20 @@
 //! `AcceptEntry(E, S) → accept | pending | reject`.
+//!
+//! # Birth proof
+//!
+//! `database_id` is the database Ed25519 verifying key. The birth proof is
+//! `owner(32) ‖ db_salt(32)`, signed by that key (`birth_signature` on the
+//! wire). See [`birth_proof_bytes`] and [`verify_birth_signature`].
 
 use crate::auth::authorize_data;
 use crate::entry::SignedEntry;
 use crate::grants::{AcceptedMeta, GrantState};
-use crate::ids::{DatabaseId, EntryHash, NodeKey, StreamId};
+use crate::ids::{DatabaseId, EntryHash, Hex32, NodeKey, StreamId};
 use crate::kinds::EntryKind;
 use crate::payload::RecordPosition;
-use crate::wire::{entry_hash, verify_entry_signature, EncodeError, VerifyError};
+use crate::wire::{
+    decode_signature_b64url, entry_hash, verify_entry_signature, EncodeError, VerifyError,
+};
 
 /// Outcome of [`super::history::VerifiedHistory::accept_entry`].
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -251,10 +259,46 @@ fn check_birth(entry: &SignedEntry, ctx: &AcceptContext<'_>) -> Option<RejectRea
         return Some(RejectReason::Birth("birth already accepted"));
     }
     match entry {
-        SignedEntry::Birth { body, .. } if body.owner == h.node_key => None,
+        SignedEntry::Birth { body, .. } if body.owner == h.node_key => {
+            match verify_birth_signature(
+                h.database_id,
+                body.owner,
+                body.db_salt,
+                &body.birth_signature,
+            ) {
+                Ok(()) => None,
+                Err(_) => Some(RejectReason::Birth("birth_signature does not verify")),
+            }
+        }
         SignedEntry::Birth { .. } => Some(RejectReason::Birth("owner must equal node_key")),
         _ => Some(RejectReason::Malformed("birth kind mismatch")),
     }
+}
+
+/// Birth proof material: `owner(32) ‖ db_salt(32)`.
+#[must_use]
+pub fn birth_proof_bytes(owner: NodeKey, db_salt: Hex32) -> [u8; 64] {
+    let mut out = [0u8; 64];
+    out[..32].copy_from_slice(owner.as_bytes());
+    out[32..].copy_from_slice(db_salt.as_bytes());
+    out
+}
+
+/// Verify `birth_signature` under `database_id` (db Ed25519 verifying key).
+pub fn verify_birth_signature(
+    database_id: DatabaseId,
+    owner: NodeKey,
+    db_salt: Hex32,
+    sig_b64: &str,
+) -> Result<(), VerifyError> {
+    let proof = birth_proof_bytes(owner, db_salt);
+    let sig = decode_signature_b64url(sig_b64).map_err(VerifyError::Encode)?;
+    let vk = app_identity_crypto::VerifyingKey::from_bytes(database_id.as_bytes())
+        .map_err(|_| VerifyError::BadNodeKey)?;
+    if vk.is_weak() {
+        return Err(VerifyError::WeakNodeKey);
+    }
+    app_identity_crypto::verify(&vk, &sig, &proof).map_err(|_| VerifyError::BadSignature)
 }
 
 /// Build stream id from an entry header.

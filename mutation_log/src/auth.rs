@@ -71,6 +71,11 @@ fn authorize_proposal<'s>(
     if body.grant_at_device.is_some() || body.grant_at_seq.is_some() {
         return Some(RejectReason::Malformed("proposal must not carry grant_at"));
     }
+    if body.incorporated_from.is_some() {
+        return Some(RejectReason::Malformed(
+            "non-publisher proposal must not carry incorporated_from",
+        ));
+    }
     let window = GrantState::fold_window_from_seen(&h.seen_heads, |h| lookup(h));
     match window.role_of(&h.node_key) {
         Some(Role::Submit | Role::Write) => {}
@@ -84,6 +89,7 @@ fn authorize_proposal<'s>(
 }
 
 fn check_cutoff(h: &EntryHeader, grants: &GrantState) -> Option<RejectReason> {
+    // After a reduction, missing device tips are cutoff 0 (unseen → reject seq≥1).
     let tip = grants.cutoff(&h.node_key, &h.device_id)?;
     if past_cutoff(h.writer_seq, tip) {
         Some(RejectReason::Unauthorized(

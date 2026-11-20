@@ -164,6 +164,9 @@ fn read_position(req: &LogReadBody) -> ApiResult<(String, String, u64)> {
         .clone()
         .ok_or_else(|| ApiError::invalid("device_id"))?;
     require_hex64(&node_key, "writer_key")?;
+    if uuid::Uuid::parse_str(&device_id).is_err() {
+        return Err(ApiError::invalid("device_id"));
+    }
     Ok((node_key, device_id, req.from_seq.unwrap_or(1).max(1)))
 }
 

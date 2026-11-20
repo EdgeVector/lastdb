@@ -45,7 +45,7 @@ pub struct BootstrapParams<'a> {
     pub device_id: DeviceId,
     /// Database salt.
     pub db_salt: Hex32,
-    /// Birth signature (db-key signature, base64url 86).
+    /// Birth signature: db-key sig over `owner ‖ db_salt` (base64url 86).
     pub birth_signature: String,
     /// Wall clock for birth.
     pub authored_at_ms: u64,

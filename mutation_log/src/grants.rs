@@ -1,6 +1,6 @@
 //! Folded grant state and role-reduction cutoffs.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::entry::{GrantBody, SignedEntry};
 use crate::ids::{DeviceId, EntryHash, NodeKey};
@@ -17,6 +17,9 @@ pub struct GrantState {
     /// Accumulated cutoffs keyed by (grantee node_key, device_id).
     /// For `any`, cutoffs are ignored (`any` is read-only).
     cutoffs: BTreeMap<(NodeKey, DeviceId), CutoffTip>,
+    /// Members that have received at least one role reduction/revoke.
+    /// Unlisted devices for these members default to cutoff tip 0.
+    reduced: BTreeSet<NodeKey>,
 }
 
 /// One device cutoff tip.
@@ -50,10 +53,28 @@ impl GrantState {
         self.any
     }
 
-    /// Cutoff tip for `(grantee, device)`, if any.
+    /// True when this member has ever been role-reduced or revoked.
+    #[must_use]
+    pub fn was_reduced(&self, grantee: &NodeKey) -> bool {
+        self.reduced.contains(grantee)
+    }
+
+    /// Cutoff tip for `(grantee, device)`.
+    ///
+    /// After a reduction, devices absent from `cutoffs[]` are tip 0 (unseen →
+    /// cutoff 0). Before any reduction, returns `None` (unrestricted).
     #[must_use]
     pub fn cutoff(&self, grantee: &NodeKey, device: &DeviceId) -> Option<CutoffTip> {
-        self.cutoffs.get(&(*grantee, *device)).copied()
+        if let Some(tip) = self.cutoffs.get(&(*grantee, *device)).copied() {
+            return Some(tip);
+        }
+        if self.reduced.contains(grantee) {
+            return Some(CutoffTip {
+                writer_seq: 0,
+                entry_hash: EntryHash::ZERO,
+            });
+        }
+        None
     }
 
     /// Apply one grant entry in merge order. Equal lamport: revoked wins.
@@ -74,6 +95,7 @@ impl GrantState {
                     self.members.insert(key, next);
                 }
                 if is_reduction(prev, body.role) {
+                    self.reduced.insert(key);
                     for c in &body.cutoffs {
                         self.cutoffs.insert(
                             (key, c.device_id),
@@ -88,6 +110,23 @@ impl GrantState {
         }
     }
 
+    /// Rebuild grant state from every accepted publisher grant body.
+    ///
+    /// Sorts by `(lamport, node_key, device_id)` then revoke-wins tie rank,
+    /// then applies in that order. Call after each accepted publisher grant.
+    #[must_use]
+    pub fn rebuild_from<'a>(
+        grants: impl IntoIterator<Item = (RecordPosition, &'a GrantBody)>,
+    ) -> GrantState {
+        let mut list: Vec<(RecordPosition, &GrantBody)> = grants.into_iter().collect();
+        sort_grants(&mut list);
+        let mut folded = GrantState::empty();
+        for (pos, body) in list {
+            folded.apply_grant(pos, body);
+        }
+        folded
+    }
+
     /// Fold a grant window from publisher entries named by `seen_heads` only.
     ///
     /// Starts empty (does not inherit `self`). Cutoffs on the returned state are
@@ -97,32 +136,26 @@ impl GrantState {
         seen: &[EntryHash],
         lookup: impl Fn(&EntryHash) -> Option<&'s AcceptedMeta>,
     ) -> GrantState {
-        let mut grants: Vec<(RecordPosition, &GrantBody)> = Vec::new();
-        for h in seen {
-            let Some(meta) = lookup(h) else {
-                continue;
-            };
+        let grants = seen.iter().filter_map(|h| {
+            let meta = lookup(h)?;
             if !meta.is_publisher {
-                continue;
+                return None;
             }
-            if let Some(body) = meta.grant_body.as_ref() {
-                grants.push((meta.position, body));
-            }
-        }
-        grants.sort_by(|a, b| {
-            let primary = (a.0.lamport, a.0.node_key, a.0.device_id).cmp(&(
-                b.0.lamport,
-                b.0.node_key,
-                b.0.device_id,
-            ));
-            primary.then_with(|| grant_tie_rank(a.1.role).cmp(&grant_tie_rank(b.1.role)))
+            meta.grant_body.as_ref().map(|body| (meta.position, body))
         });
-        let mut folded = GrantState::empty();
-        for (pos, body) in grants {
-            folded.apply_grant(pos, body);
-        }
-        folded
+        Self::rebuild_from(grants)
     }
+}
+
+fn sort_grants(grants: &mut [(RecordPosition, &GrantBody)]) {
+    grants.sort_by(|a, b| {
+        let primary = (a.0.lamport, a.0.node_key, a.0.device_id).cmp(&(
+            b.0.lamport,
+            b.0.node_key,
+            b.0.device_id,
+        ));
+        primary.then_with(|| grant_tie_rank(a.1.role).cmp(&grant_tie_rank(b.1.role)))
+    });
 }
 
 fn grant_tie_rank(role: Role) -> u8 {

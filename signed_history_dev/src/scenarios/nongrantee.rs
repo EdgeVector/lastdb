@@ -12,7 +12,7 @@ pub async fn run(relay: &RelayHandle) -> Result<String, String> {
     let owner = Device::generate();
     let member = Device::generate();
     let stranger = Device::generate();
-    let birth = DbBirth::generate();
+    let birth = DbBirth::generate(owner.node_key);
     let t0 = now_ms();
     let (mut history, birth_entry) = bootstrap_owner(&owner, &birth, t0)?;
     let grant = owner_grant_write(

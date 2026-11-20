@@ -12,7 +12,7 @@ pub async fn run(relay: &RelayHandle) -> Result<String, String> {
         node_key: owner_a.node_key,
         device_id: mutation_log::DeviceId::from_uuid(uuid::Uuid::new_v4()),
     };
-    let birth = DbBirth::generate();
+    let birth = DbBirth::generate(owner_a.node_key);
     let t0 = now_ms();
     let (mut hist_a, birth_entry) = bootstrap_owner(&owner_a, &birth, t0)?;
     let entry_a = owner_write(
