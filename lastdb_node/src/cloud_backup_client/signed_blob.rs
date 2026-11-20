@@ -130,8 +130,7 @@ fn ephemeral_authorization_database_id() -> std::result::Result<Id, E> {
     for _ in 0..8 {
         let mut seed = [0u8; 32];
         rand::rngs::OsRng.fill_bytes(&mut seed);
-        let key = app_identity_crypto::SigningKey::from_bytes(&seed)
-            .map_err(|_| E::Configuration("database id"))?;
+        let key = app_identity_crypto::SigningKey::from_bytes(&seed);
         let hex = app_identity_crypto::hex_lower(&key.verifying_key().to_bytes());
         if let Ok(id) = Id::try_from(hex) {
             return Ok(id);

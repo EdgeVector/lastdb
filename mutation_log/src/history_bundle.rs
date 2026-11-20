@@ -35,14 +35,12 @@ impl VerifiedHistory {
     ) -> AcceptOutcome {
         let outcome = self.evaluate_entry(&entry);
         match &outcome {
-            AcceptOutcome::Accept {
-                duplicate: true, ..
-            } => return outcome,
-            AcceptOutcome::Reject { .. } => return outcome,
             AcceptOutcome::Pending {
                 reason: PendingReason::BundleBlob { .. },
             } => {}
-            AcceptOutcome::Pending { .. } | AcceptOutcome::Accept { .. } => return outcome,
+            AcceptOutcome::Accept { .. }
+            | AcceptOutcome::Reject { .. }
+            | AcceptOutcome::Pending { .. } => return outcome,
         }
         let SignedEntry::Bundle { body, .. } = &entry else {
             return AcceptOutcome::Reject {

@@ -12,7 +12,7 @@ use sha2::{Digest, Sha256};
 
 use crate::error::{ApiError, ApiResult};
 
-const SKEW_MS: u64 = 60_000;
+const SKEW_SECS: u64 = 60;
 const PROTOCOL: &str = "1";
 
 /// Verified caller of one relay request.
@@ -99,18 +99,12 @@ fn check_skew(issued_at: &str) -> ApiResult<()> {
     let issued: u64 = issued_at
         .parse()
         .map_err(|_| ApiError::unauthorized("issued_at"))?;
-    let now_ms = SystemTime::now()
+    let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_millis() as u64);
-    // OpenAPI `issued_at` is unix seconds; unix milliseconds are also accepted.
-    let issued_ms = if issued > 10_000_000_000 {
-        issued
-    } else {
-        issued.saturating_mul(1000)
-    };
-    let earliest = now_ms.saturating_sub(SKEW_MS);
-    let latest = now_ms.saturating_add(SKEW_MS);
-    if issued_ms < earliest || issued_ms > latest {
+        .map_or(0, |d| d.as_secs());
+    let earliest = now.saturating_sub(SKEW_SECS);
+    let latest = now.saturating_add(SKEW_SECS);
+    if issued < earliest || issued > latest {
         return Err(ApiError::unauthorized("issued_at"));
     }
     Ok(())

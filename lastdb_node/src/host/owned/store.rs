@@ -36,9 +36,9 @@ impl Tables {
         validate_create(name, spec.as_ref())?;
         let _creating = self.creating.lock().await;
         let id = match requested_id {
-            Some(id) => {
-                mutation_log::DatabaseId::from_hex(&id).map_err(|_| OwnedError::InvalidName)?;
-                id
+            Some(ref id) => {
+                mutation_log::DatabaseId::from_hex(id).map_err(|_| OwnedError::InvalidName)?;
+                id.clone()
             }
             None => self.allocate(name)?,
         };

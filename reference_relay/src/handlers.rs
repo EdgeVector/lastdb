@@ -21,7 +21,6 @@ use crate::presign;
 use crate::store::{self, Store};
 
 /// Shared process state.
-#[derive(Clone)]
 pub(crate) struct AppState {
     pub(crate) store: Store,
     pub(crate) public_base: String,
@@ -31,11 +30,13 @@ pub(crate) struct AppState {
 
 impl AppState {
     async fn check_read(&self, db: &DatabaseId, caller: &NodeKey) -> ApiResult<()> {
-        gate::authorize_read(&self.grants.lock().await, db, caller)
+        let grants = self.grants.lock().await;
+        gate::authorize_read(&grants, db, caller)
     }
 
     async fn check_blob_put(&self, db: &DatabaseId, caller: &NodeKey) -> ApiResult<()> {
-        gate::authorize_blob_put(&self.grants.lock().await, db, caller)
+        let grants = self.grants.lock().await;
+        gate::authorize_blob_put(&grants, db, caller)
     }
 }
 

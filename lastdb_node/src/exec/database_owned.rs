@@ -64,7 +64,7 @@ pub(super) async fn create(req: &UdsRequest, ctx: &AccessContext, host: &Host) -
             );
         }
     };
-    if let Some(response) = share_conflict(host, &body.name, requested_id, ctx) {
+    if let Some(response) = share_conflict(host, &body.name, requested_id.clone(), ctx) {
         return response;
     }
     match host
