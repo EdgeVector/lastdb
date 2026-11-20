@@ -64,7 +64,7 @@ pub(super) async fn create(req: &UdsRequest, ctx: &AccessContext, host: &Host) -
             );
         }
     };
-    if let Some(response) = share_conflict(host, &body.name, requested_id.clone(), ctx) {
+    if let Some(response) = share_conflict(host, &body.name, requested_id.as_deref(), ctx) {
         return response;
     }
     match host
@@ -249,10 +249,9 @@ fn registration_reply(
 fn share_conflict(
     host: &Host,
     name: &str,
-    requested_id: Option<String>,
+    id: Option<&str>,
     ctx: &AccessContext,
 ) -> Option<UdsResponse> {
-    let id = requested_id.as_deref();
     match registered_share::list(&host.home) {
         Ok(shares)
             if shares.iter().any(|share| {

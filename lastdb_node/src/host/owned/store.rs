@@ -35,15 +35,12 @@ impl Tables {
         }
         validate_create(name, spec.as_ref())?;
         let _creating = self.creating.lock().await;
-        let (id, birth_seed) = match requested_id {
-            Some(ref id) => {
-                mutation_log::DatabaseId::from_hex(id).map_err(|_| OwnedError::InvalidName)?;
-                (id.clone(), None)
-            }
-            None => {
-                let (id, seed) = self.allocate(name)?;
-                (id, Some(seed))
-            }
+        let (id, birth_seed) = if let Some(ref id) = requested_id {
+            mutation_log::DatabaseId::from_hex(id).map_err(|_| OwnedError::InvalidName)?;
+            (id.clone(), None)
+        } else {
+            let (id, seed) = self.allocate(name)?;
+            (id, Some(seed))
         };
         let entry = Entry {
             id,

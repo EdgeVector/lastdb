@@ -154,7 +154,7 @@ fn accept_local(
 
 fn rejected(reason: &RejectReason) -> ChainError {
     match reason {
-        RejectReason::Unauthorized(message) => ChainError::Forbidden(*message),
+        RejectReason::Unauthorized(message) => ChainError::Forbidden(message),
         RejectReason::StreamFrozen | RejectReason::Equivocation { .. } => {
             ChainError::Conflict("this device stream is frozen")
         }
