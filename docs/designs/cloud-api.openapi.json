@@ -3,7 +3,7 @@
   "info": {
     "title": "LastDB ExeMem Cloud API",
     "version": "3.0.0-design",
-    "description": "ExeMem Cloud API v3 (minimal signed history). Local AcceptEntry; seen_heads by hash from any stream; checked Lamport; whole-record LWW; no snapshots; no resolve; no manage/access; no server grant 403s; publisher heads for hidden-entry detection; delete/deactivate product erase. See relay-protocol.md."
+    "description": "ExeMem Cloud API v3 (minimal signed history). Local AcceptEntry; seen_heads by hash from any stream; checked Lamport; whole-record LWW; no snapshots; no resolve; no manage/access; no server grant 403s; publisher heads for hidden-entry detection; delete/deactivate product erase. See relay-protocol.md; signed bundle entries for large batches/bootstrap. See relay-protocol.md."
   },
   "servers": [
     {
@@ -1315,6 +1315,9 @@
         "oneOf": [
           {
             "$ref": "#/components/schemas/DataEntry"
+          },
+          {
+            "$ref": "#/components/schemas/BundleEntry"
           },
           {
             "$ref": "#/components/schemas/GrantEntry"
@@ -3584,6 +3587,9 @@
             "$ref": "#/components/schemas/DataEntry"
           },
           {
+            "$ref": "#/components/schemas/BundleEntry"
+          },
+          {
             "$ref": "#/components/schemas/GrantEntry"
           },
           {
@@ -3900,7 +3906,8 @@
             "minLength": 64,
             "maxLength": 64
           }
-        }
+        },
+        "description": "Publisher blob reclaim. Invalid (ignored by readers) if any accepted log entry still references the digest, including a bundle blob."
       },
       "RelaysEntry": {
         "type": "object",
@@ -4005,6 +4012,101 @@
           "description": "entry_hash of an accepted entry from any stream"
         },
         "description": "Sorted ascending; every hash must be held+accepted or entry stays pending"
+      },
+      "BundleEntry": {
+        "type": "object",
+        "required": [
+          "kind",
+          "database_id",
+          "node_key",
+          "device_id",
+          "writer_seq",
+          "prev_hash",
+          "authored_at_ms",
+          "lamport",
+          "seen_heads",
+          "signature",
+          "namespace",
+          "blob_sha256",
+          "blob_size",
+          "change_count"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "bundle"
+          },
+          "database_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "node_key": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "device_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "writer_seq": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "prev_hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "authored_at_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Display-only wall clock"
+          },
+          "lamport": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "1 + max(prev lamport, lamports of seen_heads entries)"
+          },
+          "seen_heads": {
+            "$ref": "#/components/schemas/SeenHeads"
+          },
+          "signature": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{86}$",
+            "minLength": 86,
+            "maxLength": 86
+          },
+          "namespace": {
+            "type": "string",
+            "const": "bundle"
+          },
+          "blob_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64,
+            "description": "SHA-256 of the encrypted bundle blob bytes"
+          },
+          "blob_size": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 67108864,
+            "description": "Encrypted blob size in bytes; protocol max 64 MiB"
+          },
+          "change_count": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10000,
+            "description": "Inner data changes; protocol max 10_000; must match decrypted body"
+          }
+        },
+        "description": "Signed multi-change bundle. Encrypted blob uploaded via blob.put before append. Caps: blob_size \u2264 67108864 (64 MiB), change_count \u2264 10000. Inner changes are data-only; share the entry lamport; unique record keys; apply order = ascending record key. Missing/bad blob \u2192 pending (stream blocks)."
       }
     }
   }

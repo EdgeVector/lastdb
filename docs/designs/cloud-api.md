@@ -68,10 +68,17 @@ verified history for `E.database_id`:
    inconsistent).
 6. **Publisher authorization / cutoffs.** Among `E.seen_heads`, use the
    **publisher** entries for the grant-window. Owner (from birth) may write
-   publisher kinds. Else `kind=data`: grant-window + role-reduction cutoffs
-   below. Direct writes past a cutoff are rejected **regardless of** claimed
-   seen heads.
-7. **On reject:** do not apply; keep evidence. **On pending:** do not apply
+   publisher kinds. Else `kind=data` or `kind=bundle`: grant-window +
+   role-reduction cutoffs below. Direct writes past a cutoff are rejected
+   **regardless of** claimed seen heads.
+7. **Bundle body (only if `kind=bundle`).** After steps 1–6 pass, fetch the
+   referenced encrypted blob (`blob.get`), verify `blob_sha256` and
+   `blob_size`, decrypt under the db key, verify `change_count`, then apply
+   the inner **data** changes in order (see Signed bundles). A missing blob,
+   hash/size/count mismatch, or decrypt failure → **pending** (not applied);
+   the stream **blocks** on that entry until a valid blob is obtained — it
+   does **not** freeze the stream (freeze is equivocation only).
+8. **On reject:** do not apply; keep evidence. **On pending:** do not apply
    yet. A frozen stream (fork) never advances.
 
 ### Local node model
@@ -148,6 +155,8 @@ silently disagree once heads and dependencies meet.
 7. Proposals are **`data` entries with `stream = proposal`**; they count
    as content only after publisher **incorporation**.
 8. Append-only, never-trimmed logs.
+9. Signed `bundle` entries for large batches / bootstrap / restore pushes
+   (ordinary writes stay single `data` entries).
 
 ### Device chains (streams)
 
@@ -171,6 +180,7 @@ Wire `signature`: base64url, 64 bytes.
 |---|---|---|
 | `birth` | birth material in chain | First publisher-device entry (`writer_seq=1`) |
 | `data` | `lastdb-mutation-v1` | `stream` direct\|proposal; payload; optional file / incorporation / grant_at |
+| `bundle` | `lastdb-bundle-v1` | `{blob_sha256, blob_size, change_count}`; encrypted multi-change blob |
 | `grant` | `lastdb-grant-v1` | grantee, role; **cutoffs only when lowering/revoking** (not on first grant) |
 | `blob_delete` | `lastdb-blob-delete-v1` | publisher; names blob `sha256` |
 | `heads` | `lastdb-heads-v1` | publisher tip vector for hidden-entry detection |
@@ -208,9 +218,64 @@ cutoff are rejected regardless of `seen_heads`. `any` is read-only.
 
 ### Blob delete
 
-Publisher `blob_delete` names blob `sha256`. Relays may drop those bytes.
-Normal operation never GC-trims logs; product `delete` / `deactivate`
-erase storage as below.
+Publisher `blob_delete` names blob `sha256`. Relays may drop those bytes
+when no accepted log entry still references that digest. A `blob_delete`
+that names a digest still referenced by an accepted `bundle` (or other
+accepted entry) is **invalid**; readers **ignore** it. Normal operation
+never GC-trims logs; product `delete` / `deactivate` erase storage as
+below.
+
+### Signed bundles
+
+A `bundle` is one ordinary chain entry (same `node_key`, `device_id`,
+`writer_seq`, `prev_hash`, `lamport`, `seen_heads`, Ed25519 signature) whose
+payload is:
+
+| Field | Meaning |
+|---|---|
+| `blob_sha256` | SHA-256 of the encrypted blob bytes |
+| `blob_size` | Encrypted blob length in bytes |
+| `change_count` | Number of inner data changes (1…cap) |
+
+The encrypted blob holds many **data** changes in a defined order. Upload
+the blob with `blob.put` (presigned; parallel or multipart allowed)
+**before** appending the `bundle` entry. Readers fetch with `blob.get`.
+No new relay endpoints.
+
+**Inner contents:** only record data changes (puts/tombstones). Grants,
+revokes, role reductions, `heads`, `relays`, and `blob_delete` **must not**
+appear inside a bundle.
+
+**AcceptEntry (bundle):** run the common checks first (signature, db bind,
+chain link, seen heads, lamport, write authority, cutoffs, fork). Then
+download, verify sha256 + size, decrypt, verify `change_count`, and apply
+inner changes. Every inner change shares the **entry’s** `lamport` (and
+the entry’s `node_key` / `device_id`). A bundle **must not** hold two
+changes to the same record key. Apply order inside a bundle is ascending
+**record key** (byte-wise). Whole-record LWW against other entries still
+uses position `(lamport, node_key, device_id)`; the in-bundle record-key
+order is only the deterministic apply order among distinct keys. Hash,
+size, or count mismatch, decrypt failure, or a missing blob → entry stays
+**pending** / unavailable; the stream **blocks** until a valid blob is
+obtained (same pending class as missing `seen_heads`; not a freeze). The
+relay stays untrusted.
+
+**Caps (protocol constants):** max encrypted blob size **64 MiB**; max
+`change_count` **10_000**. Readers **reject** bundles over either cap.
+
+**When to use:** ordinary writes stay single `data` entries. Large restore
+pushes, large batch writes, and bootstrap current-state use bundles.
+Bundles are append-only and **replace no history**.
+
+**Blob identity / dedupe:** blob keys are scoped per `database_id`.
+Encryption uses the db key plus a **per-blob nonce**, so identical
+plaintext yields different ciphertext and different digests. There is
+**no** cross-entry content dedupe and **no** refcount. A bundle’s blob
+must not be removed by `blob_delete` while any accepted log entry
+references that digest; such a `blob_delete` is invalid and ignored.
+
+**Deferred (not designed here):** a publisher-signed rebase that replaces
+covered history to bound storage remains a future option.
 
 ## Restore, new device, and local state
 
@@ -220,21 +285,27 @@ No snapshots. No `cursor_expired`. Delivery cursors are pagination only.
 
 1. Discover a relay (People + `relays` entry).
 2. `log.read` every stream from `writer_seq = 1`.
-3. `AcceptEntry` (pending until seen-head deps arrive); LWW merge; replay.
-4. Fetch blobs **lazily** by hash via `blob.get` (presigned URL).
+3. `AcceptEntry` (pending until seen-head deps and bundle blobs arrive);
+   LWW merge; replay. Bundle bodies download via `blob.get` when the entry
+   is reached (stream blocks on that entry until the blob verifies).
+4. Other file blobs **lazily** by hash via `blob.get` (presigned URL).
 
 After replay, keep only materialized state, per-stream heads, grant state,
 per-record positions, and the outbox — enough to validate and author the
-next entry. Relays retain the full log.
+next entry. Relays retain the full log. With current-state bundles,
+bootstrap/restore of a large home is expected to finish well under a
+minute for a few hundred MB of synthetic data (see CI plan).
 
 ## Bootstrap (existing databases)
 
 No migration, no dual path:
 
 1. Publisher device appends `BirthEntry` (`writer_seq = 1`).
-2. Emits current state as ordinary signed `data` mutations (records + blob
-   refs).
-3. Members get **fresh** `grant` entries.
+2. Emits current state as one or more signed `bundle` entries (encrypted
+   current-state blobs uploaded first), not as a long run of single `data`
+   entries.
+3. Members get **fresh** `grant` entries (ordinary chain entries, never
+   inside a bundle).
 4. Old unsigned cloud data is **replaced**, not kept alongside.
 
 ## Shape
@@ -355,6 +426,11 @@ Publisher pays. Lapsed: reads work; push/grant/create →
     relay logs/blobs (id tombstoned). `deactivate` erases all publisher
     ExeMem/relay data, cancels subscriptions, retires the key. App
     registry is outside this API.
+47. Signed `bundle` entries (encrypted multi-change blobs via existing
+    `blob.put`/`blob.get`); caps 64 MiB / 10_000 changes; missing or bad
+    blob → pending/block (not freeze); no in-bundle grants/heads/relays/
+    blob_delete; per-db keyed blobs with per-blob nonce (no digest
+    dedupe/refcount). Bootstrap = birth + current-state bundles + grants.
 
 ### Defaults
 
@@ -368,6 +444,9 @@ Publisher pays. Lapsed: reads work; push/grant/create →
 | Fork recovery | New `device_id` (stream frozen; no `resolve`) |
 | Downloads | Presigned URL only |
 | Concurrent field edits | Split into smaller records (whole-record LWW) |
+| Bundle blob max | 64 MiB encrypted (protocol constant) |
+| Bundle change_count max | 10_000 (protocol constant) |
+| Bundle blob identity | Per-`database_id` + per-blob nonce (no digest dedupe) |
 
 ## Server errors (HTTP)
 
@@ -408,7 +487,12 @@ until `seen_heads` deps arrive — local only.
 11. Reordered delivery → same LWW state; no rewind.
 12. Publisher `heads` cites missing tip → withheld detection.
 13. Bootstrap replay equals source state; fresh member grants.
-14. Restore from start: full replay + lazy blobs.
+14. Restore from start: full replay + lazy blobs (bundle blobs required
+    when a `bundle` entry is accepted).
+15. **Bundle E2E (DEV):** fresh upload of a few hundred MB of synthetic
+    data via one or more `bundle` entries, and restore of that upload,
+    each finish in **under one minute**. Docs-only here; implement in CI
+    later — not a unit test.
 
 ## Build work
 
@@ -416,4 +500,5 @@ until `seen_heads` deps arrive — local only.
 account service ExeMem-specific.
 
 **Node:** local write path (sign/apply/outbox); `AcceptEntry` + pending
-deps; LWW; frozen-stream handling; `heads` compare; bootstrap; blob_delete.
+deps (incl. bundle blobs); LWW; frozen-stream handling; `heads` compare;
+bootstrap via bundles; blob_delete (ignore deletes of live bundle digests).

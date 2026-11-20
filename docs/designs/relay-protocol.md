@@ -15,11 +15,12 @@ signed chain entries. Any grant cache for anti-spam is derived, optional,
 never authoritative. People carries signed heads for comparison only.
 
 **No snapshots.** File blobs may be dropped after a publisher
-`blob_delete` chain entry. Product erase: ExeMem `manage`/`delete` erases
-that database’s logs and blobs on the relay (`database_id` stays
-tombstoned); `account`/`deactivate` erases all of that publisher’s relay
-data. All other relay policy is anti-spam / quota — **no** grant
-authorization (`forbidden` / `grant.*`).
+`blob_delete` chain entry that does not name a digest still referenced by
+an accepted log entry (including `bundle` blobs). Product erase: ExeMem
+`manage`/`delete` erases that database’s logs and blobs on the relay
+(`database_id` stays tombstoned); `account`/`deactivate` erases all of
+that publisher’s relay data. All other relay policy is anti-spam / quota
+— **no** grant authorization (`forbidden` / `grant.*`).
 
 ## Surface
 
@@ -37,17 +38,27 @@ other reads may still present `nodeSignature`.
 ### `log.append` / `log.read`
 
 Store key `(database_id, node_key, device_id, writer_seq)`. Entries:
-`birth`|`data`|`grant`|`blob_delete`|`heads`|`relays`.
+`birth`|`data`|`bundle`|`grant`|`blob_delete`|`heads`|`relays`.
 
 Read by device chain from `from_seq` (default 1) or opaque delivery cursor
 (pagination only; never expires). Nodes run `AcceptEntry` on read
-(pending until `seen_heads` deps arrive).
+(pending until `seen_heads` deps — and for `bundle`, a valid blob —
+arrive).
 
 ### `blob.put` / `blob.get`
 
-Content-addressed by sha256. **`blob.get` returns exactly one download
-path: a presigned URL** (plus headers, expiry, bytes, sha256). After a
-verified `blob_delete` for that digest, get may return `not_found`.
+Blob keys are scoped per `database_id`, content-addressed by sha256 of
+the stored (encrypted) bytes. Bundle writers `blob.put` the encrypted
+bundle body (presigned; parallel or multipart allowed) **before**
+`log.append` of the `bundle` entry. **`blob.get` returns exactly one
+download path: a presigned URL** (plus headers, expiry, bytes, sha256).
+After a verified, valid `blob_delete` for that digest, get may return
+`not_found`. No new endpoints for bundles.
+
+**Dedupe:** encryption with the db key plus a per-blob nonce means
+identical plaintext yields different digests — no cross-entry digest
+dedupe and no refcount. A `blob_delete` for a digest still referenced by
+an accepted `bundle` (or other entry) is invalid; nodes ignore it.
 
 ## v3 map
 
@@ -79,7 +90,8 @@ recovery is a new `device_id`, not a relay feature.
 | Public `grant#any` reads | Open on every conforming relay |
 | Relay list | Publisher-signed `relays` + People |
 | Log GC | Never (product erase via delete/deactivate only) |
-| Blob GC | After chain `blob_delete`, or product erase |
+| Blob GC | After valid chain `blob_delete`, or product erase |
+| Bundle blob max | 64 MiB / 10_000 changes (node-enforced) |
 | Download | Presigned URL only |
 | Fork recovery | New `device_id` (frozen stream; no resolve) |
 | Accounts | Not required on relay |
@@ -102,5 +114,6 @@ recovery is a new `device_id`, not a relay feature.
 ## CI conformance
 
 Same scenarios as `cloud-api.md` against ExeMem and the in-repo reference
-relay, including failover, fork/withhold, bootstrap replay equals source,
-and restore-from-start. Account paths ExeMem-only.
+relay, including failover, fork/withhold, bootstrap via bundles, restore-
+from-start, and the bundle few-hundred-MB under-a-minute upload/restore
+check. Account paths ExeMem-only.

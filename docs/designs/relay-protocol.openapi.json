@@ -3,7 +3,7 @@
   "info": {
     "title": "LastDB relay protocol",
     "version": "1.0.0-design",
-    "description": "Append-only never-trimmed log (except product delete/deactivate erase); blobs; presigned GET only. No snapshots. Nodes AcceptEntry with seen_heads deps. Anti-spam/quota only \u2014 no grant authorization. Errors: auth/signature, payment_required, quota/rate limits, not_found, bad request."
+    "description": "Append-only never-trimmed log (except product delete/deactivate erase); blobs; presigned GET only. No snapshots. Nodes AcceptEntry with seen_heads deps. Anti-spam/quota only \u2014 no grant authorization. Errors: auth/signature, payment_required, quota/rate limits, not_found, bad request; opaque signed bundle entries reference encrypted blobs via blob.put/get."
   },
   "paths": {
     "/relay/v1/log/append": {
@@ -389,7 +389,7 @@
             "nodeSignature": []
           }
         ],
-        "description": "Put blob Requires nodeSignature (node-key) auth."
+        "description": "Put blob Requires nodeSignature (node-key) auth. Bundle writers upload the encrypted body here before log.append of a bundle entry (max 64 MiB encrypted; node-enforced)."
       }
     },
     "/relay/v1/blob/get": {
@@ -646,6 +646,7 @@
             "enum": [
               "birth",
               "data",
+              "bundle",
               "grant",
               "blob_delete",
               "heads",
