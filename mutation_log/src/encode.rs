@@ -20,8 +20,8 @@
 //! - **relays:** urls (`u16` + per url `u16` len + utf8)
 
 use crate::entry::{
-    BlobDeleteBody, DataBody, DeviceHead, GrantBody, HeadsBody, IncorporatedFrom, MutationFileRef,
-    RelaysBody, RevocationCutoff, SignedEntry,
+    DataBody, DeviceHead, GrantBody, HeadsBody, IncorporatedFrom, MutationFileRef, RelaysBody,
+    RevocationCutoff, SignedEntry,
 };
 use crate::ids::Hex32;
 use crate::kinds::Grantee;

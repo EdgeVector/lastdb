@@ -14,6 +14,7 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use axum::extract::DefaultBodyLimit;
 use axum::routing::{get, post, put};
 use axum::Router;
 use clap::Parser;
@@ -21,6 +22,9 @@ use tokio::net::TcpListener;
 
 use handlers::{blob_bytes, blob_get, blob_put, blob_upload, log_append, log_read, AppState};
 use store::Store;
+
+/// CI blob_perf uploads ~300 MiB; leave headroom above axum's 2 MiB default.
+const MAX_BODY_BYTES: usize = 512 * 1024 * 1024;
 
 #[derive(Parser, Debug)]
 #[command(name = "reference_relay")]
@@ -66,6 +70,7 @@ async fn run() -> Result<(), String> {
         .route("/relay/v1/blob/get", post(blob_get))
         .route("/relay/v1/blob/upload/{token}", put(blob_upload))
         .route("/relay/v1/blob/bytes/{sha256}", get(blob_bytes))
+        .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
         .with_state(state);
     axum::serve(listener, app)
         .await

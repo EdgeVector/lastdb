@@ -24,6 +24,8 @@ members = [
     "mutation_log",
     # In-repo grant-blind reference relay for CI signed-history scenarios.
     "reference_relay",
+    # DEV CI proof binary: signed-history scenarios against reference_relay.
+    "signed_history_dev",
 
     # minimal headless LastDB daemon (`lastdbd`) — core DB + app-identity +
     # cloud sync over the owner Unix socket (no ingestion, no discovery, no
@@ -53,6 +55,7 @@ default-members = [
     "database_policy",
     "mutation_log",
     "reference_relay",
+    "signed_history_dev",
     "lastdb_node",
 ]
 

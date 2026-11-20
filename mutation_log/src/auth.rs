@@ -7,12 +7,12 @@ use crate::ids::{DeviceId, EntryHash, NodeKey};
 use crate::kinds::{Role, StreamKind};
 
 /// Authorize a data entry using the entry's `seen_heads` and S cutoffs.
-pub fn authorize_data(
+pub fn authorize_data<'s>(
     entry: &SignedEntry,
     body: &DataBody,
     owner: Option<NodeKey>,
     grants: &GrantState,
-    lookup: &dyn Fn(&EntryHash) -> Option<&AcceptedMeta>,
+    lookup: &dyn Fn(&EntryHash) -> Option<&'s AcceptedMeta>,
 ) -> Option<RejectReason> {
     let h = entry.header();
     if owner == Some(h.node_key) {
@@ -24,11 +24,11 @@ pub fn authorize_data(
     }
 }
 
-fn authorize_direct(
+fn authorize_direct<'s>(
     h: &EntryHeader,
     body: &DataBody,
     grants: &GrantState,
-    lookup: &dyn Fn(&EntryHash) -> Option<&AcceptedMeta>,
+    lookup: &dyn Fn(&EntryHash) -> Option<&'s AcceptedMeta>,
 ) -> Option<RejectReason> {
     let Some(grant_device) = body.grant_at_device else {
         return Some(RejectReason::Unauthorized(
@@ -45,7 +45,7 @@ fn authorize_direct(
             "grant_at must name a publisher grant in seen_heads",
         ));
     }
-    let window = GrantState::fold_window_from_seen(&h.seen_heads, lookup);
+    let window = GrantState::fold_window_from_seen(&h.seen_heads, |h| lookup(h));
     match window.role_of(&h.node_key) {
         Some(Role::Write) => {}
         Some(_) => {
@@ -62,16 +62,16 @@ fn authorize_direct(
     check_cutoff(h, grants)
 }
 
-fn authorize_proposal(
+fn authorize_proposal<'s>(
     h: &EntryHeader,
     body: &DataBody,
     grants: &GrantState,
-    lookup: &dyn Fn(&EntryHash) -> Option<&AcceptedMeta>,
+    lookup: &dyn Fn(&EntryHash) -> Option<&'s AcceptedMeta>,
 ) -> Option<RejectReason> {
     if body.grant_at_device.is_some() || body.grant_at_seq.is_some() {
         return Some(RejectReason::Malformed("proposal must not carry grant_at"));
     }
-    let window = GrantState::fold_window_from_seen(&h.seen_heads, lookup);
+    let window = GrantState::fold_window_from_seen(&h.seen_heads, |h| lookup(h));
     match window.role_of(&h.node_key) {
         Some(Role::Submit | Role::Write) => {}
         _ => {
@@ -94,11 +94,11 @@ fn check_cutoff(h: &EntryHeader, grants: &GrantState) -> Option<RejectReason> {
     }
 }
 
-fn seen_names_grant(
+fn seen_names_grant<'s>(
     seen: &[EntryHash],
     device: DeviceId,
     seq: u64,
-    lookup: &dyn Fn(&EntryHash) -> Option<&AcceptedMeta>,
+    lookup: &dyn Fn(&EntryHash) -> Option<&'s AcceptedMeta>,
 ) -> bool {
     seen.iter().any(|h| {
         let Some(meta) = lookup(h) else {

@@ -1,0 +1,31 @@
+//! Phase 1 signed-history DEV scenarios A–F.
+
+mod blob;
+mod converge;
+mod forge;
+mod nongrantee;
+mod restore;
+mod revoke;
+
+use crate::relay::RelayHandle;
+use crate::report::{ScenarioResult, ScenarioRun};
+
+/// Run every scenario against the (grant-blind) reference relay.
+pub async fn run_all(relay: &RelayHandle, blob_bytes: u64) -> Vec<ScenarioResult> {
+    let mut out = Vec::with_capacity(6);
+    out.push(run_named("forge_reject", forge::run(relay)).await);
+    out.push(run_named("revoke_cutoff", revoke::run(relay)).await);
+    out.push(run_named("converge", converge::run(relay)).await);
+    out.push(run_named("restore_replay", restore::run(relay)).await);
+    out.push(run_named("nongrantee_reject", nongrantee::run(relay)).await);
+    out.push(run_named("blob_perf", blob::run(relay, blob_bytes)).await);
+    out
+}
+
+async fn run_named(
+    name: &'static str,
+    fut: impl std::future::Future<Output = Result<String, String>>,
+) -> ScenarioResult {
+    let run = ScenarioRun::start(name);
+    run.finish(fut.await)
+}

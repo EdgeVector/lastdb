@@ -1765,7 +1765,12 @@ dependencies = [
 name = "mutation_log"
 version = "0.1.0"
 dependencies = [
- "database_policy",
+ "app_identity_crypto",
+ "base64",
+ "serde",
+ "sha2 0.10.9",
+ "thiserror 1.0.69",
+ "uuid",
 ]
 
 [[package]]
@@ -2649,6 +2654,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77549399552de45a898a580c1b41d445bf730df867cc44e6c0233bbc4b8329de"
 dependencies = [
  "rand_core 0.6.4",
+]
+
+[[package]]
+name = "signed_history_dev"
+version = "0.1.0"
+dependencies = [
+ "app_identity_crypto",
+ "base64",
+ "clap",
+ "mutation_log",
+ "rand 0.8.8",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]

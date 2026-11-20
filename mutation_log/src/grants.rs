@@ -93,9 +93,9 @@ impl GrantState {
     /// Starts empty (does not inherit `self`). Cutoffs on the returned state are
     /// those carried by reductions inside the window; callers still apply
     /// cutoffs from the full verified `S` separately.
-    pub fn fold_window_from_seen(
+    pub fn fold_window_from_seen<'s>(
         seen: &[EntryHash],
-        lookup: impl Fn(&EntryHash) -> Option<&AcceptedMeta>,
+        lookup: impl Fn(&EntryHash) -> Option<&'s AcceptedMeta>,
     ) -> GrantState {
         let mut grants: Vec<(RecordPosition, &GrantBody)> = Vec::new();
         for h in seen {
