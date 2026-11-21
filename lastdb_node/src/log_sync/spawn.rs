@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use app_identity_crypto::SigningKey;
 use cloud_backup_protocol::Id;
-use mutation_log::{entry_hash, DeviceId, NodeKey, VerifiedHistory};
+use mutation_log::{entry_hash, DeviceId, NodeKey, SignedEntry, VerifiedHistory};
 use tracing::Instrument;
 
 use crate::host::Host;
@@ -100,14 +100,19 @@ async fn one_turn(host: &Host, histories: &HistoryMap, base: &str) -> Result<(),
         })
         .collect();
     for database in &owned {
-        if let Err(err) = upload_outbox(&client, histories, &host.home, &database.id).await {
-            tracing::warn!(
-                target: "lastdbd::log_sync",
-                id = %database.id,
-                %err,
-                "outbox upload failed"
-            );
-            turn_error.get_or_insert(err);
+        // Drain every pending batch this turn. A single 32-entry prefix left
+        // grants behind continuous mirrored data and readers hit empty indexes.
+        match drain_outbox(&client, histories, &host.home, &database.id).await {
+            Ok(()) => {}
+            Err(err) => {
+                tracing::warn!(
+                    target: "lastdbd::log_sync",
+                    id = %database.id,
+                    %err,
+                    "outbox upload failed"
+                );
+                turn_error.get_or_insert(err);
+            }
         }
     }
     for database in &owned {
@@ -250,7 +255,8 @@ async fn pull_one_received(
     Ok(())
 }
 
-async fn upload_outbox(
+/// Upload until this database's outbox is empty (or the batch cap is hit).
+async fn drain_outbox(
     client: &RelayClient,
     histories: &HistoryMap,
     home: &std::path::Path,
@@ -263,19 +269,34 @@ async fn upload_outbox(
             history_store::requeue_outbox(history, disk_entries)
         })??;
     }
-
-    let batch = histories.with_mut(database_id, |history| {
-        history
-            .outbox()
-            .batch(32)
-            .into_iter()
-            .cloned()
-            .collect::<Vec<_>>()
-    })?;
-    if batch.is_empty() {
-        return Ok(());
+    // Cap batches so a runaway outbox cannot block the turn forever.
+    for _ in 0..64 {
+        let batch = histories.with_mut(database_id, |history| {
+            history
+                .outbox()
+                .batch(32)
+                .into_iter()
+                .cloned()
+                .collect::<Vec<_>>()
+        })?;
+        if batch.is_empty() {
+            return Ok(());
+        }
+        upload_batch(client, histories, home, database_id, &batch).await?;
     }
-    let (stored, duplicate) = client.append(database_id, &batch).await?;
+    Err(format!(
+        "outbox for {database_id} still pending after 64 upload batches"
+    ))
+}
+
+async fn upload_batch(
+    client: &RelayClient,
+    histories: &HistoryMap,
+    home: &std::path::Path,
+    database_id: &str,
+    batch: &[SignedEntry],
+) -> Result<(), String> {
+    let (stored, duplicate) = client.append(database_id, batch).await?;
     let _ = duplicate;
     let expected = batch.len() as u64;
     if stored < expected {
@@ -284,7 +305,7 @@ async fn upload_outbox(
         ));
     }
     histories.with_mut(database_id, |history| {
-        for entry in &batch {
+        for entry in batch {
             if let Ok(hash) = entry_hash(entry) {
                 history.outbox_mut().ack(&hash);
             }
