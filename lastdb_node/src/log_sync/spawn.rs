@@ -42,7 +42,13 @@ pub fn spawn(
                     }
                     Some(base) => {
                         let failed = match one_turn(&host, &histories, &base).await {
-                            Ok(()) => false,
+                            Ok(()) => {
+                                // Prior sticky last_error must not survive a
+                                // clean turn (People grant_403_for_node reads
+                                // the node-global field with no database_id).
+                                host.cloud_sync.clear_error();
+                                false
+                            }
                             Err(err) => {
                                 tracing::warn!(
                                     target: "lastdbd::log_sync",
@@ -80,6 +86,8 @@ async fn one_turn(host: &Host, histories: &HistoryMap, base: &str) -> Result<(),
     // Upload every owned outbox before any pull. Personal (and any shareable
     // whose birth is not on the relay yet) gets log/read 403 field=grant; that
     // must not abort the turn before shareable birth/grant entries upload.
+    // Personal DBs are not pulled: empty-index grant-403 is expected there and
+    // must not poison turn_error / sticky cloud_sync.last_error.
     let mut turn_error: Option<String> = None;
     let databases = crate::host::owned::registered_databases(&host.home);
     let owned: Vec<_> = databases
@@ -116,6 +124,9 @@ async fn one_turn(host: &Host, histories: &HistoryMap, base: &str) -> Result<(),
         }
     }
     for database in &owned {
+        if database.kind == "personal" {
+            continue;
+        }
         if let Err(err) = pull_owned(
             host,
             histories,
