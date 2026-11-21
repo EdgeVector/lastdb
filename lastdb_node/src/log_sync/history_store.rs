@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use mutation_log::{
-    entry_hash, AcceptOutcome, DatabaseId, EntryHash, Outbox, SignedEntry, VerifiedHistory,
+    entry_hash, AcceptOutcome, DatabaseId, EntryHash, SignedEntry, VerifiedHistory,
 };
 use serde::{Deserialize, Serialize};
 
@@ -160,9 +160,7 @@ pub(super) fn load_upload_ack(home: &Path, database_id: &str) -> usize {
     let Ok(Some(bytes)) = disk::read_limited(&path, 4096) else {
         return 0;
     };
-    serde_json::from_slice::<UploadAck>(&bytes)
-        .map(|ack| ack.acked_through)
-        .unwrap_or(0)
+    serde_json::from_slice::<UploadAck>(&bytes).map_or(0, |ack| ack.acked_through)
 }
 
 fn store_upload_ack(home: &Path, database_id: &str, acked_through: usize) -> Result<(), String> {
@@ -226,12 +224,21 @@ pub(super) fn store_outbox_entries(
     disk::write_private(&path, &bytes).map_err(|_| "cannot write outbox".into())
 }
 
+/// Write `outbox.json` after restoring any authored rows past the upload-ack
+/// cursor. Occupied `with_mut` never reloads disk; without this, a thinner
+/// in-memory outbox would wipe unacked birth/grant for the rest of the process.
 pub(super) fn persist_outbox(
     home: &Path,
     database_id: &str,
-    outbox: &Outbox,
+    history: &mut VerifiedHistory,
 ) -> Result<(), String> {
-    let entries: Vec<SignedEntry> = outbox.batch(usize::MAX).into_iter().cloned().collect();
+    requeue_unacked_authored(home, database_id, history);
+    let entries: Vec<SignedEntry> = history
+        .outbox()
+        .batch(usize::MAX)
+        .into_iter()
+        .cloned()
+        .collect();
     store_outbox_entries(home, database_id, &entries)
 }
 
@@ -301,7 +308,7 @@ fn rebuild_outbox_after_replay(
         );
     }
     if !history.outbox().is_empty() {
-        if let Err(error) = persist_outbox(home, database_id, history.outbox()) {
+        if let Err(error) = persist_outbox(home, database_id, &mut history) {
             tracing::warn!(
                 target: "lastdbd::log_sync",
                 %error,

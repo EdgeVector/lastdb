@@ -39,7 +39,8 @@ pub(super) fn bootstrap_database(
         grants: input.grants,
     })
     .map_err(|e| e.to_string())?;
-    history_store::persist_outbox(home, input.database_id, result.history.outbox())?;
-    histories.insert(result.history)?;
+    let mut history = result.history;
+    history_store::persist_outbox(home, input.database_id, &mut history)?;
+    histories.insert(history)?;
     Ok(())
 }
