@@ -74,6 +74,11 @@ impl CloudSyncTracker {
         guard.last_error = Some(message);
     }
 
+    /// Drop the sticky top-level last_error after a successful sync turn.
+    pub(crate) fn clear_error(&self) {
+        self.lock().last_error = None;
+    }
+
     pub(crate) fn snapshot(&self) -> CloudSyncStatus {
         let mut status = self.lock().clone();
         if status.last_error.is_none() {
