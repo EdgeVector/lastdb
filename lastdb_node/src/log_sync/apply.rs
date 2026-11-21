@@ -10,10 +10,10 @@ use mutation_log::{
 use super::history_store::{self, HistoryMap};
 use super::materialize;
 
-pub(super) struct AuthorIdentity {
-    pub(super) signing_key: SigningKey,
-    pub(super) node_key: NodeKey,
-    pub(super) device_id: DeviceId,
+pub(crate) struct AuthorIdentity {
+    pub(crate) signing_key: SigningKey,
+    pub(crate) node_key: NodeKey,
+    pub(crate) device_id: DeviceId,
 }
 
 pub(super) struct DataWrite<'a> {

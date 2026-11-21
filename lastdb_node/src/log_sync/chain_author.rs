@@ -31,7 +31,7 @@ pub(super) struct Authored {
     pub(super) writer_seq: u64,
 }
 
-pub(super) fn identity_of(host: &Host) -> Result<AuthorIdentity, ChainError> {
+pub(crate) fn identity_of(host: &Host) -> Result<AuthorIdentity, ChainError> {
     let device_id = super::device::device_id(&host.home).map_err(|_| ChainError::Unconfirmed)?;
     Ok(AuthorIdentity {
         signing_key: SigningKey::from_bytes(&host.keypair.secret_key_bytes()),

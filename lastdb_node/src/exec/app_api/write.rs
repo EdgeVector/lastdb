@@ -6,11 +6,9 @@
 //! and names that mutation.
 
 use std::collections::{BTreeMap, HashMap};
-use std::path::PathBuf;
 
 use fold_db::access::AccessContext;
 use fold_db::record_replacement::RecordTarget;
-use fold_db::record_value::FileMarker;
 use fold_db::schema::types::{CasExpectation, FileWrite, KeyValue, Mutation, MutationType, Query};
 use schema_types::record_keys::{RecordKeyDefinition, RecordKeyKind};
 use schema_types::FieldValueType;
@@ -18,6 +16,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use super::refusal::{conflict_error, name_conflict, WrittenKey, ABSENT};
+use super::write_file::LinkedFile;
 use super::{bad, fail, key_filter, ok, require_exact_name, require_write};
 use crate::exec::mutation::commit_mutations;
 use crate::exec::query::{execute_query, QueryResponseFormat};
@@ -84,14 +83,6 @@ struct FileLink {
     media_type: Option<String>,
 }
 
-/// A file reference to remember once its record is committed.
-struct LinkedFile {
-    schema: String,
-    key: KeyValue,
-    path: PathBuf,
-    marker: FileMarker,
-}
-
 #[derive(Clone, Copy, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 enum Op {
@@ -117,7 +108,15 @@ async fn write(req: &UdsRequest, host: &Host) -> Result<Value, HostError> {
         require_write(&item.schema).map_err(|error| error.at(index))?;
     }
     let database = items.first().and_then(|item| item.database.clone());
-    super::database::write_in(database.as_deref(), host, async {
+    let signed = super::write_signed::plan(items.iter().map(|item| {
+        (
+            item.schema.as_str(),
+            &item.key,
+            mutation_type(item.op),
+            item.record.as_ref(),
+        )
+    }));
+    let body = super::database::write_in(database.as_deref(), host, async {
         for (index, item) in items.iter().enumerate() {
             require_exact_name(host, &item.schema).map_err(|error| error.at(index))?;
         }
@@ -138,7 +137,9 @@ async fn write(req: &UdsRequest, host: &Host) -> Result<Value, HostError> {
             .collect();
         Ok(json!({ "written": revisions.len(), "revisions": revisions }))
     })
-    .await
+    .await?;
+    super::write_signed::mirror_committed(host, database.as_deref(), &signed)?;
+    Ok(body)
 }
 
 struct Prepared {
@@ -168,9 +169,15 @@ async fn prepare(host: &Host, items: Vec<WriteItem>) -> Result<Prepared, HostErr
         let mut mutation = build(item, alternates);
         match file {
             FileInput::Link(link) => linked.push(
-                link_file(host, &mut mutation, link)
-                    .await
-                    .map_err(|error| error.at(index))?,
+                super::write_file::link_file(
+                    host,
+                    &mut mutation,
+                    link.path,
+                    link.name,
+                    link.media_type,
+                )
+                .await
+                .map_err(|error| error.at(index))?,
             ),
             FileInput::Clear => mutation.file_write = Some(FileWrite::Clear),
             FileInput::Absent => {}
@@ -328,53 +335,15 @@ fn sample_range(range_type: Option<&FieldValueType>) -> Option<String> {
     )
 }
 
-/// Link the file in place. Every path that cannot be linked gets the same refusal.
-const UNUSABLE_FILE: &str =
-    "the file cannot be linked: it must be a regular file outside the LastDB home";
-
-async fn link_file(
-    host: &Host,
-    mutation: &mut Mutation,
-    link: FileLink,
-) -> Result<LinkedFile, HostError> {
-    // The whole LastDB home is refused, through any symlink: its key file and
-    // every database in it, not only the data folder of the selected one.
-    let real = std::fs::canonicalize(&link.path).map_err(|_| bad(UNUSABLE_FILE))?;
-    let home = std::fs::canonicalize(&host.home).unwrap_or_else(|_| host.home.clone());
-    if real.starts_with(&home) {
-        return Err(bad(UNUSABLE_FILE));
-    }
-    let records = host.records();
-    let write = records
-        .db_ops()
-        .records()
-        .reference_local_file(&real, link.name, link.media_type)
-        .await
-        .map_err(|_| bad(UNUSABLE_FILE))?;
-    let FileWrite::LocalPath(reference) = &write else {
-        return Err(HostError::internal(
-            "a local file reference is a local path",
-        ));
-    };
-    let (marker, path) = (reference.marker().clone(), reference.path().to_path_buf());
-    let schema = resolve_schema_name(host, &mutation.schema_name)?
-        .unwrap_or_else(|| mutation.schema_name.clone());
-    mutation.file = Some(marker.clone());
-    mutation.file_write = Some(write);
-    Ok(LinkedFile {
-        schema,
-        key: mutation.key_value.clone(),
-        path,
-        marker,
-    })
-}
-
-fn build(item: WriteItem, alternates: Alternates) -> Mutation {
-    let kind = match item.op {
+fn mutation_type(op: Op) -> MutationType {
+    match op {
         Op::Create => MutationType::Create,
         Op::Replace => MutationType::Replace,
         Op::Delete => MutationType::Delete,
-    };
+    }
+}
+
+fn build(item: WriteItem, alternates: Alternates) -> Mutation {
     let expected = item.revision.map_or(CasExpectation::Absent, |revision| {
         CasExpectation::Revision { revision }
     });
@@ -387,7 +356,7 @@ fn build(item: WriteItem, alternates: Alternates) -> Mutation {
         String::new(),
         target,
         item.record.unwrap_or_default(),
-        kind,
+        mutation_type(item.op),
         expected,
     )
 }

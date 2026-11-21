@@ -19,7 +19,7 @@ use crate::profile::private_fs as disk;
 const LIMIT: usize = 4096;
 
 #[derive(Serialize, Deserialize)]
-pub(super) struct BirthMaterial {
+pub(crate) struct BirthMaterial {
     db_salt: Hex32,
     birth_signature: String,
     authored_at_ms: u64,
@@ -54,7 +54,7 @@ pub(crate) fn mint(
         .map_err(|_| "cannot write birth material".into())
 }
 
-pub(super) fn load(
+pub(crate) fn load(
     home: &std::path::Path,
     database_id: &str,
 ) -> Result<Option<BirthMaterial>, String> {
@@ -69,7 +69,7 @@ pub(super) fn load(
 }
 
 /// The signed birth entry (`writer_seq` 1) for this node's device stream.
-pub(super) fn entry(
+pub(crate) fn entry(
     material: &BirthMaterial,
     ctx: &AuthorCtx,
     identity: &AuthorIdentity,
