@@ -86,11 +86,12 @@ impl HistoryMap {
 
 pub(super) fn replay_authored(home: &Path, id: DatabaseId) -> VerifiedHistory {
     let mut history = VerifiedHistory::new(id);
-    let entries = match load_authored(home, &id.to_hex()) {
+    let database_id = id.to_hex();
+    let entries = match load_authored(home, &database_id) {
         Ok(entries) => entries,
         Err(error) => {
             tracing::warn!(target: "lastdbd::log_sync", %error, "authored history log is unreadable");
-            return history;
+            return load_disk_outbox(home, &database_id, history);
         }
     };
     for entry in entries {
@@ -98,7 +99,10 @@ pub(super) fn replay_authored(home: &Path, id: DatabaseId) -> VerifiedHistory {
             tracing::warn!(target: "lastdbd::log_sync", ?reason, "authored entry was rejected on replay");
         }
     }
-    history
+    // Authored replay does not rebuild the outbox. A cold with_mut that then
+    // persist_outbox'd would replace outbox.json with [] and drop unacked
+    // birth/grant rows — relay never saw them, log/read 403 has_publisher:false.
+    load_disk_outbox(home, &database_id, history)
 }
 
 pub(super) fn authored_path(home: &Path, database_id: &str) -> PathBuf {
@@ -174,4 +178,33 @@ pub(super) fn requeue_outbox(
         history.outbox_mut().enqueue(hash, entry);
     }
     Ok(())
+}
+
+fn load_disk_outbox(
+    home: &Path,
+    database_id: &str,
+    mut history: VerifiedHistory,
+) -> VerifiedHistory {
+    match load_outbox_entries(home, database_id) {
+        Ok(entries) if !entries.is_empty() => {
+            if let Err(error) = requeue_outbox(&mut history, entries) {
+                tracing::warn!(
+                    target: "lastdbd::log_sync",
+                    %error,
+                    id = %database_id,
+                    "disk outbox could not be requeued after authored replay"
+                );
+            }
+        }
+        Ok(_) => {}
+        Err(error) => {
+            tracing::warn!(
+                target: "lastdbd::log_sync",
+                %error,
+                id = %database_id,
+                "disk outbox is unreadable after authored replay"
+            );
+        }
+    }
+    history
 }
