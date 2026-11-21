@@ -47,7 +47,9 @@ impl GrantState {
             .filter(|r| *r != Role::Revoked)
     }
 
-    /// Active members and their roles, ascending by node key. Revoked keys are absent.
+    /// Members and their folded roles, ascending by node key.
+    /// Includes `Role::Revoked` so owners can see who was removed; auth still
+    /// uses [`Self::role_of`], which treats revoked as no grant.
     pub fn members(&self) -> impl Iterator<Item = (NodeKey, Role)> + '_ {
         self.members.iter().map(|(key, role)| (*key, *role))
     }
@@ -94,11 +96,9 @@ impl GrantState {
             Grantee::Member(key) => {
                 let prev = self.members.get(&key).copied();
                 let next = pick_role(prev, body.role);
-                if next == Role::Revoked {
-                    self.members.remove(&key);
-                } else {
-                    self.members.insert(key, next);
-                }
+                // Keep revoked rows so the owner grants view can list them.
+                // role_of filters Revoked; cutoffs still land in `reduced`.
+                self.members.insert(key, next);
                 if is_reduction(prev, body.role) {
                     self.reduced.insert(key);
                     for c in &body.cutoffs {
