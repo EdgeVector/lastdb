@@ -20,6 +20,8 @@ mod owner_file;
 mod read;
 mod refusal;
 mod write;
+mod write_file;
+mod write_signed;
 
 pub(in crate::exec) use changes::changes_route;
 pub(in crate::exec) use databases::databases_route;

@@ -29,7 +29,11 @@ pub struct OwnedMutation {
 /// Author signed `data` entries for an owned shareable write and wake sync.
 ///
 /// No-op when this database has no birth material (not a signed-log share).
-pub fn mirror_owned_write(host: &Host, database_id: &str, mutations: &[OwnedMutation]) -> Result<(), String> {
+pub fn mirror_owned_write(
+    host: &Host,
+    database_id: &str,
+    mutations: &[OwnedMutation],
+) -> Result<(), String> {
     if mutations.is_empty() {
         return Ok(());
     }
@@ -101,15 +105,14 @@ fn author_one(
         seen_lamports: Vec::new(),
         authored_at_ms: fold_db::clock::unix_millis(),
     };
-    let value = match item.op {
-        MutationType::Delete => Vec::new(),
-        _ => {
-            let fields = item
-                .fields
-                .as_ref()
-                .ok_or_else(|| "owned write is missing record fields".to_owned())?;
-            serde_json::to_vec(fields).map_err(|_| "cannot encode record fields".to_owned())?
-        }
+    let value = if item.op == MutationType::Delete {
+        Vec::new()
+    } else {
+        let fields = item
+            .fields
+            .as_ref()
+            .ok_or_else(|| "owned write is missing record fields".to_owned())?;
+        serde_json::to_vec(fields).map_err(|_| "cannot encode record fields".to_owned())?
     };
     let body = data_record(
         StreamKind::Direct,
