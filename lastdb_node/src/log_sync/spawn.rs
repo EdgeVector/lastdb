@@ -77,23 +77,29 @@ async fn one_turn(host: &Host, histories: &HistoryMap, base: &str) -> Result<(),
     let device_id = device::device_id(&host.home)?;
     let client = RelayClient::new(base, signing_key, node_key_hex.clone(), &device_id)?;
 
-    let mut upload_error: Option<String> = None;
+    // Upload every owned outbox before any pull. Personal (and any shareable
+    // whose birth is not on the relay yet) gets log/read 403 field=grant; that
+    // must not abort the turn before shareable birth/grant entries upload.
+    let mut turn_error: Option<String> = None;
     let databases = crate::host::owned::registered_databases(&host.home);
-    for database in databases {
-        if database.kind != "personal" && database.kind != "shareable" {
-            continue;
-        }
-        // Registry ids are Hex32 (db verifying key); refuse non-hex rows.
-        if mutation_log::DatabaseId::from_hex(&database.id).is_err() {
-            tracing::warn!(
-                target: "lastdbd::log_sync",
-                id = %database.id,
-                "skip sync: database_id is not a 64-hex database id"
-            );
-            continue;
-        }
-        // Outbox upload must not depend on an open FoldDB store: grants and
-        // birth have to reach the relay even when the store is not mounted.
+    let owned: Vec<_> = databases
+        .into_iter()
+        .filter(|database| {
+            if database.kind != "personal" && database.kind != "shareable" {
+                return false;
+            }
+            if mutation_log::DatabaseId::from_hex(&database.id).is_err() {
+                tracing::warn!(
+                    target: "lastdbd::log_sync",
+                    id = %database.id,
+                    "skip sync: database_id is not a 64-hex database id"
+                );
+                return false;
+            }
+            true
+        })
+        .collect();
+    for database in &owned {
         if let Err(err) = upload_outbox(&client, histories, &host.home, &database.id).await {
             tracing::warn!(
                 target: "lastdbd::log_sync",
@@ -101,39 +107,70 @@ async fn one_turn(host: &Host, histories: &HistoryMap, base: &str) -> Result<(),
                 %err,
                 "outbox upload failed"
             );
-            upload_error.get_or_insert(err);
-            continue;
+            turn_error.get_or_insert(err);
         }
-        let Some(store) = materialize::store_for(host, &database.id) else {
+    }
+    for database in &owned {
+        if let Err(err) = pull_owned(
+            host,
+            histories,
+            &client,
+            &database.id,
+            &node_key_hex,
+            &device_id,
+        )
+        .await
+        {
             tracing::warn!(
                 target: "lastdbd::log_sync",
                 id = %database.id,
-                "skip pull: no FoldDB store is open for this database"
+                %err,
+                "owned stream pull failed"
             );
-            continue;
-        };
-        // Pull own stream tip advances.
-        let from = 1u64; // DESIGN: persist per-stream read cursor; Phase 1 re-reads from 1 (idempotent Accept).
-        let db = DatabaseCtx {
-            home: &host.home,
-            database_id: &database.id,
-            store: &store,
-        };
-        let _ = super::pull::pull_stream(
-            &client,
-            histories,
-            &db,
-            &node_key_hex,
-            &device_id.to_string(),
-            from,
-        )
-        .await?;
+            turn_error.get_or_insert(err);
+        }
     }
-    let received = pull_received_shares(host, histories, &client).await;
-    if let Some(err) = upload_error {
-        return Err(err);
+    if let Err(err) = pull_received_shares(host, histories, &client).await {
+        turn_error.get_or_insert(err);
     }
-    received
+    match turn_error {
+        Some(err) => Err(err),
+        None => Ok(()),
+    }
+}
+
+async fn pull_owned(
+    host: &Host,
+    histories: &HistoryMap,
+    client: &RelayClient,
+    database_id: &str,
+    node_key_hex: &str,
+    device_id: &DeviceId,
+) -> Result<(), String> {
+    let Some(store) = materialize::store_for(host, database_id) else {
+        tracing::warn!(
+            target: "lastdbd::log_sync",
+            id = %database_id,
+            "skip pull: no FoldDB store is open for this database"
+        );
+        return Ok(());
+    };
+    // DESIGN: persist per-stream read cursor; Phase 1 re-reads from 1 (idempotent Accept).
+    let db = DatabaseCtx {
+        home: &host.home,
+        database_id,
+        store: &store,
+    };
+    let _ = super::pull::pull_stream(
+        client,
+        histories,
+        &db,
+        node_key_hex,
+        &device_id.to_string(),
+        1,
+    )
+    .await?;
+    Ok(())
 }
 
 /// Pull publisher streams for signed-log received databases.
@@ -158,7 +195,15 @@ async fn pull_received_shares(
         if mutation_log::DatabaseId::from_hex(share.id.as_str()).is_err() {
             continue;
         }
-        pull_one_received(host, histories, client, &share, device).await?;
+        if let Err(err) = pull_one_received(host, histories, client, &share, device).await {
+            tracing::warn!(
+                target: "lastdbd::log_sync",
+                id = %share.id.as_str(),
+                %err,
+                "received stream pull failed"
+            );
+            return Err(err);
+        }
     }
     Ok(())
 }
