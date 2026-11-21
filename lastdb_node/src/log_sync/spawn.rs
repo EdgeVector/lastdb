@@ -310,7 +310,18 @@ async fn upload_batch(
                 history.outbox_mut().ack(&hash);
             }
         }
-        history_store::persist_outbox(home, database_id, history.outbox())
+        history_store::persist_outbox(home, database_id, history.outbox())?;
+        // Cursor advances only after a successful append + outbox ack so a
+        // cold replay does not re-upload the whole authored log every time.
+        if let Err(error) = history_store::advance_upload_ack(home, database_id, batch) {
+            tracing::warn!(
+                target: "lastdbd::log_sync",
+                id = %database_id,
+                %error,
+                "upload ack cursor could not be advanced"
+            );
+        }
+        Ok::<(), String>(())
     })??;
     Ok(())
 }

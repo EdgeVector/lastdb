@@ -4,11 +4,14 @@
 //! serialize VerifiedHistory (crate has no serde on that type).
 
 use std::collections::hash_map::Entry;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
-use mutation_log::{entry_hash, AcceptOutcome, DatabaseId, Outbox, SignedEntry, VerifiedHistory};
+use mutation_log::{
+    entry_hash, AcceptOutcome, DatabaseId, EntryHash, Outbox, SignedEntry, VerifiedHistory,
+};
+use serde::{Deserialize, Serialize};
 
 use crate::profile::private_fs as disk;
 
@@ -99,10 +102,11 @@ pub(super) fn replay_authored(home: &Path, id: DatabaseId) -> VerifiedHistory {
             tracing::warn!(target: "lastdbd::log_sync", ?reason, "authored entry was rejected on replay");
         }
     }
-    // Authored replay does not rebuild the outbox. A cold with_mut that then
-    // persist_outbox'd would replace outbox.json with [] and drop unacked
-    // birth/grant rows — relay never saw them, log/read 403 has_publisher:false.
-    load_disk_outbox(home, &database_id, history)
+    // Authored accept leaves the outbox empty. Rebuild pending uploads from
+    // authored rows past the upload-ack cursor (birth/grant/data/…), then any
+    // remaining disk outbox rows. Authored order first so birth stays ahead of
+    // a later grant that survived alone in outbox.json after a local drop.
+    rebuild_outbox_after_replay(home, &database_id, history)
 }
 
 pub(super) fn authored_path(home: &Path, database_id: &str) -> PathBuf {
@@ -136,6 +140,68 @@ pub(super) fn append_authored(
 
 pub(super) fn outbox_path(home: &Path, database_id: &str) -> PathBuf {
     home.join("log-sync").join(database_id).join("outbox.json")
+}
+
+pub(super) fn upload_ack_path(home: &Path, database_id: &str) -> PathBuf {
+    home.join("log-sync")
+        .join(database_id)
+        .join("upload_ack.json")
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+struct UploadAck {
+    /// Count of leading `authored.json` entries confirmed uploaded to the relay.
+    acked_through: usize,
+}
+
+/// How many leading authored entries have a successful log/append ack.
+pub(super) fn load_upload_ack(home: &Path, database_id: &str) -> usize {
+    let path = upload_ack_path(home, database_id);
+    let Ok(Some(bytes)) = disk::read_limited(&path, 4096) else {
+        return 0;
+    };
+    serde_json::from_slice::<UploadAck>(&bytes)
+        .map(|ack| ack.acked_through)
+        .unwrap_or(0)
+}
+
+fn store_upload_ack(home: &Path, database_id: &str, acked_through: usize) -> Result<(), String> {
+    let bytes = serde_json::to_vec(&UploadAck { acked_through })
+        .map_err(|_| "cannot encode upload ack cursor")?;
+    disk::write_private(&upload_ack_path(home, database_id), &bytes)
+        .map_err(|_| "cannot write upload ack cursor".into())
+}
+
+/// After a successful outbox upload, advance the authored upload-ack cursor
+/// through every contiguous leading entry included in `batch`.
+pub(super) fn advance_upload_ack(
+    home: &Path,
+    database_id: &str,
+    batch: &[SignedEntry],
+) -> Result<(), String> {
+    let authored = load_authored(home, database_id)?;
+    let mut through = load_upload_ack(home, database_id);
+    let uploaded = batch_hashes(batch);
+    while through < authored.len() {
+        let Ok(hash) = entry_hash(&authored[through]) else {
+            break;
+        };
+        if !uploaded.contains(&hash) {
+            break;
+        }
+        through += 1;
+    }
+    store_upload_ack(home, database_id, through)
+}
+
+fn batch_hashes(batch: &[SignedEntry]) -> HashSet<EntryHash> {
+    let mut uploaded = HashSet::with_capacity(batch.len());
+    for entry in batch {
+        if let Ok(hash) = entry_hash(entry) {
+            uploaded.insert(hash);
+        }
+    }
+    uploaded
 }
 
 pub(super) fn load_outbox_entries(
@@ -178,6 +244,73 @@ pub(super) fn requeue_outbox(
         history.outbox_mut().enqueue(hash, entry);
     }
     Ok(())
+}
+
+/// Requeue authored entries not yet covered by the upload-ack cursor.
+///
+/// Every path that appends to `authored.json` also enqueues the outbox
+/// (chain_author, mirror, apply), so all authored kinds are outbox-eligible.
+fn requeue_unacked_authored(home: &Path, database_id: &str, history: &mut VerifiedHistory) {
+    let authored = match load_authored(home, database_id) {
+        Ok(entries) => entries,
+        Err(error) => {
+            tracing::warn!(
+                target: "lastdbd::log_sync",
+                %error,
+                id = %database_id,
+                "authored history log is unreadable while requeueing orphans"
+            );
+            return;
+        }
+    };
+    let acked = load_upload_ack(home, database_id);
+    for entry in authored.into_iter().skip(acked) {
+        let Ok(hash) = entry_hash(&entry) else {
+            continue;
+        };
+        history.outbox_mut().enqueue(hash, entry);
+    }
+}
+
+fn rebuild_outbox_after_replay(
+    home: &Path,
+    database_id: &str,
+    mut history: VerifiedHistory,
+) -> VerifiedHistory {
+    // Read disk before any persist so bootstrap-only rows are not lost when
+    // authored orphans are written back to outbox.json.
+    let disk_entries = match load_outbox_entries(home, database_id) {
+        Ok(entries) => entries,
+        Err(error) => {
+            tracing::warn!(
+                target: "lastdbd::log_sync",
+                %error,
+                id = %database_id,
+                "disk outbox is unreadable after authored replay"
+            );
+            Vec::new()
+        }
+    };
+    requeue_unacked_authored(home, database_id, &mut history);
+    if let Err(error) = requeue_outbox(&mut history, disk_entries) {
+        tracing::warn!(
+            target: "lastdbd::log_sync",
+            %error,
+            id = %database_id,
+            "disk outbox could not be requeued after authored replay"
+        );
+    }
+    if !history.outbox().is_empty() {
+        if let Err(error) = persist_outbox(home, database_id, history.outbox()) {
+            tracing::warn!(
+                target: "lastdbd::log_sync",
+                %error,
+                id = %database_id,
+                "could not persist outbox after requeueing authored orphans"
+            );
+        }
+    }
+    history
 }
 
 fn load_disk_outbox(
