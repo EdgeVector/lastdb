@@ -117,7 +117,8 @@ async fn write(req: &UdsRequest, host: &Host) -> Result<Value, HostError> {
         require_write(&item.schema).map_err(|error| error.at(index))?;
     }
     let database = items.first().and_then(|item| item.database.clone());
-    super::database::write_in(database.as_deref(), host, async {
+    let signed = signed_mirror_plan(&items);
+    let body = super::database::write_in(database.as_deref(), host, async {
         for (index, item) in items.iter().enumerate() {
             require_exact_name(host, &item.schema).map_err(|error| error.at(index))?;
         }
@@ -138,7 +139,38 @@ async fn write(req: &UdsRequest, host: &Host) -> Result<Value, HostError> {
             .collect();
         Ok(json!({ "written": revisions.len(), "revisions": revisions }))
     })
-    .await
+    .await?;
+    if let Some(database_id) = database.as_deref() {
+        crate::log_sync::mirror_owned_write(host, database_id, &signed).map_err(|error| {
+            tracing::warn!(target: "lastdbd::log_sync", %error, "owned write was not mirrored to the signed outbox");
+            HostError::new(503, "signed history mirror was not confirmed")
+        })?;
+    }
+    Ok(body)
+}
+
+/// Capture schema/key/fields for the signed-history mirror after FoldDB commits.
+fn signed_mirror_plan(items: &[WriteItem]) -> Vec<crate::log_sync::OwnedMutation> {
+    items
+        .iter()
+        .filter_map(|item| {
+            let record_key = item.key.hash.as_ref()?.clone();
+            let op = match item.op {
+                Op::Create => MutationType::Create,
+                Op::Replace => MutationType::Replace,
+                Op::Delete => MutationType::Delete,
+            };
+            let fields = item.record.as_ref().map(|map| {
+                Value::Object(map.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
+            });
+            Some(crate::log_sync::OwnedMutation {
+                schema: item.schema.clone(),
+                record_key,
+                op,
+                fields,
+            })
+        })
+        .collect()
 }
 
 struct Prepared {

@@ -77,6 +77,7 @@ async fn one_turn(host: &Host, histories: &HistoryMap, base: &str) -> Result<(),
     let device_id = device::device_id(&host.home)?;
     let client = RelayClient::new(base, signing_key, node_key_hex.clone(), &device_id)?;
 
+    let mut upload_error: Option<String> = None;
     let databases = crate::host::owned::registered_databases(&host.home);
     for database in databases {
         if database.kind != "personal" && database.kind != "shareable" {
@@ -91,15 +92,26 @@ async fn one_turn(host: &Host, histories: &HistoryMap, base: &str) -> Result<(),
             );
             continue;
         }
+        // Outbox upload must not depend on an open FoldDB store: grants and
+        // birth have to reach the relay even when the store is not mounted.
+        if let Err(err) = upload_outbox(&client, histories, &host.home, &database.id).await {
+            tracing::warn!(
+                target: "lastdbd::log_sync",
+                id = %database.id,
+                %err,
+                "outbox upload failed"
+            );
+            upload_error.get_or_insert(err);
+            continue;
+        }
         let Some(store) = materialize::store_for(host, &database.id) else {
             tracing::warn!(
                 target: "lastdbd::log_sync",
                 id = %database.id,
-                "skip sync: no FoldDB store is open for this database"
+                "skip pull: no FoldDB store is open for this database"
             );
             continue;
         };
-        upload_outbox(&client, histories, &host.home, &database.id).await?;
         // Pull own stream tip advances.
         let from = 1u64; // DESIGN: persist per-stream read cursor; Phase 1 re-reads from 1 (idempotent Accept).
         let db = DatabaseCtx {
@@ -117,8 +129,11 @@ async fn one_turn(host: &Host, histories: &HistoryMap, base: &str) -> Result<(),
         )
         .await?;
     }
-    pull_received_shares(host, histories, &client).await?;
-    Ok(())
+    let received = pull_received_shares(host, histories, &client).await;
+    if let Some(err) = upload_error {
+        return Err(err);
+    }
+    received
 }
 
 /// Pull publisher streams for signed-log received databases.
@@ -216,7 +231,13 @@ async fn upload_outbox(
         return Ok(());
     }
     let (stored, duplicate) = client.append(database_id, &batch).await?;
-    let _ = (stored, duplicate);
+    let _ = duplicate;
+    let expected = batch.len() as u64;
+    if stored < expected {
+        return Err(format!(
+            "relay log.append stored {stored} of {expected} outbox entries"
+        ));
+    }
     histories.with_mut(database_id, |history| {
         for entry in &batch {
             if let Ok(hash) = entry_hash(entry) {

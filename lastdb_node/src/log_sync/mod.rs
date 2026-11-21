@@ -16,6 +16,7 @@ mod config;
 mod device;
 mod history_store;
 mod materialize;
+mod mirror;
 mod proposal;
 mod pull;
 pub(crate) mod received;
@@ -29,6 +30,7 @@ use fold_db::schema::types::Schema;
 
 pub use config::{relay_base_url, store_relay_base_url};
 pub(crate) use history_store::histories_for;
+pub(crate) use mirror::{mirror_owned_write, OwnedMutation};
 pub(crate) use proposal::{
     status as share_write_status, submit as submit_share_write, ContributionError,
 };
