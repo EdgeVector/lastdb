@@ -144,7 +144,7 @@ fn accept_local(
         return Err(ChainError::Unconfirmed);
     }
     history.outbox_mut().enqueue(hash, entry);
-    history_store::persist_outbox(target.home, target.database_id, history.outbox())
+    history_store::persist_outbox(target.home, target.database_id, history)
         .map_err(|_| ChainError::Unconfirmed)?;
     Ok(Authored {
         entry_hash: hash,

@@ -310,7 +310,18 @@ async fn upload_batch(
                 history.outbox_mut().ack(&hash);
             }
         }
-        history_store::persist_outbox(home, database_id, history.outbox())
+        // Advance before persist_outbox: that path requeues authored past the
+        // cursor, and must not put just-acked rows back into the outbox.
+        if let Err(error) = history_store::advance_upload_ack(home, database_id, batch) {
+            tracing::warn!(
+                target: "lastdbd::log_sync",
+                id = %database_id,
+                %error,
+                "upload ack cursor could not be advanced"
+            );
+        }
+        history_store::persist_outbox(home, database_id, history)?;
+        Ok::<(), String>(())
     })??;
     Ok(())
 }

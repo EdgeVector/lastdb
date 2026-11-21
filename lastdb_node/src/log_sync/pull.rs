@@ -38,7 +38,7 @@ fn accept_one(
     histories.with_mut(db.database_id, |history| {
         match history.accept_entry(entry) {
             AcceptOutcome::Accept { duplicate, .. } => {
-                history_store::persist_outbox(db.home, db.database_id, history.outbox())?;
+                history_store::persist_outbox(db.home, db.database_id, history)?;
                 Ok(!duplicate)
             }
             AcceptOutcome::Pending { .. } => Ok(false),

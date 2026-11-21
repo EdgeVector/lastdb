@@ -62,7 +62,7 @@ pub(super) async fn author_and_accept_data(
             AcceptOutcome::Accept { .. } => {
                 history_store::append_authored(home, write.database_id, &entry)?;
                 history.outbox_mut().enqueue(hash, entry);
-                history_store::persist_outbox(home, write.database_id, history.outbox())
+                history_store::persist_outbox(home, write.database_id, history)
             }
             AcceptOutcome::Pending { reason } => {
                 Err(format!("authored entry pending locally: {reason:?}"))

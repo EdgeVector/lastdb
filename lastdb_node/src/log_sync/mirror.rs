@@ -135,7 +135,7 @@ fn accept_outbox(
         AcceptOutcome::Accept { .. } => {
             history_store::append_authored(home, database_id, &entry)?;
             history.outbox_mut().enqueue(hash, entry);
-            history_store::persist_outbox(home, database_id, history.outbox())
+            history_store::persist_outbox(home, database_id, history)
         }
         AcceptOutcome::Pending { reason } => {
             Err(format!("authored entry pending locally: {reason:?}"))
