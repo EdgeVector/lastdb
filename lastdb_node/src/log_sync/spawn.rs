@@ -263,6 +263,21 @@ async fn pull_one_received(
         from,
     )
     .await?;
+    // pull_stream materializes when birth is present. Mark prefix only after
+    // that durable apply so /v1/read leaves restoring/busy.
+    let stream = VerifiedHistory::stream(publisher, device);
+    let through = histories
+        .peek_with(share.id.as_str(), |history| {
+            history.owner().is_some().then(|| {
+                history
+                    .stream_head(&stream)
+                    .map_or(0, |head| head.writer_seq)
+            })
+        })
+        .flatten();
+    if let Some(through) = through {
+        crate::database_replay::mark_prefix(&host.home, share.id.as_str(), through)?;
+    }
     Ok(())
 }
 

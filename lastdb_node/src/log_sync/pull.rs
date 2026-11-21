@@ -23,8 +23,10 @@ pub(super) async fn pull_stream(
             accepted += 1;
         }
     }
-    if accepted > 0 {
-        let history = histories.snapshot(db.database_id)?;
+    // Rematerialize whenever birth is present so a prior failed apply (for
+    // example a missing schema) can heal on a later turn with accepted=0.
+    let history = histories.snapshot(db.database_id)?;
+    if history.owner().is_some() {
         materialize::apply_history_records(db.store, &history).await?;
     }
     Ok(accepted)
