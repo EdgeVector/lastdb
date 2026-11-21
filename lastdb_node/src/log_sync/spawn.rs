@@ -111,8 +111,15 @@ async fn one_turn(host: &Host, histories: &HistoryMap, base: &str) -> Result<(),
         }
     }
     for database in &owned {
-        if let Err(err) =
-            pull_owned(host, histories, &client, &database.id, &node_key_hex, &device_id).await
+        if let Err(err) = pull_owned(
+            host,
+            histories,
+            &client,
+            &database.id,
+            &node_key_hex,
+            &device_id,
+        )
+        .await
         {
             tracing::warn!(
                 target: "lastdbd::log_sync",
