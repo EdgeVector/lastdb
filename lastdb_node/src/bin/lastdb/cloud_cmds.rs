@@ -31,7 +31,7 @@ pub(super) fn backup_command(
 ) -> Result<(), String> {
     match action {
         BackupCommand::Snapshot { database, wait } => {
-            queue_snapshot(data_dir, database.or(db), wait)
+            queue_snapshot(data_dir, database.or(db).as_deref(), wait)
         }
         BackupCommand::Connect(a) => setup::run_connect(data_dir, &a),
         BackupCommand::Restore(args) => {
@@ -45,7 +45,7 @@ pub(super) fn backup_command(
 
 fn queue_snapshot(
     data_dir: Option<PathBuf>,
-    database: Option<String>,
+    database: Option<&str>,
     wait: bool,
 ) -> Result<(), String> {
     let (_home, socket) = resolve_client_home_and_socket(data_dir)?;
