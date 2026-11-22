@@ -50,10 +50,10 @@ impl std::fmt::Display for ContributionError {
 }
 
 #[derive(Serialize, Deserialize)]
-struct Submitted {
-    writer_seq: u64,
-    entry_hash: EntryHash,
-    body_sha256: String,
+pub(super) struct Submitted {
+    pub(super) writer_seq: u64,
+    pub(super) entry_hash: EntryHash,
+    pub(super) body_sha256: String,
 }
 
 type Ledger = BTreeMap<String, Submitted>;
@@ -64,7 +64,7 @@ fn ledger_path(home: &Path, database_id: &str) -> PathBuf {
         .join("proposals.json")
 }
 
-fn load_ledger(home: &Path, database_id: &str) -> Result<Ledger, ContributionError> {
+pub(super) fn load_ledger(home: &Path, database_id: &str) -> Result<Ledger, ContributionError> {
     let path = ledger_path(home, database_id);
     match disk::read_limited(&path, LEDGER_LIMIT) {
         Ok(Some(bytes)) => {
@@ -75,18 +75,22 @@ fn load_ledger(home: &Path, database_id: &str) -> Result<Ledger, ContributionErr
     }
 }
 
-fn store_ledger(home: &Path, database_id: &str, ledger: &Ledger) -> Result<(), ContributionError> {
+pub(super) fn store_ledger(
+    home: &Path,
+    database_id: &str,
+    ledger: &Ledger,
+) -> Result<(), ContributionError> {
     let bytes = serde_json::to_vec(ledger).map_err(|_| ContributionError::Unavailable)?;
     disk::write_private(&ledger_path(home, database_id), &bytes)
         .map_err(|_| ContributionError::Unavailable)
 }
 
-struct Proposed {
-    namespace: String,
-    record_key: String,
-    mutation_type: String,
-    expected: Value,
-    record: Option<Value>,
+pub(super) struct Proposed {
+    pub(super) namespace: String,
+    pub(super) record_key: String,
+    pub(super) mutation_type: String,
+    pub(super) expected: Value,
+    pub(super) record: Option<Value>,
 }
 
 /// Map the owner submission document onto the history record convention:
@@ -140,7 +144,7 @@ fn parse(body: &[u8]) -> Result<Proposed, ContributionError> {
 }
 
 /// The publisher decision envelope that goes into the signed proposal.
-fn envelope(proposed: &Proposed, expected: Value) -> Result<Vec<u8>, ContributionError> {
+pub(super) fn envelope(proposed: &Proposed, expected: Value) -> Result<Vec<u8>, ContributionError> {
     let mut envelope = serde_json::Map::new();
     envelope.insert(
         "mutation_type".into(),
@@ -229,31 +233,13 @@ pub(crate) async fn submit(
     }
     let expected = history_expected(host, share, &proposed).await?;
     let value = envelope(&proposed, expected)?;
-    let identity = chain_author::identity_of(host).map_err(|_| ContributionError::Unavailable)?;
-    let target = Target {
-        home: &host.home,
+    let authored = author_proposal(
+        host,
         database_id,
-        identity: &identity,
-    };
-    let authored = chain_author::author_member(
-        &super::histories_for(&host.home),
-        &target,
-        |mut ctx, history| {
-            require_submitter(history, &identity.node_key)?;
-            for (hash, lamport) in history.publisher_grants() {
-                ctx.seen_heads.push(hash);
-                ctx.seen_lamports.push(lamport);
-            }
-            let body = data_record(
-                StreamKind::Proposal,
-                proposed.namespace,
-                &proposed.record_key,
-                &value,
-            );
-            author_data(&ctx, &identity.signing_key, body).map_err(|_| ChainError::Unconfirmed)
-        },
-    )
-    .map_err(|error| contribution_error(&error))?;
+        proposed.namespace,
+        &proposed.record_key,
+        &value,
+    )?;
     ledger.insert(
         key,
         Submitted {
@@ -264,6 +250,36 @@ pub(crate) async fn submit(
     );
     store_ledger(&host.home, database_id, &ledger)?;
     Ok(authored.writer_seq)
+}
+
+/// Sign `value` as a proposal on this node's member stream.
+pub(super) fn author_proposal(
+    host: &Host,
+    database_id: &str,
+    namespace: String,
+    record_key: &str,
+    value: &[u8],
+) -> Result<chain_author::Authored, ContributionError> {
+    let identity = chain_author::identity_of(host).map_err(|_| ContributionError::Unavailable)?;
+    let target = Target {
+        home: &host.home,
+        database_id,
+        identity: &identity,
+    };
+    chain_author::author_member(
+        &super::histories_for(&host.home),
+        &target,
+        |mut ctx, history| {
+            require_submitter(history, &identity.node_key)?;
+            for (hash, lamport) in history.publisher_grants() {
+                ctx.seen_heads.push(hash);
+                ctx.seen_lamports.push(lamport);
+            }
+            let body = data_record(StreamKind::Proposal, namespace, record_key, value);
+            author_data(&ctx, &identity.signing_key, body).map_err(|_| ChainError::Unconfirmed)
+        },
+    )
+    .map_err(|error| contribution_error(&error))
 }
 
 fn require_submitter(history: &VerifiedHistory, node_key: &NodeKey) -> Result<(), ChainError> {
@@ -286,7 +302,7 @@ fn contribution_error(error: &ChainError) -> ContributionError {
     }
 }
 
-fn hex_digest(bytes: &[u8]) -> String {
+pub(super) fn hex_digest(bytes: &[u8]) -> String {
     app_identity_crypto::hex_lower(&Sha256::digest(bytes))
 }
 

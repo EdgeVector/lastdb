@@ -267,5 +267,23 @@ async fn pull_one_received(
         share.publisher.as_str(),
         known,
     )
-    .await
+    .await?;
+    // The pull may have brought a reduction that voids this node's own direct
+    // writes. Their changes go out again as proposals.
+    match super::void_conversion::convert_voided(host, share) {
+        Ok(0) => {}
+        Ok(count) => tracing::info!(
+            target: "lastdbd::log_sync",
+            id = %share.id.as_str(),
+            count,
+            "voided direct writes were signed again as proposals"
+        ),
+        Err(error) => tracing::warn!(
+            target: "lastdbd::log_sync",
+            id = %share.id.as_str(),
+            %error,
+            "voided direct writes could not be signed as proposals"
+        ),
+    }
+    Ok(())
 }

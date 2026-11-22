@@ -119,6 +119,29 @@ impl VerifiedHistory {
         }
     }
 
+    /// Direct entries `writer` signed that the publisher's cutoffs now void,
+    /// in stream order. They stay in the history; none of them counts.
+    #[must_use]
+    pub fn voided_direct_by(&self, writer: crate::ids::NodeKey) -> Vec<SignedEntry> {
+        let mut found: Vec<SignedEntry> = self
+            .accepted
+            .values()
+            .filter(|meta| {
+                !meta.is_publisher
+                    && meta.entry.header().node_key == writer
+                    && matches!(
+                        &meta.entry,
+                        SignedEntry::Data { body, .. }
+                            if body.stream == crate::kinds::StreamKind::Direct
+                    )
+                    && !crate::auth::within_cutoff(&meta.entry, &self.grants)
+            })
+            .map(|meta| meta.entry.clone())
+            .collect();
+        found.sort_by_key(|entry| (entry.header().device_id, entry.header().writer_seq));
+        found
+    }
+
     pub(crate) fn merge_data(
         &mut self,
         namespace: &str,

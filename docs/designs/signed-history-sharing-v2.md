@@ -57,6 +57,8 @@ With the relay change, the relay refuses only a caller that holds no grant, mean
 
 When a member's own unacknowledged direct entry is voided, the node appends a proposal with the same change on the same stream, at the next sequence number. The void entry stays in the log. The publisher applies the proposal under the creator and history-entry checks. The member's local copy goes back to the published state, which fits the 17 November rule that a proposal does not change the receiver's copy.
 
+Implemented in the change that adds `convert_voided`: after a pull on a received database, the node looks for its own direct entries that the publisher's cutoffs void and signs each one again as a proposal on the same stream. A write to a key with no live record becomes a create that expects the record to be absent. A write over a live record becomes a replace that expects the history entry that holds it now. A delete expects that entry too. A ledger entry keyed by the voided entry's hash makes the conversion happen once. The publisher applies it under the proposal rules, so a replace of a record the member did not create stays submitted.
+
 ### 4. The local database becomes a derived view (direction)
 
 A direct write today commits to FoldDB first and signs second. If signing fails, or the entry is later voided, the database holds a record that history does not. The materializer needs a special delete step for it.
