@@ -23,11 +23,22 @@ pub(super) async fn pull_stream(
             accepted += 1;
         }
     }
-    // Rematerialize whenever birth is held so a prior failed apply (missing
-    // schema, interrupted declare, etc.) retries even when accepted=0.
+    // Rematerialize on new accepts, or when a prior apply failed (sticky retry).
+    // Idle zero-accept pulls skip the full history rescan once caught up.
+    let retry = histories.needs_materialize_retry(db.database_id);
+    if accepted == 0 && !retry {
+        return Ok(accepted);
+    }
     let history = histories.snapshot(db.database_id)?;
-    if history.owner().is_some() {
-        materialize::apply_history_records(db.store, &history).await?;
+    if history.owner().is_none() {
+        return Ok(accepted);
+    }
+    match materialize::apply_history_records(db.store, &history).await {
+        Ok(()) => histories.clear_materialize_retry(db.database_id),
+        Err(error) => {
+            histories.mark_materialize_retry(db.database_id);
+            return Err(error);
+        }
     }
     Ok(accepted)
 }

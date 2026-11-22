@@ -4,7 +4,7 @@
 //! committed. The signed `data` entry lets receivers materialize the same
 //! record after they pull the publisher stream. Birth is authored here when
 //! this is the first chain entry for the database. A `schema` entry is authored
-//! once per namespace before the first data entry that uses it.
+//! before data when the namespace is new or its FoldDB definition has changed.
 
 use std::path::Path;
 
@@ -96,15 +96,17 @@ fn ensure_schema(
     ctx: &MirrorCtx<'_>,
     item: &OwnedMutation,
 ) -> Result<(), String> {
-    if history.schemas().contains_key(&item.schema) {
-        return Ok(());
-    }
     let schema = ctx
         .store
         .schema_manager()
         .get_schema_metadata(&item.schema)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("schema {} is not declared on this store", item.schema))?;
+    if let Some(prior) = history.schemas().get(&item.schema) {
+        if schema_definition_matches(prior, &schema) {
+            return Ok(());
+        }
+    }
     let definition =
         serde_json::to_vec(&schema).map_err(|_| "cannot encode schema definition".to_owned())?;
     let author = author_ctx(history, ctx, fold_db::clock::unix_millis());
@@ -115,6 +117,13 @@ fn ensure_schema(
     let entry =
         author_schema(&author, &ctx.identity.signing_key, body).map_err(|e| e.to_string())?;
     accept_outbox(history, ctx, entry)
+}
+
+fn schema_definition_matches(prior: &[u8], current: &fold_db::schema::types::Schema) -> bool {
+    match serde_json::from_slice::<fold_db::schema::types::Schema>(prior) {
+        Ok(held) => held == *current,
+        Err(_) => false,
+    }
 }
 
 fn author_one(

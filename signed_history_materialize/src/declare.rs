@@ -27,15 +27,11 @@ async fn declare_one(store: &FoldDB, namespace: &str, definition: &[u8]) -> Resu
             schema.name
         ));
     }
-    let manager = store.schema_manager();
-    if manager
-        .get_schema_metadata(namespace)
-        .map_err(|e| e.to_string())?
-        .is_some()
-    {
-        return Ok(());
-    }
-    manager
+    // Always load: FoldDB applies compatible updates (additive fields) when the
+    // namespace is already installed. Skipping would leave receivers on the first
+    // signed definition forever.
+    store
+        .schema_manager()
         .load_schema_internal(schema)
         .await
         .map_err(|e| format!("declare schema {namespace}: {e}"))
