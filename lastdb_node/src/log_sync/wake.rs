@@ -11,7 +11,7 @@ use crate::profile::private_fs as disk;
 const WAKE_FILE: &str = "wake";
 /// How often a sleeping sync turn rechecks the wake file. Authors only write
 /// this file; without a poll the 2s ACTIVE sleep would hold a new tip until
-/// the timer ended (People circles saw grant revokes authored but not uploaded).
+/// the timer ended (a grant revoke could sit authored but not uploaded).
 const WAKE_POLL: Duration = Duration::from_millis(50);
 
 pub fn request_wake(home: &Path) {
