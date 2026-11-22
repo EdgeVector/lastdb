@@ -272,9 +272,7 @@ fn check_auth(entry: &SignedEntry, ctx: &AcceptContext<'_>) -> Option<RejectReas
             _ => Some(RejectReason::Malformed("data kind mismatch")),
         },
         EntryKind::Bundle => match entry {
-            SignedEntry::Bundle { body, .. } => {
-                authorize_bundle(entry, body, ctx.owner, ctx.lookup)
-            }
+            SignedEntry::Bundle { body, .. } => authorize_bundle(entry, body, ctx.owner),
             _ => Some(RejectReason::Malformed("bundle kind mismatch")),
         },
         _ => None,

@@ -75,7 +75,7 @@ pub use entry::{
     IncorporatedFrom, MutationFileRef, RelayUrl, RelaysBody, RevocationCutoff, SchemaBody,
     SignedEntry,
 };
-pub use grants::{past_cutoff, AcceptedMeta, CutoffTip, GrantState};
+pub use grants::{AcceptedMeta, GrantState};
 pub use history::{EquivocationEvidence, GrantTip, RejectEvidence, VerifiedHistory};
 pub use history_util::{grant_body_of, next_lamport};
 pub use ids::{DatabaseId, DeviceId, EntryHash, Hex32, IdError, NodeKey, StreamId};

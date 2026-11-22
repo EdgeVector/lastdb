@@ -46,7 +46,7 @@ export interface NodeVersion {
 /** Outcome of one submission this receiving node already sent. */
 export interface ShareSubmissionStatus {
   mutationId: string;
-  status: 'submitted' | 'published' | 'discarded' | 'unknown';
+  status: 'submitted' | 'published' | 'not_accepted' | 'unknown';
 }
 
 /** The field values of a proposal record, keyed by field name. */

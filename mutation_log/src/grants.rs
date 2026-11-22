@@ -1,9 +1,9 @@
-//! Folded grant state and role-reduction cutoffs.
+//! Folded grant state.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use crate::entry::{GrantBody, SignedEntry};
-use crate::ids::{DeviceId, EntryHash, NodeKey};
+use crate::ids::{EntryHash, NodeKey};
 use crate::kinds::{Grantee, Role};
 use crate::payload::RecordPosition;
 
@@ -14,21 +14,6 @@ pub struct GrantState {
     members: BTreeMap<NodeKey, Role>,
     /// Public-read (`any`) role; only `Read` is valid when present.
     any: Option<Role>,
-    /// Accumulated cutoffs keyed by (grantee node_key, device_id).
-    /// For `any`, cutoffs are ignored (`any` is read-only).
-    cutoffs: BTreeMap<(NodeKey, DeviceId), CutoffTip>,
-    /// Members that have received at least one role reduction/revoke.
-    /// Unlisted devices for these members default to cutoff tip 0.
-    reduced: BTreeSet<NodeKey>,
-}
-
-/// One device cutoff tip.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct CutoffTip {
-    /// Last accepted writer_seq (0 = no writes accepted).
-    pub writer_seq: u64,
-    /// Entry hash at that seq (zeros when seq is 0).
-    pub entry_hash: EntryHash,
 }
 
 impl GrantState {
@@ -60,30 +45,6 @@ impl GrantState {
         self.any
     }
 
-    /// True when this member has ever been role-reduced or revoked.
-    #[must_use]
-    pub fn was_reduced(&self, grantee: &NodeKey) -> bool {
-        self.reduced.contains(grantee)
-    }
-
-    /// Cutoff tip for `(grantee, device)`.
-    ///
-    /// After a reduction, devices absent from `cutoffs[]` are tip 0 (unseen →
-    /// cutoff 0). Before any reduction, returns `None` (unrestricted).
-    #[must_use]
-    pub fn cutoff(&self, grantee: &NodeKey, device: &DeviceId) -> Option<CutoffTip> {
-        if let Some(tip) = self.cutoffs.get(&(*grantee, *device)).copied() {
-            return Some(tip);
-        }
-        if self.reduced.contains(grantee) {
-            return Some(CutoffTip {
-                writer_seq: 0,
-                entry_hash: EntryHash::ZERO,
-            });
-        }
-        None
-    }
-
     /// Apply one grant entry in merge order. Equal lamport: revoked wins.
     pub fn apply_grant(&mut self, position: RecordPosition, body: &GrantBody) {
         let _ = position; // ordering is the caller's responsibility
@@ -97,20 +58,8 @@ impl GrantState {
                 let prev = self.members.get(&key).copied();
                 let next = pick_role(prev, body.role);
                 // Keep revoked rows so the owner grants view can list them.
-                // role_of filters Revoked; cutoffs still land in `reduced`.
+                // role_of filters Revoked.
                 self.members.insert(key, next);
-                if is_reduction(prev, body.role) {
-                    self.reduced.insert(key);
-                    for c in &body.cutoffs {
-                        self.cutoffs.insert(
-                            (key, c.device_id),
-                            CutoffTip {
-                                writer_seq: c.writer_seq,
-                                entry_hash: c.entry_hash,
-                            },
-                        );
-                    }
-                }
             }
         }
     }
@@ -134,9 +83,7 @@ impl GrantState {
 
     /// Fold a grant window from publisher entries named by `seen_heads` only.
     ///
-    /// Starts empty (does not inherit `self`). Cutoffs on the returned state are
-    /// those carried by reductions inside the window; callers still apply
-    /// cutoffs from the full verified `S` separately.
+    /// Starts empty (does not inherit `self`).
     pub fn fold_window_from_seen<'s>(
         seen: &[EntryHash],
         lookup: impl Fn(&EntryHash) -> Option<&'s AcceptedMeta>,
@@ -181,13 +128,6 @@ fn pick_role(prev: Option<Role>, next: Role) -> Role {
     }
 }
 
-fn is_reduction(prev: Option<Role>, next: Role) -> bool {
-    match prev {
-        None => false, // first grant — cutoffs not used
-        Some(p) => next.is_lower_than(p) || next == Role::Revoked,
-    }
-}
-
 /// Metadata retained for each accepted entry (enough for AcceptEntry deps).
 #[derive(Clone, Debug)]
 pub struct AcceptedMeta {
@@ -199,10 +139,4 @@ pub struct AcceptedMeta {
     pub grant_body: Option<GrantBody>,
     /// Full entry kept for evidence / pending promotion.
     pub entry: SignedEntry,
-}
-
-/// True when `writer_seq` is past a cutoff tip (direct write rejected).
-#[must_use]
-pub fn past_cutoff(seq: u64, tip: CutoffTip) -> bool {
-    seq > tip.writer_seq
 }

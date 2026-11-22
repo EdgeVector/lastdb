@@ -13,7 +13,6 @@ mod device;
 mod history_store;
 mod incorporate;
 mod materialize;
-mod member_write;
 mod mirror;
 mod outbox_upload;
 mod proposal;
@@ -23,19 +22,16 @@ pub(crate) mod received;
 mod relay;
 mod restore;
 mod spawn;
-mod void_conversion;
 mod wake;
 
 use std::path::Path;
 
 use cloud_backup_protocol::Digest;
 use fold_db::schema::types::Schema;
-use mutation_log::{NodeKey, Role};
 
 pub use config::relay_base_url;
 pub(crate) use history_store::histories_for;
 pub(crate) use materialize::{revert_unsigned, store_for as owned_store};
-pub(crate) use member_write::mirror_received_write;
 pub(crate) use mirror::{mirror_owned_write, OwnedMutation};
 pub(crate) use proposal::{
     status as share_write_status, submit as submit_share_write, ContributionError,
@@ -84,22 +80,6 @@ pub(crate) fn database_cloud_state(home: &Path, _database_id: &str) -> CloudStat
 
 pub(crate) fn wait_for_enrollment(host: &crate::host::Host, database_id: &str) -> CloudState {
     database_cloud_state(&host.home, database_id)
-}
-
-/// Direct `/v1/write` on a received database: only a folded Write role.
-///
-/// Matches the ExeMem relay `may_write` gate. No history or no Write role
-/// keeps the existing 403 read-only path.
-pub(crate) fn direct_write_allowed(
-    host: &crate::host::Host,
-    share: &crate::registered_share::RegisteredShare,
-) -> bool {
-    let node = NodeKey::from_bytes(host.keypair.public_key_bytes());
-    histories_for(&host.home)
-        .peek_with(share.id.as_str(), |history| {
-            received::role_of(history, node) == Some(Role::Write)
-        })
-        .unwrap_or(false)
 }
 
 /// Record the pending count for a received database the caller already opened.

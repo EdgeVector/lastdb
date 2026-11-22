@@ -1,18 +1,27 @@
 //! Publisher auto-incorporation of member proposal entries.
 //!
-//! After the publisher pulls member streams, each unresolved proposal that
-//! applies cleanly is incorporated (Direct + `incorporated_from`). Invalid or
-//! CAS-failing proposals are left alone (Decision 11: silent rejection — no
-//! discard call, no discard log entry).
+//! Only the publisher's signature changes a database. After the publisher
+//! pulls member streams, it decides each undecided proposal once, in the order
+//! the members signed them:
+//!
+//! - accepted: the change is written and signed as a direct entry that cites
+//!   the proposal in `incorporated_from`;
+//! - not accepted: the publisher signs a `heads` entry that cites the proposal.
+//!
+//! A `write` grant lets a member change any record. A `submit` grant lets it
+//! create records and change the ones it created. A proposal whose expected
+//! record state no longer holds is not accepted. A failure that is not about
+//! the proposal (storage, signing) decides nothing, and the next turn retries.
 
 use std::collections::{BTreeMap, HashMap};
 
 use fold_db::fold_db_core::FoldDB;
 use fold_db::record_replacement::RecordTarget;
 use fold_db::schema::types::{CasExpectation, Mutation, MutationType};
+use fold_db::schema::SchemaError;
 use mutation_log::{
-    author_data, data_record, decode_record_payload, decode_signature_b64url, entry_hash,
-    EntryHash, Hex32, IncorporatedFrom, NodeKey, SignedEntry, StreamKind,
+    author_data, author_heads, data_record, decode_record_payload, decode_signature_b64url,
+    entry_hash, EntryHash, Hex32, IncorporatedFrom, NodeKey, Role, SignedEntry, StreamKind,
 };
 use serde_json::Value;
 use sha2::{Digest as _, Sha256};
@@ -46,10 +55,9 @@ pub(super) async fn resolve_owned(
     }
     for entry in pending {
         match decide(store, histories, database_id, &entry).await? {
-            Decision::Publish(ready) => {
-                // FoldDB already holds the validated write from decide; author
-                // the chain entry so receivers converge on the same winner.
-                // An entry that cannot be signed leaves no record behind.
+            Decision::Accept(ready) => {
+                // The store already holds the validated write from decide. An
+                // entry that cannot be signed leaves no record behind.
                 let key = (ready.namespace.clone(), ready.key.clone());
                 if let Err(error) = publish(host, histories, database_id, &identity, &entry, ready)
                 {
@@ -57,8 +65,7 @@ pub(super) async fn resolve_owned(
                     return Err(error);
                 }
             }
-            // Invalid / CAS-fail: silent. No discard RPC, field, or log entry.
-            Decision::Skip => {}
+            Decision::Decline => decline(host, histories, database_id, &identity, &entry)?,
         }
     }
     let history = histories.snapshot(database_id)?;
@@ -66,8 +73,8 @@ pub(super) async fn resolve_owned(
 }
 
 enum Decision {
-    Publish(Ready),
-    Skip,
+    Accept(Ready),
+    Decline,
 }
 
 struct Ready {
@@ -91,6 +98,7 @@ struct Intent {
     value: Vec<u8>,
 }
 
+/// Decide one proposal. `Err` means nothing was decided.
 async fn decide(
     store: &FoldDB,
     histories: &HistoryMap,
@@ -98,35 +106,47 @@ async fn decide(
     entry: &SignedEntry,
 ) -> Result<Decision, String> {
     let SignedEntry::Data { body, .. } = entry else {
-        return Ok(Decision::Skip);
+        return Ok(Decision::Decline);
     };
     let Ok(payload) = decode_record_payload(&body.payload) else {
-        return Ok(Decision::Skip);
+        return Ok(Decision::Decline);
     };
     let Ok(intent) = parse_intent(&payload.value) else {
-        return Ok(Decision::Skip);
+        return Ok(Decision::Decline);
     };
-    let author = entry.header().node_key.to_hex();
-    let Some(expected) = local_expected(
-        store,
-        histories,
-        database_id,
-        (&body.namespace, &payload.record_key),
-        &intent.expected,
-        &entry.header().node_key,
-    )
-    .await?
+    let proposer = entry.header().node_key;
+    let key = (body.namespace.clone(), payload.record_key.clone());
+    let standing = histories.with_mut(database_id, |history| Standing {
+        role: history.grants().role_of(&proposer),
+        winner: history
+            .records()
+            .get(&key)
+            .filter(|record| !record.value.is_empty())
+            .map(|record| (record.entry, record.creator)),
+    })?;
+    if !standing.allows(&intent.expected, &proposer) {
+        return Ok(Decision::Decline);
+    }
+    let Ok(at) = signed_history_materialize::key_value(store, &body.namespace, &payload.record_key)
     else {
-        return Ok(Decision::Skip);
+        return Ok(Decision::Decline);
     };
-    let Ok(key) =
-        signed_history_materialize::key_value(store, &body.namespace, &payload.record_key)
-    else {
-        return Ok(Decision::Skip);
+    let expected = match intent.expected {
+        Expect::Absent => CasExpectation::Absent,
+        Expect::Entry(_) => {
+            let revision = signed_history_materialize::read_revision(
+                store,
+                &body.namespace,
+                &payload.record_key,
+            )
+            .await?
+            .ok_or("the store lacks a record its history holds")?;
+            CasExpectation::Revision { revision }
+        }
     };
     let target = RecordTarget {
         schema: body.namespace.clone(),
-        key,
+        key: at,
         alternates: BTreeMap::default(),
     };
     let mut mutation = Mutation::with_uuid(
@@ -136,55 +156,62 @@ async fn decide(
         intent.mutation_type,
         expected,
     );
-    mutation.writer = Some(author);
-    // Apply now: validates schema/types, advances CAS state for the next
-    // proposal in this turn, and stamps the member as content author.
+    mutation.writer = Some(proposer.to_hex());
+    // The store validates the change (schema, field types, key shape) and
+    // writes it, so the next proposal in this turn sees it.
     match store
         .mutation_manager()
         .write_mutations_receipt(vec![mutation])
         .await
     {
-        Ok(_) => Ok(Decision::Publish(Ready {
-            namespace: body.namespace.clone(),
-            key: payload.record_key,
+        Ok(_) => Ok(Decision::Accept(Ready {
+            namespace: key.0,
+            key: key.1,
             value: intent.value,
         })),
-        Err(_) => Ok(Decision::Skip),
+        Err(error) if about_the_proposal(&error) => Ok(Decision::Decline),
+        Err(error) => Err(error.to_string()),
     }
 }
 
-/// Check a proposal's expectation against this publisher's history, then give
-/// FoldDB the local expectation that matches it. A record's revision is node
-/// local, so the check is on the history entry that wrote the record. A member
-/// may change or delete only a record it created, so the history creator must
-/// be the proposer.
-async fn local_expected(
-    store: &FoldDB,
-    histories: &HistoryMap,
-    database_id: &str,
-    key: (&str, &str),
-    expected: &Expect,
-    proposer: &NodeKey,
-) -> Result<Option<CasExpectation>, String> {
-    let (namespace, record_key) = key;
-    let owned_key = (namespace.to_owned(), record_key.to_owned());
-    let winner = histories.with_mut(database_id, |history| {
-        history
-            .records()
-            .get(&owned_key)
-            .map(|record| (record.entry, record.value.is_empty(), record.creator))
-    })?;
-    match (expected, winner) {
-        (Expect::Absent, None | Some((_, true, _))) => Ok(Some(CasExpectation::Absent)),
-        (Expect::Entry(Some(want)), Some((have, false, creator)))
-            if *want == have && creator == *proposer =>
-        {
-            let revision =
-                signed_history_materialize::read_revision(store, namespace, record_key).await?;
-            Ok(revision.map(|revision| CasExpectation::Revision { revision }))
+/// What the publisher's history says about a proposer and the record it names.
+struct Standing {
+    role: Option<Role>,
+    /// The live record's winning entry and its creator, when one exists.
+    winner: Option<(EntryHash, NodeKey)>,
+}
+
+impl Standing {
+    /// A `write` grant may change any record. A `submit` grant may create a
+    /// record and change one it created. The expected state must be the one
+    /// the history holds: a record's revision is node local, so a proposal
+    /// names the history entry that wrote the record.
+    fn allows(&self, expected: &Expect, proposer: &NodeKey) -> bool {
+        let Some(role @ (Role::Write | Role::Submit)) = self.role else {
+            return false;
+        };
+        match (expected, self.winner) {
+            (Expect::Absent, None) => true,
+            (Expect::Entry(Some(want)), Some((have, creator))) => {
+                *want == have && (role == Role::Write || creator == *proposer)
+            }
+            _ => false,
         }
-        _ => Ok(None),
     }
+}
+
+/// True when the store refused the write because of what the proposal asks,
+/// not because the store could not serve it.
+fn about_the_proposal(error: &SchemaError) -> bool {
+    matches!(
+        error,
+        SchemaError::NotFound(_)
+            | SchemaError::Blocked(_)
+            | SchemaError::InvalidField(_)
+            | SchemaError::InvalidData(_)
+            | SchemaError::CasConflict { .. }
+            | SchemaError::RecordTooLarge { .. }
+    )
 }
 
 fn parse_intent(value: &[u8]) -> Result<Intent, ()> {
@@ -263,6 +290,33 @@ fn publish(
         );
         body.incorporated_from = Some(from);
         author_data(&ctx, &identity.signing_key, body).map_err(|_| ChainError::Unconfirmed)
+    })
+    .map(|_| ())
+    .map_err(|e| e.reply().message.to_owned())
+}
+
+/// Sign that a proposal is not accepted: a `heads` entry that cites it. The
+/// decision is final, and the proposer's node reads it as `not_accepted`.
+fn decline(
+    host: &Host,
+    histories: &HistoryMap,
+    database_id: &str,
+    identity: &AuthorIdentity,
+    proposal: &SignedEntry,
+) -> Result<(), String> {
+    let target = Target {
+        home: &host.home,
+        database_id,
+        identity,
+    };
+    chain_author::author_publisher(histories, &target, |mut ctx, history| {
+        cite_proposal(&mut ctx, proposal).map_err(|_| ChainError::Unconfirmed)?;
+        author_heads(
+            &ctx,
+            &identity.signing_key,
+            history.publisher_heads().to_vec(),
+        )
+        .map_err(|_| ChainError::Unconfirmed)
     })
     .map(|_| ())
     .map_err(|e| e.reply().message.to_owned())

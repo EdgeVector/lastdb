@@ -57,9 +57,11 @@ and `log.append` of the chain. `restore_seconds` covers stream discovery, `log.r
 - Roles used: `read` (the restoring node), `write` (a member), `revoked` (that member after the revoke). The
   publisher writes directly.
 - Grant and revoke: the publisher grants `write` to a member, the member reads the publisher stream, checks it with
-  AcceptEntry, and appends one record bound to its grant. The publisher then appends a `revoke` grant with a cutoff at
-  that record. Once the revoke is stored, the member's next `log.append` and `blob.put` must both get HTTP 403
-  (`grant_revoke_ok`). The member's earlier record stays stored and survives the restore.
+  AcceptEntry, and appends one proposal. A direct entry from the member must get HTTP 403, because only the
+  publisher signs direct entries. The publisher then appends an incorporation (a direct entry that cites the proposal)
+  and a `revoke` grant. Once the revoke is stored, the member's next proposal `log.append` and `blob.put` must both
+  get HTTP 403 (`grant_revoke_ok`). The member's proposal stays stored, and its record survives the restore because
+  the publisher incorporated it.
 - Blobs follow `blob.put` begin, presigned PUT, commit, then the `bundle` entry is appended; readers use
   `blob.get` and a presigned GET.
 
@@ -79,7 +81,7 @@ and `log.append` of the chain. `restore_seconds` covers stream discovery, `log.r
 
 The invite carries the database id, the publisher node key, one root device id, and the bundle secret. The restorer
 reads the root stream from seq 1, accepts it, then follows accepted publisher `heads` tips (the publisher's other
-device) and grant cutoffs (the revoked member's device) to the remaining streams. No device-id list is passed. Bundle entries are applied after the blob hashes to the entry's
+device) and the `incorporated_from` of an incorporation (the member's device) to the remaining streams. No device-id list is passed. Bundle entries are applied after the blob hashes to the entry's
 digest and decrypts; a missing or wrong blob fails the restore. Afterwards nothing may be pending, deferred or
 rejected, and every tip in the latest `heads` entry must match the held hash. The winners are written into a fresh
 FoldDB in batches of 256 creates (one native commit each), then the history equals the generator for all records
