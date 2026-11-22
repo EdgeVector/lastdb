@@ -6,7 +6,7 @@
 //! device published. None of them is part of the store, so a restored device
 //! starts with none.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use mutation_log::SnapshotThrough;
 use serde::{Deserialize, Serialize};
