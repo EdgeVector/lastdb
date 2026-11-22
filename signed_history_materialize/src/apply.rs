@@ -56,13 +56,15 @@ async fn apply_winner(
         key: KeyValue::new(Some(record_key.to_owned()), None),
         alternates: BTreeMap::new(),
     };
-    let mutation = Mutation::with_uuid(
+    let mut mutation = Mutation::with_uuid(
         uuid::Uuid::new_v4().to_string(),
         target,
         fields.unwrap_or_default(),
         kind,
         expected,
     );
+    // Content author: signed writer, or the proposal member on incorporation.
+    mutation.writer = Some(winner.author.to_hex());
     store
         .mutation_manager()
         .write_mutations_receipt(vec![mutation])
