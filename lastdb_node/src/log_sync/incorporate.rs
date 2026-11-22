@@ -186,7 +186,12 @@ fn publish(
     };
     chain_author::author_publisher(histories, &target, |mut ctx, _history| {
         cite_proposal(&mut ctx, proposal).map_err(|_| ChainError::Unconfirmed)?;
-        let mut body = data_record(StreamKind::Direct, ready.namespace, &ready.key, &ready.value);
+        let mut body = data_record(
+            StreamKind::Direct,
+            ready.namespace,
+            &ready.key,
+            &ready.value,
+        );
         body.incorporated_from = Some(from);
         author_data(&ctx, &identity.signing_key, body).map_err(|_| ChainError::Unconfirmed)
     })
