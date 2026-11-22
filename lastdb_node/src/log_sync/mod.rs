@@ -46,7 +46,10 @@ pub use crate::cloud::{explicit_relay_url, relay_base_url};
 pub(crate) use history_store::histories_for;
 pub(crate) use materialize::{revert_unsigned, store_for as owned_store};
 pub(crate) use mirror::{mirror_owned_write, OwnedMutation};
-pub use personal::{restore_personal_database, RestoreReport};
+pub use personal::{
+    install_newest_snapshot, restore_personal_database, RestoreReport, SnapshotBase,
+};
+pub(crate) use personal::{request_snapshot, snapshot_status};
 pub(crate) use proposal::{
     status as share_write_status, submit as submit_share_write, ContributionError,
 };

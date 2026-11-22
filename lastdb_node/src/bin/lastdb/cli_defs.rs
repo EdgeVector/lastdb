@@ -254,6 +254,15 @@ pub(crate) enum AppCommand {
 pub(crate) enum BackupCommand {
     Connect(BackupConnectArgs),
     Restore(BackupRestoreArgs),
+    /// Take a snapshot of the personal database now and name it on the relay.
+    Snapshot {
+        /// `personal` or its database id. Defaults to the personal database.
+        #[arg(long)]
+        database: Option<String>,
+        /// Return after the snapshot entry is on the relay.
+        #[arg(long)]
+        wait: bool,
+    },
 }
 
 #[derive(Subcommand, Debug)]

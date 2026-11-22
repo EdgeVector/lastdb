@@ -119,9 +119,9 @@ class Device:
     def cli_env(self):
         return {k: v for k, v in os.environ.items() if not k.startswith("LASTDB")}
 
-    def run(self, arguments, text=None):
+    def run(self, arguments, text=None, env=None):
         result = subprocess.run([str(self.cli), *arguments], input=text, capture_output=True, text=True,
-                                timeout=300, check=False, env=self.cli_env())
+                                timeout=1800, check=False, env={**self.cli_env(), **(env or {})})
         require(result.returncode == 0, f"{self.name}: lastdb {' '.join(arguments[:3])} failed: {result.stderr[-1500:]}")
         return json.loads(result.stdout[result.stdout.index("{"):])
 
@@ -134,10 +134,32 @@ class Device:
 
     def restore(self, phrase):
         """A fresh home from the recovery phrase and the relay alone."""
-        report = self.run(["backup", "restore", "--recovery-phrase-stdin", "--relay-url", self.relay.url,
-                           "--into", str(self.node.home), "--json"], text=phrase)
+        report = self.run(self.restore_arguments(), text=phrase)
         require(report.get("ok") is True and len(report.get("database_id", "")) == 64, f"{self.name}: restore reported {report!r}")
         return report
+
+    def restore_arguments(self):
+        return ["backup", "restore", "--recovery-phrase-stdin", "--relay-url", self.relay.url,
+                "--into", str(self.node.home), "--json"]
+
+    def restore_killed(self, phrase, delay):
+        """Start a restore, kill -9 it after `delay` seconds. True when it had already finished."""
+        process = subprocess.Popen([str(self.cli), *self.restore_arguments()], stdin=subprocess.PIPE,
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, text=True,
+                                   env=self.cli_env())
+        process.stdin.write(phrase)
+        process.stdin.close()
+        time.sleep(delay)
+        finished = process.poll() is not None
+        if not finished:
+            process.kill()
+        process.wait(timeout=60)
+        return finished
+
+    def snapshot_now(self):
+        """Ask the running daemon for a snapshot and wait until its entry is on the relay. Returns the report."""
+        return self.run(["backup", "snapshot", "--wait"],
+                        env={"LASTDB_SOCKET_PATH": str(self.node.socket), "LASTDB_HOME": str(self.node.home)})
 
     def start(self):
         self.node.start()

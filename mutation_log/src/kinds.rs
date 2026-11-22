@@ -20,6 +20,8 @@ pub mod domain {
     pub const RELAYS: &str = "lastdb-relays-v1";
     /// Multi-change bundle domain.
     pub const BUNDLE: &str = "lastdb-bundle-v1";
+    /// Snapshot domain.
+    pub const SNAPSHOT: &str = "lastdb-snapshot-v1";
 }
 
 /// Wire kind discriminant (OpenAPI `kind` field).
@@ -42,6 +44,8 @@ pub enum EntryKind {
     Heads,
     /// Publisher-signed relay URL list.
     Relays,
+    /// Publisher-signed name of a database snapshot and the stream positions it covers.
+    Snapshot,
 }
 
 impl EntryKind {
@@ -57,6 +61,7 @@ impl EntryKind {
             Self::BlobDelete => domain::BLOB_DELETE,
             Self::Heads => domain::HEADS,
             Self::Relays => domain::RELAYS,
+            Self::Snapshot => domain::SNAPSHOT,
         }
     }
 
@@ -71,6 +76,7 @@ impl EntryKind {
                 | Self::BlobDelete
                 | Self::Heads
                 | Self::Relays
+                | Self::Snapshot
         )
     }
 }

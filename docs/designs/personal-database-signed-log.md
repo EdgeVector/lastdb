@@ -72,7 +72,7 @@ No conversion code. The primary moves once, by a manual copy: a fresh home on th
 
 ## 10. Costs and limits
 
-- A restore replays the whole history. There are no snapshots. A checkpoint bundle can shorten this later if it becomes slow.
+- A restore installs the newest snapshot, then reads only the entries after it. With no snapshot it replays the whole history.
 - The relay learns sizes and timing.
 - Losing the recovery phrase loses the backup.
 
@@ -123,10 +123,10 @@ Every payload of the personal database is sealed with the AES-256-GCM envelope t
 
 ### Restore and a new device
 
-`lastdb backup restore --recovery-phrase-stdin [--relay-url URL] --into DIR [--json]` makes a home from the phrase, runs the same incoming turn from the first entry of each stream, and signs on a new stream under a new device id from then on. It needs no database id and no device ids. It prints `ok`, `database_id`, `devices` (device streams read, not counting the birth stream), `through` and `replayed`.
+`lastdb backup restore --recovery-phrase-stdin [--relay-url URL] --into DIR [--json]` makes a home from the phrase, installs the newest snapshot of the relay when there is one (the native files, checked against the digests of a signed `snapshot` entry), runs the incoming turn from the position after the snapshot on each stream (from the first entry when there is no snapshot), and signs on a new stream under a new device id from then on. It needs no database id and no device ids. It prints `ok`, `database_id`, `devices` (device streams read, not counting the birth stream), `through`, `replayed`, `snapshot` (null, or `snapshot_seq`, `files`, `bytes`, `streams`, `download_ms`) and `peak_memory_bytes`. `lastdb backup snapshot [--wait]` takes a snapshot now; a device also takes one after 25,000 entries on its own stream.
 
 ### Open items
 
-- A restore replays every stream from the first entry. A snapshot as the checkpoint is a later step.
+- The relay does not yet drop the entries a snapshot covers (a later step), and an existing home does not yet move by snapshot.
 - Shared databases keep the in-memory history and their log files.
 - The list of owned databases (section 7) is not built. A database of kind personal that is not the owner row stays unsynced.

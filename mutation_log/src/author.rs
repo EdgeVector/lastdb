@@ -5,7 +5,7 @@ use app_identity_crypto::SigningKey;
 use crate::accept::StreamHead;
 use crate::entry::{
     BirthBody, BlobDeleteBody, BundleBody, DataBody, DeviceHead, EntryHeader, GrantBody, HeadsBody,
-    RelayUrl, RelaysBody, SchemaBody, SignedEntry,
+    RelayUrl, RelaysBody, SchemaBody, SignedEntry, SnapshotBody,
 };
 use crate::history_util::next_lamport;
 use crate::ids::{DatabaseId, DeviceId, EntryHash, Hex32, NodeKey};
@@ -171,6 +171,23 @@ pub fn author_heads(
         header: ctx.header_unsigned(),
         namespace: "heads".into(),
         body: HeadsBody { publisher_heads },
+    };
+    sign_entry(&mut entry, signing_key)?;
+    Ok(entry)
+}
+
+/// Author a snapshot entry. The positions are sorted by device id.
+pub fn author_snapshot(
+    ctx: &AuthorCtx,
+    signing_key: &SigningKey,
+    mut body: SnapshotBody,
+) -> Result<SignedEntry, EncodeError> {
+    body.through
+        .sort_by_key(|position| position.device_id.to_bytes());
+    let mut entry = SignedEntry::Snapshot {
+        header: ctx.header_unsigned(),
+        namespace: "snapshot".into(),
+        body,
     };
     sign_entry(&mut entry, signing_key)?;
     Ok(entry)

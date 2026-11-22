@@ -1,9 +1,10 @@
-//! Backup connection setup and recovery-home commands (no snapshots).
+//! Backup connection setup, snapshot requests, and recovery-home commands.
 
 use super::*;
 use serde_json::Value;
 use std::io::Read;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 use zeroize::Zeroizing;
 
 #[path = "cloud_cmds/account.rs"]
@@ -20,12 +21,18 @@ mod setup;
 pub(super) use account::cloud_account_command;
 pub(crate) use dev_keys::with_publishing_credential;
 
+/// The longest a `--wait` snapshot waits. A large store uploads for a while.
+const SNAPSHOT_WAIT: Duration = Duration::from_secs(1800);
+
 pub(super) fn backup_command(
     data_dir: Option<PathBuf>,
-    _db: Option<String>,
+    db: Option<String>,
     action: BackupCommand,
 ) -> Result<(), String> {
     match action {
+        BackupCommand::Snapshot { database, wait } => {
+            queue_snapshot(data_dir, database.or(db), wait)
+        }
         BackupCommand::Connect(a) => setup::run_connect(data_dir, &a),
         BackupCommand::Restore(args) => {
             let expanded = data_dir
@@ -33,6 +40,55 @@ pub(super) fn backup_command(
                 .transpose()?;
             restore::run(expanded.as_deref(), args)
         }
+    }
+}
+
+fn queue_snapshot(
+    data_dir: Option<PathBuf>,
+    database: Option<String>,
+    wait: bool,
+) -> Result<(), String> {
+    let (_home, socket) = resolve_client_home_and_socket(data_dir)?;
+    require_reachable(&socket)?;
+    let raw = post_json_admin(
+        &socket,
+        "/api/backup/snapshot",
+        &serde_json::json!({ "database": database }),
+    )?;
+    let reply = parse_json_or_error(&raw, "backup snapshot")?;
+    let nonce = reply["nonce"]
+        .as_str()
+        .filter(|s| !s.is_empty())
+        .ok_or("backup snapshot response missing nonce")?;
+    if !wait {
+        println!("Queued snapshot of the personal database");
+        return Ok(());
+    }
+    wait_for_snapshot(&socket, nonce)
+}
+
+fn wait_for_snapshot(socket: &Path, nonce: &str) -> Result<(), String> {
+    let path = format!("/api/backup/snapshot?nonce={nonce}");
+    let deadline = Instant::now() + SNAPSHOT_WAIT;
+    loop {
+        if let Ok(raw) = get_path_retry(socket, &path, Duration::from_secs(10)) {
+            if let Ok(reply) = parse_json_response(&raw, "backup snapshot status") {
+                if reply["ready"].as_bool() == Some(true) {
+                    println!(
+                        "{}",
+                        serde_json::to_string(&reply["report"]).map_err(|_| "bad reply")?
+                    );
+                    return Ok(());
+                }
+                if let Some(error) = reply["error"].as_str().filter(|s| !s.is_empty()) {
+                    return Err(error.to_owned());
+                }
+            }
+        }
+        if Instant::now() >= deadline {
+            return Err("the snapshot did not reach the relay in time".into());
+        }
+        std::thread::sleep(Duration::from_millis(200));
     }
 }
 
