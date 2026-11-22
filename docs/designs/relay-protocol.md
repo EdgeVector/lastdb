@@ -36,6 +36,7 @@ that publisher’s relay data.
 ```
 POST /relay/v1/log/append
 POST /relay/v1/log/read
+POST /relay/v1/log/streams
 POST /relay/v1/blob/put
 POST /relay/v1/blob/get
 ```
@@ -90,8 +91,8 @@ role reduction has removed that authority. A member may append proposal
 **`blob.put`.** Accepted for the publisher, or for a key whose current
 grant is **`write`**.
 
-**`log.read` / `blob.get`.** Require a current **read** grant for the
-signing `node_key`, or an active **`grant#any` / `read`**. Meaning of
+**`log.read` / `log.streams` / `blob.get`.** Require a current **read** grant
+for the signing `node_key`, or an active **`grant#any` / `read`**. Meaning of
 `grant#any`: **any caller with a valid request signature** may read — not
 unsigned/anonymous access. There is no unsigned public path.
 
@@ -114,7 +115,7 @@ the same way from the logs it is given (or fetches from another relay);
 until birth+grants are verified, it refuses non-publisher writes and
 non-`grant#any` reads.
 
-### `log.append` / `log.read`
+### `log.append` / `log.read` / `log.streams`
 
 Store key `(database_id, node_key, device_id, writer_seq)`; `device_id` is
 Hex32 (64 lowercase hex, 32 bytes in `signed_bytes`), never a UUID. Entries:
@@ -126,6 +127,35 @@ entries across every device; the cursor carries the device. With `device_id`,
 read that one device chain. Nodes run `AcceptEntry` on read (pending until
 `seen_heads` deps — and for `bundle`, a valid blob — arrive).
 
+**`log.streams`** answers "which device streams does this writer have, and how
+far does each reach?" so a node can ask once, then read each stream only from
+the entry after the last one it already holds, instead of rereading every
+stream from seq 1. An idle sync costs one listing and reads no entries.
+
+Request `{ "database_id", "writer_key" }`. Response
+`{ "streams": [ { "device_id", "head_seq", "head_hash" } ] }`, sorted by
+`device_id` (ascending, lowercase hex). `head_seq` is the **contiguous head**:
+the highest `writer_seq` such that every sequence number from 1 up to it is
+stored on that stream. The relay does not enforce gapless appends, so a stream
+can hold seq 1, 2 and 5; its head is 2, and seq 5 counts only once 3 and 4 are
+stored. `head_hash` is the entry hash (`mutation_log::entry_hash`, 64 lowercase
+hex) of the entry at `head_seq`. A stream whose seq 1 is not stored is not
+listed. A writer with no stream gets `{ "streams": [] }`, not an error.
+
+**Access is exactly the access of an all-devices `log.read` of the same
+`writer_key`**, decided by the same check: the publisher, a current grant, or an
+active `grant#any`/`read` may list; a caller with no grant gets 403
+`forbidden`; a revoked member gets 403 `forbidden` (a revoked member may still
+read the publisher's single device stream, but never lists). The relay is still
+a mailbox: the listing is derived from what it stores and says nothing about
+whether the entries are valid.
+
+Contract for another relay (ExeMem): same route, same signed request, same
+body and response; errors as in the table below (401 bad signature, 403 no
+current read grant or revoked, 400 `invalid_request` for a malformed
+`database_id` or `writer_key`, 426 protocol); the heads must be contiguous
+heads as defined here, and answering must not require reading every entry.
+
 ### `blob.put` / `blob.get`
 
 Blob keys are scoped per `database_id`, content-addressed by sha256 of
@@ -135,6 +165,14 @@ bundle body (presigned; parallel or multipart allowed) **before**
 download path: a presigned URL** (plus headers, expiry, bytes, sha256).
 After a verified, valid `blob_delete` for that digest, get may return
 `not_found`. No new endpoints for bundles.
+
+**Large files.** The protocol sets no blob size cap (the 64 MiB bundle cap is
+node-enforced), and a blob moves through the presigned URLs, so neither side
+needs the whole file in memory. A client streams the file from disk to the PUT
+URL and streams the GET response to disk, hashing as the bytes pass; the
+reference relay does the same on its side (it hashes the upload as it writes
+the staging file, and `blob.put` commit is a rename). Timeouts for such
+transfers must scale with the size, not use the 30-second request timeout.
 
 **Dedupe:** encryption with the db key plus a per-blob nonce means
 identical plaintext yields different digests — no cross-entry digest
@@ -168,7 +206,7 @@ the grant index from verified publisher birth/grant entries in the logs.
 
 | Topic | Default |
 |---|---|
-| Reference relay | In `lastdb` for CI |
+| Reference relay | In `lastdb` for CI; writes one stderr line per request (route, status, entries returned by `log/read`) |
 | Public `grant#any` reads | Any **signed** caller may read when `grant#any`/`read` is active |
 | Relay list | Publisher-signed `relays` + People |
 | Log GC | Never (product erase via delete/deactivate only) |

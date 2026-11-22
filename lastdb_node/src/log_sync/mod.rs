@@ -14,6 +14,7 @@
 //! device catches up: see `personal`.
 
 pub(crate) mod birth;
+mod blob_transfer;
 mod blobs;
 mod chain_author;
 pub(crate) mod chain_error;

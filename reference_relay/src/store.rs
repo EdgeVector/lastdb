@@ -2,19 +2,19 @@
 
 use std::path::{Path, PathBuf};
 
-use app_identity_crypto::hex_lower;
 use serde_json::Value;
-use sha2::{Digest, Sha256};
 use tokio::fs;
 
 use crate::error::{ApiError, ApiResult};
+use crate::heads::{self, Heads};
 
 const MAX_BATCH: usize = 90;
 
 /// On-disk relay state under `--data-dir`.
 #[derive(Clone)]
 pub(crate) struct Store {
-    root: PathBuf,
+    pub(crate) root: PathBuf,
+    heads: Heads,
 }
 
 impl Store {
@@ -31,7 +31,17 @@ impl Store {
         fs::create_dir_all(root.join("staging"))
             .await
             .map_err(|_| ApiError::invalid("data_dir"))?;
-        Ok(Self { root })
+        let heads = Heads::scan(&root.join("logs")).await;
+        Ok(Self { root, heads })
+    }
+
+    /// The streams of one writer with their contiguous heads, sorted by device id.
+    pub(crate) fn list_streams(
+        &self,
+        database_id: &str,
+        writer_key: &str,
+    ) -> Vec<heads::ListedStream> {
+        self.heads.list(database_id, writer_key)
     }
 
     pub(crate) fn root(&self) -> &Path {
@@ -69,6 +79,7 @@ impl Store {
         if meta.database_id != database_id {
             return Err(ApiError::invalid("entries.database_id"));
         }
+        let hash = heads::hash_of(entry)?;
         let path = self.entry_path(&meta);
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)
@@ -84,6 +95,13 @@ impl Store {
         }
         let bytes = serde_json::to_vec(entry).map_err(|_| ApiError::invalid("entries"))?;
         atomic_write(&path, &bytes).await?;
+        self.heads.record(
+            &meta.database_id,
+            &meta.node_key,
+            &meta.device_id,
+            meta.writer_seq,
+            hash,
+        );
         Ok(AppendOutcome::Stored)
     }
 
@@ -208,98 +226,6 @@ impl Store {
             meta.database_id, meta.node_key, meta.device_id, meta.writer_seq
         ))
     }
-
-    pub(crate) async fn stage_begin(&self, sha256: &str, bytes: u64) -> ApiResult<String> {
-        require_hex64(sha256, "sha256")?;
-        if bytes == 0 {
-            return Err(ApiError::invalid("bytes"));
-        }
-        let token = format!("{sha256}-{}", now_ms());
-        let meta = serde_json::json!({ "sha256": sha256, "bytes": bytes });
-        let path = self.root.join("staging").join(format!("{token}.meta.json"));
-        atomic_write(
-            &path,
-            &serde_json::to_vec(&meta).map_err(|_| ApiError::invalid("sha256"))?,
-        )
-        .await?;
-        Ok(token)
-    }
-
-    pub(crate) async fn stage_put(&self, token: &str, body: &[u8]) -> ApiResult<()> {
-        let meta_path = self.root.join("staging").join(format!("{token}.meta.json"));
-        if !meta_path.exists() {
-            return Err(ApiError::not_found("upload.token"));
-        }
-        let meta = read_json(&meta_path).await?;
-        let expected = meta
-            .get("bytes")
-            .and_then(serde_json::Value::as_u64)
-            .ok_or(ApiError::invalid("bytes"))?;
-        if body.len() as u64 != expected {
-            return Err(ApiError::invalid("bytes"));
-        }
-        let path = self.root.join("staging").join(token);
-        atomic_write(&path, body).await
-    }
-
-    pub(crate) async fn stage_commit(&self, sha256: &str, bytes: u64) -> ApiResult<()> {
-        require_hex64(sha256, "sha256")?;
-        let staging = self.find_staging(sha256).await?;
-        let data = fs::read(&staging)
-            .await
-            .map_err(|_| ApiError::not_found("sha256"))?;
-        if data.len() as u64 != bytes {
-            return Err(ApiError::invalid("bytes"));
-        }
-        let digest = hex_lower(&Sha256::digest(&data));
-        if digest != sha256 {
-            return Err(ApiError::invalid("sha256"));
-        }
-        let dest = self.blob_path(sha256);
-        atomic_write(&dest, &data).await?;
-        let _ = fs::remove_file(&staging).await;
-        let _ = fs::remove_file(staging.with_extension("meta.json")).await;
-        Ok(())
-    }
-
-    async fn find_staging(&self, sha256: &str) -> ApiResult<PathBuf> {
-        let dir = self.root.join("staging");
-        let mut rd = fs::read_dir(&dir)
-            .await
-            .map_err(|_| ApiError::not_found("sha256"))?;
-        while let Some(ent) = rd
-            .next_entry()
-            .await
-            .map_err(|_| ApiError::not_found("sha256"))?
-        {
-            let name = ent.file_name();
-            let name = name.to_string_lossy();
-            if name.starts_with(sha256) && !name.ends_with(".meta.json") {
-                return Ok(ent.path());
-            }
-        }
-        Err(ApiError::not_found("sha256"))
-    }
-
-    pub(crate) async fn blob_meta(&self, sha256: &str) -> ApiResult<(u64, PathBuf)> {
-        require_hex64(sha256, "sha256")?;
-        let path = self.blob_path(sha256);
-        let meta = fs::metadata(&path)
-            .await
-            .map_err(|_| ApiError::not_found("sha256"))?;
-        Ok((meta.len(), path))
-    }
-
-    pub(crate) async fn read_blob(&self, sha256: &str) -> ApiResult<Vec<u8>> {
-        let (_, path) = self.blob_meta(sha256).await?;
-        fs::read(&path)
-            .await
-            .map_err(|_| ApiError::not_found("sha256"))
-    }
-
-    fn blob_path(&self, sha256: &str) -> PathBuf {
-        self.root.join("blobs").join(sha256)
-    }
 }
 
 enum AppendOutcome {
@@ -344,7 +270,7 @@ fn str_field(entry: &Value, field: &str) -> ApiResult<String> {
         .ok_or_else(|| ApiError::invalid(format!("entries.{field}")))
 }
 
-fn require_hex64(s: &str, field: &str) -> ApiResult<()> {
+pub(crate) fn require_hex64(s: &str, field: &str) -> ApiResult<()> {
     if s.len() == 64 && s.bytes().all(|b| b.is_ascii_hexdigit()) {
         Ok(())
     } else {
@@ -352,14 +278,14 @@ fn require_hex64(s: &str, field: &str) -> ApiResult<()> {
     }
 }
 
-async fn read_json(path: &Path) -> ApiResult<Value> {
+pub(crate) async fn read_json(path: &Path) -> ApiResult<Value> {
     let bytes = fs::read(path)
         .await
         .map_err(|_| ApiError::not_found("entries"))?;
     serde_json::from_slice(&bytes).map_err(|_| ApiError::invalid("entries"))
 }
 
-async fn atomic_write(path: &Path, bytes: &[u8]) -> ApiResult<()> {
+pub(crate) async fn atomic_write(path: &Path, bytes: &[u8]) -> ApiResult<()> {
     let tmp = path.with_extension("tmp");
     fs::write(&tmp, bytes)
         .await
@@ -369,7 +295,7 @@ async fn atomic_write(path: &Path, bytes: &[u8]) -> ApiResult<()> {
         .map_err(|_| ApiError::invalid("data_dir"))
 }
 
-fn now_ms() -> u64 {
+pub(crate) fn now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_millis() as u64)

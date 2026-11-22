@@ -5,21 +5,34 @@ use std::time::{Duration, Instant};
 use app_identity_crypto::{hex_lower, sign, SigningKey};
 use base64::Engine as _;
 use mutation_log::{DatabaseId, DeviceId, SignedEntry};
+use serde::Deserialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
 /// Bound a hung peer so the sync loop can return and re-push the log.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+pub(super) const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 /// CI probe budget: request timeout plus a little slack.
 const HUNG_PEER_BUDGET: Duration = Duration::from_secs(45);
+
+/// One device stream of a writer as `log.streams` lists it.
+#[derive(Debug, Deserialize)]
+#[expect(
+    dead_code,
+    reason = "the node pull reads streams through this in a later step"
+)]
+pub(super) struct StreamHead {
+    pub(super) device_id: String,
+    pub(super) head_seq: u64,
+    pub(super) head_hash: String,
+}
 
 pub(super) struct RelayClient {
     pub(super) base: String,
     pub(super) signing_key: SigningKey,
     pub(super) node_key_hex: String,
     pub(super) device_id: String,
-    http: reqwest::Client,
+    pub(super) http: reqwest::Client,
 }
 
 impl RelayClient {
@@ -103,77 +116,34 @@ impl RelayClient {
         Ok((entries, cursor))
     }
 
-    /// Put a blob on the relay: `blob.put` begin, the presigned upload, commit.
-    /// The relay refuses a blob for a database whose birth it does not hold.
-    pub(super) async fn blob_put(
+    /// The device streams of `writer_key` and how far each reaches: for each,
+    /// the contiguous head (the highest `writer_seq` such that every seq from 1
+    /// up to it is on the relay) and the hash of that entry. A writer with no
+    /// stream gives an empty list. Access is the access of an all-devices
+    /// `log.read` of the same writer.
+    #[expect(
+        dead_code,
+        reason = "the node pull reads streams through this in a later step"
+    )]
+    pub(super) async fn streams(
         &self,
         database_id: &str,
-        sha256: &str,
-        blob: &[u8],
-    ) -> Result<(), String> {
-        let stage = |stage: &str| {
-            json!({
-                "database_id": database_id,
-                "sha256": sha256,
-                "bytes": blob.len(),
-                "stage": stage,
-            })
-        };
-        let begin = self
-            .post("/relay/v1/blob/put", database_id, &stage("begin"))
+        writer_key: &str,
+    ) -> Result<Vec<StreamHead>, String> {
+        let body = json!({ "database_id": database_id, "writer_key": writer_key });
+        let value = self
+            .post("/relay/v1/log/streams", database_id, &body)
             .await?;
-        let url = begin["upload"]["url"]
-            .as_str()
-            .ok_or("blob.put begin has no upload.url")?;
-        let mut upload = self.http.put(url).body(blob.to_vec());
-        for (name, value) in header_pairs(&begin["upload"]["headers"]) {
-            upload = upload.header(name, value);
-        }
-        let status = upload
-            .send()
-            .await
-            .map_err(|e| format!("blob upload: {e}"))?
-            .status();
-        if !status.is_success() {
-            return Err(format!("blob upload HTTP {status}"));
-        }
-        self.post("/relay/v1/blob/put", database_id, &stage("commit"))
-            .await?;
-        Ok(())
+        serde_json::from_value(value["streams"].clone())
+            .map_err(|_| "relay log.streams returned an invalid list".to_owned())
     }
 
-    /// Fetch a blob: `blob.get`, then the presigned download.
-    pub(super) async fn blob_get(
+    pub(super) async fn post(
         &self,
+        path: &str,
         database_id: &str,
-        sha256: &str,
-        expect_size: u64,
-    ) -> Result<Vec<u8>, String> {
-        let body = json!({ "database_id": database_id, "sha256": sha256 });
-        let meta = self.post("/relay/v1/blob/get", database_id, &body).await?;
-        let url = meta["url"].as_str().ok_or("blob.get has no url")?;
-        if meta["bytes"].as_u64().is_some_and(|n| n != expect_size) {
-            return Err(format!("blob.get size differs from its entry for {sha256}"));
-        }
-        let mut download = self.http.get(url);
-        for (name, value) in header_pairs(&meta["headers"]) {
-            download = download.header(name, value);
-        }
-        let response = download
-            .send()
-            .await
-            .map_err(|e| format!("blob download: {e}"))?;
-        if !response.status().is_success() {
-            return Err(format!("blob download HTTP {}", response.status()));
-        }
-        let bytes = response
-            .bytes()
-            .await
-            .map_err(|e| format!("blob download body: {e}"))?;
-        Ok(bytes.to_vec())
-    }
-
-    async fn post(&self, path: &str, database_id: &str, body: &Value) -> Result<Value, String> {
+        body: &Value,
+    ) -> Result<Value, String> {
         let raw = serde_json::to_vec(body).map_err(|_| "cannot encode relay body")?;
         let headers = sign_headers(
             &self.signing_key,
@@ -235,7 +205,7 @@ fn sign_headers(
 }
 
 /// The name and value of each string in a JSON object of headers.
-fn header_pairs(value: &Value) -> Vec<(String, String)> {
+pub(super) fn header_pairs(value: &Value) -> Vec<(String, String)> {
     let Some(map) = value.as_object() else {
         return Vec::new();
     };

@@ -20,6 +20,7 @@ app_identity_crypto = { workspace = true }
 axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio", "query"] }
 base64 = { workspace = true }
 clap = { workspace = true }
+futures = { workspace = true }
 hmac = { workspace = true }
 mutation_log = { path = "../mutation_log" }
 serde = { workspace = true }
