@@ -23,20 +23,25 @@ writes, publishes the files it had as its first snapshot before any later write 
    names the snapshot, and no write is lost or sent twice. The variant home shows that markers
    the old upload path left do not hold back a later snapshot.
 7. The relay holds no marker string from a record, a schema name, or the file.
+
+With `--relay-url` the relay is a parameter: the deployed Exemem DEV relay instead of a
+`reference_relay` process. `old_home_deployed.py` then runs steps 1 to 4 on the plain home, with a
+fresh identity, and lists what it does not run.
 """
 import argparse
 import json
 from pathlib import Path
-import subprocess
 import sys
 import time
 
 _OPS = Path(__file__).resolve().parent
 sys.path[:0] = [str(_OPS), str(_OPS.parent)]
+from harness import append_step_summary  # noqa: E402
 from old_home_nodes import ALPHA, BETA, FILE_MARK, GROUPS, NOTE_MARK, make_old_home, recorded  # noqa: E402
 import old_home_adopt as adopt_checks  # noqa: E402
-from old_home_steps import view, wait_view  # noqa: E402
-from personal_proof_nodes import Device, Relay, relay_holds_none, require, wait  # noqa: E402
+from old_home_deployed import prove_deployed, render  # noqa: E402
+from old_home_steps import database_of, post_writes, view, wait_view  # noqa: E402
+from personal_proof_nodes import DeployedRelay, Device, Relay, relay_holds_none, require, wait  # noqa: E402
 import v1_records as v1  # noqa: E402
 
 ADOPT = _OPS / "adopt_old_home.py"
@@ -50,10 +55,6 @@ def device_of(name, args, out, relay):
     return device
 
 
-def database_of(cli, home):
-    out = subprocess.run([str(cli), "--data-dir", str(home), "admin", "identity", "--json"],
-                         capture_output=True, text=True, check=True).stdout
-    return json.loads(out)["database_id"]
 
 
 def entries_of(relay, database):
@@ -87,29 +88,6 @@ def first_snapshot_done(relay, device):
             and not (device.node.home / ".signed-initial-snapshot").exists())
 
 
-def post_writes(device, expected, tag):
-    """Replace and delete old records and create new ones on the running moved home. Returns the count."""
-    alpha, beta = expected["alpha"], expected["beta"]
-    old = sorted(alpha)
-    changes = []
-    for key in old[1:200:5]:
-        changes.append({"schema": ALPHA, "op": "replace", "key": {"hash": key}, "record": recorded(key, tag)})
-        alpha[key] = recorded(key, tag)
-    for key in old[2:200:9]:
-        if key in alpha and key not in {c["key"]["hash"] for c in changes}:
-            changes.append({"schema": ALPHA, "op": "delete", "key": {"hash": key}})
-            del alpha[key]
-    device.change(changes)
-    fresh = [f"{tag}-{n}" for n in range(25)]
-    device.write([v1.create_item(ALPHA, {"hash": key}, recorded(key, tag)) for key in fresh])
-    alpha.update({key: recorded(key, tag) for key in fresh})
-    group = GROUPS[2]
-    new_beta = f"{tag}-beta"
-    device.write([v1.create_item(BETA, {"hash": new_beta}, recorded(new_beta, tag),
-                                 alternates={"by_group": {"hash": group, "range": new_beta}})])
-    beta[new_beta] = recorded(new_beta, tag)
-    expected["groups"][group] = sorted([*expected["groups"][group], new_beta])
-    return len(changes) + len(fresh) + 1
 
 
 def require_each_write_once(relay, device, writes):
@@ -286,13 +264,44 @@ def dump_logs(root):
         print("\n".join(line[:400] for line in lines[-40:]), file=sys.stderr)
 
 
+def run_deployed(args):
+    """Steps 1 to 4 on the plain home against a deployed relay. The summary is printed and appended to the job summary."""
+    cli = Path(args.cli)
+    (args.output / "old-plain").mkdir(exist_ok=True)
+    relay = DeployedRelay(args.relay_url)
+    failure = None
+    try:
+        text = render(prove_deployed(args, args.output, relay, cli, OWNED))
+        (args.output / "summary.md").write_text(text)
+        append_step_summary(text)
+        print(text, flush=True)
+    except Exception as error:  # noqa: BLE001 the failure is printed with its evidence, then raised
+        failure = error
+        print(f"FAILED: {error}", file=sys.stderr)
+        dump_logs(args.output)
+    finally:
+        for device in OWNED:
+            try:
+                device.node.close()
+            except Exception as error:  # noqa: BLE001
+                print(f"{device.name}: cleanup failed: {error}", file=sys.stderr)
+    if failure is not None:
+        raise SystemExit(1)
+    print("Old home proof passed against the deployed relay", flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    for name in ("old-daemon", "daemon", "cli", "relay-bin", "revision"):
+    for name in ("old-daemon", "daemon", "cli", "revision"):
         parser.add_argument(f"--{name}", required=True)
+    where = parser.add_mutually_exclusive_group(required=True)
+    where.add_argument("--relay-bin", help="run every step against a reference_relay process of this binary")
+    where.add_argument("--relay-url", help="run steps 1 to 4 on the plain home against this deployed relay origin")
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
+    if args.relay_url:
+        return run_deployed(args)
     for name in ("old-plain", "old-variant", "old-big", "old-oversize"):
         (args.output / name).mkdir(exist_ok=True)
     cli = Path(args.cli)

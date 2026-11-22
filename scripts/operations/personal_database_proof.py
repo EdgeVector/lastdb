@@ -31,6 +31,11 @@ as its own stream and applies the other streams through the store's last-writer 
 10. Scale: tens of thousands of writes. The peak resident memory of the daemons does not grow with
     the number of entries, the spool returns to near empty, and an idle turn reads nothing.
 
+With `--relay-url` the relay is a parameter: a deployed relay (the Exemem DEV relay) instead of a
+`reference_relay` process. The identity is fresh, so the proof writes to a personal database of its
+own. `personal_proof_deployed.py` runs the steps that need no access to the relay process, and says
+which steps it does not run.
+
 A failure prints each node's spool state and its recent daemon warnings.
 """
 import argparse
@@ -42,8 +47,10 @@ import time
 
 _OPS = Path(__file__).resolve().parent
 sys.path[:0] = [str(_OPS), str(_OPS.parent)]
+from harness import append_step_summary  # noqa: E402
 from personal_proof_load import idle_turn_reads_nothing, kill_under_load, scale  # noqa: E402
-from personal_proof_nodes import DELTA, Device, Relay, converged, prove_hidden, require, wait  # noqa: E402
+from personal_proof_deployed import prove_deployed, render  # noqa: E402
+from personal_proof_nodes import DELTA, DeployedRelay, Device, Relay, converged, prove_hidden, require, wait  # noqa: E402
 from personal_proof_snapshot import (  # noqa: E402
     exchange_writes, kill_the_restore, scale_snapshot, second_snapshot, snapshot_restore_equals_replay)
 from personal_proof_steps import (  # noqa: E402
@@ -118,11 +125,39 @@ def dump(devices):
         print("\n".join(device.warnings()), file=sys.stderr)
 
 
+def run_deployed(args):
+    """The proof against a deployed relay, then its summary (printed, and appended to the job summary)."""
+    relay = DeployedRelay(args.relay_url)
+    devices = [Device(name, args, args.output, relay) for name in ("device-a", "device-b", "device-c", "device-d")]
+    failure = None
+    try:
+        report = prove_deployed(relay, devices, args.output)
+        text = render(report)
+        (args.output / "summary.md").write_text(text)
+        append_step_summary(text)
+        print(text, flush=True)
+    except Exception as error:  # noqa: BLE001 the failure is printed with its evidence, then raised
+        failure = error
+        print(f"FAILED: {error}", file=sys.stderr)
+        dump(devices)
+    finally:
+        for device in devices:
+            try:
+                device.node.close()
+            except Exception as error:  # noqa: BLE001
+                print(f"{device.name}: cleanup failed: {error}", file=sys.stderr)
+    if failure is not None:
+        raise SystemExit(1)
+    print("Personal database proof passed against the deployed relay", flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--daemon", required=True)
     parser.add_argument("--cli", required=True)
-    parser.add_argument("--relay-bin", required=True)
+    where = parser.add_mutually_exclusive_group(required=True)
+    where.add_argument("--relay-bin", help="run the scenarios against a reference_relay process of this binary")
+    where.add_argument("--relay-url", help="run the deployed-relay scenarios against this relay origin")
     parser.add_argument("--revision", required=True)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--scale-writes", type=int, default=int(os.environ.get("PROOF_SCALE_WRITES", "20000")),
@@ -130,6 +165,8 @@ def main():
     parser.add_argument("--kills", type=int, default=5, help="kill -9 rounds under write load")
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
+    if args.relay_url:
+        return run_deployed(args)
     relay = Relay(Path(args.relay_bin), args.output)
     relay.start()
     # The relay with no snapshot stream: a copy of the first, made when the proof asks for it.

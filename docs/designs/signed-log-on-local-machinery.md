@@ -143,7 +143,7 @@ Steps 1 to 5 are required before the primary moves. Step 6 can wait.
 2. **The relay holds the only copy of old entries.** If it lost them after a trim, the snapshot still restores the state.
 3. **One signed entry per write.** A bulk import would make many entries. The move does not, because it publishes the existing files as the first snapshot.
 4. **The primary's home.** #1843 refuses a home whose personal database id is not derived from the recovery phrase. The move maps the registry onto the derived id while the store files stay as they are (inferred that they do not embed the id). So the primary can move in place by a snapshot of its existing files, without copying every record through the write call.
-5. **Exemem.** The relay needs the stream listing, and later the trim call. Its file routes use presigned uploads (inferred).
+5. **Exemem.** The relay needs the stream listing, and later the trim call. Its file routes use presigned uploads. Section 12 says what is proven against the deployed DEV relay.
 
 ## 8. Decisions
 
@@ -308,3 +308,20 @@ The size of the owner's home, any `pending` row its old store holds (the CI vari
 ### Deferred
 
 Step 6 (the relay drops the entries a snapshot covers). A second snapshot entry after a kill at one window is left on the relay, harmless and small.
+
+## 12. What is proven against the Exemem DEV relay
+
+Job `deployed_relay` of `signed-history-dev.yml` runs `personal_database_proof.py --relay-url` and `old_home_proof.py --relay-url` against the deployed DEV relay. The URL is the `exemem_relay_url` input, the variable `EXEMEM_RELAY_URL`, or `environments.dev.exemem_api`. It runs on pushes, on the daily run and on dispatch, and on a pull request only when the PR changes the proofs, their node helpers, the blob transfer or the workflow.
+
+**A fresh identity needs no account.** The relay checks a request by its node-key signature alone. The first `birth` entry of a database names its publisher, and the relay bills the account that the publisher's node key derives (`derive_user_hash`), creating the billing row on the first charge with the default quota. In DEV `REQUIRE_PAID_STORAGE` is false, so no subscription is read. `lastdb admin backup init` makes a seed offline, so every run has a new node key, a new personal database id and a new account row, and restores nothing of an earlier run. No API key, account or secret is used. (In PROD the relay refuses a publisher with no active subscription.)
+
+Proven against the DEV relay, with real nodes:
+
+- Device A writes singles and batches in three schemas, an alternate key and a file. The relay confirms every entry (spool head equals the confirmed position, spool empty).
+- Device B restores from the recovery phrase alone, reads one device stream, replays every entry, and holds every record, alternate key and the file.
+- A and B, each cut off from the relay, edit one record apart. The later edit wins whichever device syncs first.
+- A snapshot (`backup snapshot --wait`) names a checkpoint. After more writes, device C restores from the phrase alone, installs the snapshot, replays exactly the entries after it, finds the device streams of A and B, and equals A and B. C and A then exchange writes.
+- A snapshot that puts every file again is accepted. The relay answers `blob.put` begin for a digest it already holds with no `upload`; the node treats that as stored (before this change it failed with "blob.put begin has no upload.url"). Device D restores from that snapshot and replays nothing.
+- A home written by the old build moves, publishes its files as the first snapshot, sends each later write as one entry, and a restore equals it and replays only the writes after the snapshot.
+
+Not proven against it, because the relay's process, request log and disk are not readable: that the relay holds no key, value, schema name or marker, one entry per write by listing, a restore by full replay from a relay with no snapshot, idle turns reading no entry, reads of a restored home with the relay stopped, the kill before the first snapshot is named, the kill of a restore, kill -9 under load, and the scale run. These stay on the reference relay. The reference relay differs from Exemem in: a repeated `blob.put` begin (reference issues a new upload, Exemem answers with no `upload`), a 64 MiB limit on one blob, billing of the publisher's account with a quota, a stored-entry check that does not require gapless appends, and the presigned upload and download URLs of the object store. Storage a run adds to the DEV relay stays there: a node cannot delete it.

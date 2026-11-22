@@ -12,6 +12,14 @@ name: Signed history DEV proofs
 # EXEMEM_RELAY_URL is set, the same binary also runs against that relay. No credentials.
 # The reference_relay run also sets LASTDB_RELAY_E2E_STREAMS=true (proves log/streams);
 # the Exemem run does not, until that relay implements the route.
+# Job `deployed_relay` runs the personal database proof (`personal_database_proof.py --relay-url`) and the
+# plain-home part of the old-home proof (`old_home_proof.py --relay-url`) against the Exemem DEV relay. Each run
+# makes a fresh identity (a new seed, offline), so it writes to a personal database of its own. The relay bills the
+# account that the signing node key derives: no account, API key or secret is used. It runs on every push, on the
+# daily run (cloud-backup-daily.yml) and on dispatch, and on a pull request only when the PR changes a file of the
+# two proofs, their nodes, the blob transfer or this workflow (job `deployed_scope`). The relay URL is the
+# `exemem_relay_url` input, else the variable EXEMEM_RELAY_URL, else environments.dev.exemem_api. Storage on the
+# relay cannot be deleted by a node, so each run adds to it for good: the job summary says how much.
 # Job `blob_stream` puts and gets a 512 MiB generated file through a reference_relay
 # process, compares digests, and fails if that process's peak memory (VmHWM) is over 128 MiB.
 #
@@ -508,6 +516,120 @@ jobs:
               echo '```'
             fi
           } >> "$GITHUB_STEP_SUMMARY"
+
+  deployed_scope:
+    name: scope of the deployed relay proofs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.scope.outputs.run }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Run on every event but a pull request; a pull request runs only for its own files
+        id: scope
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          run=true
+          if [[ "$EVENT" == pull_request ]]; then
+            changed="$(git diff --name-only "$BASE_SHA" HEAD)"
+            own='^(scripts/operations/(personal_database_proof|personal_proof_nodes|personal_proof_deployed|old_home_proof|old_home_steps|old_home_deployed)\.py|lastdb_node/src/log_sync/blob_transfer\.rs|\.github/workflows/signed-history-dev\.yml)$'
+            if ! grep -Eq "$own" <<< "$changed"; then
+              run=false
+            fi
+          fi
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+          echo "deployed relay proofs run: $run (event $EVENT)" >> "$GITHUB_STEP_SUMMARY"
+
+  deployed_relay:
+    name: personal database and an old home on the Exemem DEV relay
+    needs: deployed_scope
+    if: ${{ needs.deployed_scope.outputs.run == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    env:
+      CARGO_BUILD_JOBS: "2"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      FOLDDB_BUILD_VERSION_OVERRIDE: bench-${{ github.sha }}
+      EXEMEM_RELAY_INPUT: ${{ inputs.exemem_relay_url || vars.EXEMEM_RELAY_URL }}
+      # The build that wrote the owner's home: release nightly-20261119-d06054159.
+      OLD_RELEASE: nightly-20261119-d06054159
+      OLD_TARBALL_SHA256: 6f49a1655ea5167f1813096b3945b47409cee1dad83b584521862635950fdeab
+      OLD_LASTDBD_SHA256: 955446be862f9e55d0f7415d3faec4697e5b67e962a5dce7c5f9bd608ce78a9b
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: signed-history-shared-nodes
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Build lastdbd and lastdb
+        run: |
+          set -euo pipefail
+          cargo build --locked -p lastdb_node --bin lastdb --bin lastdbd
+      - name: Choose the relay
+        run: |
+          set -euo pipefail
+          url="${EXEMEM_RELAY_INPUT:-}"
+          if [[ -z "$url" ]]; then
+            url="$(jq -er '.environments.dev.exemem_api' lastdb_node/environments.json)"
+          fi
+          echo "RELAY_URL=${url%/}" >> "$GITHUB_ENV"
+      - name: Fetch the old build and check its digests
+        run: |
+          set -euo pipefail
+          OLD="${RUNNER_TEMP}/old-build"
+          mkdir -p "$OLD"
+          curl -fsSL -o "$OLD/lastdb.tar.gz" \
+            "https://github.com/EdgeVector/lastdb/releases/download/${OLD_RELEASE}/lastdb-x86_64-unknown-linux-gnu.tar.gz"
+          echo "${OLD_TARBALL_SHA256}  $OLD/lastdb.tar.gz" | sha256sum -c -
+          tar -xzf "$OLD/lastdb.tar.gz" -C "$OLD"
+          OLD_DAEMON="$(find "$OLD" -maxdepth 3 -name lastdbd -type f | head -n 1)"
+          test -n "$OLD_DAEMON"
+          echo "${OLD_LASTDBD_SHA256}  ${OLD_DAEMON}" | sha256sum -c -
+          chmod +x "$OLD_DAEMON"
+          echo "OLD_DAEMON=${OLD_DAEMON}" >> "$GITHUB_ENV"
+      - name: Personal database on the DEV relay, a fresh identity
+        run: |
+          set -euo pipefail
+          OUT="${RUNNER_TEMP}/deployed-personal"
+          mkdir -p "$OUT"
+          python3 scripts/operations/personal_database_proof.py \
+            --daemon "$PWD/target/debug/lastdbd" --cli "$PWD/target/debug/lastdb" \
+            --relay-url "$RELAY_URL" --revision "$GITHUB_SHA" \
+            --output "$OUT/nodes" 2>&1 | tee "$OUT/proof.log"
+      - name: An old home moves on the DEV relay, a fresh identity
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          OUT="${RUNNER_TEMP}/deployed-old-home"
+          mkdir -p "$OUT"
+          python3 scripts/operations/old_home_proof.py \
+            --old-daemon "$OLD_DAEMON" \
+            --daemon "$PWD/target/debug/lastdbd" --cli "$PWD/target/debug/lastdb" \
+            --relay-url "$RELAY_URL" --revision "$GITHUB_SHA" \
+            --output "$OUT/nodes" 2>&1 | tee "$OUT/proof.log"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: signed-history-deployed-relay-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/deployed-personal/proof.log
+            ${{ runner.temp }}/deployed-personal/nodes/summary.json
+            ${{ runner.temp }}/deployed-personal/nodes/summary.md
+            ${{ runner.temp }}/deployed-personal/nodes/*/node.log
+            ${{ runner.temp }}/deployed-old-home/proof.log
+            ${{ runner.temp }}/deployed-old-home/nodes/summary.md
+            ${{ runner.temp }}/deployed-old-home/nodes/*/node.log
+            ${{ runner.temp }}/deployed-old-home/nodes/*/*/node.log
+          retention-days: 7
+          if-no-files-found: warn
 
   log_sync_relay_timeout:
     name: log_sync relay timeout on hung peer

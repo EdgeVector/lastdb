@@ -64,8 +64,24 @@ def free_port():
         return probe.getsockname()[1]
 
 
+class DeployedRelay:
+    """A relay this script does not run: the deployed Exemem DEV relay. Only its origin is known.
+
+    It cannot be stopped, and its stored bytes and request log cannot be read. A step that needs
+    either is not run against it. `OFFLINE_URL` is where a device points to be cut off from it.
+    """
+
+    deployed = True
+    OFFLINE_URL = "http://127.0.0.1:1"
+
+    def __init__(self, url):
+        self.url = url.rstrip("/")
+
+
 class Relay:
     """The reference relay on a fixed port, so it can stop and come back at one address."""
+
+    deployed = False
 
     def __init__(self, binary, root):
         self.binary, self.data, self.port = binary, root / "relay-data", free_port()
@@ -173,6 +189,12 @@ class Device:
 
     def stop(self):
         self.node.stop()
+
+    def point_at(self, url):
+        """Restart the daemon with another relay address. Its home and its spool stay as they are."""
+        self.stop()
+        self.node.environment["LASTDB_RELAY_URL"] = url
+        self.start()
 
     def crash(self):
         """Kill -9 the daemon. It gets no chance to flush or to clean up."""
