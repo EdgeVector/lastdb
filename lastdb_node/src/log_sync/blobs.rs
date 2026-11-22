@@ -16,7 +16,8 @@ use crate::profile::private_fs as disk;
 /// The protocol cap of a bundle blob: 64 MiB.
 const BLOB_LIMIT: usize = 64 * 1024 * 1024;
 
-fn path(home: &Path, database_id: &str, sha256: &Hex32) -> PathBuf {
+/// Where the kept blob lives (or will live).
+pub(super) fn path(home: &Path, database_id: &str, sha256: &Hex32) -> PathBuf {
     home.join("log-sync")
         .join(database_id)
         .join("blobs")

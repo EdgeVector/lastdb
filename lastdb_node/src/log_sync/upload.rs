@@ -143,10 +143,12 @@ async fn append_batch(
             .map_or(rest.len(), |at| at + 1);
         let (chunk, tail) = rest.split_at(end);
         if let SignedEntry::Bundle { body, .. } = &chunk[0] {
-            let blob = blobs::load(home, database_id, &body.blob_sha256)?
-                .ok_or("a bundle entry has no kept blob to upload")?;
+            let kept = blobs::path(home, database_id, &body.blob_sha256);
+            if !kept.is_file() {
+                return Err("a bundle entry has no kept blob to upload".into());
+            }
             client
-                .blob_put(database_id, &body.blob_sha256.to_hex(), &blob)
+                .blob_put(database_id, &body.blob_sha256.to_hex(), &kept)
                 .await?;
         }
         stored += client.append(database_id, chunk).await?.0;

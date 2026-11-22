@@ -4,8 +4,8 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use axum::body::Bytes;
-use axum::extract::{Path, Query, State};
-use axum::http::{header, HeaderMap, StatusCode};
+use axum::extract::State;
+use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use mutation_log::{DatabaseId, NodeKey};
@@ -18,6 +18,7 @@ use crate::error::{ApiError, ApiResult};
 use crate::gate;
 use crate::grant_index::GrantIndex;
 use crate::presign;
+use crate::request_log::EntriesReturned;
 use crate::store::{self, Store};
 
 /// Shared process state.
@@ -77,7 +78,7 @@ pub(crate) async fn log_read(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
     body: Bytes,
-) -> ApiResult<Json<Value>> {
+) -> ApiResult<Response> {
     let verified = auth::verify_request(&headers, "/relay/v1/log/read", &body)?;
     let req: LogReadBody = serde_json::from_slice(&body).map_err(|_| ApiError::invalid("body"))?;
     verified.check_database(&req.database_id)?;
@@ -120,11 +121,49 @@ pub(crate) async fn log_read(
                 .await?
         }
     };
+    let returned = EntriesReturned(entries.len());
     let mut out = json!({ "entries": entries });
     if let Some(c) = cursor {
         out["cursor"] = Value::String(c);
     }
-    Ok(Json(out))
+    let mut response = Json(out).into_response();
+    response.extensions_mut().insert(returned);
+    Ok(response)
+}
+
+/// `log/streams`: the device streams of one writer and how far each reaches.
+///
+/// This is a read of every device of `writer_key`, so it is gated by exactly the
+/// check that gates an all-devices `log/read`. The answer comes from the heads
+/// the store keeps in memory; no entry file is read.
+pub(crate) async fn log_streams(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> ApiResult<Json<Value>> {
+    let verified = auth::verify_request(&headers, "/relay/v1/log/streams", &body)?;
+    let req: LogStreamsBody =
+        serde_json::from_slice(&body).map_err(|_| ApiError::invalid("body"))?;
+    verified.check_database(&req.database_id)?;
+    let caller = verified.node_key;
+    let db = gate::parse_id(&req.database_id, "database_id")?;
+    require_hex64(&req.writer_key, "writer_key")?;
+    state
+        .check_log_read(&db, &caller, &req.writer_key, true)
+        .await?;
+    let streams: Vec<Value> = state
+        .store
+        .list_streams(&req.database_id, &req.writer_key)
+        .into_iter()
+        .map(|s| {
+            json!({
+                "device_id": s.device_id,
+                "head_seq": s.head_seq,
+                "head_hash": s.head_hash,
+            })
+        })
+        .collect();
+    Ok(Json(json!({ "streams": streams })))
 }
 
 pub(crate) async fn blob_put(
@@ -193,36 +232,6 @@ pub(crate) async fn blob_get(
     })))
 }
 
-pub(crate) async fn blob_upload(
-    State(state): State<Arc<AppState>>,
-    Path(token): Path<String>,
-    body: Bytes,
-) -> ApiResult<StatusCode> {
-    state.store.stage_put(&token, &body).await?;
-    Ok(StatusCode::OK)
-}
-
-#[derive(Deserialize)]
-pub(crate) struct BytesQuery {
-    e: u64,
-    s: String,
-}
-
-pub(crate) async fn blob_bytes(
-    State(state): State<Arc<AppState>>,
-    Path(sha256): Path<String>,
-    Query(q): Query<BytesQuery>,
-) -> ApiResult<Response> {
-    presign::check_get(&state.secret, &sha256, q.e, &q.s, now_ms())?;
-    let data = state.store.read_blob(&sha256).await?;
-    Ok((
-        StatusCode::OK,
-        [(header::CONTENT_TYPE, "application/octet-stream")],
-        data,
-    )
-        .into_response())
-}
-
 enum ReadPosition {
     /// One device chain.
     Device {
@@ -288,7 +297,7 @@ fn require_hex64(s: &str, field: &str) -> ApiResult<()> {
     }
 }
 
-fn now_ms() -> u64 {
+pub(crate) fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_millis() as u64)
@@ -298,6 +307,12 @@ fn now_ms() -> u64 {
 struct LogAppendBody {
     database_id: String,
     entries: Vec<Value>,
+}
+
+#[derive(Deserialize)]
+struct LogStreamsBody {
+    database_id: String,
+    writer_key: String,
 }
 
 #[derive(Deserialize)]

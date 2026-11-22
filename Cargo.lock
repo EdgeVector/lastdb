@@ -2135,6 +2135,7 @@ dependencies = [
  "axum",
  "base64",
  "clap",
+ "futures",
  "hmac 0.12.1",
  "mutation_log",
  "serde",

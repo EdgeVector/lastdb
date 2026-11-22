@@ -28,6 +28,14 @@ pub fn http_client() -> Result<reqwest::Client, String> {
         .map_err(|e| format!("http client: {e}"))
 }
 
+/// One line of `log.streams`.
+#[derive(Debug, PartialEq, Eq)]
+pub struct StreamHead {
+    pub device_id: String,
+    pub head_seq: u64,
+    pub head_hash: String,
+}
+
 /// One page of `log.read`.
 pub struct LogPage {
     pub entries: Vec<SignedEntry>,
@@ -44,10 +52,10 @@ struct Failure {
 #[derive(Clone)]
 pub struct RelayClient {
     base: String,
-    http: reqwest::Client,
+    pub(crate) http: reqwest::Client,
     signing_key: SigningKey,
     node_key_hex: String,
-    database_hex: String,
+    pub(crate) database_hex: String,
     device_hex: String,
 }
 
@@ -101,6 +109,48 @@ impl RelayClient {
         })
     }
 
+    /// `log.read` of every device of `writer_key` from seq 1 (no `device_id`).
+    pub async fn read_writer(&self, writer_key: &str) -> Result<LogPage, String> {
+        let body = json!({
+            "database_id": self.database_hex,
+            "writer_key": writer_key,
+            "limit": READ_LIMIT,
+        });
+        let value = self.post("/relay/v1/log/read", &body).await?;
+        let entries = serde_json::from_value(value["entries"].clone())
+            .map_err(|e| format!("log.read entries: {e}"))?;
+        Ok(LogPage {
+            entries,
+            more: value["cursor"].is_string(),
+        })
+    }
+
+    /// `log.streams`: the device streams of `writer_key`, sorted by device id.
+    pub async fn streams(&self, writer_key: &str) -> Result<Vec<StreamHead>, String> {
+        let body = json!({ "database_id": self.database_hex, "writer_key": writer_key });
+        let value = self.post("/relay/v1/log/streams", &body).await?;
+        let list = value["streams"]
+            .as_array()
+            .ok_or("log.streams has no streams list")?;
+        list.iter()
+            .map(|item| {
+                Ok(StreamHead {
+                    device_id: item["device_id"]
+                        .as_str()
+                        .ok_or("log.streams item has no device_id")?
+                        .to_owned(),
+                    head_seq: item["head_seq"]
+                        .as_u64()
+                        .ok_or("log.streams item has no head_seq")?,
+                    head_hash: item["head_hash"]
+                        .as_str()
+                        .ok_or("log.streams item has no head_hash")?
+                        .to_owned(),
+                })
+            })
+            .collect()
+    }
+
     /// `blob.put` begin, presigned upload, commit.
     pub async fn blob_put(&self, sha256: &str, body: Bytes) -> Result<(), String> {
         let size = body.len() as u64;
@@ -142,7 +192,7 @@ impl RelayClient {
         self.download(&url, &header_pairs(&meta["headers"])).await
     }
 
-    async fn post(&self, path: &str, body: &Value) -> Result<Value, String> {
+    pub(crate) async fn post(&self, path: &str, body: &Value) -> Result<Value, String> {
         let raw = serde_json::to_vec(body).map_err(|e| format!("encode body: {e}"))?;
         let mut last = String::new();
         for attempt in 0..ATTEMPTS {
@@ -276,7 +326,7 @@ async fn backoff(attempt: u32) {
     tokio::time::sleep(Duration::from_millis(250u64 << attempt)).await;
 }
 
-fn header_pairs(value: &Value) -> Vec<(String, String)> {
+pub(crate) fn header_pairs(value: &Value) -> Vec<(String, String)> {
     let Some(map) = value.as_object() else {
         return Vec::new();
     };

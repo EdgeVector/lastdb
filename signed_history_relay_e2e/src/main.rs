@@ -5,14 +5,22 @@
 //! FoldDB, proves grant/revoke and never-granted 403s, and prints one JSON
 //! object as the last stdout line. Progress goes to stderr. Exit 0 only when
 //! both phases finish inside the time limit and nongrantee calls return 403.
+//!
+//! Two further steps are opt-in, so a relay that lacks them keeps passing:
+//! `LASTDB_RELAY_E2E_STREAMS=1` proves `log.streams` and
+//! `LASTDB_RELAY_E2E_BLOB_FILE_BYTES=<n>` proves a large file through the blob
+//! routes.
 
 mod blob;
+mod blob_file;
+mod blob_stream;
 mod chain;
 mod grants;
 mod identity;
 mod materialize;
 mod relay;
 mod restore;
+mod streams;
 mod upload;
 
 use std::path::{Path, PathBuf};
@@ -42,6 +50,14 @@ struct Cli {
     /// Each phase must finish under this many seconds.
     #[arg(long, env = "LASTDB_RELAY_E2E_LIMIT_SECONDS", default_value_t = 60.0)]
     limit_seconds: f64,
+    /// Also prove `log.streams` (steps `streams_*`). Off by default: a relay that
+    /// does not implement the route yet would fail it.
+    #[arg(long, env = "LASTDB_RELAY_E2E_STREAMS", default_value_t = false)]
+    streams: bool,
+    /// Also put and get one generated file of this many bytes through the blob
+    /// routes, from and to disk (step `blob_file_stream`). 0 skips it.
+    #[arg(long, env = "LASTDB_RELAY_E2E_BLOB_FILE_BYTES", default_value_t = 0)]
+    blob_file_bytes: u64,
     /// Scratch directory for the restored FoldDB (never `~/.lastdb`).
     #[arg(long, env = "LASTDB_RELAY_E2E_WORK_DIR")]
     work_dir: Option<PathBuf>,
@@ -144,6 +160,8 @@ async fn prove(cli: &Cli, relay_url: &str, work: &Path) -> Result<Outcome, Strin
         ));
     }
 
+    let (streams_steps, blob_file) = opt_in_steps(cli, &http, relay_url, work).await?;
+
     let limit = cli.limit_seconds;
     let nongrantee_ok = up.nongrantee_http_status == 403;
     let ok = up.seconds < limit && restore_seconds < limit && nongrantee_ok;
@@ -179,8 +197,36 @@ async fn prove(cli: &Cli, relay_url: &str, work: &Path) -> Result<Outcome, Strin
             "materialize_seconds": restore_seconds - history_seconds,
             "generate_encrypt_cpu_seconds": up.cpu_seconds,
             "database_id": up.invite.database_id.to_hex(),
+            "streams_steps": streams_steps,
+            "blob_file_stream": blob_file,
         }),
     })
+}
+
+/// The opt-in steps: the step names of `log.streams`, and the large-file report.
+async fn opt_in_steps(
+    cli: &Cli,
+    http: &reqwest::Client,
+    relay_url: &str,
+    work: &Path,
+) -> Result<(Option<Vec<&'static str>>, Option<Value>), String> {
+    let streams_steps = if cli.streams {
+        Some(streams::prove(http, relay_url).await?)
+    } else {
+        None
+    };
+    let blob_file = if cli.blob_file_bytes > 0 {
+        let r = blob_stream::prove(http, relay_url, work, cli.blob_file_bytes).await?;
+        Some(json!({
+            "bytes": r.bytes,
+            "sha256": r.sha256,
+            "put_seconds": r.put_seconds,
+            "get_seconds": r.get_seconds,
+        }))
+    } else {
+        None
+    };
+    Ok((streams_steps, blob_file))
 }
 
 fn home_lastdb() -> PathBuf {

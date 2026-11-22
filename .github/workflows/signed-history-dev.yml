@@ -10,6 +10,10 @@ name: Signed history DEV proofs
 # under 60 s. Job `log_sync_relay_timeout` proves the node RelayClient's ~30s
 # request timeout against a hung TCP peer. When `exemem_relay_url` (workflow input) or the repository variable
 # EXEMEM_RELAY_URL is set, the same binary also runs against that relay. No credentials.
+# The reference_relay run also sets LASTDB_RELAY_E2E_STREAMS=1 (proves log/streams);
+# the Exemem run does not, until that relay implements the route.
+# Job `blob_stream` puts and gets a 512 MiB generated file through a reference_relay
+# process, compares digests, and fails if that process's peak memory (VmHWM) is over 128 MiB.
 #
 # exemem-infra deploy.yml (prove_dev_relay.py, LASTDB_RELAY_E2E_BIN): check out
 # EdgeVector/lastdb at the Phase 2 SHA, run
@@ -162,8 +166,13 @@ jobs:
           [[ -n "$ADDR" ]] || { echo "reference_relay printed no address" >&2; exit 1; }
           export LASTDB_RELAY_E2E_BIN="$PWD/target/release/signed_history_relay_e2e"
           export RELAY_URL="http://${ADDR}"
+          export LASTDB_RELAY_E2E_STREAMS=1
           "$LASTDB_RELAY_E2E_BIN" | tee "$OUT/reference.stdout"
-          python3 scripts/signed_history/check_relay_e2e.py "$OUT/reference.stdout" reference_relay
+          python3 scripts/signed_history/check_relay_e2e.py "$OUT/reference.stdout" reference_relay --expect-streams
+          python3 scripts/signed_history/check_relay_process.py --stderr "$OUT/relay.stderr" \
+            --expect-line 'route=log/streams status=200$' \
+            --expect-line 'route=log/streams status=403$' \
+            --expect-line 'route=log/read status=200 entries=[0-9]+$'
       - name: Run signed_history_relay_e2e against the exemem relay
         if: ${{ env.EXEMEM_RELAY_URL != '' }}
         run: |
@@ -195,7 +204,7 @@ jobs:
           {
             echo "## Signed history relay e2e"
             echo "Source: $GITHUB_SHA"
-            echo "Binary: signed_history_relay_e2e (LASTDB_RELAY_E2E_BIN). Scenarios: signed append/read, grant + revoke (403), never-granted append/read (403), ~300 MiB signed bundles, discovering restore into FoldDB. No credentials."
+            echo "Binary: signed_history_relay_e2e (LASTDB_RELAY_E2E_BIN). Scenarios: signed append/read, grant + revoke (403), never-granted append/read (403), ~300 MiB signed bundles, discovering restore into FoldDB; on reference_relay also log/streams (steps streams_*). No credentials."
             if [[ -z "${EXEMEM_RELAY_URL}" ]]; then
               echo "Exemem relay: skipped (no exemem_relay_url input or EXEMEM_RELAY_URL variable)."
             else
@@ -210,6 +219,83 @@ jobs:
                 echo '```'
               fi
             done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  blob_stream:
+    name: large file through blob routes (reference_relay memory)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      CARGO_BUILD_JOBS: "2"
+      BLOB_FILE_BYTES: "536870912"
+      MAX_RELAY_PEAK_BYTES: "134217728"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: signed-history-relay-e2e-release
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Build reference_relay and signed_history_relay_e2e (release)
+        run: |
+          set -euo pipefail
+          cargo build --locked -p reference_relay --bin reference_relay --release
+          cargo build --locked -p signed_history_relay_e2e --bin signed_history_relay_e2e --release
+      - name: Put and get a generated file; relay memory stays far below the file size
+        run: |
+          set -euo pipefail
+          OUT="${RUNNER_TEMP}/blob-stream"
+          mkdir -p "$OUT"
+          ./target/release/reference_relay --listen 127.0.0.1:0 --data-dir "$OUT/relay-data" \
+            > "$OUT/relay.addr" 2> "$OUT/relay.stderr" &
+          RELAY_PID=$!
+          trap 'kill "$RELAY_PID" 2>/dev/null || true' EXIT
+          for _ in $(seq 1 100); do
+            [[ -s "$OUT/relay.addr" ]] && break
+            sleep 0.1
+          done
+          ADDR="$(head -n1 "$OUT/relay.addr")"
+          [[ -n "$ADDR" ]] || { echo "reference_relay printed no address" >&2; exit 1; }
+          export RELAY_URL="http://${ADDR}"
+          export LASTDB_RELAY_E2E_TOTAL_BYTES=1048576
+          export LASTDB_RELAY_E2E_BLOB_FILE_BYTES="$BLOB_FILE_BYTES"
+          export LASTDB_RELAY_E2E_WORK_DIR="$OUT/work"
+          ./target/release/signed_history_relay_e2e | tee "$OUT/blob.stdout"
+          python3 scripts/signed_history/check_relay_e2e.py "$OUT/blob.stdout" blob_stream \
+            --expect-blob-file "$BLOB_FILE_BYTES"
+          python3 scripts/signed_history/check_relay_process.py --stderr "$OUT/relay.stderr" \
+            --pid "$RELAY_PID" --max-peak-bytes "$MAX_RELAY_PEAK_BYTES" \
+            --expect-line 'route=blob/put status=200$' \
+            --expect-line 'route=blob/upload status=200$' \
+            --expect-line 'route=blob/bytes status=200$' | tee "$OUT/process.txt"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: signed-history-blob-stream-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/blob-stream/blob.stdout
+            ${{ runner.temp }}/blob-stream/process.txt
+            ${{ runner.temp }}/blob-stream/relay.stderr
+          retention-days: 7
+          if-no-files-found: warn
+      - name: Publish summary
+        if: always()
+        run: |
+          {
+            echo "## Large file through the blob routes"
+            echo "Source: $GITHUB_SHA"
+            echo "A 512 MiB generated file is put from disk and gotten to disk through a reference_relay process; the digests must match and the relay's peak resident memory (VmHWM) must stay under 128 MiB."
+            if [[ -f "${RUNNER_TEMP}/blob-stream/process.txt" ]]; then
+              echo '```'
+              cat "${RUNNER_TEMP}/blob-stream/process.txt"
+              echo '```'
+            fi
+            if [[ -f "${RUNNER_TEMP}/blob-stream/blob.stdout" ]]; then
+              echo '```json'
+              tail -n1 "${RUNNER_TEMP}/blob-stream/blob.stdout"
+              echo '```'
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
 
   shared_nodes:
