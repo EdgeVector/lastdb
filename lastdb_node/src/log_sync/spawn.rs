@@ -270,7 +270,7 @@ async fn pull_one_received(
     .await?;
     // The pull may have brought a reduction that voids this node's own direct
     // writes. Their changes go out again as proposals.
-    match super::proposal::convert_voided(host, share) {
+    match super::void_conversion::convert_voided(host, share) {
         Ok(0) => {}
         Ok(count) => tracing::info!(
             target: "lastdbd::log_sync",

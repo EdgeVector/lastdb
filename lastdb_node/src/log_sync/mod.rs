@@ -23,6 +23,7 @@ pub(crate) mod received;
 mod relay;
 mod restore;
 mod spawn;
+mod void_conversion;
 mod wake;
 
 use std::path::Path;

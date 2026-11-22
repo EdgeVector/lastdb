@@ -9,14 +9,13 @@ use std::path::{Path, PathBuf};
 
 use cloud_backup_protocol::Id;
 use mutation_log::{
-    author_data, data_record, decode_record_payload, entry_hash, EntryHash, NodeKey, Role,
-    SignedEntry, StreamKind, VerifiedHistory,
+    author_data, data_record, EntryHash, NodeKey, Role, StreamKind, VerifiedHistory,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest as _, Sha256};
 
-use super::chain_author::{self, AuthorIdentity, Target};
+use super::chain_author::{self, Target};
 use super::chain_error::ChainError;
 use crate::host::Host;
 use crate::profile::private_fs as disk;
@@ -51,10 +50,10 @@ impl std::fmt::Display for ContributionError {
 }
 
 #[derive(Serialize, Deserialize)]
-struct Submitted {
-    writer_seq: u64,
-    entry_hash: EntryHash,
-    body_sha256: String,
+pub(super) struct Submitted {
+    pub(super) writer_seq: u64,
+    pub(super) entry_hash: EntryHash,
+    pub(super) body_sha256: String,
 }
 
 type Ledger = BTreeMap<String, Submitted>;
@@ -65,7 +64,7 @@ fn ledger_path(home: &Path, database_id: &str) -> PathBuf {
         .join("proposals.json")
 }
 
-fn load_ledger(home: &Path, database_id: &str) -> Result<Ledger, ContributionError> {
+pub(super) fn load_ledger(home: &Path, database_id: &str) -> Result<Ledger, ContributionError> {
     let path = ledger_path(home, database_id);
     match disk::read_limited(&path, LEDGER_LIMIT) {
         Ok(Some(bytes)) => {
@@ -76,18 +75,22 @@ fn load_ledger(home: &Path, database_id: &str) -> Result<Ledger, ContributionErr
     }
 }
 
-fn store_ledger(home: &Path, database_id: &str, ledger: &Ledger) -> Result<(), ContributionError> {
+pub(super) fn store_ledger(
+    home: &Path,
+    database_id: &str,
+    ledger: &Ledger,
+) -> Result<(), ContributionError> {
     let bytes = serde_json::to_vec(ledger).map_err(|_| ContributionError::Unavailable)?;
     disk::write_private(&ledger_path(home, database_id), &bytes)
         .map_err(|_| ContributionError::Unavailable)
 }
 
-struct Proposed {
-    namespace: String,
-    record_key: String,
-    mutation_type: String,
-    expected: Value,
-    record: Option<Value>,
+pub(super) struct Proposed {
+    pub(super) namespace: String,
+    pub(super) record_key: String,
+    pub(super) mutation_type: String,
+    pub(super) expected: Value,
+    pub(super) record: Option<Value>,
 }
 
 /// Map the owner submission document onto the history record convention:
@@ -141,7 +144,7 @@ fn parse(body: &[u8]) -> Result<Proposed, ContributionError> {
 }
 
 /// The publisher decision envelope that goes into the signed proposal.
-fn envelope(proposed: &Proposed, expected: Value) -> Result<Vec<u8>, ContributionError> {
+pub(super) fn envelope(proposed: &Proposed, expected: Value) -> Result<Vec<u8>, ContributionError> {
     let mut envelope = serde_json::Map::new();
     envelope.insert(
         "mutation_type".into(),
@@ -250,7 +253,7 @@ pub(crate) async fn submit(
 }
 
 /// Sign `value` as a proposal on this node's member stream.
-fn author_proposal(
+pub(super) fn author_proposal(
     host: &Host,
     database_id: &str,
     namespace: String,
@@ -279,125 +282,6 @@ fn author_proposal(
     .map_err(|error| contribution_error(&error))
 }
 
-/// One voided direct write, as the proposal that carries the same change.
-struct Conversion {
-    mutation_id: String,
-    namespace: String,
-    record_key: String,
-    value: Vec<u8>,
-    digest: String,
-}
-
-/// Turn this node's voided direct writes into proposals on its own stream.
-///
-/// A member lowered from write to submit can have signed a direct write before
-/// its node learned of the reduction. The publisher's cutoff voids that entry
-/// on every node, so it never changes a record. Its change is not lost: the
-/// same change is signed again as a proposal, which the publisher applies under
-/// the proposal rules, or leaves submitted. The voided entry stays in the log.
-/// A ledger entry keyed by the voided entry's hash makes the conversion happen
-/// once, also across a restart. Returns how many proposals were signed.
-pub(crate) fn convert_voided(
-    host: &Host,
-    share: &RegisteredShare,
-) -> Result<usize, ContributionError> {
-    let database_id = share.id.as_str();
-    let identity = chain_author::identity_of(host).map_err(|_| ContributionError::Unavailable)?;
-    let plans = super::histories_for(&host.home)
-        .with_mut(database_id, |history| conversions(history, &identity))
-        .map_err(|_| ContributionError::Unavailable)?;
-    if plans.is_empty() {
-        return Ok(0);
-    }
-    let mut ledger = load_ledger(&host.home, database_id)?;
-    let mut converted = 0;
-    for plan in plans {
-        if ledger.contains_key(&plan.mutation_id) {
-            continue;
-        }
-        let authored = author_proposal(
-            host,
-            database_id,
-            plan.namespace,
-            &plan.record_key,
-            &plan.value,
-        )?;
-        ledger.insert(
-            plan.mutation_id,
-            Submitted {
-                writer_seq: authored.writer_seq,
-                entry_hash: authored.entry_hash,
-                body_sha256: plan.digest,
-            },
-        );
-        store_ledger(&host.home, database_id, &ledger)?;
-        converted += 1;
-    }
-    Ok(converted)
-}
-
-fn conversions(history: &VerifiedHistory, identity: &AuthorIdentity) -> Vec<Conversion> {
-    history
-        .voided_direct_by(identity.node_key)
-        .iter()
-        .filter_map(|entry| conversion(history, entry))
-        .collect()
-}
-
-fn conversion(history: &VerifiedHistory, entry: &SignedEntry) -> Option<Conversion> {
-    let SignedEntry::Data { body, .. } = entry else {
-        return None;
-    };
-    let decoded = decode_record_payload(&body.payload).ok()?;
-    let hash = entry_hash(entry).ok()?;
-    let winner = history
-        .records()
-        .get(&(body.namespace.clone(), decoded.record_key.clone()))
-        .filter(|record| !record.value.is_empty());
-    let (mutation_type, expected, record) = if decoded.value.is_empty() {
-        let winner = winner?;
-        (
-            "delete",
-            serde_json::json!({ "type": "entry", "entry": winner.entry.to_hex() }),
-            None,
-        )
-    } else {
-        let record = serde_json::from_slice::<Value>(&decoded.value)
-            .ok()
-            .filter(Value::is_object)?;
-        match winner {
-            None => (
-                "create",
-                serde_json::json!({ "type": "absent" }),
-                Some(record),
-            ),
-            Some(winner) => (
-                "replace",
-                serde_json::json!({ "type": "entry", "entry": winner.entry.to_hex() }),
-                Some(record),
-            ),
-        }
-    };
-    let proposed = Proposed {
-        namespace: body.namespace.clone(),
-        record_key: decoded.record_key.clone(),
-        mutation_type: mutation_type.to_owned(),
-        expected: Value::Null,
-        record,
-    };
-    let value = envelope(&proposed, expected).ok()?;
-    let mutation_id = uuid::Uuid::from_slice(&hash.as_bytes()[..16])
-        .ok()?
-        .to_string();
-    Some(Conversion {
-        mutation_id,
-        namespace: proposed.namespace,
-        record_key: proposed.record_key,
-        value,
-        digest: hex_digest(hash.to_hex().as_bytes()),
-    })
-}
-
 fn require_submitter(history: &VerifiedHistory, node_key: &NodeKey) -> Result<(), ChainError> {
     // Pending entries mean the stream tip is not known yet: signing now could fork it.
     if history.owner().is_none() || history.pending_len() > 0 {
@@ -418,7 +302,7 @@ fn contribution_error(error: &ChainError) -> ContributionError {
     }
 }
 
-fn hex_digest(bytes: &[u8]) -> String {
+pub(super) fn hex_digest(bytes: &[u8]) -> String {
     app_identity_crypto::hex_lower(&Sha256::digest(bytes))
 }
 
