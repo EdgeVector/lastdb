@@ -82,4 +82,45 @@ impl VerifiedHistory {
                 )
         })
     }
+
+    /// True when a publisher entry cites this proposal in `seen_heads` (ack).
+    ///
+    /// Used with [`Self::proposal_incorporated`]: cited but not incorporated
+    /// means the publisher discarded the proposal (no discard RPC; Decision 11).
+    #[must_use]
+    pub fn proposal_acknowledged(&self, proposal: &StreamId, writer_seq: u64) -> bool {
+        let Some(hash) = self.entry_hash_at(proposal, writer_seq) else {
+            return false;
+        };
+        self.accepted
+            .values()
+            .any(|meta| meta.is_publisher && meta.entry.header().seen_heads.contains(&hash))
+    }
+
+    /// Accepted proposal data entries that are not yet incorporated or discarded.
+    #[must_use]
+    pub fn unresolved_proposals(&self) -> Vec<&SignedEntry> {
+        self.accepted
+            .values()
+            .filter_map(|meta| {
+                let SignedEntry::Data { body, .. } = &meta.entry else {
+                    return None;
+                };
+                if body.stream != crate::kinds::StreamKind::Proposal {
+                    return None;
+                }
+                let header = meta.entry.header();
+                let stream = StreamId {
+                    node_key: header.node_key,
+                    device_id: header.device_id,
+                };
+                if self.proposal_incorporated(&stream, header.writer_seq)
+                    || self.proposal_acknowledged(&stream, header.writer_seq)
+                {
+                    return None;
+                }
+                Some(&meta.entry)
+            })
+            .collect()
+    }
 }
