@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use app_identity_crypto::SigningKey;
 use cloud_backup_protocol::Id;
-use mutation_log::{entry_hash, DeviceId, NodeKey, SignedEntry, VerifiedHistory};
+use mutation_log::{DeviceId, NodeKey, VerifiedHistory};
 use tracing::Instrument;
 
 use crate::host::Host;
@@ -14,8 +14,9 @@ use crate::registered_share::{self, RegisteredShare};
 
 use super::config;
 use super::device;
-use super::history_store::{self, HistoryMap};
+use super::history_store::HistoryMap;
 use super::materialize::{self, DatabaseCtx};
+use super::outbox_upload::{outbox_pending, upload_outbox, upload_received_outboxes};
 use super::relay::RelayClient;
 use super::wake;
 
@@ -110,17 +111,8 @@ async fn one_turn(host: &Host, histories: &HistoryMap, base: &str) -> Result<(),
     for database in &owned {
         // Drain every pending batch this turn. A single 32-entry prefix left
         // grants behind continuous mirrored data and readers hit empty indexes.
-        match drain_outbox(&client, histories, &host.home, &database.id).await {
-            Ok(()) => {}
-            Err(err) => {
-                tracing::warn!(
-                    target: "lastdbd::log_sync",
-                    id = %database.id,
-                    %err,
-                    "outbox upload failed"
-                );
-                turn_error = Some(err);
-            }
+        if let Some(err) = upload_outbox(&client, histories, &host.home, &database.id).await {
+            turn_error = Some(err);
         }
     }
     for database in &owned {
@@ -155,6 +147,11 @@ async fn one_turn(host: &Host, histories: &HistoryMap, base: &str) -> Result<(),
             );
             turn_error = Some(err);
         }
+    }
+    // Member proposals and direct writes land on the received outbox; upload
+    // them before pulling so publish.lastAttempt reflects a real attempt.
+    if let Some(err) = upload_received_outboxes(host, histories, &client).await {
+        turn_error = Some(err);
     }
     if let Err(err) = pull_received_shares(host, histories, &client).await {
         turn_error = Some(err);
@@ -274,87 +271,4 @@ async fn pull_one_received(
     )
     .await?;
     Ok(())
-}
-
-/// Upload until this database's outbox is empty (or the batch cap is hit).
-async fn drain_outbox(
-    client: &RelayClient,
-    histories: &HistoryMap,
-    home: &std::path::Path,
-    database_id: &str,
-) -> Result<(), String> {
-    // Reload disk outbox into memory if history is empty.
-    let disk_entries = history_store::load_outbox_entries(home, database_id)?;
-    if !disk_entries.is_empty() {
-        histories.with_mut(database_id, |history| {
-            history_store::requeue_outbox(history, disk_entries)
-        })??;
-    }
-    // Cap batches so a runaway outbox cannot block the turn forever.
-    for _ in 0..64 {
-        let batch = histories.with_mut(database_id, |history| {
-            history
-                .outbox()
-                .batch(32)
-                .into_iter()
-                .cloned()
-                .collect::<Vec<_>>()
-        })?;
-        if batch.is_empty() {
-            return Ok(());
-        }
-        upload_batch(client, histories, home, database_id, &batch).await?;
-    }
-    Err(format!(
-        "outbox for {database_id} still pending after 64 upload batches"
-    ))
-}
-
-async fn upload_batch(
-    client: &RelayClient,
-    histories: &HistoryMap,
-    home: &std::path::Path,
-    database_id: &str,
-    batch: &[SignedEntry],
-) -> Result<(), String> {
-    let (stored, duplicate) = client.append(database_id, batch).await?;
-    let _ = duplicate;
-    let expected = batch.len() as u64;
-    if stored < expected {
-        return Err(format!(
-            "relay log.append stored {stored} of {expected} outbox entries"
-        ));
-    }
-    histories.with_mut(database_id, |history| {
-        for entry in batch {
-            if let Ok(hash) = entry_hash(entry) {
-                history.outbox_mut().ack(&hash);
-            }
-        }
-        history_store::persist_outbox(home, database_id, history.outbox())
-    })??;
-    Ok(())
-}
-
-/// True when any syncable database still has unacked outbox entries.
-fn outbox_pending(host: &Host, histories: &HistoryMap) -> bool {
-    for database in crate::host::owned::registered_databases(&host.home) {
-        if database.kind != "personal" && database.kind != "shareable" {
-            continue;
-        }
-        if mutation_log::DatabaseId::from_hex(&database.id).is_err() {
-            continue;
-        }
-        let memory = histories
-            .peek_with(&database.id, |history| !history.outbox().is_empty())
-            .unwrap_or(false);
-        if memory {
-            return true;
-        }
-        match history_store::load_outbox_entries(&host.home, &database.id) {
-            Ok(entries) if !entries.is_empty() => return true,
-            _ => {}
-        }
-    }
-    false
 }

@@ -17,7 +17,9 @@ mod device;
 mod history_store;
 mod materialize;
 mod mirror;
+mod outbox_upload;
 mod proposal;
+mod publish_state;
 mod pull;
 pub(crate) mod received;
 mod relay;
@@ -25,8 +27,11 @@ mod restore;
 mod spawn;
 mod wake;
 
+use std::path::Path;
+
 use cloud_backup_protocol::Digest;
 use fold_db::schema::types::Schema;
+use mutation_log::{NodeKey, Role};
 
 pub use config::{relay_base_url, store_relay_base_url};
 pub(crate) use history_store::histories_for;
@@ -40,7 +45,7 @@ pub use spawn::spawn;
 pub use wake::{ensure_wake, publish_signed_history_intent, request_wake};
 
 /// No-op: snapshot native recovery is retired. Restore uses signed history.
-pub fn install_prepared_native_recovery(_home: &std::path::Path) -> Result<bool, String> {
+pub fn install_prepared_native_recovery(_home: &Path) -> Result<bool, String> {
     Ok(false)
 }
 
@@ -67,7 +72,7 @@ pub enum CloudState {
     Enrolled,
 }
 
-pub(crate) fn database_cloud_state(home: &std::path::Path, _database_id: &str) -> CloudState {
+pub(crate) fn database_cloud_state(home: &Path, _database_id: &str) -> CloudState {
     if !crate::host::has_cloud_credentials(home) {
         return CloudState::NoAccount;
     }
@@ -80,25 +85,35 @@ pub(crate) fn wait_for_enrollment(host: &crate::host::Host, database_id: &str) -
     database_cloud_state(&host.home, database_id)
 }
 
-/// Direct member writes are authorized only via AcceptEntry grant window.
+/// Direct `/v1/write` on a received database: only a folded Write role.
+///
+/// Matches the ExeMem relay `may_write` gate. No history or no Write role
+/// keeps the existing 403 read-only path.
 pub(crate) fn direct_write_allowed(
-    _host: &crate::host::Host,
-    _share: &crate::registered_share::RegisteredShare,
+    host: &crate::host::Host,
+    share: &crate::registered_share::RegisteredShare,
 ) -> bool {
-    // DESIGN: until local grant state is folded into share listing, allow the
-    // write path to attempt AcceptEntry; unauthorized authors are rejected there.
-    true
+    let node = NodeKey::from_bytes(host.keypair.public_key_bytes());
+    histories_for(&host.home)
+        .peek_with(share.id.as_str(), |history| {
+            received::role_of(history, node) == Some(Role::Write)
+        })
+        .unwrap_or(false)
 }
 
-pub(crate) fn note_receiver(
-    _database_id: &str,
-    _store: &std::sync::Arc<fold_db::fold_db_core::FoldDB>,
-) {
+/// Record outbox pending for a received database the caller already opened.
+pub(crate) fn note_receiver(home: &Path, database_id: &str) {
+    let pending = outbox_len(home, database_id);
+    publish_state::note_pending(database_id, pending);
 }
 
-pub(crate) fn publish_row(_database_id: &str, signed_log: bool) -> serde_json::Value {
-    serde_json::json!({
-        "signed_log": signed_log,
-        "unpublished": []
-    })
+pub(crate) fn publish_row(database_id: &str, signed_log: bool) -> serde_json::Value {
+    publish_state::row(database_id, signed_log)
+}
+
+fn outbox_len(home: &Path, database_id: &str) -> u64 {
+    if let Some(n) = histories_for(home).peek_with(database_id, |history| history.outbox().len()) {
+        return n as u64;
+    }
+    history_store::load_outbox_entries(home, database_id).map_or(0, |entries| entries.len() as u64)
 }
