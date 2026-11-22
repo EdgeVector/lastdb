@@ -92,7 +92,7 @@ async fn one_turn(host: &Host, histories: &HistoryMap, base: &str) -> Result<(),
     let mut turn_error: Option<String> = None;
     let owned: Vec<_> = crate::host::owned::registered_databases(&host.home)
         .into_iter()
-        .filter(|database| syncable_owned(&database.kind, &database.id))
+        .filter(|database| syncable_owned(database.kind, &database.id))
         .collect();
     for database in &owned {
         // Drain every pending batch this turn. A single 32-entry prefix left
