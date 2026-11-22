@@ -21,8 +21,8 @@ pub(crate) struct Stored {
 /// Make FoldDB hold exactly the winners of `history`.
 ///
 /// A winner already stored with equal fields and the same authors is left
-/// alone. Authors are the winner's writer (`updated_by`) and the writer of the
-/// earliest write to the key (`created_by`), so every node stamps alike. An empty value
+/// alone. History records are whole-record last-writer-wins, so the winner's
+/// writer is both `created_by` and `updated_by` on every node. An empty value
 /// deletes the record. A live winner whose namespace has no declared schema
 /// fails closed. A tombstone for an undeclared namespace is skipped so a
 /// tombstone-only namespace does not block restore.
@@ -51,13 +51,12 @@ async fn apply_winner(
     let current = read_at(store, namespace, &key).await?;
     let fields = decode_fields(&winner.value)?;
     let author = winner.author.to_hex();
-    let creator = winner.creator.to_hex();
     let (kind, expected) = match (&current, &fields) {
         (None, None) => return Ok(()),
         (None, Some(_)) => (MutationType::Create, CasExpectation::Absent),
         (Some(old), Some(new))
             if old.fields == *new
-                && old.created_by.as_deref() == Some(creator.as_str())
+                && old.created_by.as_deref() == Some(author.as_str())
                 && old.updated_by.as_deref() == Some(author.as_str()) =>
         {
             return Ok(());
@@ -80,7 +79,7 @@ async fn apply_winner(
     );
     mutation.writer = Some(author.clone());
     if carries_authors {
-        mutation.copied_authorship = Some((Some(creator), Some(author)));
+        mutation.copied_authorship = Some((Some(author.clone()), Some(author)));
     }
     store
         .mutation_manager()
