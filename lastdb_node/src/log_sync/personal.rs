@@ -25,7 +25,14 @@ mod files;
 mod incoming;
 mod outgoing;
 mod saved;
+mod snapshot;
+mod snapshot_manifest;
+mod snapshot_restore;
+mod snapshot_state;
 mod verify;
+
+pub use snapshot_restore::{install_newest_snapshot, SnapshotBase};
+pub(crate) use snapshot_state::{request as request_snapshot, status as snapshot_status};
 
 use std::sync::Arc;
 
@@ -54,6 +61,9 @@ pub(super) struct Ctx<'a> {
     pub(super) node_hex: String,
     pub(super) device_hex: String,
     pub(super) birth_device_hex: String,
+    /// The device id of the stream that holds the `snapshot` entries, and its hex.
+    pub(super) snapshot_device: DeviceId,
+    pub(super) snapshot_device_hex: String,
     /// The name of this device's stream in the head rows.
     pub(super) own_stream: String,
     pub(super) sealer: Sealer,
@@ -83,24 +93,8 @@ impl<'a> Ctx<'a> {
         let identity =
             chain_author::identity_of(host).map_err(|error| error.reply().message.to_owned())?;
         let birth_device = DeviceId::from_bytes(personal_identity::birth_device(&seed));
-        let material = birth::derived(&seed);
-        let birth_ctx = AuthorCtx {
-            database_id: database,
-            node_key: identity.node_key,
-            device_id: birth_device,
-            stream_head: None,
-            seen_heads: Vec::new(),
-            seen_lamports: Vec::new(),
-            authored_at_ms: 0,
-        };
-        let birth_entry = birth::entry(&material, &birth_ctx, &identity)?;
-        let birth_hash = mutation_log::entry_hash(&birth_entry).map_err(|e| e.to_string())?;
-        let birth = AcceptedMeta {
-            position: position_of(&birth_entry),
-            is_publisher: true,
-            grant_body: None,
-            entry: birth_entry.clone(),
-        };
+        let (birth_entry, birth, birth_hash) = birth_of(&seed, &identity)?;
+        let snapshot_device = DeviceId::from_bytes(personal_identity::snapshot_device(&seed));
         let node_hex = identity.node_key.to_hex();
         let device_hex = identity.device_id.to_hex();
         let content_key = fold_db::crypto::E2eKeys::from_ed25519_seed(&seed)
@@ -126,6 +120,8 @@ impl<'a> Ctx<'a> {
             sealer: Sealer::for_node_seed(&seed)?,
             content_key: Zeroizing::new(content_key),
             birth_device_hex: birth_device.to_hex(),
+            snapshot_device,
+            snapshot_device_hex: snapshot_device.to_hex(),
             own_stream: format!("{node_hex}:{device_hex}"),
             runtime: host.db.db_ops().native_runtime(),
             database_id,
@@ -159,6 +155,34 @@ impl<'a> Ctx<'a> {
     }
 }
 
+/// The birth entry of the personal database of the node with this seed, as an
+/// accepted entry, and its hash. It is the same on every device.
+fn birth_of(
+    seed: &[u8; 32],
+    identity: &AuthorIdentity,
+) -> Result<(SignedEntry, AcceptedMeta, EntryHash), String> {
+    let database = DatabaseId::from_hex(&personal_identity::database_id(seed))
+        .map_err(|_| "database id is not hex")?;
+    let birth_ctx = AuthorCtx {
+        database_id: database,
+        node_key: identity.node_key,
+        device_id: DeviceId::from_bytes(personal_identity::birth_device(seed)),
+        stream_head: None,
+        seen_heads: Vec::new(),
+        seen_lamports: Vec::new(),
+        authored_at_ms: 0,
+    };
+    let entry = birth::entry(&birth::derived(seed), &birth_ctx, identity)?;
+    let hash = mutation_log::entry_hash(&entry).map_err(|e| e.to_string())?;
+    let meta = AcceptedMeta {
+        position: position_of(&entry),
+        is_publisher: true,
+        grant_body: None,
+        entry: entry.clone(),
+    };
+    Ok((entry, meta, hash))
+}
+
 /// The head row as the chain check reads it.
 pub(super) fn chain_head(head: &ReplayStreamHead) -> Result<StreamHead, String> {
     Ok(StreamHead {
@@ -188,7 +212,14 @@ async fn run_turn(host: &Host, client: &RelayClient) -> Result<(), String> {
     // A failure of the sender must not stop the incoming side, or the reverse.
     let sent = outgoing::run(&ctx, client, &streams).await;
     let read = incoming::run(&ctx, client, &streams).await;
-    sent.and(read.map(|_| ()))
+    // A snapshot is taken only after a clean turn: the spool is on the relay and
+    // the streams are applied, so the cut holds exactly what the relay holds.
+    let snapped = if sent.is_ok() && read.is_ok() {
+        snapshot::run(&ctx, client).await
+    } else {
+        Ok(())
+    };
+    sent.and(read.map(|_| ())).and(snapped)
 }
 
 /// The device streams of the owner on the relay. `None` when the relay does not
@@ -217,7 +248,9 @@ pub(super) fn pending(host: &Host) -> bool {
     let Ok(database_id) = host.owned.owner().map(|owner| owner.id) else {
         return false;
     };
-    status.head > status.acked || !matches!(saved::load(&host.home, &database_id), Ok(None))
+    status.head > status.acked
+        || !matches!(saved::load(&host.home, &database_id), Ok(None))
+        || snapshot_state::requested(&host.home, &database_id)
 }
 
 /// What a restore found.
@@ -232,16 +265,25 @@ pub struct RestoreReport {
     pub devices: usize,
 }
 
-/// Rebuild the personal database of `host` from the streams on the relay.
+/// Rebuild the personal database of `host` from the relay.
 ///
 /// `host` is a fresh home made from the recovery phrase. It keeps the device id
-/// that this call makes, and signs on that stream from then on.
+/// that this call makes, and signs on that stream from then on. When `base` is
+/// given, the files of the newest snapshot are already installed in the home:
+/// the call gives the store its own author stream, checks that the store holds
+/// exactly the stream positions that the snapshot entry names, and then reads
+/// each stream after its position. With no base it reads every stream from the
+/// first entry.
 pub async fn restore_personal_database(
     host: &Host,
     relay_url: &str,
+    base: Option<&SnapshotBase>,
 ) -> Result<RestoreReport, String> {
     let client = RelayClient::for_host(host, relay_url)?;
     let ctx = Ctx::open(host)?;
+    if let Some(base) = base {
+        snapshot_restore::adopt(&ctx, base).await?;
+    }
     let streams = list_streams(&ctx, &client)
         .await?
         .ok_or("the relay holds no personal database for this recovery phrase")?;

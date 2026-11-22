@@ -101,7 +101,9 @@ pub(super) async fn run(
     let others: Vec<&RelayStream> = streams
         .iter()
         .filter(|stream| {
-            stream.device_id != ctx.device_hex && stream.device_id != ctx.birth_device_hex
+            stream.device_id != ctx.device_hex
+                && stream.device_id != ctx.birth_device_hex
+                && stream.device_id != ctx.snapshot_device_hex
         })
         .collect();
     let names: Vec<String> = others

@@ -980,7 +980,7 @@
       },
       "SignedEntry": {
         "type": "object",
-        "description": "Opaque signed entry; store key (database_id,node_key,device_id,writer_seq). seen_heads may cite any stream by hash.",
+        "description": "Opaque signed entry; store key (database_id,node_key,device_id,writer_seq). seen_heads may cite any stream by hash. A snapshot entry (kind snapshot, namespace snapshot) is signed by the publisher and carries manifest_sha256, manifest_bytes and through[] of {device_id,writer_seq,entry_hash,order}; the relay stores it like any publisher entry.",
         "required": [
           "kind",
           "database_id",
@@ -1002,7 +1002,8 @@
               "schema",
               "blob_delete",
               "heads",
-              "relays"
+              "relays",
+              "snapshot"
             ]
           },
           "database_id": {

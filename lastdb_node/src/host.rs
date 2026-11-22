@@ -81,6 +81,20 @@ impl Host {
         Self::boot_inner(home, true).await
     }
 
+    /// Boot a staged home whose database files are the installed files of a
+    /// snapshot. It captures writes like [`Self::boot_for_signed_restore`]. The
+    /// caller gives the store its own author stream before anything is written.
+    #[doc(hidden)]
+    pub async fn boot_for_snapshot_restore(home: &Path) -> Result<Self, String> {
+        let marker = home
+            .join("data")
+            .join(fold_db::storage::disk_pack::NODE_MARKER);
+        if !marker.is_file() {
+            return Err("a snapshot restore needs the installed database files".to_owned());
+        }
+        Self::boot_inner(home, true).await
+    }
+
     async fn boot_inner(home: &Path, signed_restore: bool) -> Result<Self, String> {
         recovery::ensure_node_home(home)
             .map_err(|e| format!("failed to create node home {}: {e}", home.display()))?;

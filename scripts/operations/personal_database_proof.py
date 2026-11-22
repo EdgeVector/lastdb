@@ -21,6 +21,13 @@ as its own stream and applies the other streams through the store's last-writer 
    from the relay and write nothing to the store. An idle turn reads no entry.
 9. Kill -9 under write load: the relay holds each write once, a second device equals the first,
    and the spool is empty.
+11. The snapshot is the checkpoint. A takes a snapshot, then writes more. A home restored from the
+    phrase installs the snapshot and reads only the entries after it, and equals a home restored by
+    full replay from a relay with no snapshot, key by key, alternate keys and file bytes included.
+12. A restore killed at several points leaves no home or a complete one, and a rerun completes it.
+13. A second snapshot uploads only the files that changed, the newest is the one restored, and no
+    byte the relay stored holds a marker written into a record or a file.
+14. A restored device writes and A receives it; A writes and the restored device receives it.
 10. Scale: tens of thousands of writes. The peak resident memory of the daemons does not grow with
     the number of entries, the spool returns to near empty, and an idle turn reads nothing.
 
@@ -36,14 +43,16 @@ import time
 _OPS = Path(__file__).resolve().parent
 sys.path[:0] = [str(_OPS), str(_OPS.parent)]
 from personal_proof_load import idle_turn_reads_nothing, kill_under_load, scale  # noqa: E402
-from personal_proof_nodes import Device, Relay, converged, prove_hidden, require, wait  # noqa: E402
+from personal_proof_nodes import DELTA, Device, Relay, converged, prove_hidden, require, wait  # noqa: E402
+from personal_proof_snapshot import (  # noqa: E402
+    exchange_writes, kill_the_restore, scale_snapshot, second_snapshot, snapshot_restore_equals_replay)
 from personal_proof_steps import (  # noqa: E402
     alternates_and_files, order_by_edit_time, restart_a, single_and_batched_writes)
 
 
 # Run ---------------------------------------------------------------------------------------
 
-def prove(relay, a, b, c, d, out, args):
+def prove(relay, relay2, a, b, c, d, e, f, g, h, j, out, args):
     report = {}
     phrase = a.init()
     a.start()
@@ -86,9 +95,18 @@ def prove(relay, a, b, c, d, out, args):
     # Only A and B are needed from here on.
     c.stop()
     d.stop()
+    report["snapshot"], folders, expected = snapshot_restore_equals_replay(relay, relay2, (a, b, e, f, g, h, j), phrase, state)
+    report["restore_killed"] = kill_the_restore(g, phrase, a, state, folders, expected)
+    report["second_snapshot"] = second_snapshot(relay, a, b, f, h, phrase, state, folders, expected)
+    exchange_writes(relay, a, f, state, folders, expected)
+    # Only A and B again: the homes restored for the proof are done.
+    for device in (e, f, h):
+        device.stop()
+    relay2.stop()
     report["idle"] = idle_turn_reads_nothing(relay, a)
     report["kill"] = kill_under_load(relay, a, b, args.kills)
     report["scale"] = scale(relay, a, b, args.scale_writes)
+    report["scale_snapshot"] = scale_snapshot(relay, a, j, phrase, DELTA)
     (out / "summary.json").write_text(json.dumps(report, indent=2))
 
 
@@ -114,10 +132,16 @@ def main():
     args.output.mkdir(parents=True, exist_ok=True)
     relay = Relay(Path(args.relay_bin), args.output)
     relay.start()
+    # The relay with no snapshot stream: a copy of the first, made when the proof asks for it.
+    relay2_root = args.output / "relay2"
+    relay2_root.mkdir()
+    relay2 = Relay(Path(args.relay_bin), relay2_root)
     devices = [Device(name, args, args.output, relay) for name in ("device-a", "device-b", "device-c", "device-d")]
+    devices.append(Device("device-e", args, args.output, relay2))
+    devices += [Device(name, args, args.output, relay) for name in ("device-f", "device-g", "device-h", "device-j")]
     failure = None
     try:
-        prove(relay, *devices, args.output, args)
+        prove(relay, relay2, *devices, args.output, args)
     except Exception as error:  # noqa: BLE001 the failure is printed with its evidence, then raised
         failure = error
         print(f"FAILED: {error}", file=sys.stderr)
@@ -129,6 +153,7 @@ def main():
             except Exception as error:  # noqa: BLE001
                 print(f"{device.name}: cleanup failed: {error}", file=sys.stderr)
         relay.stop()
+        relay2.stop()
     if failure is not None:
         raise SystemExit(1)
     print("Personal database proof passed", flush=True)

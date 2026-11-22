@@ -1,6 +1,6 @@
 # Design: the signed log on the previous local machinery
 
-Date: 2026-11-22. Author: Claude, for Tom. Status: approved. Steps 1 to 3 are built: step 1 earlier, steps 2 and 3 (outgoing and incoming, the order rule) together in one change, because neither can be proven without the other. Section 9 says what was built and what was deferred.
+Date: 2026-11-22. Author: Claude, for Tom. Status: approved. Steps 1 to 4 are built: step 1 earlier, steps 2 and 3 (outgoing and incoming, the order rule) together in one change, because neither can be proven without the other, and step 4 (the snapshot as the checkpoint). Sections 9 and 10 say what was built and what was deferred.
 
 Basis: Tom, 2026-11-22: "Can we reuse as much of the old machineries as possible? ... logs can be in any form. And then just reuse the current snapshot ... The only major change is the cloud portion", and "keep the database format as much as you can, especially the snapshot. All of that should be exactly the same."
 
@@ -151,7 +151,7 @@ Tom approved the plan on 2026-11-22 ("All right, it's approved. Let's do it."), 
 
 Settled by the code check after that, within the plan: the hybrid order of section 4a, and no per-entry row for a personal database.
 
-Status: steps 1 to 3 are built. Steps 4 to 6 are not.
+Status: steps 1 to 4 are built. Steps 5 and 6 are not.
 
 ## 9. What was built for steps 2 and 3
 
@@ -210,4 +210,30 @@ A home captures every write exactly when something sends the spool: it has a rel
 
 ### Deferred
 
-Steps 4 to 6: the snapshot as checkpoint (a restore still replays every stream from the first entry), the move of an existing home, and the relay dropping entries a snapshot covers. Shared databases still use the in-memory history. The pure `mutation_log` crate still carries the `bundle` entry kind and the opener of sealed payloads, which only the relay end-to-end tool uses now. The relay's contiguous head (`log/streams`) is used for the listing only; a read that returns fewer entries than the head reports is an error.
+Steps 5 and 6: the move of an existing home, and the relay dropping entries a snapshot covers. Shared databases still use the in-memory history. The pure `mutation_log` crate still carries the `bundle` entry kind and the opener of sealed payloads, which only the relay end-to-end tool uses now. The relay's contiguous head (`log/streams`) is used for the listing only; a read that returns fewer entries than the head reports is an error.
+
+## 10. What was built for step 4
+
+### The producer, brought back
+
+- `fold_db/.../storage/disk_backup/snapshot.rs` and `files.rs`, and `local_file_ref::{snapshot_budget, snapshot_rows}`, come back from `d06054159`. `DatabaseSnapshot` freezes the main and file roots with the node marker and lists the native files; a local file reference is sealed into a private copy of the files store, as before. `DbOperations::capture_synced_snapshot` and `Metadata::fork_restored_author` come back too. `adopt_restored_snapshot` only forks the author stream now.
+- Changed: the capture also reads the head rows (`signed-replay-head:*`) of the store, in the same section that pins the files. It refuses (returns `None`) unless the spool's acknowledged position equals its head and no `signed-replay-pending:` or `signed-replay-deferred:` row exists. The write gate (`enter_write`) holds while the roots are pinned and the rows are read, so no commit starts or ends in between, and the cut is exact: the files hold exactly the writes that the head rows name.
+- Not brought back: `prearm.rs`, `Status.snapshot_required`, `note_accepted_snapshot`, `Error::Snapshot`, the `capture_initial_snapshot` option, `clear_restored_bootstrap_pending`, `release_bootstrap_replay_pins` and `live_file_paths`. They pin the exact files of a home that had data before capture began, and refuse to acknowledge before a first snapshot covers that history. That is the move of an existing home (step 5). The snapshot of this step covers the whole store at the freeze, so it needs none of them.
+
+### The `snapshot` entry
+
+A new entry kind in `mutation_log`, signed by the owner. The kind string is `snapshot`, the domain `lastdb-snapshot-v1`. The body is `manifest_sha256`, `manifest_bytes` and `through`, a list of `{device_id, writer_seq, entry_hash, order}` for each stream the snapshot holds. The exact bytes are in `relay-protocol.md`. It sits on a stream of its own, whose device id is `HKDF-SHA256(node seed, info = "lastdb:personal-database:v1:snapshot-device")`, like the birth device. Devices skip that stream when they apply entries. The reference relay needed no change: it stores a publisher entry of any kind it can deserialize.
+
+### Publishing
+
+After a clean turn, when a snapshot is requested or due, the node captures, hashes each file, uploads each file that the previous snapshot of this device did not hold (by path and digest) with the file-streaming `blob_put`, uploads the manifest, and appends the entry. A crash before the entry leaves unused blobs. A second device that signs on the snapshot stream at the same time gets a refused append and tries again on the next turn.
+
+When: on request (`lastdb backup snapshot [--wait]`, route `POST /api/backup/snapshot`), and automatically when 25,000 entries (`AUTO_SNAPSHOT_ENTRIES`) have been signed on this device's stream since its last snapshot. The old build took a snapshot on request and for the first one; the retention signal of the cloud no longer exists.
+
+### Restore
+
+`lastdb backup restore` lists the owner's streams. When the snapshot stream has an entry it reads the newest, checks the signature, database, stream, cited birth and the order limit, fetches the manifest (digest and length checked), fetches each file (digest and length checked) into `data/` of the staged home while no store is open, boots on the files, forks the author stream, checks that the head rows are exactly the positions the entry names, and reads each stream after its position; the first entry of each stream is checked to chain to the head hash by the ordinary incoming check. The staged home is published by one rename, so a kill leaves no home or a complete one. The staged install of `native_reset` (exchange of a live home) is not needed for a new home and was not brought back.
+
+### What the relay can see
+
+The files are the store's own: AES-256-GCM frames with keys derived from the node seed (`laststore` run frames, `CURRENT` sealed, the node marker is a fixed constant). They are uploaded as they are. The relay sees file names (run uuids), lengths, digests, and the stream positions in the entry.

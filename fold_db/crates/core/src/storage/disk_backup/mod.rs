@@ -1,6 +1,7 @@
-//! Accepted mutation log and the native cloud work guard.
+//! Accepted mutation log, database snapshots, and the native cloud work guard.
 
 pub mod accepted;
+mod files;
 
 use crate::storage::error::{StorageError, StorageResult};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -32,6 +33,8 @@ impl Drop for NativeCloudWorkGuard {
         ACTIVE.store(false, Ordering::Release);
     }
 }
+
+pub mod snapshot;
 
 pub mod stopped_sync {
     //! Prove a stopped personal database still matches its prepared recovery state.

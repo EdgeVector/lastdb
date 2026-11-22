@@ -19,13 +19,15 @@
 //! - **schema:** `namespace`(u16+utf8) · `definition`(u32+bytes, UTF-8 JSON)
 //! - **blob_delete:** `sha256`(32)
 //! - **heads:** tips (`u16` + `device_id`(32)·`writer_seq`(u64)·`entry_hash`(32)×)
+//! - **snapshot:** `manifest_sha256`(32) · `manifest_bytes`(u64) · through (`u16` count ≤ 1024,
+//!   strictly ascending by `device_id`, each `device_id`(32)·`writer_seq`(u64)·`entry_hash`(32)·`order`(u64))
 //! - **relays:** urls (`u16` + per url `u16` len + utf8)
 //! - **bundle:** `blob_sha256`(32) · `blob_size`(u64) · `change_count`(u32) ·
 //!   `flags` u8 (bit2=`grant_at`) · grant optionals
 
 use crate::entry::{
     BundleBody, DataBody, DeviceHead, GrantBody, HeadsBody, IncorporatedFrom, MutationFileRef,
-    RelaysBody, RevocationCutoff, SchemaBody, SignedEntry,
+    RelaysBody, RevocationCutoff, SchemaBody, SignedEntry, SnapshotBody,
 };
 use crate::ids::Hex32;
 use crate::kinds::Grantee;
@@ -57,6 +59,7 @@ pub fn signed_bytes(entry: &SignedEntry) -> Result<Vec<u8>, EncodeError> {
         }
         SignedEntry::Heads { body, .. } => encode_heads(&mut buf, body)?,
         SignedEntry::Relays { body, .. } => encode_relays(&mut buf, body)?,
+        SignedEntry::Snapshot { body, .. } => encode_snapshot(&mut buf, body)?,
     }
     Ok(buf)
 }
@@ -188,6 +191,26 @@ fn encode_device_head(buf: &mut Vec<u8>, tip: &DeviceHead) {
     buf.extend_from_slice(&tip.device_id.to_bytes());
     put_u64(buf, tip.writer_seq);
     buf.extend_from_slice(tip.entry_hash.as_bytes());
+}
+
+fn encode_snapshot(buf: &mut Vec<u8>, body: &SnapshotBody) -> Result<(), EncodeError> {
+    let through = &body.through;
+    let ascending = through
+        .windows(2)
+        .all(|pair| pair[0].device_id.to_bytes() < pair[1].device_id.to_bytes());
+    if through.len() > 1024 || !ascending {
+        return Err(EncodeError::BadSnapshotThrough);
+    }
+    buf.extend_from_slice(body.manifest_sha256.as_bytes());
+    put_u64(buf, body.manifest_bytes);
+    put_u16(buf, through.len() as u16);
+    for position in through {
+        buf.extend_from_slice(&position.device_id.to_bytes());
+        put_u64(buf, position.writer_seq);
+        buf.extend_from_slice(position.entry_hash.as_bytes());
+        put_u64(buf, position.order);
+    }
+    Ok(())
 }
 
 fn encode_relays(buf: &mut Vec<u8>, body: &RelaysBody) -> Result<(), EncodeError> {
