@@ -173,8 +173,25 @@ async fn pull_owned(
         database_id,
         store: &store,
     };
-    let seed = super::pull::writer_keys(histories, database_id);
-    super::pull::pull_writers(client, histories, &db, seed).await
+    let caller = NodeKey::from_bytes(host.keypair.public_key_bytes());
+    let Some(publisher_hex) = histories
+        .peek_with(database_id, |history| {
+            history.owner().map(|owner| owner.to_hex())
+        })
+        .flatten()
+    else {
+        return Ok(());
+    };
+    let local_device = device::device_id(&host.home)?.to_hex();
+    super::pull::pull_share_writers(
+        client,
+        histories,
+        &db,
+        caller,
+        &publisher_hex,
+        [local_device],
+    )
+    .await
 }
 
 /// Pull publisher and write/submit member streams for signed-log received DBs.
@@ -221,9 +238,15 @@ async fn pull_one_received(
         database_id: share.id.as_str(),
         store: &store,
     };
-    let mut seed = super::pull::writer_keys(histories, share.id.as_str());
-    if seed.is_empty() {
-        seed.push(share.publisher.as_str().to_owned());
-    }
-    super::pull::pull_writers(client, histories, &db, seed).await
+    let caller = NodeKey::from_bytes(host.keypair.public_key_bytes());
+    let known = share.publisher_device_id.iter().cloned();
+    super::pull::pull_share_writers(
+        client,
+        histories,
+        &db,
+        caller,
+        share.publisher.as_str(),
+        known,
+    )
+    .await
 }

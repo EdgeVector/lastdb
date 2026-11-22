@@ -2,11 +2,23 @@
 
 use std::collections::BTreeSet;
 
-use mutation_log::{AcceptOutcome, Role, SignedEntry, VerifiedHistory};
+use mutation_log::{AcceptOutcome, NodeKey, Role, SignedEntry, VerifiedHistory};
 
 use super::history_store::{self, HistoryMap};
 use super::materialize::{self, DatabaseCtx};
 use super::relay::RelayClient;
+
+/// Pull one device stream (`device_id` set). Used for the publisher's known
+/// devices so a revoked member can still read through the signed revoke.
+pub(super) async fn pull_stream(
+    client: &RelayClient,
+    histories: &HistoryMap,
+    db: &DatabaseCtx<'_>,
+    writer_key: &str,
+    device_id: &str,
+) -> Result<u64, String> {
+    pull_pages(client, histories, db, writer_key, Some(device_id)).await
+}
 
 /// Pull one writer's entries across every device (`device_id` omitted).
 pub(super) async fn pull_writer(
@@ -15,46 +27,78 @@ pub(super) async fn pull_writer(
     db: &DatabaseCtx<'_>,
     writer_key: &str,
 ) -> Result<u64, String> {
-    let mut cursor: Option<String> = None;
-    let mut accepted = 0u64;
-    loop {
-        let (entries, next) = client
-            .read(db.database_id, writer_key, None, 1, cursor.as_deref(), 90)
-            .await?;
-        if entries.is_empty() {
-            break;
-        }
-        for entry in entries {
-            if accept_one(histories, db, entry)? {
-                accepted += 1;
-            }
-        }
-        match next {
-            Some(next) => cursor = Some(next),
-            None => break,
-        }
-    }
-    rematerialize(histories, db, accepted).await?;
-    Ok(accepted)
+    pull_pages(client, histories, db, writer_key, None).await
 }
 
-/// Pull every write/submit grantee (and the publisher) until the set is stable.
-pub(super) async fn pull_writers(
+/// Publisher known-device pulls first, then AllDevices for other writers.
+///
+/// AllDevices HTTP 403 is soft when this caller is already revoked in history
+/// (unsigned relay message is not treated as proof of revoke).
+pub(super) async fn pull_share_writers(
     client: &RelayClient,
     histories: &HistoryMap,
     db: &DatabaseCtx<'_>,
-    seed: impl IntoIterator<Item = String>,
+    caller: NodeKey,
+    publisher_hex: &str,
+    known_publisher_devices: impl IntoIterator<Item = String>,
 ) -> Result<(), String> {
-    let mut seen = BTreeSet::new();
-    for key in seed {
-        seen.insert(key);
+    let mut devices: BTreeSet<String> = known_publisher_devices.into_iter().collect();
+    if let Ok(publisher) = NodeKey::from_hex(publisher_hex) {
+        for device in publisher_devices(histories, db.database_id, publisher) {
+            devices.insert(device);
+        }
     }
-    let mut pending: Vec<String> = seen.iter().cloned().collect();
+    if devices.is_empty() {
+        // No observed publisher device yet (pre-birth). Discover via AllDevices;
+        // once revoked, soft-fail below keeps this from sticking last_error.
+        match pull_writer(client, histories, db, publisher_hex).await {
+            Ok(_) => {}
+            Err(err)
+                if relay_forbidden(&err) && caller_revoked(histories, db.database_id, caller) =>
+            {
+                tracing::warn!(
+                    target: "lastdbd::log_sync",
+                    id = %db.database_id,
+                    %err,
+                    "publisher AllDevices refused after signed revoke; continuing"
+                );
+            }
+            Err(err) => return Err(err),
+        }
+    } else {
+        for device in &devices {
+            let _ = pull_stream(client, histories, db, publisher_hex, device).await?;
+        }
+    }
+    let mut seen = BTreeSet::new();
+    seen.insert(publisher_hex.to_owned());
+    let mut pending: Vec<String> = writer_keys(histories, db.database_id)
+        .into_iter()
+        .filter(|key| key != publisher_hex && seen.insert(key.clone()))
+        .collect();
     while !pending.is_empty() {
         for writer in pending.drain(..) {
-            let _ = pull_writer(client, histories, db, &writer).await?;
+            match pull_writer(client, histories, db, &writer).await {
+                Ok(_) => {}
+                Err(err)
+                    if relay_forbidden(&err)
+                        && caller_revoked(histories, db.database_id, caller) =>
+                {
+                    tracing::warn!(
+                        target: "lastdbd::log_sync",
+                        id = %db.database_id,
+                        %writer,
+                        %err,
+                        "AllDevices pull refused after signed revoke; continuing"
+                    );
+                }
+                Err(err) => return Err(err),
+            }
         }
         for writer in writer_keys(histories, db.database_id) {
+            if writer == publisher_hex {
+                continue;
+            }
             if seen.insert(writer.clone()) {
                 pending.push(writer);
             }
@@ -63,11 +107,38 @@ pub(super) async fn pull_writers(
     Ok(())
 }
 
-/// Hex writer keys: publisher plus active write/submit members.
+/// Hex writer keys: publisher plus write/submit (and historical) members.
 pub(super) fn writer_keys(histories: &HistoryMap, database_id: &str) -> Vec<String> {
     histories
         .peek_with(database_id, writer_keys_of)
         .unwrap_or_default()
+}
+
+fn publisher_devices(histories: &HistoryMap, database_id: &str, publisher: NodeKey) -> Vec<String> {
+    histories
+        .peek_with(database_id, |history| {
+            history
+                .stream_heads_of(publisher)
+                .into_iter()
+                .map(|(device, _)| device.to_hex())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default()
+}
+
+fn caller_revoked(histories: &HistoryMap, database_id: &str, caller: NodeKey) -> bool {
+    histories
+        .peek_with(database_id, |history| {
+            history
+                .grants()
+                .members()
+                .any(|(key, role)| key == caller && role == Role::Revoked)
+        })
+        .unwrap_or(false)
+}
+
+fn relay_forbidden(err: &str) -> bool {
+    err.contains("HTTP 403")
 }
 
 fn writer_keys_of(history: &VerifiedHistory) -> Vec<String> {
@@ -99,6 +170,43 @@ fn writer_keys_of(history: &VerifiedHistory) -> Vec<String> {
         }
     }
     keys.into_iter().collect()
+}
+
+async fn pull_pages(
+    client: &RelayClient,
+    histories: &HistoryMap,
+    db: &DatabaseCtx<'_>,
+    writer_key: &str,
+    device_id: Option<&str>,
+) -> Result<u64, String> {
+    let mut cursor: Option<String> = None;
+    let mut accepted = 0u64;
+    loop {
+        let (entries, next) = client
+            .read(
+                db.database_id,
+                writer_key,
+                device_id,
+                1,
+                cursor.as_deref(),
+                90,
+            )
+            .await?;
+        if entries.is_empty() {
+            break;
+        }
+        for entry in entries {
+            if accept_one(histories, db, entry)? {
+                accepted += 1;
+            }
+        }
+        match next {
+            Some(next) => cursor = Some(next),
+            None => break,
+        }
+    }
+    rematerialize(histories, db, accepted).await?;
+    Ok(accepted)
 }
 
 async fn rematerialize(

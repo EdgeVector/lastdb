@@ -34,6 +34,17 @@ impl AppState {
         gate::authorize_read(&grants, db, caller)
     }
 
+    async fn check_log_read(
+        &self,
+        db: &DatabaseId,
+        caller: &NodeKey,
+        writer_key: &str,
+        all_devices: bool,
+    ) -> ApiResult<()> {
+        let grants = self.grants.lock().await;
+        gate::authorize_log_read(&grants, db, caller, writer_key, all_devices)
+    }
+
     async fn check_blob_put(&self, db: &DatabaseId, caller: &NodeKey) -> ApiResult<()> {
         let grants = self.grants.lock().await;
         gate::authorize_blob_put(&grants, db, caller)
@@ -72,8 +83,14 @@ pub(crate) async fn log_read(
     verified.check_database(&req.database_id)?;
     let caller = verified.node_key;
     let db = gate::parse_id(&req.database_id, "database_id")?;
-    state.check_read(&db, &caller).await?;
     let position = read_position(&req)?;
+    let (writer_key, all_devices) = match &position {
+        ReadPosition::Device { writer_key, .. } => (writer_key.as_str(), false),
+        ReadPosition::Writer { writer_key, .. } => (writer_key.as_str(), true),
+    };
+    state
+        .check_log_read(&db, &caller, writer_key, all_devices)
+        .await?;
     let limit = req.limit.unwrap_or(90) as usize;
     let (entries, cursor) = match position {
         ReadPosition::Device {
