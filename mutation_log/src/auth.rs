@@ -139,7 +139,16 @@ fn authorize_proposal<'s>(
             ))
         }
     }
-    check_cutoff(h, grants)
+    // A role reduction cuts off a member's direct writes, not its proposals:
+    // a member reduced from write to submit may still propose. The member's
+    // current role says whether it still may, because `seen_heads` can cite an
+    // older grant that the member no longer holds.
+    match grants.role_of(&h.node_key) {
+        Some(Role::Submit | Role::Write) => None,
+        _ => Some(RejectReason::Unauthorized(
+            "proposal requires a current submit or write grant",
+        )),
+    }
 }
 
 /// True while a non-owner entry still falls inside its writer's window: not
