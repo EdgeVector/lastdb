@@ -6,6 +6,9 @@ People owns the recipes and the DEV publisher secrets
 that workflow on people main with `lastdb_source_sha` and fails when any
 sharing leg fails. It uses the same `secrets.GH_PAT` cross-repo pattern as
 `notify-schema-infra.yml`.
+
+Correlation is the People `run-name` only (full 40-hex SHA in
+`display_title`). There is no “newest dispatch” fallback.
 """
 
 from __future__ import annotations
@@ -59,6 +62,7 @@ def require_token() -> None:
 
 def dispatch(sha: str, mode: str) -> None:
     # workflow_dispatch returns 204 with an empty body.
+    # Only mode + lastdb_source_sha: leave lastdb_release and relay_url unset.
     result = gh_api(
         f"repos/{PEOPLE}/actions/workflows/{WORKFLOW}/dispatches",
         method="POST",
@@ -80,9 +84,7 @@ def dispatch(sha: str, mode: str) -> None:
         "Need secrets.GH_PAT on EdgeVector/lastdb with permission to "
         f"workflow_dispatch {PEOPLE} `{WORKFLOW}` (Actions: write on that "
         "repository). Fine-grained: Actions write + Contents read on people. "
-        "Classic: the `workflow` scope plus repo access. Do not invent a "
-        "second proof path; extend GH_PAT or add a dedicated Actions token "
-        "named GH_PAT / PEOPLE_ACTIONS_DISPATCH.",
+        "Classic: the `workflow` scope plus repo access.",
         file=sys.stderr,
     )
     sys.exit(1)
@@ -91,7 +93,7 @@ def dispatch(sha: str, mode: str) -> None:
 def list_runs() -> list[dict]:
     result = gh_api(
         f"repos/{PEOPLE}/actions/workflows/{WORKFLOW}/runs"
-        "?event=workflow_dispatch&per_page=20"
+        "?event=workflow_dispatch&per_page=30"
     )
     if result.returncode != 0:
         print(
@@ -111,21 +113,20 @@ def parse_created(run: dict) -> datetime | None:
 
 
 def find_run(sha: str, not_before: datetime) -> dict | None:
+    """Return the run whose display_title contains the full 40-hex SHA."""
     needle = sha.lower()
     floor = not_before - timedelta(seconds=5)
-    titled = []
-    recent = []
+    matches = []
     for run in list_runs():
         created_at = parse_created(run)
         if created_at is None or created_at < floor:
             continue
-        recent.append(run)
         title = (run.get("display_title") or "").lower()
-        if needle in title or needle[:12] in title:
-            titled.append(run)
-    if titled:
-        return max(titled, key=lambda run: run["id"])
-    return max(recent, key=lambda run: run["id"]) if recent else None
+        if needle in title:
+            matches.append(run)
+    if not matches:
+        return None
+    return max(matches, key=lambda run: run["id"])
 
 
 def job_rows(run_id: int) -> list[dict]:
@@ -156,18 +157,28 @@ def wait_for_run(sha: str, not_before: datetime, wait_seconds: int) -> dict:
         run = find_run(sha, not_before)
         if run is not None:
             break
-        print("people-dev-sharing-gate: waiting for the dispatched run to appear", flush=True)
+        print(
+            "people-dev-sharing-gate: waiting for a workflow_dispatch whose "
+            f"run-name contains {sha}",
+            flush=True,
+        )
         time.sleep(15)
     if run is None:
         print(
-            f"people-dev-sharing-gate: FAIL no People DEV sharing run for {sha} "
-            f"appeared within {wait_seconds}s.",
+            f"people-dev-sharing-gate: FAIL no People DEV sharing run-name "
+            f"containing {sha} appeared within {wait_seconds}s. People main "
+            "must include the run-name that embeds lastdb_source_sha "
+            "(people #37). There is no newest-dispatch fallback.",
             file=sys.stderr,
         )
         sys.exit(1)
     run_id = run["id"]
     html_url = run.get("html_url", "")
-    print(f"people-dev-sharing-gate: watching run {run_id} {html_url}", flush=True)
+    title = run.get("display_title", "")
+    print(
+        f"people-dev-sharing-gate: watching run {run_id} ({title}) {html_url}",
+        flush=True,
+    )
     while time.monotonic() < deadline:
         result = gh_api(f"repos/{PEOPLE}/actions/runs/{run_id}")
         if result.returncode != 0:
@@ -179,6 +190,15 @@ def wait_for_run(sha: str, not_before: datetime, wait_seconds: int) -> dict:
             time.sleep(30)
             continue
         run = json.loads(result.stdout)
+        # Re-check title in case the watched id was wrong (should not happen).
+        title = (run.get("display_title") or "").lower()
+        if sha not in title:
+            print(
+                f"people-dev-sharing-gate: FAIL watched run {run_id} title "
+                f"{run.get('display_title')!r} no longer contains {sha}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
         status = run.get("status")
         if status == "completed":
             return run
