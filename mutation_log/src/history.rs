@@ -263,7 +263,10 @@ impl VerifiedHistory {
                 self.owner = Some(body.owner);
             }
         }
-        self.apply_effects(&entry, hash, position, is_publisher);
+        // An entry past its writer's cutoff joins the chain but has no effect.
+        if is_publisher || crate::auth::within_cutoff(&entry, &self.grants) {
+            self.apply_effects(&entry, hash, position, is_publisher);
+        }
         let rebuild = is_publisher && grant_body.is_some();
         let meta = AcceptedMeta {
             position,
