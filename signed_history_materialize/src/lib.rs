@@ -14,7 +14,7 @@ mod read;
 mod schema;
 mod store;
 
-pub use apply::apply_history;
+pub use apply::{apply_history, delete_voided};
 pub use codec::{decode_string_field, encode_string_field, STRING_FIELD};
 pub use declare::declare_history_schemas;
 pub use fold_db::fold_db_core::FoldDB;

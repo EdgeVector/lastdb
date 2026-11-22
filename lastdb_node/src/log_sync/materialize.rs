@@ -33,5 +33,6 @@ pub(super) async fn apply_history_records(
     history: &VerifiedHistory,
 ) -> Result<(), String> {
     signed_history_materialize::declare_history_schemas(store, history).await?;
-    signed_history_materialize::apply_history(store, history).await
+    signed_history_materialize::apply_history(store, history).await?;
+    signed_history_materialize::delete_voided(store, history).await
 }

@@ -109,6 +109,12 @@ A FoldDB record revision is a hash of the node's local write stamp, so two nodes
 
 Each history record also keeps its creator: the writer of the earliest accepted write to the key by position, whoever wins now. A member may replace or delete only a record it created, so the publisher applies a replace or delete proposal only when the proposer is the creator. Ownership does not change when another writer, such as the publisher moderating a comment, becomes the winner. FoldDB `created_by` and `updated_by` still carry the winner, which is what the direct-write convergence check needs.
 
+## Void entries
+
+A publisher role reduction carries a cutoff for each device stream of the grantee. A member entry accepted before the reduction can fall past that cutoff, and then it must not count on any node. The entry stays in the accepted entries, so the stream chain and the log are untouched. When a publisher grant entry is accepted, the history looks at the non-publisher direct entries that are now past their cutoff, and recomputes the winner of each key they wrote from the entries that still count. A key falls back to its previous winner, or has none. This is one pass over the accepted entries, only on a publisher grant, and nothing is saved per entry.
+
+The history remembers those keys (`voided_keys`). The materializer writes the new winners as usual and deletes the record of a voided key that has no winner left. A write that was committed locally while the member still believed it had write access is therefore undone once the member's node learns of the reduction.
+
 ## Decisions
 
 - One LastDB PR for the log, cursor and commit function.
