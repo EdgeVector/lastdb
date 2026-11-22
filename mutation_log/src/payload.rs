@@ -109,11 +109,6 @@ pub struct MaterializedRecord {
     /// Content author for FoldDB stamps: the signed writer, or the proposal
     /// member when a publisher incorporation cites `incorporated_from`.
     pub author: NodeKey,
-    /// Writer of the earliest accepted write to this key by position. FoldDB
-    /// `created_by` is this key on every node, whatever order entries arrive in.
-    pub creator: NodeKey,
-    /// Position of the write that `creator` signed.
-    pub(crate) creator_position: RecordPosition,
     /// Current value; empty = tombstone present.
     pub value: Vec<u8>,
 }

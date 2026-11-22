@@ -99,7 +99,7 @@ The relay is Exemem. A node syncs with `LASTDB_RELAY_URL` when that is set (a re
 
 A history record key is one string. A hash schema uses the hash key. A hash-range schema joins hash and range with the unit separator (U+001F), and the schema decides which reading applies. A hash that holds the separator is refused for a ranged schema.
 
-Each history record keeps the writer of its earliest accepted write by position (`creator`) beside the writer of the winning write (`author`). Materialize stamps FoldDB `created_by` from `creator` and `updated_by` from `author`, and rewrites a record whose fields match but whose authors differ. Every node therefore stamps alike, whatever order entries arrived in.
+History records are whole-record last-writer-wins. Materialize stamps FoldDB `created_by` and `updated_by` with the winning entry's writer (the proposing member for a publisher incorporation), and rewrites a record whose fields match but whose authors differ. Every node therefore stamps alike, whatever order entries arrived in.
 
 ## Decisions
 
