@@ -52,7 +52,7 @@ struct Cli {
     limit_seconds: f64,
     /// Also prove `log.streams` (steps `streams_*`). Off by default: a relay that
     /// does not implement the route yet would fail it.
-    #[arg(long, env = "LASTDB_RELAY_E2E_STREAMS", default_value_t = false)]
+    #[arg(long, env = "LASTDB_RELAY_E2E_STREAMS", action = clap::ArgAction::SetTrue)]
     streams: bool,
     /// Also put and get one generated file of this many bytes through the blob
     /// routes, from and to disk (step `blob_file_stream`). 0 skips it.
