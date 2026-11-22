@@ -1,19 +1,23 @@
 //! In-repo reference relay for CI signed-history proofs.
 //!
 //! `reference_relay --listen 127.0.0.1:0 --data-dir DIR` prints the bound
-//! address, then serves the relay OpenAPI surface. HTTP `nodeSignature` is
+//! address, then serves the relay OpenAPI surface and writes one line per request to stderr. HTTP `nodeSignature` is
 //! verified, then access is gated by a per-database grant index built from
 //! publisher-signed `birth` / `grant` entries (rebuilt from the stored logs on
 //! open). No `AcceptEntry`: record payloads are never decrypted or applied.
 
 mod auth;
+mod blob_http;
+mod blob_store;
 mod error;
 mod gate;
 mod grant_index;
 mod grant_load;
 mod grant_verify;
 mod handlers;
+mod heads;
 mod presign;
+mod request_log;
 mod store;
 
 use std::net::SocketAddr;
@@ -21,17 +25,21 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use axum::extract::DefaultBodyLimit;
+use axum::middleware;
 use axum::routing::{get, post, put};
 use axum::Router;
 use clap::Parser;
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;
 
-use handlers::{blob_bytes, blob_get, blob_put, blob_upload, log_append, log_read, AppState};
+use blob_http::{blob_bytes, blob_upload};
+use handlers::{blob_get, blob_put, log_append, log_read, log_streams, AppState};
 use store::Store;
 
-/// CI blob_perf uploads ~300 MiB; leave headroom above axum's 2 MiB default.
-const MAX_BODY_BYTES: usize = 512 * 1024 * 1024;
+/// Largest signed JSON request body (`log/append` carries up to 90 entries).
+/// Blob bodies are not buffered, so they are not bound by this limit; each
+/// upload is bound by the size its `blob.put` begin declared.
+const MAX_JSON_BODY_BYTES: usize = 64 * 1024 * 1024;
 
 #[derive(Parser, Debug)]
 #[command(name = "reference_relay")]
@@ -75,11 +83,13 @@ async fn run() -> Result<(), String> {
     let app = Router::new()
         .route("/relay/v1/log/append", post(log_append))
         .route("/relay/v1/log/read", post(log_read))
+        .route("/relay/v1/log/streams", post(log_streams))
         .route("/relay/v1/blob/put", post(blob_put))
         .route("/relay/v1/blob/get", post(blob_get))
         .route("/relay/v1/blob/upload/{token}", put(blob_upload))
         .route("/relay/v1/blob/bytes/{sha256}", get(blob_bytes))
-        .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
+        .layer(DefaultBodyLimit::max(MAX_JSON_BODY_BYTES))
+        .layer(middleware::from_fn(request_log::log_request))
         .with_state(state);
     axum::serve(listener, app)
         .await

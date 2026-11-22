@@ -187,15 +187,19 @@ async fn bundle_changes(
     body: &BundleBody,
 ) -> Result<Vec<BundleChange>, String> {
     let database_id = header.database_id.to_hex();
-    let blob = if let Some(blob) = blobs::load(&host.home, &database_id, &body.blob_sha256)? {
-        blob
-    } else {
-        let blob = client
-            .blob_get(&database_id, &body.blob_sha256.to_hex(), body.blob_size)
+    let kept = blobs::path(&host.home, &database_id, &body.blob_sha256);
+    if !kept.is_file() {
+        client
+            .blob_get(
+                &database_id,
+                &body.blob_sha256.to_hex(),
+                body.blob_size,
+                &kept,
+            )
             .await?;
-        blobs::save(&host.home, &database_id, &body.blob_sha256, &blob)?;
-        blob
-    };
+    }
+    let blob = blobs::load(&host.home, &database_id, &body.blob_sha256)?
+        .ok_or("bundle blob is missing after its download")?;
     blobs::open_changes(sealer, header, &blob)
 }
 

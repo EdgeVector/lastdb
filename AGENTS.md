@@ -45,7 +45,7 @@ removed page with `git show 13a2cf188:<path>`.
 The unsigned mutation log, proposal log, and snapshot path are retired.
 Read `docs/designs/cloud-api.md` and `docs/designs/relay-protocol.md` before
 changing sync, AcceptEntry, or relay code. Grants live only as signed chain
-entries; relays gate access from publisher-signed grant entries; there are no snapshots. DEV proofs run in
+entries; relays gate access from publisher-signed grant entries (and list a writer's device streams with `log/streams`, gated like an all-devices `log/read`); there are no snapshots. DEV proofs run in
 `.github/workflows/signed-history-dev.yml` against in-repo `reference_relay`.
 
 ## Code size limits (CI fails a PR that breaks them)
