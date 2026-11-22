@@ -8,6 +8,7 @@ What moves: the identity, every record, every file and every installed app stay 
 
 - You have a build with step 5 (`lastdb --version`) and a relay: `LASTDB_RELAY_URL` for the daemon, or a `cloud-credentials.json` that parses (the script reports which).
 - You have the recovery phrase. The restore in step 7 needs it.
+- No file that a record holds by path is larger than 32 MiB. A snapshot seals each such file as one value, and a run holds values up to 32 MiB, so the first snapshot of a home with a larger one cannot be made, and the node would not start. The script reads `data/local-file-refs.json` and refuses when it finds one. Import the file into the store or drop the reference first.
 - Time for the first snapshot: the files of the home go up once. The home is about as large as its `data/disk-run` and `data/disk-cas` directories together.
 
 ## Steps

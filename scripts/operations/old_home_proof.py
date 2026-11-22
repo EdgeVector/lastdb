@@ -208,7 +208,7 @@ def killed_home(args, out, relay, cli, label, down, big, report):
     """6. Kill the moved node before the first snapshot is named; after the restart nothing is lost or repeated."""
     node, expected = make_old_home(args.old_daemon, args.revision, out / f"old-{label}", cli, label,
                                    600 if not big else 300, 150 if not big else 30,
-                                   unreachable_cloud=not big, file_bytes=160 * 1024 * 1024 if big else 150_000)
+                                   unreachable_cloud=not big, fat_records=1800 if big else 0)
     nodes = [node]
     summary = {"variant": label}
     try:
@@ -263,6 +263,29 @@ def killed_home(args, out, relay, cli, label, down, big, report):
                 print(f"cleanup: {error}", file=sys.stderr)
 
 
+def oversize_refused(args, out, cli):
+    """A file the old home holds by reference, larger than a run can hold, is refused before any change."""
+    node, _ = make_old_home(args.old_daemon, args.revision, out / "old-oversize", cli, "oversize", 20, 5,
+                            file_bytes=40 * 1024 * 1024)
+    try:
+        node.stop()
+        owner = adopt_checks.registry_owner(node.home)
+        result = adopt_checks.run(ADOPT, node.home, cli)
+        require(result.returncode == 2 and "larger than" in result.stderr,
+                f"the script did not refuse a 40 MiB file reference: {result.returncode} {result.stderr!r}")
+        require(adopt_checks.registry_owner(node.home) == owner, "the refused run changed the registry")
+    finally:
+        node.close()
+
+
+def dump_logs(root):
+    """The end of every daemon log, for a failed run."""
+    for log in sorted(root.glob("*/node.log")):
+        lines = log.read_text(errors="replace").splitlines()
+        print(f"--- {log.relative_to(root)}: last 40 of {len(lines)} lines", file=sys.stderr)
+        print("\n".join(line[:400] for line in lines[-40:]), file=sys.stderr)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     for name in ("old-daemon", "daemon", "cli", "relay-bin", "revision"):
@@ -270,7 +293,7 @@ def main():
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
-    for name in ("old-plain", "old-variant", "old-big"):
+    for name in ("old-plain", "old-variant", "old-big", "old-oversize"):
         (args.output / name).mkdir(exist_ok=True)
     cli = Path(args.cli)
     relay = Relay(Path(args.relay_bin), args.output)
@@ -285,10 +308,12 @@ def main():
         if relay.process is None:
             relay.start()
         killed_home(args, args.output, relay, cli, "big", False, True, report)
+        oversize_refused(args, args.output, cli)
         (args.output / "summary.json").write_text(json.dumps(report, indent=2, default=str))
     except Exception as error:  # noqa: BLE001 the failure is printed with its evidence, then raised
         failure = error
         print(f"FAILED: {error}", file=sys.stderr)
+        dump_logs(args.output)
     finally:
         for device in OWNED:
             try:

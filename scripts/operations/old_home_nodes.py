@@ -11,6 +11,7 @@ its upload cannot succeed: the home is left with unacknowledged spool entries, o
 each write, and pending markers in the store. That is the shape of a home that was connected and
 had writes the cloud never acknowledged.
 """
+import base64
 import hashlib
 import http.client
 import json
@@ -94,6 +95,21 @@ def write_alpha(node, records):
     return state
 
 
+def write_fat(node, count, size=55_000):
+    """Alpha records of about 55 KB of incompressible text: the files of the store get large, so a
+    snapshot takes long to upload. Returns the state of those records."""
+    state = {}
+    for start in range(0, count, 16):
+        items = []
+        for n in range(start, min(start + 16, count)):
+            key = f"fat{n:05d}"
+            record = {"id": key, "note": f"{NOTE_MARK}-{key}-" + base64.b64encode(os.urandom(size * 3 // 4)).decode()}
+            state[key] = record
+            items.append(v1.create_item(ALPHA, {"hash": key}, record))
+        v1.write_items(node, items)
+    return state
+
+
 def beta_item(key, group, text, file=None):
     return v1.create_item(BETA, {"hash": key}, recorded(key, text), alternates={"by_group": {"hash": group, "range": key}},
                           file=file)
@@ -128,7 +144,8 @@ def write_beta(node, source, records, file_bytes=150_000):
                            "sha256": hashlib.sha256(content).hexdigest()}
 
 
-def make_old_home(daemon, revision, out, cli, name, alpha, beta, unreachable_cloud=False, file_bytes=150_000):
+def make_old_home(daemon, revision, out, cli, name, alpha, beta, unreachable_cloud=False, file_bytes=150_000,
+                  fat_records=0):
     """Run the old daemon on a new home, write, stop cleanly. Returns the node and the expected state."""
     node = OldNode(Path(daemon), revision, out)
     phrase, identity = fresh_identity(cli, node.root / "identity-source")
@@ -145,6 +162,7 @@ def make_old_home(daemon, revision, out, cli, name, alpha, beta, unreachable_clo
     source = node.root / "source-files"
     source.mkdir(mode=0o700)
     state_alpha = write_alpha(node, alpha)
+    state_alpha.update(write_fat(node, fat_records))
     state_beta, groups, file = write_beta(node, source, beta, file_bytes)
     found = {key: held(record) for key, record in read_back(node, ALPHA).items()}
     require(found == state_alpha, f"{name}: the old build does not hold what it was given")

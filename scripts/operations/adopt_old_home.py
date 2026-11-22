@@ -24,7 +24,9 @@ removes each reason with the smallest plain-file change:
 else with the `api_url` of the saved credentials. The script says which of the two will apply
 and whether the saved file still parses.
 
-The script refuses to run when the daemon is running or when the home is not the old layout.
+The script refuses to run when the daemon is running, when the home is not the old layout, or when
+`data/local-file-refs.json` names a file larger than a snapshot can hold (a snapshot seals each
+referenced file as one value of at most 32 MiB, so the first snapshot of such a home would fail).
 Every step is safe to run again, and the registry is changed last, so a run that stops half way
 leaves a home that the current build still refuses, never half of one that starts.
 
@@ -48,6 +50,8 @@ MARKER = b"format=15\nhome=disk-run\ncas=disk-cas\n"
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
 UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 FIRST_BACKUP_INTENT = ".native-first-backup"
+# A snapshot seals each referenced file as one value, and a run holds values up to 32 MiB.
+LARGEST_REFERENCE = 32 * 1024 * 1024 - 4096
 CREDENTIAL_KEYS = {"api_url", "api_key", "connection"}
 CONNECTION_KEYS = {"account_id", "source_home", "environment", "endpoint"}
 
@@ -133,6 +137,25 @@ def require_layout(home):
         raise Refused(f"{marker} is missing or is not format 15: the current build cannot open this home")
     if not (home / "data" / "disk-run" / "CURRENT").is_file():
         raise Refused(f"{home}/data/disk-run/CURRENT is missing")
+
+
+def require_small_references(home):
+    """Files the home holds by path are sealed into every snapshot, one value each. A value larger
+    than a run holds cannot be sealed, and the first snapshot of the home would never be taken."""
+    path = home / "data" / "local-file-refs.json"
+    if not path.is_file():
+        return
+    try:
+        files = json.loads(path.read_text())["files"]
+        large = sorted((entry["size_bytes"], entry["path"]) for entry in files.values()
+                       if entry["size_bytes"] > LARGEST_REFERENCE)
+    except (ValueError, KeyError, TypeError) as error:
+        raise Refused(f"{path} does not have the expected shape ({error!r})") from error
+    if large:
+        shown = ", ".join(f"{name} ({size} bytes)" for size, name in large[:5])
+        raise Refused(f"{path} names {len(large)} file(s) larger than {LARGEST_REFERENCE} bytes, which no "
+                      f"snapshot can hold: {shown}. Import them into the store or drop the reference, then "
+                      "run this again. Nothing was changed.")
 
 
 def plan(home, derived):
@@ -241,6 +264,7 @@ def credentials_report(home):
 
 def adopt(home, lastdb, check, given_root):
     require_layout(home)
+    require_small_references(home)
     if daemon_running(home):
         raise Refused("a daemon is running on this home. Stop it, then run this again.")
     database_id, node_key = derived_identity(home, lastdb)
