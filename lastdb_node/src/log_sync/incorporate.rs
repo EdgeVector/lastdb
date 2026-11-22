@@ -12,7 +12,7 @@ use fold_db::record_replacement::RecordTarget;
 use fold_db::schema::types::{CasExpectation, Mutation, MutationType};
 use mutation_log::{
     author_data, data_record, decode_record_payload, decode_signature_b64url, entry_hash,
-    EntryHash, Hex32, IncorporatedFrom, SignedEntry, StreamKind,
+    EntryHash, Hex32, IncorporatedFrom, NodeKey, SignedEntry, StreamKind,
 };
 use serde_json::Value;
 use sha2::{Digest as _, Sha256};
@@ -107,6 +107,7 @@ async fn decide(
         database_id,
         (&body.namespace, &payload.record_key),
         &intent.expected,
+        &entry.header().node_key,
     )
     .await?
     else {
@@ -148,13 +149,16 @@ async fn decide(
 
 /// Check a proposal's expectation against this publisher's history, then give
 /// FoldDB the local expectation that matches it. A record's revision is node
-/// local, so the check is on the history entry that wrote the record.
+/// local, so the check is on the history entry that wrote the record. A member
+/// may change or delete only a record it created, so the history creator must
+/// be the proposer.
 async fn local_expected(
     store: &FoldDB,
     histories: &HistoryMap,
     database_id: &str,
     key: (&str, &str),
     expected: &Expect,
+    proposer: &NodeKey,
 ) -> Result<Option<CasExpectation>, String> {
     let (namespace, record_key) = key;
     let owned_key = (namespace.to_owned(), record_key.to_owned());
@@ -162,11 +166,13 @@ async fn local_expected(
         history
             .records()
             .get(&owned_key)
-            .map(|record| (record.entry, record.value.is_empty()))
+            .map(|record| (record.entry, record.value.is_empty(), record.creator))
     })?;
     match (expected, winner) {
-        (Expect::Absent, None | Some((_, true))) => Ok(Some(CasExpectation::Absent)),
-        (Expect::Entry(Some(want)), Some((have, false))) if *want == have => {
+        (Expect::Absent, None | Some((_, true, _))) => Ok(Some(CasExpectation::Absent)),
+        (Expect::Entry(Some(want)), Some((have, false, creator)))
+            if *want == have && creator == *proposer =>
+        {
             let revision =
                 signed_history_materialize::read_revision(store, namespace, record_key).await?;
             Ok(revision.map(|revision| CasExpectation::Revision { revision }))

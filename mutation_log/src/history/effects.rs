@@ -62,8 +62,20 @@ impl VerifiedHistory {
             return;
         };
         let key = (namespace.to_owned(), decoded.record_key);
-        match self.records.get(&key) {
-            Some(existing) if !position.beats(existing.position) => {}
+        let (creator, creator_position) = match self.records.get(&key) {
+            Some(held)
+                if !position.beats(held.creator_position) && position != held.creator_position =>
+            {
+                (author, position)
+            }
+            Some(held) => (held.creator, held.creator_position),
+            None => (author, position),
+        };
+        match self.records.get_mut(&key) {
+            Some(existing) if !position.beats(existing.position) => {
+                existing.creator = creator;
+                existing.creator_position = creator_position;
+            }
             _ => {
                 self.records.insert(
                     key,
@@ -71,6 +83,8 @@ impl VerifiedHistory {
                         position,
                         author,
                         entry,
+                        creator,
+                        creator_position,
                         value: decoded.value,
                     },
                 );
