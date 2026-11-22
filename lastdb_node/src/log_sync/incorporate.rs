@@ -311,12 +311,8 @@ fn decline(
     };
     chain_author::author_publisher(histories, &target, |mut ctx, history| {
         cite_proposal(&mut ctx, proposal).map_err(|_| ChainError::Unconfirmed)?;
-        author_heads(
-            &ctx,
-            &identity.signing_key,
-            history.publisher_heads().to_vec(),
-        )
-        .map_err(|_| ChainError::Unconfirmed)
+        author_heads(&ctx, &identity.signing_key, history.publisher_stream_tips())
+            .map_err(|_| ChainError::Unconfirmed)
     })
     .map(|_| ())
     .map_err(|e| e.reply().message.to_owned())
