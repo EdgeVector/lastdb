@@ -194,7 +194,12 @@ the records.
 [App SDK sharing guide](lastdb_app_sdk/README.md#set-up-sharing-with-people)
 
 Personal and shared databases sync through signed history (AcceptEntry) and a
-grant-gating relay. See [cloud API](docs/designs/cloud-api.md) and
+grant-gating relay. The personal database is sealed: the relay stores the
+streams of every device of the owner and cannot read them, and a new device
+or a restore needs only the recovery phrase
+(`lastdb backup restore --recovery-phrase-stdin`). See the
+[personal database design](docs/designs/personal-database-signed-log.md),
+[cloud API](docs/designs/cloud-api.md) and
 [relay protocol](docs/designs/relay-protocol.md).
 
 Never restart Tom's primary `lastdbd` / brain from agent work. Never use

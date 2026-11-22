@@ -74,6 +74,7 @@ All under `<home>/log-sync/<database id>/`.
 | `uploaded.json` | One number: how many log entries the relay has acknowledged. |
 | `received.json` | The accepted entries of every other stream, in Lamport order, so a restart rebuilds the history without the relay. |
 | `proposals.json` | A member's ledger of its proposals, by idempotency key. |
+| `blobs/<digest>` | The sealed blobs of the personal database's `bundle` entries, kept so a restart rebuilds the history without the relay. |
 
 A restart replays `authored.json` and `received.json` together in Lamport order.
 
@@ -81,4 +82,4 @@ A restart replays `authored.json` and `received.json` together in Lamport order.
 
 - Member direct writes and leases. A grant entry still carries a `cutoffs` field because the signed bytes include it; nothing reads it.
 - Files in shared databases. A proposal that carries a file is refused.
-- Payload encryption of `data` entries. They are plain record key and field JSON, base64 on the wire. Only bundle blobs are encrypted, and bundles are the publisher's alone.
+- Payload encryption of `data` entries in a shared database. They are plain record key and field JSON, base64 on the wire, until the read key delivery for members is designed. Only bundle blobs are encrypted, and bundles are the publisher's alone. The personal database seals every payload: see [personal-database-signed-log.md](personal-database-signed-log.md).

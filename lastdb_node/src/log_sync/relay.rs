@@ -44,6 +44,15 @@ impl RelayClient {
         })
     }
 
+    /// A client for the relay at `base` with this node's keys and device id.
+    pub(super) fn for_host(host: &crate::host::Host, base: &str) -> Result<Self, String> {
+        let signing_key = SigningKey::from_bytes(&host.keypair.secret_key_bytes());
+        let node_key_hex =
+            mutation_log::NodeKey::from_bytes(host.keypair.public_key_bytes()).to_hex();
+        let device_id = super::device::device_id(&host.home)?;
+        Self::new(base, signing_key, node_key_hex, &device_id)
+    }
+
     pub(super) async fn append(
         &self,
         database_id: &str,
@@ -92,6 +101,76 @@ impl RelayClient {
             .map_err(|_| "relay log.read returned invalid entries".to_owned())?;
         let cursor = value["cursor"].as_str().map(str::to_owned);
         Ok((entries, cursor))
+    }
+
+    /// Put a blob on the relay: `blob.put` begin, the presigned upload, commit.
+    /// The relay refuses a blob for a database whose birth it does not hold.
+    pub(super) async fn blob_put(
+        &self,
+        database_id: &str,
+        sha256: &str,
+        blob: &[u8],
+    ) -> Result<(), String> {
+        let stage = |stage: &str| {
+            json!({
+                "database_id": database_id,
+                "sha256": sha256,
+                "bytes": blob.len(),
+                "stage": stage,
+            })
+        };
+        let begin = self
+            .post("/relay/v1/blob/put", database_id, &stage("begin"))
+            .await?;
+        let url = begin["upload"]["url"]
+            .as_str()
+            .ok_or("blob.put begin has no upload.url")?;
+        let mut upload = self.http.put(url).body(blob.to_vec());
+        for (name, value) in header_pairs(&begin["upload"]["headers"]) {
+            upload = upload.header(name, value);
+        }
+        let status = upload
+            .send()
+            .await
+            .map_err(|e| format!("blob upload: {e}"))?
+            .status();
+        if !status.is_success() {
+            return Err(format!("blob upload HTTP {status}"));
+        }
+        self.post("/relay/v1/blob/put", database_id, &stage("commit"))
+            .await?;
+        Ok(())
+    }
+
+    /// Fetch a blob: `blob.get`, then the presigned download.
+    pub(super) async fn blob_get(
+        &self,
+        database_id: &str,
+        sha256: &str,
+        expect_size: u64,
+    ) -> Result<Vec<u8>, String> {
+        let body = json!({ "database_id": database_id, "sha256": sha256 });
+        let meta = self.post("/relay/v1/blob/get", database_id, &body).await?;
+        let url = meta["url"].as_str().ok_or("blob.get has no url")?;
+        if meta["bytes"].as_u64().is_some_and(|n| n != expect_size) {
+            return Err(format!("blob.get size differs from its entry for {sha256}"));
+        }
+        let mut download = self.http.get(url);
+        for (name, value) in header_pairs(&meta["headers"]) {
+            download = download.header(name, value);
+        }
+        let response = download
+            .send()
+            .await
+            .map_err(|e| format!("blob download: {e}"))?;
+        if !response.status().is_success() {
+            return Err(format!("blob download HTTP {}", response.status()));
+        }
+        let bytes = response
+            .bytes()
+            .await
+            .map_err(|e| format!("blob download body: {e}"))?;
+        Ok(bytes.to_vec())
     }
 
     async fn post(&self, path: &str, database_id: &str, body: &Value) -> Result<Value, String> {
@@ -153,6 +232,16 @@ fn sign_headers(
         ("X-LastDB-Signature", signature),
         ("content-type", "application/json".into()),
     ])
+}
+
+/// The name and value of each string in a JSON object of headers.
+fn header_pairs(value: &Value) -> Vec<(String, String)> {
+    let Some(map) = value.as_object() else {
+        return Vec::new();
+    };
+    map.iter()
+        .filter_map(|(name, val)| val.as_str().map(|v| (name.clone(), v.to_owned())))
+        .collect()
 }
 
 fn rand_32() -> [u8; 32] {

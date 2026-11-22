@@ -56,6 +56,7 @@ mod ids;
 mod kinds;
 mod payload;
 mod record_key;
+mod sealed;
 mod wire;
 
 pub use accept::{
@@ -92,6 +93,10 @@ pub use payload::{
     RecordPosition,
 };
 pub use record_key::{join_record_key, split_record_key, RANGE_SEPARATOR};
+pub use sealed::{
+    decode_bundle_changes, decode_named, encode_bundle_changes, encode_named, SealOpener,
+    SEALED_NAMESPACE,
+};
 pub use wire::{
     decode_signature_b64url, encode_signature_b64url, entry_hash, verify_entry_signature,
     EncodeError, VerifyError,

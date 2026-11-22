@@ -138,9 +138,9 @@ async fn write(req: &UdsRequest, host: &Host) -> Result<Value, HostError> {
         Ok(json!({ "written": revisions.len(), "revisions": revisions }))
     })
     .await?;
-    // Owned shareables: mirror onto the publisher stream. A write to a
-    // received database was refused above.
-    super::write_signed::mirror_committed(host, database.as_deref(), &signed).await?;
+    // Owned databases and the personal database: mirror onto the signed log. A
+    // write to a received database was refused above.
+    super::write_signed::mirror_committed(host, database.as_deref(), signed).await?;
     Ok(body)
 }
 

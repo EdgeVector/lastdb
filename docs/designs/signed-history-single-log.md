@@ -125,3 +125,7 @@ A publisher role reduction or revoke carries a `cutoffs` field for each device s
 - The cursor is its own file, `uploaded.json`: a count of acknowledged log entries.
 - `mutation_log::Outbox` and the `outbox.json` file are removed.
 - The node-wide `cloud_sync.last_error` stays until People and the `lastdb` CLI stop reading it. Per-database errors are in `cloud_sync.databases[id].upload`.
+
+## Personal database
+
+The personal database uses the same log, cursor, `received.json` and commit function, with no grants. Its payloads are sealed, its birth sits on a stream of its own, and every device of the owner signs its own stream under the one node key. See [personal-database-signed-log.md](personal-database-signed-log.md).
