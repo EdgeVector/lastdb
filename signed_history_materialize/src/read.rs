@@ -4,12 +4,13 @@ use std::collections::HashMap;
 
 use fold_db::fold_db_core::FoldDB;
 use fold_db::schema::types::field::HashRangeFilter;
-use fold_db::schema::types::Query;
+use fold_db::schema::types::{KeyValue, Query};
 use serde_json::Value;
 
 use crate::apply::Stored;
+use crate::key::key_value;
 
-/// Field map of the record at hash key `record_key`, or `None` when absent.
+/// Field map of the record at `record_key`, or `None` when absent.
 pub async fn read_field_map(
     store: &FoldDB,
     namespace: &str,
@@ -20,7 +21,7 @@ pub async fn read_field_map(
         .map(|stored| stored.fields))
 }
 
-/// Live revision at hash key `record_key`, or `None` when absent.
+/// Live revision at `record_key`, or `None` when absent.
 pub async fn read_revision(
     store: &FoldDB,
     namespace: &str,
@@ -36,23 +37,40 @@ pub(crate) async fn read_stored(
     namespace: &str,
     record_key: &str,
 ) -> Result<Option<Stored>, String> {
-    let query = Query::new_with_filter(
-        namespace.to_owned(),
-        Some(HashRangeFilter::HashKey(record_key.to_owned())),
-    );
+    let key = key_value(store, namespace, record_key)?;
+    read_at(store, namespace, &key).await
+}
+
+pub(crate) async fn read_at(
+    store: &FoldDB,
+    namespace: &str,
+    key: &KeyValue,
+) -> Result<Option<Stored>, String> {
+    let hash = key.hash.clone().unwrap_or_default();
+    let filter = match &key.range {
+        Some(range) => HashRangeFilter::HashRangeKey {
+            hash,
+            range: range.clone(),
+        },
+        None => HashRangeFilter::HashKey(hash),
+    };
+    let query = Query::new_with_filter(namespace.to_owned(), Some(filter));
     let records = store
         .query_executor()
         .query(query)
         .await
-        .map_err(|e| format!("read {namespace}/{record_key}: {e}"))?;
+        .map_err(|e| format!("read {namespace}/{}: {e}", key.to_storage_key()))?;
     let mut rows = records.into_values();
     let found = rows.next().map(|record| Stored {
         revision: record.revision,
+        created_by: record.created_by,
+        updated_by: record.updated_by,
         fields: record.fields,
     });
     if rows.next().is_some() {
         return Err(format!(
-            "{namespace}/{record_key} names more than one record"
+            "{namespace}/{} names more than one record",
+            key.to_storage_key()
         ));
     }
     Ok(found)

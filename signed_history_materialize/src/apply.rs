@@ -4,20 +4,25 @@ use std::collections::{BTreeMap, HashMap};
 
 use fold_db::fold_db_core::FoldDB;
 use fold_db::record_replacement::RecordTarget;
-use fold_db::schema::types::{CasExpectation, KeyValue, Mutation, MutationType};
+use fold_db::schema::types::{CasExpectation, Mutation, MutationType};
 use mutation_log::{MaterializedRecord, VerifiedHistory};
 use serde_json::Value;
 
-use crate::read::read_stored;
+use crate::key::key_value;
+use crate::read::read_at;
 
 pub(crate) struct Stored {
     pub(crate) revision: String,
+    pub(crate) created_by: Option<String>,
+    pub(crate) updated_by: Option<String>,
     pub(crate) fields: HashMap<String, Value>,
 }
 
 /// Make FoldDB hold exactly the winners of `history`.
 ///
-/// A winner already stored with equal fields is left alone. An empty value
+/// A winner already stored with equal fields and the same authors is left
+/// alone. Authors are the winner's writer (`updated_by`) and the writer of the
+/// earliest write to the key (`created_by`), so every node stamps alike. An empty value
 /// deletes the record. A live winner whose namespace has no declared schema
 /// fails closed. A tombstone for an undeclared namespace is skipped so a
 /// tombstone-only namespace does not block restore.
@@ -42,20 +47,30 @@ async fn apply_winner(
             "schema {namespace} has no declaration in signed history"
         ));
     }
-    let current = read_stored(store, namespace, record_key).await?;
+    let key = key_value(store, namespace, record_key)?;
+    let current = read_at(store, namespace, &key).await?;
     let fields = decode_fields(&winner.value)?;
+    let author = winner.author.to_hex();
+    let creator = winner.creator.to_hex();
     let (kind, expected) = match (&current, &fields) {
         (None, None) => return Ok(()),
         (None, Some(_)) => (MutationType::Create, CasExpectation::Absent),
-        (Some(old), Some(new)) if old.fields == *new => return Ok(()),
+        (Some(old), Some(new))
+            if old.fields == *new
+                && old.created_by.as_deref() == Some(creator.as_str())
+                && old.updated_by.as_deref() == Some(author.as_str()) =>
+        {
+            return Ok(());
+        }
         (Some(old), Some(_)) => (MutationType::Replace, revision_of(old)),
         (Some(old), None) => (MutationType::Delete, revision_of(old)),
     };
     let target = RecordTarget {
         schema: namespace.to_owned(),
-        key: KeyValue::new(Some(record_key.to_owned()), None),
+        key,
         alternates: BTreeMap::new(),
     };
+    let carries_authors = !matches!(kind, MutationType::Delete);
     let mut mutation = Mutation::with_uuid(
         uuid::Uuid::new_v4().to_string(),
         target,
@@ -63,8 +78,10 @@ async fn apply_winner(
         kind,
         expected,
     );
-    // Content author: signed writer, or the proposal member on incorporation.
-    mutation.writer = Some(winner.author.to_hex());
+    mutation.writer = Some(author.clone());
+    if carries_authors {
+        mutation.copied_authorship = Some((Some(creator), Some(author)));
+    }
     store
         .mutation_manager()
         .write_mutations_receipt(vec![mutation])

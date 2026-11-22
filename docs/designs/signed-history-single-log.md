@@ -95,6 +95,12 @@ Remove `bootstrap.rs`, `apply.rs`, the `outbox.json` file, `upload_ack.json` (PR
 
 The relay is Exemem. A node syncs with `LASTDB_RELAY_URL` when that is set (a reference relay or a deploy under test), and otherwise with the Exemem API in its saved cloud credentials. No relay URL is stored on disk. A node with neither has no relay and the sync loop idles.
 
+## Record keys and authors
+
+A history record key is one string. A hash schema uses the hash key. A hash-range schema joins hash and range with the unit separator (U+001F), and the schema decides which reading applies. A hash that holds the separator is refused for a ranged schema.
+
+Each history record keeps the writer of its earliest accepted write by position (`creator`) beside the writer of the winning write (`author`). Materialize stamps FoldDB `created_by` from `creator` and `updated_by` from `author`, and rewrites a record whose fields match but whose authors differ. Every node therefore stamps alike, whatever order entries arrived in.
+
 ## Decisions
 
 - One LastDB PR for the log, cursor and commit function.

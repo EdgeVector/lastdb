@@ -59,14 +59,30 @@ impl VerifiedHistory {
             return;
         };
         let key = (namespace.to_owned(), decoded.record_key);
-        match self.records.get(&key) {
-            Some(existing) if !position.beats(existing.position) => {}
+        // The creator is the author of the earliest write by position, so it
+        // does not depend on the order entries were accepted in.
+        let (creator, creator_position) = match self.records.get(&key) {
+            Some(held)
+                if !position.beats(held.creator_position) && position != held.creator_position =>
+            {
+                (author, position)
+            }
+            Some(held) => (held.creator, held.creator_position),
+            None => (author, position),
+        };
+        match self.records.get_mut(&key) {
+            Some(existing) if !position.beats(existing.position) => {
+                existing.creator = creator;
+                existing.creator_position = creator_position;
+            }
             _ => {
                 self.records.insert(
                     key,
                     MaterializedRecord {
                         position,
                         author,
+                        creator,
+                        creator_position,
                         value: decoded.value,
                     },
                 );
