@@ -18,7 +18,12 @@ impl VerifiedHistory {
                 let merge = body.stream == crate::kinds::StreamKind::Direct
                     || (is_publisher && body.incorporated_from.is_some());
                 if merge {
-                    self.merge_data(&body.namespace, &body.payload, position);
+                    let author = body
+                        .incorporated_from
+                        .as_ref()
+                        .filter(|_| is_publisher)
+                        .map_or(position.node_key, |from| from.node_key);
+                    self.merge_data(&body.namespace, &body.payload, position, author);
                 }
             }
             SignedEntry::Schema { body, .. } => {
@@ -43,7 +48,13 @@ impl VerifiedHistory {
         }
     }
 
-    pub(crate) fn merge_data(&mut self, namespace: &str, payload: &[u8], position: RecordPosition) {
+    pub(crate) fn merge_data(
+        &mut self,
+        namespace: &str,
+        payload: &[u8],
+        position: RecordPosition,
+        author: crate::ids::NodeKey,
+    ) {
         let Ok(decoded) = decode_record_payload(payload) else {
             return;
         };
@@ -55,6 +66,7 @@ impl VerifiedHistory {
                     key,
                     MaterializedRecord {
                         position,
+                        author,
                         value: decoded.value,
                     },
                 );

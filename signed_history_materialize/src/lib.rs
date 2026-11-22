@@ -16,6 +16,6 @@ pub use apply::apply_history;
 pub use codec::{decode_string_field, encode_string_field, STRING_FIELD};
 pub use declare::declare_history_schemas;
 pub use fold_db::fold_db_core::FoldDB;
-pub use read::read_field_map;
+pub use read::{read_field_map, read_revision};
 pub use schema::{ensure_hash_schema, hash_string_schema_bytes, hash_string_schema_json};
 pub use store::{open_proof_store, open_store};

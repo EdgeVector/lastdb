@@ -106,6 +106,9 @@ impl RecordPosition {
 pub struct MaterializedRecord {
     /// Winning position.
     pub position: RecordPosition,
+    /// Content author for FoldDB stamps: the signed writer, or the proposal
+    /// member when a publisher incorporation cites `incorporated_from`.
+    pub author: NodeKey,
     /// Current value; empty = tombstone present.
     pub value: Vec<u8>,
 }

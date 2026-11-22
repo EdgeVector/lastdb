@@ -82,4 +82,29 @@ impl VerifiedHistory {
                 )
         })
     }
+
+    /// Accepted proposal data entries that are not yet incorporated.
+    #[must_use]
+    pub fn unresolved_proposals(&self) -> Vec<&SignedEntry> {
+        self.accepted
+            .values()
+            .filter_map(|meta| {
+                let SignedEntry::Data { body, .. } = &meta.entry else {
+                    return None;
+                };
+                if body.stream != crate::kinds::StreamKind::Proposal {
+                    return None;
+                }
+                let header = meta.entry.header();
+                let stream = StreamId {
+                    node_key: header.node_key,
+                    device_id: header.device_id,
+                };
+                if self.proposal_incorporated(&stream, header.writer_seq) {
+                    return None;
+                }
+                Some(&meta.entry)
+            })
+            .collect()
+    }
 }

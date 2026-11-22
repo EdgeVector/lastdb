@@ -87,7 +87,8 @@ struct Proposed {
 }
 
 /// Map the owner submission document onto the history record convention:
-/// namespace is the schema name, key is the hash key, value is the field object.
+/// namespace is the schema name, key is the hash key, value is the publisher
+/// decision envelope (`mutation_type`, `expected`, optional `record`).
 fn parse(body: &[u8]) -> Result<Proposed, ContributionError> {
     let Ok(Value::Object(doc)) = serde_json::from_slice::<Value>(body) else {
         return Err(ContributionError::Invalid);
@@ -98,25 +99,31 @@ fn parse(body: &[u8]) -> Result<Proposed, ContributionError> {
     let record_key = text(key.and_then(|key| key.get("hash"))).ok_or(ContributionError::Invalid)?;
     let ranged = key.is_some_and(|key| key.get("range").is_some_and(|range| !range.is_null()));
     let carries_file = doc.get("file").is_some_and(|file| !file.is_null());
+    let mutation_type = text(doc.get("mutation_type")).ok_or(ContributionError::Invalid)?;
     if namespace.is_empty()
         || namespace.len() > NAMESPACE_MAX
         || record_key.is_empty()
         || record_key.len() > usize::from(u16::MAX)
         || ranged
         || carries_file
+        || !matches!(mutation_type.as_str(), "create" | "replace" | "delete")
     {
         return Err(ContributionError::Invalid);
     }
-    let value = if doc.get("mutation_type").and_then(Value::as_str) == Some("delete") {
-        Vec::new()
-    } else {
+    let expected = doc.get("expected").ok_or(ContributionError::Invalid)?;
+    let mut envelope = serde_json::Map::new();
+    envelope.insert("mutation_type".into(), Value::String(mutation_type.clone()));
+    envelope.insert("expected".into(), expected.clone());
+    if mutation_type != "delete" {
         match doc.get("record") {
             Some(record @ Value::Object(_)) => {
-                serde_json::to_vec(record).map_err(|_| ContributionError::Invalid)?
+                envelope.insert("record".into(), record.clone());
             }
             _ => return Err(ContributionError::Invalid),
         }
-    };
+    }
+    let value =
+        serde_json::to_vec(&Value::Object(envelope)).map_err(|_| ContributionError::Invalid)?;
     if value.len() > BODY_MAX {
         return Err(ContributionError::Invalid);
     }
@@ -208,9 +215,10 @@ fn hex_digest(bytes: &[u8]) -> String {
     app_identity_crypto::hex_lower(&Sha256::digest(bytes))
 }
 
-/// `submitted`, `published`, or `unknown`, from the history this node holds.
+/// `submitted`, `published`, or `unknown`, from local history.
 ///
-/// A proposal is `published` once an accepted publisher entry incorporates it.
+/// Published = publisher Direct cites `incorporated_from`. Rejections are
+/// silent (Decision 11): there is no discard status derived from the chain.
 pub(crate) fn status(
     host: &Host,
     share: &RegisteredShare,

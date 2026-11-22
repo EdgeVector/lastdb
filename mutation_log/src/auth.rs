@@ -79,6 +79,11 @@ fn authorize_direct<'s>(
     grants: &GrantState,
     lookup: &dyn Fn(&EntryHash) -> Option<&'s AcceptedMeta>,
 ) -> Option<RejectReason> {
+    if body.incorporated_from.is_some() {
+        return Some(RejectReason::Malformed(
+            "non-publisher direct must not carry incorporated_from",
+        ));
+    }
     let Some(grant_device) = body.grant_at_device else {
         return Some(RejectReason::Unauthorized(
             "member direct requires grant_at",

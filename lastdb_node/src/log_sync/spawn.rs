@@ -125,6 +125,13 @@ async fn one_turn(host: &Host, histories: &HistoryMap, base: &str) -> Result<(),
             turn_error = Some(err);
         }
     }
+    // Incorporations and discard acks authored during pull must upload this
+    // turn so members can settle submission_status without waiting another loop.
+    for database in &owned {
+        if let Some(err) = upload_outbox(&client, histories, &host.home, &database.id).await {
+            turn_error = Some(err);
+        }
+    }
     // Member proposals and direct writes land on the received outbox; upload
     // them before pulling so publish.lastAttempt reflects a real attempt.
     if let Some(err) = upload_received_outboxes(host, histories, &client).await {
@@ -191,7 +198,8 @@ async fn pull_owned(
         &publisher_hex,
         [local_device],
     )
-    .await
+    .await?;
+    super::incorporate::resolve_owned(host, histories, &store, database_id).await
 }
 
 /// Pull publisher and write/submit member streams for signed-log received DBs.

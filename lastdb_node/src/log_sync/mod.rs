@@ -15,6 +15,7 @@ pub(crate) mod chain_read;
 mod config;
 mod device;
 mod history_store;
+mod incorporate;
 mod materialize;
 mod member_write;
 mod mirror;

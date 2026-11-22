@@ -20,6 +20,17 @@ pub async fn read_field_map(
         .map(|stored| stored.fields))
 }
 
+/// Live revision at hash key `record_key`, or `None` when absent.
+pub async fn read_revision(
+    store: &FoldDB,
+    namespace: &str,
+    record_key: &str,
+) -> Result<Option<String>, String> {
+    Ok(read_stored(store, namespace, record_key)
+        .await?
+        .map(|stored| stored.revision))
+}
+
 pub(crate) async fn read_stored(
     store: &FoldDB,
     namespace: &str,
