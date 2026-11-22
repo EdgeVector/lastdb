@@ -41,6 +41,17 @@ pub(crate) async fn stage_records(
     if !capture_enabled(runtime) {
         return Ok(());
     }
+    // One commit is one pending record in the spool, and a record that names more
+    // notes than the control file bound fails the commit queue, which stops the
+    // daemon. A commit that large is refused here with an error the caller can read.
+    if mutations.len() > super::NOTES_MAX {
+        return Err(StorageError::MutationLimit {
+            detail: format!(
+                "a write that is captured for upload holds at most {} mutations",
+                super::NOTES_MAX
+            ),
+        });
+    }
     let mut seen = BTreeSet::new();
     let mut notes = Vec::with_capacity(mutations.len());
     for mutation in mutations {

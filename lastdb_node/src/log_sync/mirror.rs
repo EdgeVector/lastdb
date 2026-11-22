@@ -39,7 +39,6 @@ pub struct OwnedMutation {
 
 pub(super) struct MirrorCtx<'a> {
     pub(super) home: &'a Path,
-    pub(super) database_id: &'a str,
     pub(super) database: DatabaseId,
     pub(super) identity: &'a AuthorIdentity,
     pub(super) store: &'a FoldDB,
@@ -68,7 +67,6 @@ pub fn mirror_owned_write(
     let database = DatabaseId::from_hex(database_id).map_err(|_| "database_id is not hex32")?;
     let ctx = MirrorCtx {
         home: &host.home,
-        database_id,
         database,
         identity: &identity,
         store: &store,
@@ -125,7 +123,6 @@ pub(super) fn publish_declared_schemas(host: &Host, database_id: &str) -> Result
     let database = DatabaseId::from_hex(database_id).map_err(|_| "database_id is not hex32")?;
     let ctx = MirrorCtx {
         home: &host.home,
-        database_id,
         database,
         identity: &identity,
         store: &store,
