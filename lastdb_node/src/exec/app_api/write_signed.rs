@@ -22,7 +22,8 @@ pub(super) fn plan<'a>(items: impl IntoIterator<Item = SignedParts<'a>>) -> Vec<
     items
         .into_iter()
         .filter_map(|(schema, key, op, record)| {
-            let record_key = key.hash.as_ref()?.clone();
+            let record_key =
+                mutation_log::join_record_key(key.hash.as_deref()?, key.range.as_deref())?;
             let fields = record.map(|map| {
                 Value::Object(map.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
             });

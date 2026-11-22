@@ -48,6 +48,7 @@ mod history_util;
 mod ids;
 mod kinds;
 mod payload;
+mod record_key;
 mod wire;
 
 pub use accept::{
@@ -83,6 +84,7 @@ pub use payload::{
     decode_record_payload, encode_record_payload, MaterializedRecord, PayloadError, RecordPayload,
     RecordPosition,
 };
+pub use record_key::{join_record_key, split_record_key, RANGE_SEPARATOR};
 pub use wire::{
     decode_signature_b64url, encode_signature_b64url, entry_hash, verify_entry_signature,
     EncodeError, VerifyError,

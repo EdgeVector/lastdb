@@ -9,7 +9,7 @@ use std::collections::{BTreeMap, HashMap};
 
 use fold_db::fold_db_core::FoldDB;
 use fold_db::record_replacement::RecordTarget;
-use fold_db::schema::types::{CasExpectation, KeyValue, Mutation, MutationType};
+use fold_db::schema::types::{CasExpectation, Mutation, MutationType};
 use mutation_log::{
     author_data, data_record, decode_record_payload, decode_signature_b64url, entry_hash, Hex32,
     IncorporatedFrom, SignedEntry, StreamKind,
@@ -88,9 +88,14 @@ async fn decide(store: &FoldDB, entry: &SignedEntry) -> Result<Decision, String>
         return Ok(Decision::Skip);
     };
     let author = entry.header().node_key.to_hex();
+    let Ok(key) =
+        signed_history_materialize::key_value(store, &body.namespace, &payload.record_key)
+    else {
+        return Ok(Decision::Skip);
+    };
     let target = RecordTarget {
         schema: body.namespace.clone(),
-        key: KeyValue::new(Some(payload.record_key.clone()), None),
+        key,
         alternates: BTreeMap::default(),
     };
     let mut mutation = Mutation::with_uuid(

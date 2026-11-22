@@ -87,7 +87,8 @@ struct Proposed {
 }
 
 /// Map the owner submission document onto the history record convention:
-/// namespace is the schema name, key is the hash key, value is the publisher
+/// namespace is the schema name, key is the hash key (joined with the range
+/// key for a hash-range schema), value is the publisher
 /// decision envelope (`mutation_type`, `expected`, optional `record`).
 fn parse(body: &[u8]) -> Result<Proposed, ContributionError> {
     let Ok(Value::Object(doc)) = serde_json::from_slice::<Value>(body) else {
@@ -96,15 +97,19 @@ fn parse(body: &[u8]) -> Result<Proposed, ContributionError> {
     let text = |value: Option<&Value>| value.and_then(Value::as_str).map(str::to_owned);
     let namespace = text(doc.get("schema")).ok_or(ContributionError::Invalid)?;
     let key = doc.get("key_value").and_then(Value::as_object);
-    let record_key = text(key.and_then(|key| key.get("hash"))).ok_or(ContributionError::Invalid)?;
-    let ranged = key.is_some_and(|key| key.get("range").is_some_and(|range| !range.is_null()));
+    let hash = text(key.and_then(|key| key.get("hash"))).ok_or(ContributionError::Invalid)?;
+    let range = match key.and_then(|key| key.get("range")) {
+        None | Some(Value::Null) => None,
+        Some(range) => Some(text(Some(range)).ok_or(ContributionError::Invalid)?),
+    };
+    let record_key =
+        mutation_log::join_record_key(&hash, range.as_deref()).ok_or(ContributionError::Invalid)?;
     let carries_file = doc.get("file").is_some_and(|file| !file.is_null());
     let mutation_type = text(doc.get("mutation_type")).ok_or(ContributionError::Invalid)?;
     if namespace.is_empty()
         || namespace.len() > NAMESPACE_MAX
         || record_key.is_empty()
         || record_key.len() > usize::from(u16::MAX)
-        || ranged
         || carries_file
         || !matches!(mutation_type.as_str(), "create" | "replace" | "delete")
     {
