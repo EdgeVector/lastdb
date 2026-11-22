@@ -67,6 +67,10 @@ The direction: validate the write, accept the entry into the history, then mater
 
 `cloud_sync.databases[id]` reports log length, acknowledged count, last error, and the number of voided entries. People prints per-item read errors. The node-wide `last_error` goes once People and the CLI stop reading it.
 
+### 6. A publisher's history carries every declared schema
+
+A receiver's store holds only the schemas the signed history declares. Schema entries used to be signed only when a record of that schema was first written, so a schema declared by a setup and not written yet never reached a receiver, and a read of it there named an unknown schema. Each sync turn now signs a schema entry for every schema the publisher's store declares that the history lacks, or holds with an older definition. A write still signs its own schema first, so a schema entry always precedes the data that needs it.
+
 ## Build order
 
 1. Relay admits by grant, not by entry kind (Exemem Lambda in `exemem-infra`, and the reference relay). This clears the stall.

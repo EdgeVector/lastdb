@@ -71,7 +71,7 @@ pub fn mirror_owned_write(
     histories.with_mut(database_id, |history| {
         ensure_birth(history, &ctx)?;
         for item in mutations {
-            ensure_schema(history, &ctx, item)?;
+            ensure_schema(history, &ctx, &item.schema)?;
             author_one(history, &ctx, item)?;
         }
         Ok::<(), String>(())
@@ -91,18 +91,63 @@ fn ensure_birth(history: &mut VerifiedHistory, ctx: &MirrorCtx<'_>) -> Result<()
     accept_outbox(history, ctx, &entry)
 }
 
+/// Publish every schema this publisher's store declares and its history does
+/// not carry yet, or carries with an older definition.
+///
+/// A receiver's store holds only the schemas the signed history declares. A
+/// schema with no record yet would otherwise never reach a receiver, and a
+/// read of it there would name an unknown schema. A write still publishes its
+/// own schema first (see [`mirror_owned_write`]), so a schema entry always
+/// precedes the data that needs it.
+///
+/// No-op without birth material, and until the birth is in the history: the
+/// first write or grant authors the birth.
+pub(super) fn publish_declared_schemas(host: &Host, database_id: &str) -> Result<(), String> {
+    if birth::load(&host.home, database_id)?.is_none() {
+        return Ok(());
+    }
+    let Some(store) = materialize::store_for(host, database_id) else {
+        return Ok(());
+    };
+    let mut names: Vec<String> = store
+        .schema_manager()
+        .get_schemas()
+        .map_err(|e| e.to_string())?
+        .into_keys()
+        .collect();
+    names.sort();
+    let identity = chain_author::identity_of(host).map_err(|e| e.reply().message.to_owned())?;
+    let database = DatabaseId::from_hex(database_id).map_err(|_| "database_id is not hex32")?;
+    let ctx = MirrorCtx {
+        home: &host.home,
+        database_id,
+        database,
+        identity: &identity,
+        store: &store,
+    };
+    super::histories_for(&host.home).with_mut(database_id, |history| {
+        if history.owner().is_none() {
+            return Ok(());
+        }
+        for name in &names {
+            ensure_schema(history, &ctx, name)?;
+        }
+        Ok::<(), String>(())
+    })?
+}
+
 fn ensure_schema(
     history: &mut VerifiedHistory,
     ctx: &MirrorCtx<'_>,
-    item: &OwnedMutation,
+    name: &str,
 ) -> Result<(), String> {
     let schema = ctx
         .store
         .schema_manager()
-        .get_schema_metadata(&item.schema)
+        .get_schema_metadata(name)
         .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("schema {} is not declared on this store", item.schema))?;
-    if let Some(prior) = history.schemas().get(&item.schema) {
+        .ok_or_else(|| format!("schema {name} is not declared on this store"))?;
+    if let Some(prior) = history.schemas().get(name) {
         if schema_definition_matches(prior, &schema) {
             return Ok(());
         }
@@ -111,7 +156,7 @@ fn ensure_schema(
         serde_json::to_vec(&schema).map_err(|_| "cannot encode schema definition".to_owned())?;
     let author = author_ctx(history, ctx, fold_db::clock::unix_millis());
     let body = SchemaBody {
-        namespace: item.schema.clone(),
+        namespace: name.to_owned(),
         definition,
     };
     let entry =

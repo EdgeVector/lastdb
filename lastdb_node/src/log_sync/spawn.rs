@@ -94,6 +94,19 @@ async fn one_turn(host: &Host, histories: &HistoryMap, base: &str) -> Result<(),
         .into_iter()
         .filter(|database| syncable_owned(database.kind, &database.id))
         .collect();
+    // A publisher's history carries every schema its store declares, so a
+    // receiver can read a schema that has no record yet.
+    for database in owned.iter().filter(|database| database.kind == "shareable") {
+        if let Err(err) = super::mirror::publish_declared_schemas(host, &database.id) {
+            tracing::warn!(
+                target: "lastdbd::log_sync",
+                id = %database.id,
+                %err,
+                "declared schemas could not be published"
+            );
+            turn_error = Some(err);
+        }
+    }
     for database in &owned {
         // Drain every pending batch this turn. A single 32-entry prefix left
         // grants behind continuous mirrored data and readers hit empty indexes.
