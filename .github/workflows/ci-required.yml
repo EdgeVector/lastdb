@@ -268,7 +268,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GH_PAT }}
           # One-shot proof for #1824 head. Next commit restores the dynamic
           # expression (workflow_dispatch input || PR head || push SHA).
-          LASTDB_SHA: "1b96dda5ca8e4ebe2feb228406d7e6f367a0d673"
+          LASTDB_SHA: "1a3b95c2b8a05e3cd43786c1b9cf71c994667f55"
         run: python3 scripts/ci/people_dev_sharing_gate.py --sha "$LASTDB_SHA"
 
   ci-required:
