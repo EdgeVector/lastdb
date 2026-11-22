@@ -5,7 +5,6 @@
 //! tombstone delete). Schema definitions come from signed `schema` entries.
 //! The record writes live in `signed_history_materialize`.
 
-use std::path::Path;
 use std::sync::Arc;
 
 use fold_db::fold_db_core::FoldDB;
@@ -14,10 +13,8 @@ use mutation_log::VerifiedHistory;
 use crate::host::owned::ResolvedStore;
 use crate::host::Host;
 
-/// What a sync step needs about one database: where its local files live,
-/// its id, and the FoldDB its winners land in.
+/// What a sync step needs about one database: its id, and the FoldDB its winners land in.
 pub(super) struct DatabaseCtx<'a> {
-    pub(super) home: &'a Path,
     pub(super) database_id: &'a str,
     pub(super) store: &'a FoldDB,
 }

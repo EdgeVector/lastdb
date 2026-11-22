@@ -13,7 +13,7 @@ use mutation_log::{
 };
 use serde::{Deserialize, Serialize};
 
-use super::apply::AuthorIdentity;
+use super::chain_author::AuthorIdentity;
 use crate::profile::private_fs as disk;
 
 const LIMIT: usize = 4096;

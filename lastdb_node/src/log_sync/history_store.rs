@@ -1,18 +1,21 @@
-//! Per-database VerifiedHistory held in memory; outbox persisted to disk.
+//! Per-database VerifiedHistory held in memory, rebuilt from one durable log.
 //!
-//! Full history rebuild comes from the relay on restore. Phase 1 does not
-//! serialize VerifiedHistory (crate has no serde on that type).
+//! `authored.json` is the log of every entry this node signed, in author
+//! order. `uploaded.json` holds one number: how many log entries the relay has
+//! acknowledged. Pending uploads are the log entries past that cursor, so no
+//! second list exists that could drift from the log.
 
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
-use mutation_log::{entry_hash, AcceptOutcome, DatabaseId, Outbox, SignedEntry, VerifiedHistory};
+use mutation_log::{AcceptOutcome, DatabaseId, SignedEntry, VerifiedHistory};
 
 use crate::profile::private_fs as disk;
 
-const OUTBOX_LIMIT: usize = 16 * 1024 * 1024;
+const LOG_LIMIT: usize = 16 * 1024 * 1024;
+const CURSOR_LIMIT: usize = 32;
 
 /// The histories of one node home, shared by the sync loop and every request
 /// handler. Host sits below log_sync in the layer order and cannot hold the
@@ -33,7 +36,9 @@ pub(crate) fn histories_for(home: &Path) -> Arc<HistoryMap> {
 /// Process-wide histories, shared by the sync loop and every request handler.
 ///
 /// A history that is not in memory is rebuilt from `authored.json`, the log of
-/// entries this node signed. Entries from other writers return by relay pull.
+/// entries this node signed. A log that cannot be read is an error to the
+/// caller; no empty history is created in its place. Entries from other
+/// writers return by relay pull.
 pub(crate) struct HistoryMap {
     home: PathBuf,
     inner: Mutex<HashMap<String, VerifiedHistory>>,
@@ -59,7 +64,7 @@ impl HistoryMap {
         let id = DatabaseId::from_hex(database_id).map_err(|_| "database_id is not hex32")?;
         let hist = match map.entry(database_id.to_owned()) {
             Entry::Occupied(held) => held.into_mut(),
-            Entry::Vacant(slot) => slot.insert(replay_authored(&self.home, id)),
+            Entry::Vacant(slot) => slot.insert(replay_authored(&self.home, id)?),
         };
         Ok(f(hist))
     }
@@ -77,13 +82,6 @@ impl HistoryMap {
     /// Copy of the database's history, so the lock is not held across `.await`.
     pub(super) fn snapshot(&self, database_id: &str) -> Result<VerifiedHistory, String> {
         self.with_mut(database_id, |history| history.clone())
-    }
-
-    pub(super) fn insert(&self, history: VerifiedHistory) -> Result<(), String> {
-        let id = history.database_id().to_hex();
-        let mut map = self.inner.lock().map_err(|_| "history lock poisoned")?;
-        map.insert(id, history);
-        Ok(())
     }
 
     pub(super) fn mark_materialize_retry(&self, database_id: &str) {
@@ -105,127 +103,110 @@ impl HistoryMap {
     }
 }
 
-pub(super) fn replay_authored(home: &Path, id: DatabaseId) -> VerifiedHistory {
+/// Rebuild a history from the authored log. A log that cannot be read or
+/// parsed is an error.
+fn replay_authored(home: &Path, id: DatabaseId) -> Result<VerifiedHistory, String> {
     let mut history = VerifiedHistory::new(id);
-    let database_id = id.to_hex();
-    let entries = match load_authored(home, &database_id) {
-        Ok(entries) => entries,
-        Err(error) => {
-            tracing::warn!(target: "lastdbd::log_sync", %error, "authored history log is unreadable");
-            return load_disk_outbox(home, &database_id, history);
-        }
-    };
-    for entry in entries {
+    for entry in load_authored(home, &id.to_hex())? {
         if let AcceptOutcome::Reject { reason } = history.accept_entry(entry) {
             tracing::warn!(target: "lastdbd::log_sync", ?reason, "authored entry was rejected on replay");
         }
     }
-    // Authored replay does not rebuild the outbox. A cold with_mut that then
-    // persist_outbox'd would replace outbox.json with [] and drop unacked
-    // birth/grant rows — relay never saw them, log/read 403 has_publisher:false.
-    load_disk_outbox(home, &database_id, history)
+    Ok(history)
 }
 
-pub(super) fn authored_path(home: &Path, database_id: &str) -> PathBuf {
-    home.join("log-sync")
-        .join(database_id)
-        .join("authored.json")
+/// Accept `entry` on a copy of `history`, append it to the log, then swap the
+/// copy in. The log is the only durable write. A failure leaves `history` as it
+/// was, and a rejected or pending entry is never appended.
+pub(super) fn commit_authored(
+    home: &Path,
+    history: &mut VerifiedHistory,
+    entry: SignedEntry,
+) -> Result<AcceptOutcome, String> {
+    let database_id = history.database_id().to_hex();
+    let mut next = history.clone();
+    let outcome = next.accept_entry(entry.clone());
+    if matches!(outcome, AcceptOutcome::Accept { .. }) {
+        append_authored(home, &database_id, &entry)?;
+        *history = next;
+    }
+    Ok(outcome)
+}
+
+fn log_dir(home: &Path, database_id: &str) -> PathBuf {
+    home.join("log-sync").join(database_id)
 }
 
 /// Entries this node signed for the database, in author order.
 pub(super) fn load_authored(home: &Path, database_id: &str) -> Result<Vec<SignedEntry>, String> {
-    let path = authored_path(home, database_id);
+    let path = log_dir(home, database_id).join("authored.json");
     let Some(bytes) =
-        disk::read_limited(&path, OUTBOX_LIMIT).map_err(|_| "cannot read authored history log")?
+        disk::read_limited(&path, LOG_LIMIT).map_err(|_| "cannot read authored history log")?
     else {
         return Ok(Vec::new());
     };
     serde_json::from_slice(&bytes).map_err(|_| "authored history log is invalid".into())
 }
 
-pub(super) fn append_authored(
-    home: &Path,
-    database_id: &str,
-    entry: &SignedEntry,
-) -> Result<(), String> {
+fn append_authored(home: &Path, database_id: &str, entry: &SignedEntry) -> Result<(), String> {
     let mut entries = load_authored(home, database_id)?;
     entries.push(entry.clone());
     let bytes = serde_json::to_vec(&entries).map_err(|_| "cannot encode authored history log")?;
-    disk::write_private(&authored_path(home, database_id), &bytes)
+    if bytes.len() > LOG_LIMIT {
+        return Err("authored history log is full".into());
+    }
+    disk::write_private(&log_dir(home, database_id).join("authored.json"), &bytes)
         .map_err(|_| "cannot write authored history log".into())
 }
 
-pub(super) fn outbox_path(home: &Path, database_id: &str) -> PathBuf {
-    home.join("log-sync").join(database_id).join("outbox.json")
-}
-
-pub(super) fn load_outbox_entries(
-    home: &Path,
-    database_id: &str,
-) -> Result<Vec<SignedEntry>, String> {
-    let path = outbox_path(home, database_id);
-    let Some(bytes) = disk::read_limited(&path, OUTBOX_LIMIT).map_err(|_| "cannot read outbox")?
+/// How many log entries the relay has acknowledged. Absent means none.
+pub(super) fn load_uploaded(home: &Path, database_id: &str) -> Result<usize, String> {
+    let path = log_dir(home, database_id).join("uploaded.json");
+    let Some(bytes) =
+        disk::read_limited(&path, CURSOR_LIMIT).map_err(|_| "cannot read upload cursor")?
     else {
-        return Ok(Vec::new());
+        return Ok(0);
     };
-    serde_json::from_slice(&bytes).map_err(|_| "outbox is invalid".into())
+    std::str::from_utf8(&bytes)
+        .ok()
+        .and_then(|text| text.trim().parse().ok())
+        .ok_or_else(|| "upload cursor is invalid".into())
 }
 
-pub(super) fn store_outbox_entries(
-    home: &Path,
-    database_id: &str,
-    entries: &[SignedEntry],
-) -> Result<(), String> {
-    let path = outbox_path(home, database_id);
-    let bytes = serde_json::to_vec(entries).map_err(|_| "cannot encode outbox")?;
-    disk::write_private(&path, &bytes).map_err(|_| "cannot write outbox".into())
+pub(super) fn store_uploaded(home: &Path, database_id: &str, through: usize) -> Result<(), String> {
+    let path = log_dir(home, database_id).join("uploaded.json");
+    disk::write_private(&path, through.to_string().as_bytes())
+        .map_err(|_| "cannot write upload cursor".into())
 }
 
-pub(super) fn persist_outbox(
-    home: &Path,
-    database_id: &str,
-    outbox: &Outbox,
-) -> Result<(), String> {
-    let entries: Vec<SignedEntry> = outbox.batch(usize::MAX).into_iter().cloned().collect();
-    store_outbox_entries(home, database_id, &entries)
+/// The log, the cursor, and the entries past it.
+pub(super) struct Pending {
+    pub(super) log_len: usize,
+    pub(super) uploaded: usize,
+    pub(super) batch: Vec<SignedEntry>,
 }
 
-pub(super) fn requeue_outbox(
-    history: &mut VerifiedHistory,
-    entries: Vec<SignedEntry>,
-) -> Result<(), String> {
-    for entry in entries {
-        let hash = entry_hash(&entry).map_err(|e| e.to_string())?;
-        history.outbox_mut().enqueue(hash, entry);
+/// Up to `limit` log entries past the cursor. A cursor beyond the log is an
+/// error, not a reason to upload nothing.
+pub(super) fn pending(home: &Path, database_id: &str, limit: usize) -> Result<Pending, String> {
+    let log = load_authored(home, database_id)?;
+    let uploaded = load_uploaded(home, database_id)?;
+    if uploaded > log.len() {
+        return Err(format!(
+            "upload cursor {uploaded} is past the log length {}",
+            log.len()
+        ));
     }
-    Ok(())
+    let batch = log.iter().skip(uploaded).take(limit).cloned().collect();
+    Ok(Pending {
+        log_len: log.len(),
+        uploaded,
+        batch,
+    })
 }
 
-fn load_disk_outbox(
-    home: &Path,
-    database_id: &str,
-    mut history: VerifiedHistory,
-) -> VerifiedHistory {
-    match load_outbox_entries(home, database_id) {
-        Ok(entries) if !entries.is_empty() => {
-            if let Err(error) = requeue_outbox(&mut history, entries) {
-                tracing::warn!(
-                    target: "lastdbd::log_sync",
-                    %error,
-                    id = %database_id,
-                    "disk outbox could not be requeued after authored replay"
-                );
-            }
-        }
-        Ok(_) => {}
-        Err(error) => {
-            tracing::warn!(
-                target: "lastdbd::log_sync",
-                %error,
-                id = %database_id,
-                "disk outbox is unreadable after authored replay"
-            );
-        }
-    }
-    history
+/// Entries signed here and not yet acknowledged by the relay.
+pub(super) fn pending_count(home: &Path, database_id: &str) -> Result<u64, String> {
+    let found = pending(home, database_id, 0)?;
+    Ok((found.log_len - found.uploaded) as u64)
 }

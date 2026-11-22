@@ -3,11 +3,7 @@
 //! No snapshots, checkpoints, landed field, or manage/access side channel.
 //! Grants exist only as signed chain entries. Relays gate access from publisher-signed grant entries and never run AcceptEntry.
 
-#[allow(dead_code)]
-mod apply;
 pub(crate) mod birth;
-#[allow(dead_code)]
-mod bootstrap;
 mod chain_author;
 pub(crate) mod chain_error;
 pub(crate) mod chain_grant;
@@ -115,8 +111,5 @@ pub(crate) fn publish_row(database_id: &str, signed_log: bool) -> serde_json::Va
 }
 
 fn outbox_len(home: &Path, database_id: &str) -> u64 {
-    if let Some(n) = histories_for(home).peek_with(database_id, |history| history.outbox().len()) {
-        return n as u64;
-    }
-    history_store::load_outbox_entries(home, database_id).map_or(0, |entries| entries.len() as u64)
+    history_store::pending_count(home, database_id).unwrap_or(0)
 }
