@@ -101,8 +101,7 @@ impl HistoryMap {
     pub(super) fn needs_materialize_retry(&self, database_id: &str) -> bool {
         self.materialize_retry
             .lock()
-            .map(|set| set.contains(database_id))
-            .unwrap_or(false)
+            .is_ok_and(|set| set.contains(database_id))
     }
 }
 
