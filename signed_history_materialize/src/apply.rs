@@ -130,12 +130,11 @@ pub async fn reconcile_keys<'a>(
         if !schema_declared(store, namespace)? {
             continue;
         }
-        match history.records().get(key) {
-            Some(winner) => apply_winner(store, namespace, record_key, winner).await?,
-            None => {
-                let at = key_value(store, namespace, record_key)?;
-                delete_record(store, namespace, at).await?;
-            }
+        if let Some(winner) = history.records().get(key) {
+            apply_winner(store, namespace, record_key, winner).await?;
+        } else {
+            let at = key_value(store, namespace, record_key)?;
+            delete_record(store, namespace, at).await?;
         }
     }
     Ok(())
