@@ -18,9 +18,10 @@ pub struct EntryHeader {
     pub writer_seq: u64,
     /// Previous entry hash in this stream (zeros when `writer_seq == 1`).
     pub prev_hash: EntryHash,
-    /// Display-only wall clock.
+    /// Wall clock of the write, in milliseconds. Display only.
     pub authored_at_ms: u64,
-    /// Checked Lamport clock.
+    /// The order value: a time in milliseconds, above the previous entry of the
+    /// stream and every cited entry, and below [`crate::LAMPORT_LIMIT`].
     pub lamport: u64,
     /// Entry hashes this entry depends on (sorted ascending on the wire).
     pub seen_heads: Vec<EntryHash>,

@@ -1,4 +1,6 @@
 //! Per-database VerifiedHistory held in memory, rebuilt from one durable log.
+//! It serves the shared databases. The personal database keeps no history: it is
+//! signed from the spool and applied through the store (see `personal`).
 //!
 //! `authored.json` is the log of every entry this node signed, in author
 //! order. `uploaded.json` holds one number: how many log entries the relay has
@@ -16,12 +18,9 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use mutation_log::{
-    stream_id_of, AcceptOutcome, BundleChange, DatabaseId, SealOpener, SignedEntry, StreamId,
-    VerifiedHistory,
+    stream_id_of, AcceptOutcome, DatabaseId, SignedEntry, StreamId, VerifiedHistory,
 };
 
-use super::blobs;
-use super::sealed::Sealer;
 use crate::host::Host;
 use crate::profile::private_fs as disk;
 
@@ -40,16 +39,8 @@ pub(crate) fn histories_for(host: &Host) -> Arc<HistoryMap> {
     Arc::clone(
         homes
             .entry(host.home.clone())
-            .or_insert_with(|| Arc::new(HistoryMap::new(&host.home, personal_sealer(host)))),
+            .or_insert_with(|| Arc::new(HistoryMap::new(&host.home))),
     )
-}
-
-/// The sealer of the personal database of this node. It is made from the node
-/// seed and fails only if the derived id is not a database id, which no seed
-/// produces.
-fn personal_sealer(host: &Host) -> Option<Arc<Sealer>> {
-    let seed = zeroize::Zeroizing::new(host.keypair.secret_key_bytes());
-    Sealer::for_node_seed(&seed).ok().map(Arc::new)
 }
 
 /// Process-wide histories, shared by the sync loop and every request handler.
@@ -59,9 +50,6 @@ fn personal_sealer(host: &Host) -> Option<Arc<Sealer>> {
 /// empty history is created in its place.
 pub(crate) struct HistoryMap {
     home: PathBuf,
-    /// Seals and opens the personal database. Every other database is shared
-    /// and keeps its payloads in clear.
-    sealer: Option<Arc<Sealer>>,
     inner: Mutex<HashMap<String, VerifiedHistory>>,
     /// How many entries `received.json` holds, per database.
     received: Mutex<HashMap<String, usize>>,
@@ -70,10 +58,9 @@ pub(crate) struct HistoryMap {
 }
 
 impl HistoryMap {
-    fn new(home: &Path, sealer: Option<Arc<Sealer>>) -> Self {
+    fn new(home: &Path) -> Self {
         Self {
             home: home.to_path_buf(),
-            sealer,
             inner: Mutex::new(HashMap::new()),
             received: Mutex::new(HashMap::new()),
             materialize_retry: Mutex::new(HashSet::new()),
@@ -159,22 +146,9 @@ impl HistoryMap {
 }
 
 impl HistoryMap {
-    /// The sealer of `id`, when that is the personal database.
-    fn sealer_for(&self, id: DatabaseId) -> Option<&Arc<Sealer>> {
-        self.sealer
-            .as_ref()
-            .filter(|sealer| sealer.database() == id)
-    }
-
-    /// The sealer of the database, when it is the personal one.
-    pub(super) fn sealer_of(&self, database_id: &str) -> Option<Arc<Sealer>> {
-        let id = DatabaseId::from_hex(database_id).ok()?;
-        self.sealer_for(id).cloned()
-    }
-
     /// Rebuild a history from the authored log and the received entries, and say
     /// how many received entries there were. Entries are replayed in ascending
-    /// Lamport order, which meets every dependency before its user. A file that
+    /// order value, which meets every dependency before its user. A file that
     /// cannot be read or parsed is an error.
     fn replay(&self, id: DatabaseId) -> Result<(VerifiedHistory, usize), String> {
         let database_id = id.to_hex();
@@ -183,48 +157,13 @@ impl HistoryMap {
         let mut entries = load_authored(&self.home, &database_id)?;
         entries.extend(received);
         entries.sort_by_key(|entry| entry.header().lamport);
-        let sealer = self.sealer_for(id).cloned();
-        let mut history = match &sealer {
-            Some(sealer) => {
-                VerifiedHistory::with_opener(id, Arc::clone(sealer) as Arc<dyn SealOpener>)
-            }
-            None => VerifiedHistory::new(id),
-        };
+        let mut history = VerifiedHistory::new(id);
         for entry in entries {
-            let outcome = self.replay_entry(&mut history, entry, sealer.as_deref());
-            if let AcceptOutcome::Reject { reason } = outcome {
+            if let AcceptOutcome::Reject { reason } = history.accept_entry(entry) {
                 tracing::warn!(target: "lastdbd::log_sync", ?reason, "stored entry was rejected on replay");
             }
         }
         Ok((history, count))
-    }
-
-    /// A bundle entry of the personal database is applied with the changes of
-    /// its kept blob. A blob that is not kept rejects the entry here, and the
-    /// writes of that stream stop until the blob is back.
-    fn replay_entry(
-        &self,
-        history: &mut VerifiedHistory,
-        entry: SignedEntry,
-        sealer: Option<&Sealer>,
-    ) -> AcceptOutcome {
-        let (SignedEntry::Bundle { header, body, .. }, Some(sealer)) = (&entry, sealer) else {
-            return history.accept_entry(entry);
-        };
-        let database_id = header.database_id.to_hex();
-        let changes = blobs::load(&self.home, &database_id, &body.blob_sha256)
-            .and_then(|blob| blob.ok_or_else(|| "bundle blob is not kept".to_owned()))
-            .and_then(|blob| blobs::open_changes(sealer, header, &blob));
-        let changes = match changes {
-            Ok(changes) => changes,
-            Err(error) => {
-                tracing::warn!(target: "lastdbd::log_sync", %error, "a bundle entry could not be replayed");
-                return AcceptOutcome::Reject {
-                    reason: mutation_log::RejectReason::Malformed("bundle blob is not usable"),
-                };
-            }
-        };
-        history.accept_bundle_with_changes(entry, &changes)
     }
 }
 
@@ -242,18 +181,6 @@ pub(super) fn commit_authored(
 ) -> Result<AcceptOutcome, String> {
     commit_with(home, history, entry, |next| {
         next.accept_entry(entry.clone())
-    })
-}
-
-/// [`commit_authored`] for a bundle entry, whose blob the caller has kept.
-pub(super) fn commit_authored_bundle(
-    home: &Path,
-    history: &mut VerifiedHistory,
-    entry: &SignedEntry,
-    changes: &[BundleChange],
-) -> Result<AcceptOutcome, String> {
-    commit_with(home, history, entry, |next| {
-        next.accept_bundle_with_changes(entry.clone(), changes)
     })
 }
 

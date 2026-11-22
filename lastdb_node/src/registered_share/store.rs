@@ -1,8 +1,7 @@
 //! Open a received database after its snapshot is installed.
 //!
-//! Open-link registrations store the content key locally. The store captures a
-//! direct member append. It does not publish a snapshot. Replay runs inside
-//! `replay_accepted`, so a served entry is not captured again.
+//! Open-link registrations store the content key locally. The store captures
+//! nothing and publishes no snapshot.
 
 use std::fs;
 use std::io::ErrorKind;
@@ -51,9 +50,9 @@ async fn open_receiver(host: &Host, id: &Id, whole_database: bool) -> Result<Arc
         Arc::clone(&host.keypair),
         fold_db::fold_db_core::factory::FoldDbOptions {
             offline_maintenance: false,
-            // A direct Submit member appends from this store. Replay runs inside
-            // `replay_accepted`, so a served entry is not captured again.
-            capture_accepted: true,
+            // A member proposes from its history (`log_sync::proposal`), and
+            // nothing sends a spool for a received database, so it captures nothing.
+            capture_accepted: false,
             record_log: whole_database
                 .then(|| crate::host::share_identity::record_log(&host.home, id.as_str())),
         },

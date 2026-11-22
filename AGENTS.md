@@ -140,8 +140,12 @@ unsigned mutation log. Signed-history + relay DEV CI replaces them.
 
 Owner byte backup and its PROD restore workflow are gone. The personal database is a signed log with no grants: every device of the
 owner signs its own stream with the one node key, every payload is sealed before it is signed, and a grant-gating relay stores the
-streams. The relay copy is the backup, and reading it is how a second device or a restore catches up
-(`docs/designs/personal-database-signed-log.md`). No snapshots, dual readers, feature flags, or migration paths.
+streams. The signed entries come from the spool of accepted writes (each commit lands there before the caller is told), and the
+entries of the other devices are applied through the store's last-writer stamp, with one head row for each stream in the store. The
+order value of an entry is the time of the commit; the later edit wins. The relay copy is the backup, and reading it is how a second
+device or a restore catches up (`docs/designs/personal-database-signed-log.md`,
+`docs/designs/signed-log-on-local-machinery.md`). A home captures into the spool exactly when something sends it: keep it that way.
+No snapshots yet, no dual readers, feature flags, or migration paths.
 
 The image already has Rust (`rust-toolchain.toml`, 1.96.1) and Node 22.
 `install` adds Ruby and the pinned

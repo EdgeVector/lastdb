@@ -80,7 +80,7 @@ async fn restore_into_staged(plan: SignedRestorePlan<'_>) -> Result<Restored, St
     fresh.commit()?;
     drop(fresh);
     let staged = StagedHome::open(staged_path)?;
-    let host = Arc::new(Host::boot(&staged.path).await?);
+    let host = Arc::new(Host::boot_for_signed_restore(&staged.path).await?);
     let report = lastdb_node::log_sync::restore_personal_database(&host, plan.relay_url).await;
     let owned_closed = host.shutdown_owned_databases().await;
     let owner_closed = host.db.shutdown().await;
