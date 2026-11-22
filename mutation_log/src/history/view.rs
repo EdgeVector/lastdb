@@ -32,6 +32,39 @@ impl VerifiedHistory {
             .collect()
     }
 
+    /// Accepted entries that are not on `stream`, in ascending Lamport order.
+    ///
+    /// An entry's Lamport is above that of its predecessor and of every entry it
+    /// cites, so replaying in this order meets each dependency before its user.
+    #[must_use]
+    pub fn accepted_outside(&self, stream: &StreamId) -> Vec<&SignedEntry> {
+        let mut found: Vec<&SignedEntry> = self
+            .accepted
+            .values()
+            .map(|meta| &meta.entry)
+            .filter(|entry| crate::accept::stream_id_of(entry) != *stream)
+            .collect();
+        found.sort_by_key(|entry| {
+            let header = entry.header();
+            (
+                header.lamport,
+                header.node_key,
+                header.device_id,
+                header.writer_seq,
+            )
+        });
+        found
+    }
+
+    /// True when an entry of `stream` waits in the pending buffer. The tip of
+    /// that stream is then not the real one, and signing on it would fork it.
+    #[must_use]
+    pub fn pending_on(&self, stream: &StreamId) -> bool {
+        self.pending
+            .iter()
+            .any(|entry| crate::accept::stream_id_of(entry) == *stream)
+    }
+
     /// Hash accepted at `(stream, writer_seq)`.
     #[must_use]
     pub fn entry_hash_at(&self, stream: &StreamId, writer_seq: u64) -> Option<EntryHash> {
