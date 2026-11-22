@@ -173,12 +173,11 @@ async fn history_expected(
     if kind == Some("absent") {
         return Ok(proposed.expected.clone());
     }
-    let revision = match (
+    let (Some("revision"), Some(revision)) = (
         kind,
         proposed.expected.get("revision").and_then(Value::as_str),
-    ) {
-        (Some("revision"), Some(revision)) => revision,
-        _ => return Err(ContributionError::Invalid),
+    ) else {
+        return Err(ContributionError::Invalid);
     };
     let id =
         Id::try_from(share.id.as_str().to_owned()).map_err(|_| ContributionError::Unavailable)?;
