@@ -65,7 +65,7 @@ pub(super) fn trim_ids(root: &Path, head: u64, acked: u64) -> Result<(), Error> 
     if found.len() <= IDS_KEPT {
         return Ok(());
     }
-    found.sort_unstable_by(|left, right| right.0.cmp(&left.0));
+    found.sort_unstable_by_key(|item| std::cmp::Reverse(item.0));
     let mut waiting = std::collections::HashSet::new();
     for sequence in (acked + 1)..=head {
         let meta = read_meta(&root.join("entries").join(seq_name(sequence)))?;
