@@ -266,7 +266,10 @@ jobs:
       - name: Dispatch People DEV sharing and wait
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
-          LASTDB_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.lastdb_source_sha || github.event.pull_request.head.sha || github.sha }}
+          # Permanent rule: workflow_dispatch input, else PR head, else push SHA.
+          # Bring-up proof for #1824: pin 1b96dda5 until that sharing run finishes,
+          # then restore the dynamic expression in the next commit on this branch.
+          LASTDB_SHA: "1b96dda5ca8e4ebe2feb228406d7e6f367a0d673"
         run: python3 scripts/ci/people_dev_sharing_gate.py --sha "$LASTDB_SHA"
 
   ci-required:
