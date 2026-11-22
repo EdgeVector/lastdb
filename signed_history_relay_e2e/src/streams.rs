@@ -126,11 +126,15 @@ async fn contiguous_head(
     let third = publisher.heads(c, a_tips(a))?;
     client.append(std::slice::from_ref(&first)).await?;
     client.append(std::slice::from_ref(&third)).await?;
-    let gap = find(&client.streams(owner_hex).await?, c)?;
-    expect_head("a stream with a gap", &gap, &head(c, &first)?)?;
+    let listed = client.streams(owner_hex).await?;
+    expect_head("a stream with a gap", find(&listed, c)?, &head(c, &first)?)?;
     client.append(std::slice::from_ref(&second)).await?;
-    let filled = find(&client.streams(owner_hex).await?, c)?;
-    expect_head("a stream whose gap was filled", &filled, &head(c, &third)?)
+    let listed = client.streams(owner_hex).await?;
+    expect_head(
+        "a stream whose gap was filled",
+        find(&listed, c)?,
+        &head(c, &third)?,
+    )
 }
 
 fn a_tips(chain: &Chain) -> Vec<mutation_log::DeviceHead> {
