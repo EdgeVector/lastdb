@@ -10,7 +10,7 @@ use crate::grants::{AcceptedMeta, GrantState};
 use crate::ids::{DatabaseId, DeviceId, EntryHash, NodeKey, StreamId};
 use crate::kinds::EntryKind;
 use crate::outbox::Outbox;
-use crate::payload::{MaterializedRecord, RecordPosition};
+use crate::payload::MaterializedRecord;
 use crate::wire::entry_hash;
 
 mod effects;

@@ -43,7 +43,7 @@ impl VerifiedHistory {
         }
     }
 
-    pub(super) fn merge_data(&mut self, namespace: &str, payload: &[u8], position: RecordPosition) {
+    pub(crate) fn merge_data(&mut self, namespace: &str, payload: &[u8], position: RecordPosition) {
         let Ok(decoded) = decode_record_payload(payload) else {
             return;
         };
