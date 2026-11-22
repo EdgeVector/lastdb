@@ -4,8 +4,10 @@
 //! own `(node_key, device_id)` stream with `grant_at` bound to a publisher write
 //! grant in `seen_heads`, then joins the received database's outbox for upload.
 
+use std::collections::BTreeSet;
+
 use mutation_log::{
-    author_data, data_record, DeviceId, EntryHash, Grantee, NodeKey, Role, StreamKind,
+    author_data, data_record, AuthorCtx, DeviceId, EntryHash, Grantee, NodeKey, Role, StreamKind,
     VerifiedHistory,
 };
 
@@ -35,10 +37,7 @@ pub(crate) fn mirror_received_write(
         chain_author::author_member(&histories, &target, |mut ctx, history| {
             require_writer(history, &identity.node_key)?;
             let (grant_device, grant_seq) = write_grant_at(history, &identity.node_key)?;
-            for (hash, lamport) in history.publisher_grants() {
-                ctx.seen_heads.push(hash);
-                ctx.seen_lamports.push(lamport);
-            }
+            cite_observed_heads(&mut ctx, history);
             let value = if item.op == fold_db::schema::types::MutationType::Delete {
                 Vec::new()
             } else {
@@ -57,6 +56,34 @@ pub(crate) fn mirror_received_write(
         })?;
     }
     Ok(())
+}
+
+/// Grants for auth, plus every observed stream tip so Lamport follows the
+/// state this node just read (and LWW cannot silently keep an older value).
+fn cite_observed_heads(ctx: &mut AuthorCtx, history: &VerifiedHistory) {
+    for (hash, lamport) in history.publisher_grants() {
+        push_seen(ctx, hash, lamport);
+    }
+    let mut nodes = BTreeSet::new();
+    if let Some(owner) = history.owner() {
+        nodes.insert(owner);
+    }
+    for (key, _) in history.grants().members() {
+        nodes.insert(key);
+    }
+    for node in nodes {
+        for (_device, head) in history.stream_heads_of(node) {
+            push_seen(ctx, head.entry_hash, head.lamport);
+        }
+    }
+}
+
+fn push_seen(ctx: &mut AuthorCtx, hash: EntryHash, lamport: u64) {
+    if ctx.seen_heads.contains(&hash) {
+        return;
+    }
+    ctx.seen_heads.push(hash);
+    ctx.seen_lamports.push(lamport);
 }
 
 fn require_writer(history: &VerifiedHistory, node_key: &NodeKey) -> Result<(), ChainError> {

@@ -75,8 +75,26 @@ fn writer_keys_of(history: &VerifiedHistory) -> Vec<String> {
     if let Some(owner) = history.owner() {
         keys.insert(owner.to_hex());
     }
+    // Current write/submit holders, plus anyone who ever held those roles
+    // (including reduced/revoked members whose earlier writes still count).
     for (key, role) in history.grants().members() {
-        if matches!(role, Role::Write | Role::Submit) {
+        if matches!(role, Role::Write | Role::Submit | Role::Revoked)
+            || history.grants().was_reduced(&key)
+        {
+            keys.insert(key.to_hex());
+        }
+    }
+    for (hash, _) in history.publisher_grants() {
+        let Some(meta) = history.get_accepted(&hash) else {
+            continue;
+        };
+        let Some(body) = meta.grant_body.as_ref() else {
+            continue;
+        };
+        if !matches!(body.role, Role::Write | Role::Submit) {
+            continue;
+        }
+        if let mutation_log::Grantee::Member(key) = body.grantee {
             keys.insert(key.to_hex());
         }
     }
