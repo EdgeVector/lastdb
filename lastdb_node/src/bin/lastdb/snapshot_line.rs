@@ -2,15 +2,14 @@
 
 use serde_json::Value;
 
-/// The lines that name the newest snapshot of the personal database. None when this node has no
-/// cloud sync and knows of no snapshot.
+/// The lines that name the newest snapshot of the personal database. A node that syncs through a
+/// relay address in its environment has no saved cloud connection, so the line does not wait for one.
 pub(crate) fn snapshot_lines(sync: &Value) -> Vec<String> {
-    let snapshot = &sync["snapshot"];
-    let state = snapshot["state"].as_str().unwrap_or("none");
-    let connected = sync["connected"].as_bool().unwrap_or(false);
-    if state == "none" && !connected {
+    let Some(snapshot) = sync.get("snapshot").filter(|snapshot| snapshot.is_object()) else {
+        // A daemon of an older build reports no snapshot object. Say nothing rather than "none yet".
         return Vec::new();
-    }
+    };
+    let state = snapshot["state"].as_str().unwrap_or("none");
     let mut lines = vec![match facts(snapshot) {
         Some(facts) => format!("Snapshot: {facts}"),
         None if state == "in_progress" => {

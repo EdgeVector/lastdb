@@ -65,12 +65,13 @@ def line_for(snapshot):
 def snapshot_lines(device):
     """The snapshot lines of the status, which must follow the cloud sync line."""
     lines = status_lines(device)
+    found = [i for i, line in enumerate(lines) if line.startswith("Snapshot")]
+    require(found, f"{device.name}: status has no snapshot line: {lines!r}")
+    # A node with a saved cloud connection prints a cloud sync line, and the snapshot lines follow it.
+    # The proof nodes sync through LASTDB_RELAY_URL and have none.
     sync = [i for i, line in enumerate(lines) if line.startswith("Cloud sync:")]
-    require(len(sync) == 1, f"{device.name}: status has no cloud sync line: {lines!r}")
-    after = lines[sync[0] + 1:]
-    found = [i for i, line in enumerate(after) if line.startswith("Snapshot")]
-    require(found and found[0] == 0, f"{device.name}: the snapshot line does not follow the cloud sync line: {lines!r}")
-    return [line for line in after if line.startswith("Snapshot")]
+    require(not sync or found[0] == sync[0] + 1, f"{device.name}: the snapshot line does not follow: {lines!r}")
+    return [lines[i] for i in found]
 
 
 def prove_none_yet(device):

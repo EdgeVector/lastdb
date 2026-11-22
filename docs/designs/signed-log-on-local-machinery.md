@@ -322,7 +322,7 @@ After the `Cloud sync:` line, `lastdb status` prints where the newest snapshot o
 | The first snapshot of an existing home is being published | `Snapshot: none yet, the first snapshot of this home is in progress` |
 | A snapshot cannot be published | the line above for the newest known snapshot, then `Snapshot blocked: <message>` |
 
-The time is local, from the signed time of the `snapshot` entry. The relay is its origin. "Through entry N" is the last entry of this device's own stream that the snapshot covers. It is 0 for a snapshot that holds no entry of this device: the first snapshot of a home that held data before it began to sync, and a snapshot that a restore installed for a new device. The line is not printed when the node has no cloud sync and knows no snapshot.
+The time is local, from the signed time of the `snapshot` entry. The relay is its origin. "Through entry N" is the last entry of this device's own stream that the snapshot covers. It is 0 for a snapshot that holds no entry of this device: the first snapshot of a home that held data before it began to sync, and a snapshot that a restore installed for a new device. The line is always printed, because a node can sync through a relay address in its environment and then has no saved cloud connection, so no `Cloud sync:` line.
 
 `/api/status` carries the same facts as a new object, `cloud_sync.snapshot`. Existing fields of `cloud_sync` are unchanged.
 
