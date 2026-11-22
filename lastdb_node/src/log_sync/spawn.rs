@@ -215,7 +215,7 @@ async fn pull_owned(
         return Ok(());
     };
     let local_device = device::device_id(&host.home)?.to_hex();
-    super::pull::pull_share_writers(
+    let pulled = super::pull::pull_share_writers(
         client,
         histories,
         &db,
@@ -223,8 +223,30 @@ async fn pull_owned(
         &publisher_hex,
         [local_device],
     )
-    .await?;
+    .await;
+    keep_received(host, histories, database_id);
+    pulled?;
     super::incorporate::resolve_owned(host, histories, &store, database_id).await
+}
+
+/// Store what a pull accepted from other streams, so a restart rebuilds the
+/// history without the relay. Entries stay in memory when the write fails, and
+/// the next pull tries again.
+fn keep_received(host: &Host, histories: &HistoryMap, database_id: &str) {
+    let stored = super::chain_author::identity_of(host)
+        .map_err(|error| error.reply().message.to_owned())
+        .and_then(|identity| {
+            let own = mutation_log::VerifiedHistory::stream(identity.node_key, identity.device_id);
+            histories.persist_received(database_id, &own)
+        });
+    if let Err(error) = stored {
+        tracing::warn!(
+            target: "lastdbd::log_sync",
+            id = %database_id,
+            %error,
+            "received entries could not be stored"
+        );
+    }
 }
 
 /// Pull publisher and write/submit member streams for signed-log received DBs.
@@ -272,7 +294,7 @@ async fn pull_one_received(
     };
     let caller = NodeKey::from_bytes(host.keypair.public_key_bytes());
     let known = share.publisher_device_id.iter().cloned();
-    super::pull::pull_share_writers(
+    let pulled = super::pull::pull_share_writers(
         client,
         histories,
         &db,
@@ -280,5 +302,7 @@ async fn pull_one_received(
         share.publisher.as_str(),
         known,
     )
-    .await
+    .await;
+    keep_received(host, histories, share.id.as_str());
+    pulled
 }
