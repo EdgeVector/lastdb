@@ -84,7 +84,7 @@ async fn one_turn(host: &Host, histories: &HistoryMap, base: &str) -> Result<(),
     let device_id = device::device_id(&host.home)?;
     let client = RelayClient::new(base, signing_key, node_key_hex, &device_id)?;
 
-    // Upload every owned outbox before any pull. Personal (and any shareable
+    // Upload every owned log before any pull. Personal (and any shareable
     // whose birth is not on the relay yet) gets log/read 403 field=grant; that
     // must not abort the turn before shareable birth/grant entries upload.
     // Personal DBs are not pulled: empty-index grant-403 is expected there and
@@ -145,7 +145,7 @@ async fn one_turn(host: &Host, histories: &HistoryMap, base: &str) -> Result<(),
             turn_error = Some(err);
         }
     }
-    // Member proposals and direct writes land on the received outbox; upload
+    // Member proposals and direct writes land on the received log; upload
     // them before pulling so publish.lastAttempt reflects a real attempt.
     if let Some(err) = upload_received_outboxes(host, &client).await {
         turn_error = Some(err);

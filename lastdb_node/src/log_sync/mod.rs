@@ -31,7 +31,7 @@ use cloud_backup_protocol::Digest;
 use fold_db::schema::types::Schema;
 use mutation_log::{NodeKey, Role};
 
-pub use config::{relay_base_url, store_relay_base_url};
+pub use config::relay_base_url;
 pub(crate) use history_store::histories_for;
 pub(crate) use member_write::mirror_received_write;
 pub(crate) use mirror::{mirror_owned_write, OwnedMutation};
@@ -100,7 +100,7 @@ pub(crate) fn direct_write_allowed(
         .unwrap_or(false)
 }
 
-/// Record outbox pending for a received database the caller already opened.
+/// Record the pending count for a received database the caller already opened.
 pub(crate) fn note_receiver(home: &Path, database_id: &str) {
     let pending = outbox_len(home, database_id);
     publish_state::note_pending(database_id, pending);

@@ -9,7 +9,6 @@ use crate::entry::SignedEntry;
 use crate::grants::{AcceptedMeta, GrantState};
 use crate::ids::{DatabaseId, DeviceId, EntryHash, NodeKey, StreamId};
 use crate::kinds::EntryKind;
-use crate::outbox::Outbox;
 use crate::payload::MaterializedRecord;
 use crate::wire::entry_hash;
 
@@ -77,8 +76,6 @@ pub struct VerifiedHistory {
     rejects: Vec<RejectEvidence>,
     /// Equivocation evidence.
     equivocations: Vec<EquivocationEvidence>,
-    /// Local outbox of authored entries not yet relay-acked.
-    outbox: Outbox,
 }
 
 impl VerifiedHistory {
@@ -102,7 +99,6 @@ impl VerifiedHistory {
             pending: VecDeque::new(),
             rejects: Vec::new(),
             equivocations: Vec::new(),
-            outbox: Outbox::new(),
         }
     }
 
@@ -146,17 +142,6 @@ impl VerifiedHistory {
     #[must_use]
     pub fn schemas(&self) -> &BTreeMap<String, Vec<u8>> {
         &self.schemas
-    }
-
-    /// Borrow the outbox.
-    #[must_use]
-    pub fn outbox(&self) -> &Outbox {
-        &self.outbox
-    }
-
-    /// Mutable outbox (ack / enqueue).
-    pub fn outbox_mut(&mut self) -> &mut Outbox {
-        &mut self.outbox
     }
 
     /// Equivocation evidence.
@@ -334,16 +319,6 @@ impl VerifiedHistory {
                 }
             }
         }
-    }
-
-    /// Enqueue an already-accepted locally authored entry onto the outbox.
-    pub fn enqueue_outbox(
-        &mut self,
-        entry: SignedEntry,
-    ) -> Result<EntryHash, crate::wire::EncodeError> {
-        let hash = entry_hash(&entry)?;
-        self.outbox.enqueue(hash, entry);
-        Ok(hash)
     }
 
     /// Convenience: stream id for `(node_key, device_id)`.

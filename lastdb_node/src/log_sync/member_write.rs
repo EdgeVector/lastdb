@@ -2,7 +2,7 @@
 //!
 //! FoldDB already holds the local commit. The signed entry lands on this node's
 //! own `(node_key, device_id)` stream with `grant_at` bound to a publisher write
-//! grant in `seen_heads`, then joins the received database's outbox for upload.
+//! grant in `seen_heads`, then joins the received database's signed log for upload.
 
 use std::collections::BTreeSet;
 

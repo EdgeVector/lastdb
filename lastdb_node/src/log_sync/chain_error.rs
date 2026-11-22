@@ -12,7 +12,7 @@ pub(crate) enum ChainError {
     NoAccount,
     /// An account exists and this database is not enrolled yet. Retry later.
     Enrolling,
-    /// The signed entry did not reach local AcceptEntry and the outbox.
+    /// The signed entry did not reach local AcceptEntry and the signed log.
     Unconfirmed,
     /// The request cannot be a grant or relay call (400).
     Invalid(&'static str),

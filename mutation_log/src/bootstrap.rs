@@ -69,7 +69,7 @@ pub struct BootstrapParams<'a> {
 }
 
 /// Result of a bootstrap: verified history with birth + schemas + data + grants
-/// accepted, and the same entries on the outbox.
+/// accepted.
 pub struct BootstrapResult {
     /// History after accepting every authored entry.
     pub history: VerifiedHistory,
@@ -77,7 +77,7 @@ pub struct BootstrapResult {
     pub entries: Vec<SignedEntry>,
 }
 
-/// Author birth + schemas + data + grants, accept each into a fresh history, enqueue outbox.
+/// Author birth + schemas + data + grants, accept each into a fresh history.
 pub fn bootstrap_from_records(
     params: &BootstrapParams<'_>,
 ) -> Result<BootstrapResult, BootstrapError> {
@@ -153,7 +153,6 @@ fn accept_and_track(
     let outcome = history.accept_entry(entry.clone());
     match outcome {
         AcceptOutcome::Accept { .. } => {
-            history.enqueue_outbox(entry.clone())?;
             ctx.stream_head =
                 history.stream_head(&VerifiedHistory::stream(ctx.node_key, ctx.device_id));
             // Same-device bootstrap advances only via prev_hash / stream head.

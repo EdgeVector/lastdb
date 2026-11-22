@@ -4,7 +4,7 @@
 //! database is readable once its signed history has materialized into the
 //! receiver store. A write commits only when this node holds a folded Write
 //! role; after the local commit it authors a signed direct entry on this
-//! member's own stream and enqueues the received database's outbox. Otherwise
+//! member's own stream and appends to the received database's signed log. Otherwise
 //! the write is refused. `changes` does not open a received database.
 
 use std::future::Future;
@@ -118,7 +118,7 @@ async fn write_received<T>(
         .map_err(|_| HostError::new(503, STORE_UNAVAILABLE))?;
     let result = host.with_records(Arc::clone(&store), future).await;
     let Ok(body) = result else {
-        // The write may have moved the outbox. Record the count the list reads.
+        // The write may have moved the log. Record the count the list reads.
         crate::log_sync::note_receiver(&host.home, share.id.as_str());
         return result;
     };

@@ -1,4 +1,4 @@
-//! After FoldDB commits an owned `/v1/write`, mirror it onto the signed outbox.
+//! After FoldDB commits an owned `/v1/write`, mirror it onto the signed log.
 
 use std::collections::HashMap;
 
@@ -49,7 +49,7 @@ pub(super) fn mirror_committed(
         tracing::warn!(
             target: "lastdbd::log_sync",
             %error,
-            "owned write was not mirrored to the signed outbox"
+            "owned write was not mirrored to the signed log"
         );
         HostError::new(503, "signed history mirror was not confirmed")
     })
