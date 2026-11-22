@@ -5,6 +5,7 @@
 //! what makes the cut exact: every write the roots hold has its head row, and
 //! every head row names only writes that the roots hold.
 
+use super::{accepted, prearm};
 use crate::storage::disk_pack::{
     admit, cas_delete, map, physical::V2Home, run_blocking, PackRuntime, CAS_DIR, NODE_MARKER,
     RUN_DIR,
@@ -17,6 +18,11 @@ use laststore::disk_run::home::RunSnapshot;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+
+/// The first snapshot of a home that held data before it began to capture is still to come.
+fn awaits_first_snapshot(status: accepted::Status) -> bool {
+    !status.gap && status.snapshot_required && status.head == 0
+}
 
 /// The row prefix of the head row of one device stream. The rest of the key
 /// names the stream.
@@ -51,7 +57,51 @@ impl PackRuntime {
         })
         .await?;
         self.flush_native().await?;
-        Ok(())
+        let frontier = self.physical.current_root().frontier();
+        self.note_accepted_snapshot(frontier)
+            .map_err(|e| StorageError::invalid(format!("restore snapshot coverage: {e:?}")))
+    }
+
+    /// Preserve a home that held data before it began to capture writes, as the cut of its
+    /// first snapshot. Call it once at boot, before any write is accepted. It does nothing for
+    /// a home that captured from its birth, for a restore, and once a write is in the spool.
+    ///
+    /// Markers of an earlier upload path are cleared first, because no entry will ever settle
+    /// them. The cut is taken under the write gate with the spool empty, so every later write
+    /// is in the spool and none is in the cut twice.
+    pub async fn begin_first_snapshot(
+        self: &Arc<Self>,
+        key: zeroize::Zeroizing<[u8; 32]>,
+    ) -> StorageResult<()> {
+        let Some(log) = &self.accepted else {
+            return Ok(());
+        };
+        let status = log.status();
+        if !status.snapshot_required {
+            // Nothing is owed. A cut left by a kill between the accepted first snapshot and
+            // its removal is removed now.
+            return prearm::release(&self.physical);
+        }
+        if !awaits_first_snapshot(status) || self.fresh_initialization_pending() {
+            return Ok(());
+        }
+        self.replay_accepted(async { Metadata::clear_unsettled_replay(self).await })
+            .await?;
+        self.flush_native().await?;
+        let _write = self.enter_write().await;
+        let runtime = Arc::clone(self);
+        run_blocking(move || {
+            let Some(log) = &runtime.accepted else {
+                return Ok(());
+            };
+            if !awaits_first_snapshot(log.status()) {
+                return Err(StorageError::invalid(
+                    "a write was captured before the first snapshot was preserved",
+                ));
+            }
+            prearm::stage_and_pin(&runtime.physical, log, &key)
+        })
+        .await
     }
 
     /// Pin both native publications after the local upload queue drains.
@@ -73,6 +123,11 @@ impl PackRuntime {
                 "snapshot needs intact local write capture",
             ));
         }
+        if accepted.snapshot_required {
+            return Err(StorageError::invalid(
+                "the first snapshot of this home comes from its preserved cut",
+            ));
+        }
         if accepted.acked != accepted.head {
             return Ok(None);
         }
@@ -89,6 +144,40 @@ impl PackRuntime {
                 .map(Some)
         })
         .await
+    }
+
+    /// Open the files preserved by [`Self::begin_first_snapshot`]. `None` when this home needs
+    /// no first snapshot or has lost its cut. The caller must check that the relay holds no
+    /// snapshot of this owner yet.
+    pub async fn capture_initial_snapshot(
+        self: &Arc<Self>,
+        key: zeroize::Zeroizing<[u8; 32]>,
+    ) -> StorageResult<Option<DatabaseSnapshot>> {
+        let _write = self.enter_write().await;
+        let status = self.accepted_status();
+        if self.requires_recovery() || status.gap || !status.snapshot_required || status.acked != 0
+        {
+            return Ok(None);
+        }
+        let runtime = Arc::clone(self);
+        let snapshot = run_blocking(move || prearm::open(&runtime.physical, &key)).await?;
+        if snapshot
+            .as_ref()
+            .is_some_and(|cut| cut.native_frontier != status.opened_frontier)
+        {
+            return Err(StorageError::invalid(
+                "initial snapshot does not match the capture frontier",
+            ));
+        }
+        Ok(snapshot)
+    }
+
+    /// Remove the local first-snapshot cut after its snapshot entry was accepted.
+    pub fn release_initial_snapshot(&self) -> StorageResult<()> {
+        if self.accepted_status().snapshot_required {
+            return Err(StorageError::invalid("initial snapshot is still required"));
+        }
+        prearm::release(&self.physical)
     }
 
     /// True when no local write waits to be settled and no remote entry waits
@@ -165,6 +254,13 @@ impl DatabaseSnapshot {
             self._files_stage = Some(stage);
         }
         Ok(self)
+    }
+
+    pub(super) fn source_path(&self, data: &Path, relative: &Path) -> PathBuf {
+        match (&self._files_stage, relative.strip_prefix(CAS_DIR)) {
+            (Some(stage), Ok(file)) => stage.path().join(file),
+            _ => data.join(relative),
+        }
     }
 
     /// List the exact original file paths and sizes.

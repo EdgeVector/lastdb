@@ -39,6 +39,11 @@ MEBIBYTE = 1024 * 1024
 MEMORY_GROWTH_BYTES = 256 * MEBIBYTE
 MEMORY_BOUND_BYTES = 1536 * MEBIBYTE
 BATCH = 200
+# The spool keeps one small id record for each of the newest writes (IDS_KEPT in
+# fold_db/.../accepted/disk/recover/files.rs) and trims every IDS_TRIM_EVERY acknowledged entries
+# (TRIM_EVERY in recover.rs), so the directory never holds much more than the sum.
+IDS_KEPT, IDS_TRIM_EVERY = 10_000, 2_500
+IDS_BOUND = IDS_KEPT + IDS_TRIM_EVERY + 500
 
 
 
@@ -198,6 +203,13 @@ class Device:
             return json.loads((self.spool_dir() / "cloud-upload.json").read_text())
         except (OSError, ValueError):
             return None
+
+    def id_records(self):
+        """How many id records the spool holds: one small file for each recent accepted write."""
+        try:
+            return sum(1 for _ in (self.spool_dir() / "ids").iterdir())
+        except OSError:
+            return 0
 
     def spool_bytes(self):
         """Apparent size of every file under the spool directory, and of its pending entries alone."""

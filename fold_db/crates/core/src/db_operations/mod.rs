@@ -212,6 +212,23 @@ impl DbOperations {
             .await
     }
 
+    /// Preserve the files of a home that held data before it began to capture writes, as the
+    /// cut of its first snapshot. See [`PackRuntime::begin_first_snapshot`].
+    pub async fn begin_first_snapshot(&self) -> StorageResult<()> {
+        self.runtime
+            .begin_first_snapshot(zeroize::Zeroizing::new(self.record_store.node_key))
+            .await
+    }
+
+    /// Open the preserved cut of the first snapshot. See [`PackRuntime::capture_initial_snapshot`].
+    pub async fn capture_initial_snapshot(
+        &self,
+    ) -> StorageResult<Option<crate::storage::disk_pack::snapshot::DatabaseSnapshot>> {
+        self.runtime
+            .capture_initial_snapshot(zeroize::Zeroizing::new(self.record_store.node_key))
+            .await
+    }
+
     #[must_use]
     pub fn batch_operation_limit(&self) -> usize {
         self.runtime.batch_operation_limit()

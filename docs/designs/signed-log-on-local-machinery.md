@@ -1,6 +1,6 @@
 # Design: the signed log on the previous local machinery
 
-Date: 2026-11-22. Author: Claude, for Tom. Status: approved. Steps 1 to 4 are built: step 1 earlier, steps 2 and 3 (outgoing and incoming, the order rule) together in one change, because neither can be proven without the other, and step 4 (the snapshot as the checkpoint). Sections 9 and 10 say what was built and what was deferred.
+Date: 2026-11-22. Author: Claude, for Tom. Status: approved. Steps 1 to 5 are built: step 1 earlier, steps 2 and 3 (outgoing and incoming, the order rule) together in one change, because neither can be proven without the other, step 4 (the snapshot as the checkpoint), and step 5 (the move of an existing home). Sections 9, 10 and 11 say what was built and what was deferred.
 
 Basis: Tom, 2026-11-22: "Can we reuse as much of the old machineries as possible? ... logs can be in any form. And then just reuse the current snapshot ... The only major change is the cloud portion", and "keep the database format as much as you can, especially the snapshot. All of that should be exactly the same."
 
@@ -132,7 +132,7 @@ Each step has a real-node proof in CI.
 | 2 | Outgoing: sign at upload from the spool; saved retry entry | A kill under write load loses nothing and repeats nothing; spool size stays flat | High |
 | 3 | Incoming: apply with the stamp in one transaction | Two devices converge; a deleted record does not come back; memory stays bounded; a restart replays nothing | High |
 | 4 | Snapshot as the checkpoint; restore from snapshot and tails | A restore from a snapshot equals a full replay | High |
-| 5 | The move of an existing home | A home with data, made in CI, moves and matches key by key | Medium |
+| 5 | The move of an existing home | A home with data, made by the old build in CI, moves and matches key by key | Medium |
 | 6 | The relay drops entries a snapshot covers | A trimmed relay still restores | Medium |
 
 Steps 1 to 5 are required before the primary moves. Step 6 can wait.
@@ -151,7 +151,7 @@ Tom approved the plan on 2026-11-22 ("All right, it's approved. Let's do it."), 
 
 Settled by the code check after that, within the plan: the hybrid order of section 4a, and no per-entry row for a personal database.
 
-Status: steps 1 to 4 are built. Steps 5 and 6 are not.
+Status: steps 1 to 5 are built. Step 6 is not.
 
 ## 9. What was built for steps 2 and 3
 
@@ -218,7 +218,7 @@ Steps 5 and 6: the move of an existing home, and the relay dropping entries a sn
 
 - `fold_db/.../storage/disk_backup/snapshot.rs` and `files.rs`, and `local_file_ref::{snapshot_budget, snapshot_rows}`, come back from `d06054159`. `DatabaseSnapshot` freezes the main and file roots with the node marker and lists the native files; a local file reference is sealed into a private copy of the files store, as before. `DbOperations::capture_synced_snapshot` and `Metadata::fork_restored_author` come back too. `adopt_restored_snapshot` only forks the author stream now.
 - Changed: the capture also reads the head rows (`signed-replay-head:*`) of the store, in the same section that pins the files. It refuses (returns `None`) unless the spool's acknowledged position equals its head and no `signed-replay-pending:` or `signed-replay-deferred:` row exists. The write gate (`enter_write`) holds while the roots are pinned and the rows are read, so no commit starts or ends in between, and the cut is exact: the files hold exactly the writes that the head rows name.
-- Not brought back: `prearm.rs`, `Status.snapshot_required`, `note_accepted_snapshot`, `Error::Snapshot`, the `capture_initial_snapshot` option, `clear_restored_bootstrap_pending`, `release_bootstrap_replay_pins` and `live_file_paths`. They pin the exact files of a home that had data before capture began, and refuse to acknowledge before a first snapshot covers that history. That is the move of an existing home (step 5). The snapshot of this step covers the whole store at the freeze, so it needs none of them.
+- Not brought back in this step: `prearm.rs`, `Status.snapshot_required`, `note_accepted_snapshot`, `Error::Snapshot`, the `capture_initial_snapshot` option, `clear_restored_bootstrap_pending`, `release_bootstrap_replay_pins` and `live_file_paths`. They pin the exact files of a home that had data before capture began, and refuse to acknowledge before a first snapshot covers that history. That is the move of an existing home. The snapshot of this step covers the whole store at the freeze, so it needed none of them. Section 11 brings them back.
 
 ### The `snapshot` entry
 
@@ -237,3 +237,74 @@ When: on request (`lastdb backup snapshot [--wait]`, route `POST /api/backup/sna
 ### What the relay can see
 
 The files are the store's own: AES-256-GCM frames with keys derived from the node seed (`laststore` run frames, `CURRENT` sealed, the node marker is a fixed constant). They are uploaded as they are. The relay sees file names (run uuids), lengths, digests, and the stream positions in the entry.
+
+## 11. What was built for step 5
+
+A home that already holds data and starts syncing publishes its existing files as the first snapshot, and treats no earlier write as uploaded until that snapshot is named on the relay. The target is the owner's home, written by build `d06054159`, which must move once. The database format does not change (`HOME_FORMAT` stays 15), and the product holds no code that reads an old layout. `docs/designs/move-an-old-home.md` is the runbook.
+
+### The problem
+
+Step 4 takes a snapshot at a freeze with the spool empty and acknowledged. A home that has data and no spool starts capturing at its first write after the relay is configured. Two things go wrong with that. The data from before is in no entry and in no snapshot, so a restore from the relay would silently lack it. And while the first snapshot waits for the spool to drain, the spool would have to be sent first, which puts entries on the relay with no base under them.
+
+### The pieces that came back, and how they were adapted
+
+| Piece (from `d06054159`) | Now |
+|---|---|
+| `prearm.rs`: stage a private copy of the two native roots and pin it | Back, in `disk_backup/prearm.rs`. The copy is hard links to the immutable run files and copies of the few small files, so it is quick, it holds no extra bytes for the runs, and it survives a restart. It is taken by `PackRuntime::begin_first_snapshot` at boot, and not by a hook while the store opens, because the markers of the earlier upload path must be cleared first and that needs the running store |
+| `State.snapshot_required`, `Status.snapshot_required`, `Error::Snapshot`, `note_accepted_snapshot` | Back in the spool. The spool starts with the flag set when the home held data (`history`) and refuses to confirm an upload, and the node does not read it, until the flag is cleared. The field is read as false when absent, which is every state written since step 4 |
+| `capture_initial_snapshot` | Back as a method that opens the preserved copy. The store option is not needed: the host decides by whether the home existed before this start |
+| `clear_restored_bootstrap_pending`, `release_bootstrap_replay_pins`, `live_file_paths` | Back, as `Metadata::clear_unsettled_replay` and its helpers. See "Rows of the earlier path" |
+| `bootstrap.rs` of the node (the saved bootstrap record, `resume`, `complete_or_await_upload`) | Not back. The saved `snapshot-last.json` record of step 4 makes the publish idempotent, which is what `resume` did |
+| The first-backup intent file | Not back. Nothing asks for the first snapshot: the home has data and no spool, and it has a relay |
+
+### What happens
+
+1. Boot of a home that existed before and has no spool, with a relay configured. Before any write is accepted, `begin_first_snapshot` clears the markers of the earlier path, flushes, takes the write gate, checks that the spool still holds no entry, stages the copy of both roots, and writes the spool state with `snapshot_required` and the frontier of the copy. A failure stops the boot with a message, because a capture that began without the copy could never cover the data.
+2. Every later write enters the spool, as in step 4. The spool is not read for upload.
+3. The sync turn sees the flag and runs `run_first` before anything else. It signs the birth if the relay lacks it, hashes the files of the copy, uploads the ones the relay lacks, uploads the manifest, and appends a `snapshot` entry whose `through` is empty: the copy holds no stream position, because no entry existed when it was cut.
+4. The node writes `snapshot-last.json`, records the snapshot in the spool (`note_accepted_snapshot`, which clears the flag), and removes the copy. From then on the spool is the upload queue, and the turn goes on to the sender in the same turn.
+
+Where a write is: a write made before the copy is in the snapshot and not in the spool, because the spool was empty at that moment. A write made after the copy is in the spool and not in the snapshot, because the files of the copy are immutable. The gate makes the moment sharp, and the check of `head == 0` under the gate proves that nothing slipped in. So no write is lost, and none is sent twice.
+
+A restore from this snapshot installs the files, forks the author stream, and reads every stream from its first entry, because `through` is empty. That is exactly the writes since the copy. The restored home records the snapshot as covering its history (`adopt_restored_snapshot` calls `note_accepted_snapshot`), or its own spool would wait for a snapshot that nothing will take.
+
+### Crash windows
+
+| Killed | The next start |
+|---|---|
+| Before the copy is staged | No spool yet. `begin_first_snapshot` runs again from the same files |
+| After the copy is staged, before the spool state is written | The same. A copy that matches the frontier is kept, and any other is cut again, because no entry exists yet |
+| While the upload runs | The copy and the flag are there. The turn runs `run_first` again and uploads again. Blobs are named by digest, so a second put of the same file stores the same bytes again (the reference relay renames over the old file), and nothing is named until the entry |
+| After the entry, before `snapshot-last.json` | The turn publishes again. A second `snapshot` entry with the same empty `through` is on the relay. It is harmless: both name the same state, and the newest wins |
+| After `snapshot-last.json`, before the flag is cleared | The turn finds the saved record, names nothing, clears the flag and removes the copy |
+| After the flag is cleared, before the copy is removed | `begin_first_snapshot` removes the leftover at the next boot |
+
+### Rows of the earlier path
+
+A home written by the old build can hold `signed-replay-pending`, `-baseline`, `-pending-attachment` and `-deferred` rows, and the file pins that go with them. They belong to writes that the old cloud never acknowledged and to remote changes that waited behind them. No entry of the signed log will ever settle them, and they do real harm: a snapshot is refused while any pending or deferred row exists, so the home would never take a second snapshot, and a remote change to a record with a pending row would wait for ever. The old function that cleared them for a restored home fits, and it is used as it was: it keeps every record value and the `winner` stamps and drops only that state. It runs at the one moment when it is safe, when the spool is empty, because a pending row of a write that is in the spool must stay until that write is signed. The copy is cut after it, so the snapshot carries none of them and a restore needs no special path. A record written by the old build keeps its winner stamp, whose time is a real millisecond time, so every entry the new build signs, stamped with a later time, still wins over it.
+
+### The id records of the spool
+
+The spool keeps one small file for each accepted write in `ids/`, named by the mutation id and holding the SHA-256 of the body. They have one use: a write presented again with the same mutation id and the same body is not added to the spool twice, and the same id with another body is refused. Nothing else reads them (`accepted_mutation_seen` has no caller). The spool never removed them, so after 20,000 writes a synced spool was only id records, and the owner's old spool held more than 100,000.
+
+They are now kept for the newest 10,000 writes (`IDS_KEPT`) and for every entry the relay has not acknowledged, and the directory is trimmed every 2,500 acknowledged entries and at open. No format changes: a record is still a file with the same name and content. A client that retries a write older than the newest 10,000 accepted writes is taken to make a new write: it is applied, entered into the spool and signed again with the same body, which is the meaning of a retry that arrives that late. The old record would only have saved one duplicate entry. The scale step of `personal_database_proof.py` asserts that the directory stays below the bound.
+
+### The one-off script, and the identity command
+
+`scripts/operations/adopt_old_home.py` is outside the product. With the daemon stopped it writes the derived personal database id into the owner row of the registry, writes a fresh 64-hex device id, and moves the old `log-sync/<UUID>/` directory and the old spool `data/disk-run/accepted-v1/` whole into a dated directory beside the home. It never touches the store, the identity key or the credentials. The store does not embed the owner id: the id appears in the registry, in `log-sync/<id>/`, and in the upload checkpoint of the old spool, which is set aside. `lastdb admin identity` (read only, no node starts) prints the derived id and the node key, so the script does not repeat the derivation.
+
+### What CI proves
+
+Job `old_home` of `signed-history-dev.yml` (`scripts/operations/old_home_proof.py`) runs the old build from its release, checked by digest. It makes homes with no cloud and a variant with unacknowledged spool entries and pending markers, runs the script (a running daemon, a directory that is not a home, `--check`, the run, a second run), starts the current build with the reference relay, and proves: the first snapshot is named; every record reads by primary key and alternate key and the file's bytes match; the relay holds one entry for each write after the move and none for the old records; a restore equals the moved home key by key and reads only the entries after the snapshot; a second device equals both and exchanges writes with the moved home; a kill before the snapshot is named, during the upload of a large file and with the relay away and writes before and after, loses and repeats nothing; a later snapshot works after the markers were cleared; the relay holds no marker; the script refuses a home with a 40 MiB file reference.
+
+### A limit found on the way
+
+A record can hold a file by path (`data/local-file-refs.json`), and a snapshot seals each such file into its private copy of the files store as one value. A run holds a value of at most 32 MiB (`MAX_RUN_VALUE_BYTES`), so a home with a referenced file larger than that cannot be snapshotted. This is true of the snapshot of step 4 as much as of the first snapshot. The first snapshot makes it visible at boot, where it stops the node with a message, which is the safe answer: a capture that began without the copy could never cover the data. The script refuses such a home before it changes anything, and `old_home_proof.py` proves that refusal on a home that the old build wrote with a 40 MiB file. The product still lacks a way to snapshot such a file. Chunking the sealed value would change the files store, so it is not done here.
+
+### What CI cannot cover
+
+The size of the owner's home, any `pending` row its old store holds (the CI variant produces them with credentials that point nowhere, which is the nearest a cloud-free job gets), the apps installed on it, whether the old home was stopped cleanly, and the real relay (Exemem). The runbook says what to check on the real home.
+
+### Deferred
+
+Step 6 (the relay drops the entries a snapshot covers). A second snapshot entry after a kill at one window is left on the relay, harmless and small.

@@ -7,6 +7,19 @@ use super::super::Entry;
 use super::{Error, Inner, Note, Pending, PendingNote};
 use std::path::Path;
 
+/// How many acknowledged entries pass between two trims of the id records.
+pub(super) const TRIM_EVERY: u64 = 2_500;
+
+/// Trim the id records to the newest ones. They only keep a retried write, with the same
+/// mutation id and the same body, from entering the spool twice, and refuse an id that comes
+/// back with another body. A failed trim leaves the directory larger, never wrong.
+pub(super) fn trim_ids(root: &Path, inner: &Inner) {
+    let Some(state) = inner.state.as_ref() else {
+        return;
+    };
+    let _ = files::trim_ids(root, state.head, state.acked);
+}
+
 pub(super) fn mutation_recorded(root: &Path, id: &str) -> Result<bool, Error> {
     files::read_id(root, id).map(|found| found.is_some())
 }
@@ -315,7 +328,7 @@ pub(super) fn arm(root: &Path, inner: &mut Inner) -> Result<(), Error> {
     let mut state = inner
         .state
         .clone()
-        .unwrap_or_else(|| inner.fresh(inner.frontier));
+        .unwrap_or_else(|| inner.fresh(inner.frontier, inner.history));
     state.armed = true;
     inner.store(root, state)
 }
@@ -329,11 +342,12 @@ pub(super) fn persist_gap(root: &Path, inner: &mut Inner) {
     }
     match io::read_json::<super::State>(&root.join("state.json")) {
         Ok(None) => {
-            let mut state = inner.fresh(inner.frontier);
+            let mut state = inner.fresh(inner.frontier, inner.history);
             state.gap = true;
             if ensure_tree(root).is_ok() && io::write_json(&root.join("state.json"), &state).is_ok()
             {
                 inner.state = Some(state);
+                inner.history = false;
             }
         }
         Ok(Some(mut state)) => {

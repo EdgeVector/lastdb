@@ -147,7 +147,7 @@ entries of the other devices are applied through the store's last-writer stamp, 
 order value of an entry is the time of the commit; the later edit wins. The relay copy is the backup, and reading it is how a second
 device or a restore catches up (`docs/designs/personal-database-signed-log.md`,
 `docs/designs/signed-log-on-local-machinery.md`). A home captures into the spool exactly when something sends it: keep it that way.
-A snapshot is the checkpoint: a restore installs the newest one and reads each stream after its position. The files are the store's own, already encrypted, and are never sealed again. No dual readers, feature flags, or migration paths.
+A snapshot is the checkpoint: a restore installs the newest one and reads each stream after its position. A home that held data before it began to sync keeps a copy of its files as it starts, publishes that copy as its first snapshot, and sends no spool entry before that snapshot is named. The files are the store's own, already encrypted, and are never sealed again. No dual readers, feature flags, or migration paths.
 
 The image already has Rust (`rust-toolchain.toml`, 1.96.1) and Node 22.
 `install` adds Ruby and the pinned

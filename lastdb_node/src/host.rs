@@ -147,6 +147,16 @@ impl Host {
         )
         .await
         .map_err(|e| recovery::map_and_record_boot_error(home, existing, e))?;
+        // A home that held data before it began to capture writes keeps the files as they are
+        // now, as the cut of its first snapshot, before any write is accepted. It does nothing
+        // for any other home. The node refuses to start when it cannot keep the cut, because a
+        // capture that began without it would leave that data out of the signed history.
+        if existing && !signed_restore {
+            db.db_ops()
+                .begin_first_snapshot()
+                .await
+                .map_err(|e| format!("cannot keep the first snapshot of this home: {e}"))?;
+        }
         let owned = owned::Tables::open(home, Arc::clone(&keypair)).await?;
         let user_hash = user_hash_from_pubkey(&keypair.public_key_base64())?;
         let cloud_sync = cloud_sync::CloudSyncTracker::from_boot(
