@@ -73,12 +73,36 @@ pub(crate) async fn log_read(
     let caller = verified.node_key;
     let db = gate::parse_id(&req.database_id, "database_id")?;
     state.check_read(&db, &caller).await?;
-    let (node_key, device_id, from_seq) = read_position(&req)?;
+    let position = read_position(&req)?;
     let limit = req.limit.unwrap_or(90) as usize;
-    let (entries, cursor) = state
-        .store
-        .read_entries(&req.database_id, &node_key, &device_id, from_seq, limit)
-        .await?;
+    let (entries, cursor) = match position {
+        ReadPosition::Device {
+            writer_key,
+            device_id,
+            from_seq,
+        } => {
+            state
+                .store
+                .read_entries(&req.database_id, &writer_key, &device_id, from_seq, limit)
+                .await?
+        }
+        ReadPosition::Writer {
+            writer_key,
+            from_device,
+            from_seq,
+        } => {
+            state
+                .store
+                .read_writer_entries(
+                    &req.database_id,
+                    &writer_key,
+                    from_device.as_deref(),
+                    from_seq,
+                    limit,
+                )
+                .await?
+        }
+    };
     let mut out = json!({ "entries": entries });
     if let Some(c) = cursor {
         out["cursor"] = Value::String(c);
@@ -182,21 +206,61 @@ pub(crate) async fn blob_bytes(
         .into_response())
 }
 
-fn read_position(req: &LogReadBody) -> ApiResult<(String, String, u64)> {
+enum ReadPosition {
+    /// One device chain.
+    Device {
+        writer_key: String,
+        device_id: String,
+        from_seq: u64,
+    },
+    /// Every device under `writer_key`; cursor carries the device.
+    Writer {
+        writer_key: String,
+        from_device: Option<String>,
+        from_seq: u64,
+    },
+}
+
+fn read_position(req: &LogReadBody) -> ApiResult<ReadPosition> {
     if let Some(cursor) = req.cursor.as_deref() {
-        return store::parse_cursor(cursor);
+        let (writer_key, device_id, from_seq) = store::parse_cursor(cursor)?;
+        // `device_id` in the body keeps a single-device page; omit it to walk
+        // every device under the writer (cursor still names the resume point).
+        return if req.device_id.is_some() {
+            Ok(ReadPosition::Device {
+                writer_key,
+                device_id,
+                from_seq,
+            })
+        } else {
+            Ok(ReadPosition::Writer {
+                writer_key,
+                from_device: Some(device_id),
+                from_seq,
+            })
+        };
     }
-    let node_key = req
+    let writer_key = req
         .writer_key
         .clone()
         .ok_or_else(|| ApiError::invalid("writer_key"))?;
-    let device_id = req
-        .device_id
-        .clone()
-        .ok_or_else(|| ApiError::invalid("device_id"))?;
-    require_hex64(&node_key, "writer_key")?;
-    require_hex64(&device_id, "device_id")?;
-    Ok((node_key, device_id, req.from_seq.unwrap_or(1).max(1)))
+    require_hex64(&writer_key, "writer_key")?;
+    let from_seq = req.from_seq.unwrap_or(1).max(1);
+    match req.device_id.as_deref() {
+        Some(device_id) => {
+            require_hex64(device_id, "device_id")?;
+            Ok(ReadPosition::Device {
+                writer_key,
+                device_id: device_id.to_owned(),
+                from_seq,
+            })
+        }
+        None => Ok(ReadPosition::Writer {
+            writer_key,
+            from_device: None,
+            from_seq,
+        }),
+    }
 }
 
 fn require_hex64(s: &str, field: &str) -> ApiResult<()> {

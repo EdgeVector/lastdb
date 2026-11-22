@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use app_identity_crypto::SigningKey;
 use cloud_backup_protocol::Id;
-use mutation_log::{entry_hash, DeviceId, NodeKey, SignedEntry, VerifiedHistory};
+use mutation_log::{entry_hash, NodeKey, SignedEntry};
 use tracing::Instrument;
 
 use crate::host::Host;
@@ -83,33 +83,17 @@ async fn one_turn(host: &Host, histories: &HistoryMap, base: &str) -> Result<(),
     let device_id = device::device_id(&host.home)?;
     let client = RelayClient::new(base, signing_key, node_key_hex.clone(), &device_id)?;
 
-    // Upload every owned outbox before any pull. Personal (and any shareable
-    // whose birth is not on the relay yet) gets log/read 403 field=grant; that
-    // must not abort the turn before shareable birth/grant entries upload.
-    // Personal DBs are not pulled: empty-index grant-403 is expected there and
-    // must not poison turn_error / sticky cloud_sync.last_error.
+    // Upload every owned and received outbox before any pull. Personal (and any
+    // shareable whose birth is not on the relay yet) gets log/read 403
+    // field=grant; that must not abort the turn before shareable birth/grant
+    // entries upload. Personal DBs are not pulled: empty-index grant-403 is
+    // expected there and must not poison turn_error / sticky last_error.
     let mut turn_error: Option<String> = None;
-    let databases = crate::host::owned::registered_databases(&host.home);
-    let owned: Vec<_> = databases
+    let owned: Vec<_> = crate::host::owned::registered_databases(&host.home)
         .into_iter()
-        .filter(|database| {
-            if database.kind != "personal" && database.kind != "shareable" {
-                return false;
-            }
-            if mutation_log::DatabaseId::from_hex(&database.id).is_err() {
-                tracing::warn!(
-                    target: "lastdbd::log_sync",
-                    id = %database.id,
-                    "skip sync: database_id is not a 64-hex database id"
-                );
-                return false;
-            }
-            true
-        })
+        .filter(|database| syncable_owned(&database.kind, &database.id))
         .collect();
     for database in &owned {
-        // Drain every pending batch this turn. A single 32-entry prefix left
-        // grants behind continuous mirrored data and readers hit empty indexes.
         match drain_outbox(&client, histories, &host.home, &database.id).await {
             Ok(()) => {}
             Err(err) => {
@@ -122,6 +106,9 @@ async fn one_turn(host: &Host, histories: &HistoryMap, base: &str) -> Result<(),
                 turn_error = Some(err);
             }
         }
+    }
+    if let Err(err) = drain_received_outboxes(host, histories, &client).await {
+        turn_error = Some(err);
     }
     for database in &owned {
         if database.kind == "personal" {
@@ -137,16 +124,7 @@ async fn one_turn(host: &Host, histories: &HistoryMap, base: &str) -> Result<(),
         if !has_birth {
             continue;
         }
-        if let Err(err) = pull_owned(
-            host,
-            histories,
-            &client,
-            &database.id,
-            &node_key_hex,
-            &device_id,
-        )
-        .await
-        {
+        if let Err(err) = pull_owned(host, histories, &client, &database.id).await {
             tracing::warn!(
                 target: "lastdbd::log_sync",
                 id = %database.id,
@@ -165,13 +143,52 @@ async fn one_turn(host: &Host, histories: &HistoryMap, base: &str) -> Result<(),
     }
 }
 
+fn syncable_owned(kind: &str, id: &str) -> bool {
+    if kind != "personal" && kind != "shareable" {
+        return false;
+    }
+    if mutation_log::DatabaseId::from_hex(id).is_err() {
+        tracing::warn!(
+            target: "lastdbd::log_sync",
+            %id,
+            "skip sync: database_id is not a 64-hex database id"
+        );
+        return false;
+    }
+    true
+}
+
+async fn drain_received_outboxes(
+    host: &Host,
+    histories: &HistoryMap,
+    client: &RelayClient,
+) -> Result<(), String> {
+    let shares = registered_share::list(&host.home).map_err(|e| e.to_string())?;
+    for share in shares {
+        if !share.signed_log {
+            continue;
+        }
+        if mutation_log::DatabaseId::from_hex(share.id.as_str()).is_err() {
+            continue;
+        }
+        if let Err(err) = drain_outbox(client, histories, &host.home, share.id.as_str()).await {
+            tracing::warn!(
+                target: "lastdbd::log_sync",
+                id = %share.id.as_str(),
+                %err,
+                "received outbox upload failed"
+            );
+            return Err(err);
+        }
+    }
+    Ok(())
+}
+
 async fn pull_owned(
     host: &Host,
     histories: &HistoryMap,
     client: &RelayClient,
     database_id: &str,
-    node_key_hex: &str,
-    device_id: &DeviceId,
 ) -> Result<(), String> {
     let Some(store) = materialize::store_for(host, database_id) else {
         tracing::warn!(
@@ -181,25 +198,16 @@ async fn pull_owned(
         );
         return Ok(());
     };
-    // DESIGN: persist per-stream read cursor; Phase 1 re-reads from 1 (idempotent Accept).
     let db = DatabaseCtx {
         home: &host.home,
         database_id,
         store: &store,
     };
-    let _ = super::pull::pull_stream(
-        client,
-        histories,
-        &db,
-        node_key_hex,
-        &device_id.to_string(),
-        1,
-    )
-    .await?;
-    Ok(())
+    let seed = super::pull::writer_keys(histories, database_id);
+    super::pull::pull_writers(client, histories, &db, seed).await
 }
 
-/// Pull publisher streams for signed-log received databases.
+/// Pull publisher and write/submit member streams for signed-log received DBs.
 async fn pull_received_shares(
     host: &Host,
     histories: &HistoryMap,
@@ -210,18 +218,10 @@ async fn pull_received_shares(
         if !share.signed_log {
             continue;
         }
-        let Some(device) = share.publisher_device_id.as_deref() else {
-            tracing::warn!(
-                target: "lastdbd::log_sync",
-                id = %share.id.as_str(),
-                "skip received sync: open link has no publisher device_id"
-            );
-            continue;
-        };
         if mutation_log::DatabaseId::from_hex(share.id.as_str()).is_err() {
             continue;
         }
-        if let Err(err) = pull_one_received(host, histories, client, &share, device).await {
+        if let Err(err) = pull_one_received(host, histories, client, &share).await {
             tracing::warn!(
                 target: "lastdbd::log_sync",
                 id = %share.id.as_str(),
@@ -239,41 +239,23 @@ async fn pull_one_received(
     histories: &HistoryMap,
     client: &RelayClient,
     share: &RegisteredShare,
-    publisher_device: &str,
 ) -> Result<(), String> {
     let id = Id::try_from(share.id.as_str().to_owned()).map_err(|e| e.to_string())?;
     let store = registered_share::receiver_store(host, &id)
         .await
         .map_err(|e| e.to_string())?;
-    let publisher = NodeKey::from_hex(share.publisher.as_str())
-        .map_err(|_| "received share publisher is not hex32")?;
-    let device = DeviceId::from_hex(publisher_device)
-        .map_err(|_| "received share device_id is not hex32")?;
     // Ensure an in-memory history exists so AcceptEntry has a place to land.
     histories.with_mut(share.id.as_str(), |_| ())?;
-    let from = histories
-        .peek_with(share.id.as_str(), |history| {
-            let stream = VerifiedHistory::stream(publisher, device);
-            history
-                .stream_head(&stream)
-                .map_or(1, |head| head.writer_seq.saturating_add(1))
-        })
-        .unwrap_or(1);
     let db = DatabaseCtx {
         home: &host.home,
         database_id: share.id.as_str(),
         store: &store,
     };
-    let _ = super::pull::pull_stream(
-        client,
-        histories,
-        &db,
-        share.publisher.as_str(),
-        publisher_device,
-        from,
-    )
-    .await?;
-    Ok(())
+    let mut seed = super::pull::writer_keys(histories, share.id.as_str());
+    if seed.is_empty() {
+        seed.push(share.publisher.as_str().to_owned());
+    }
+    super::pull::pull_writers(client, histories, &db, seed).await
 }
 
 /// Upload until this database's outbox is empty (or the batch cap is hit).
@@ -339,22 +321,39 @@ async fn upload_batch(
 /// True when any syncable database still has unacked outbox entries.
 fn outbox_pending(host: &Host, histories: &HistoryMap) -> bool {
     for database in crate::host::owned::registered_databases(&host.home) {
-        if database.kind != "personal" && database.kind != "shareable" {
+        if !syncable_owned(&database.kind, &database.id) {
             continue;
         }
-        if mutation_log::DatabaseId::from_hex(&database.id).is_err() {
-            continue;
-        }
-        let memory = histories
-            .peek_with(&database.id, |history| !history.outbox().is_empty())
-            .unwrap_or(false);
-        if memory {
+        if outbox_pending_one(histories, &host.home, &database.id) {
             return true;
         }
-        match history_store::load_outbox_entries(&host.home, &database.id) {
-            Ok(entries) if !entries.is_empty() => return true,
-            _ => {}
+    }
+    let Ok(shares) = registered_share::list(&host.home) else {
+        return false;
+    };
+    for share in shares {
+        if !share.signed_log {
+            continue;
+        }
+        if mutation_log::DatabaseId::from_hex(share.id.as_str()).is_err() {
+            continue;
+        }
+        if outbox_pending_one(histories, &host.home, share.id.as_str()) {
+            return true;
         }
     }
     false
+}
+
+fn outbox_pending_one(histories: &HistoryMap, home: &std::path::Path, database_id: &str) -> bool {
+    let memory = histories
+        .peek_with(database_id, |history| !history.outbox().is_empty())
+        .unwrap_or(false);
+    if memory {
+        return true;
+    }
+    matches!(
+        history_store::load_outbox_entries(home, database_id),
+        Ok(entries) if !entries.is_empty()
+    )
 }

@@ -2,9 +2,9 @@
 //!
 //! An owned database and the personal database behave as before. A received
 //! database is readable once its signed history has materialized into the
-//! receiver store. A write commits only when `write` is `direct` and this
-//! node is an active Submit member. Otherwise the write is refused. `changes`
-//! does not open a received database.
+//! receiver store. A write commits locally, then authors a signed direct entry
+//! on this member's own stream and enqueues the received database's outbox.
+//! Otherwise the write is refused. `changes` does not open a received database.
 
 use std::future::Future;
 use std::sync::Arc;
@@ -16,6 +16,7 @@ use crate::exec::reply::HostError;
 use crate::host::owned::ResolvedStore;
 use crate::host::Host;
 use crate::lastdb_uds::uds_router::valid_selector;
+use crate::log_sync::OwnedMutation;
 use crate::registered_share::{self, RegisteredShare};
 use crate::share_cache::ShareCacheError;
 
@@ -24,7 +25,6 @@ const READ_ONLY: &str = "a received database is read only";
 const CHANGES_UNSERVED: &str = "a received database is not served by /v1/x/changes";
 const STORE_UNAVAILABLE: &str = "database store is unavailable";
 const REGISTRY_UNAVAILABLE: &str = "database registry is unavailable";
-
 enum Place {
     Personal,
     Owned(Arc<FoldDB>),
@@ -42,15 +42,16 @@ pub(super) async fn read_in<T>(
     host: &Host,
     future: impl Future<Output = Result<T, HostError>>,
 ) -> Result<T, HostError> {
-    dispatch(selector, host, OnReceived::Read, future).await
+    dispatch(selector, host, OnReceived::Read, &[], future).await
 }
 
 pub(super) async fn write_in<T>(
     selector: Option<&str>,
     host: &Host,
+    mutations: &[OwnedMutation],
     future: impl Future<Output = Result<T, HostError>>,
 ) -> Result<T, HostError> {
-    dispatch(selector, host, OnReceived::RefuseWrite, future).await
+    dispatch(selector, host, OnReceived::RefuseWrite, mutations, future).await
 }
 
 pub(super) async fn changes_in<T>(
@@ -58,13 +59,14 @@ pub(super) async fn changes_in<T>(
     host: &Host,
     future: impl Future<Output = Result<T, HostError>>,
 ) -> Result<T, HostError> {
-    dispatch(selector, host, OnReceived::RefuseChanges, future).await
+    dispatch(selector, host, OnReceived::RefuseChanges, &[], future).await
 }
 
 async fn dispatch<T>(
     selector: Option<&str>,
     host: &Host,
     received: OnReceived,
+    mutations: &[OwnedMutation],
     future: impl Future<Output = Result<T, HostError>>,
 ) -> Result<T, HostError> {
     match place(selector, host)? {
@@ -72,7 +74,7 @@ async fn dispatch<T>(
         Place::Owned(store) => host.with_records(store, future).await,
         Place::Received(share) => match received {
             OnReceived::Read => read_received(host, &share, future).await,
-            OnReceived::RefuseWrite => write_received(host, &share, future).await,
+            OnReceived::RefuseWrite => write_received(host, &share, mutations, future).await,
             OnReceived::RefuseChanges => Err(HostError::new(404, CHANGES_UNSERVED)),
         },
     }
@@ -104,6 +106,7 @@ fn received(host: &Host, selector: &str) -> Result<Place, HostError> {
 async fn write_received<T>(
     host: &Host,
     share: &RegisteredShare,
+    mutations: &[OwnedMutation],
     future: impl Future<Output = Result<T, HostError>>,
 ) -> Result<T, HostError> {
     if !crate::log_sync::direct_write_allowed(host, share) {
@@ -115,7 +118,20 @@ async fn write_received<T>(
     let result = host.with_records(Arc::clone(&store), future).await;
     // The write may have moved the spool. Record the cursor the list reads.
     crate::log_sync::note_receiver(share.id.as_str(), &store);
-    result
+    let Ok(body) = result else {
+        return result;
+    };
+    crate::log_sync::mirror_received_write(host, share, mutations).map_err(|error| {
+        let reply = error.reply();
+        tracing::warn!(
+            target: "lastdbd::log_sync",
+            status = reply.status,
+            message = reply.message,
+            "received write was not mirrored to the member stream"
+        );
+        HostError::new(reply.status, reply.message)
+    })?;
+    Ok(body)
 }
 
 async fn read_received<T>(

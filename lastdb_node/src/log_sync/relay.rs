@@ -62,22 +62,31 @@ impl RelayClient {
         ))
     }
 
+    /// Read one writer's entries. Omit `device_id` to receive that writer's
+    /// entries across every device; the response cursor carries the device.
     pub(super) async fn read(
         &self,
         database_id: &str,
-        node_key: &str,
-        device_id: &str,
+        writer_key: &str,
+        device_id: Option<&str>,
         from_seq: u64,
+        cursor: Option<&str>,
         limit: u32,
     ) -> Result<(Vec<SignedEntry>, Option<String>), String> {
         // OpenAPI LogReadBody names the stream key `writer_key` (hex node key).
-        let body = json!({
+        let mut body = json!({
             "database_id": database_id,
-            "writer_key": node_key,
-            "device_id": device_id,
-            "from_seq": from_seq,
             "limit": limit,
         });
+        if let Some(cursor) = cursor {
+            body["cursor"] = Value::String(cursor.to_owned());
+        } else {
+            body["writer_key"] = Value::String(writer_key.to_owned());
+            body["from_seq"] = json!(from_seq);
+            if let Some(device_id) = device_id {
+                body["device_id"] = Value::String(device_id.to_owned());
+            }
+        }
         let value = self.post("/relay/v1/log/read", database_id, &body).await?;
         let entries: Vec<SignedEntry> = serde_json::from_value(value["entries"].clone())
             .map_err(|_| "relay log.read returned invalid entries".to_owned())?;
