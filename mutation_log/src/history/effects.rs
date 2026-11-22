@@ -21,6 +21,7 @@ impl VerifiedHistory {
                     let author = body
                         .incorporated_from
                         .as_ref()
+                        .filter(|_| is_publisher)
                         .map_or(position.node_key, |from| from.node_key);
                     self.merge_data(&body.namespace, &body.payload, position, author);
                 }
