@@ -8,9 +8,10 @@ name: CI required
 # lastdb_app_sdk typecheck, the schema service start check, a tracked-text
 # secret scan, the cargo-deny supply-chain check, the cargo-machete unused
 # dependency check, builds, the record home product proof, the
-# cloud_backup_protocol check against the exemem-infra main fold pin, and the
-# installed-app proof for a socket surface or interface version change.
-# No coverage check is required.
+# cloud_backup_protocol check against the exemem-infra main fold pin, the
+# installed-app proof for a socket surface or interface version change, and
+# the People DEV sharing proof (dispatch EdgeVector/people `dev-sharing.yml`
+# for this LastDB SHA). No coverage check is required.
 # The single required check is the `ci-required` job at the bottom.
 
 on:
@@ -18,6 +19,11 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      lastdb_source_sha:
+        description: "Optional 40-hex LastDB SHA for People DEV sharing (default: the event SHA)"
+        type: string
+        required: false
 
 concurrency:
   group: ci-required-${{ github.event_name }}-${{ github.ref }}
@@ -245,6 +251,24 @@ jobs:
           GH_PAT: ${{ secrets.GH_PAT }}
         run: python3 scripts/lints/lint-cloud-protocol-pin.py
 
+  # Starts EdgeVector/people DEV sharing on people main against this LastDB
+  # SHA (PR head, push SHA, or workflow_dispatch input). People keeps the
+  # recipes and the DEV publisher secrets; this job only dispatches and waits.
+  # GH_PAT must be able to workflow_dispatch people `dev-sharing.yml`.
+  people_dev_sharing:
+    name: People DEV sharing proof
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - name: Dispatch People DEV sharing and wait
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          LASTDB_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.lastdb_source_sha || github.event.pull_request.head.sha || github.sha }}
+        run: python3 scripts/ci/people_dev_sharing_gate.py --sha "$LASTDB_SHA"
+
   ci-required:
     name: ci-required
     needs:
@@ -257,6 +281,7 @@ jobs:
       - record_home
       - protocol_pin
       - installed_app_gate
+      - people_dev_sharing
     if: ${{ always() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -268,7 +293,7 @@ jobs:
           echo "Required job results: $RESULTS"
           # Every non-test required job must succeed.
           # A skip is a failure.
-          if [ "$RESULTS" != "success,success,success,success,success,success,success,success,success" ]; then
+          if [ "$RESULTS" != "success,success,success,success,success,success,success,success,success,success" ]; then
             echo "A required job did not succeed"
             exit 1
           fi
