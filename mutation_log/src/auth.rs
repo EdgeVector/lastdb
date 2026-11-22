@@ -142,6 +142,14 @@ fn authorize_proposal<'s>(
     check_cutoff(h, grants)
 }
 
+/// True while a non-owner entry still falls inside its writer's window: not
+/// past the cutoff of a later role reduction. A later reduction can void an
+/// entry that was accepted earlier.
+#[must_use]
+pub(crate) fn within_cutoff(entry: &SignedEntry, grants: &GrantState) -> bool {
+    check_cutoff(entry.header(), grants).is_none()
+}
+
 fn check_cutoff(h: &EntryHeader, grants: &GrantState) -> Option<RejectReason> {
     // After a reduction, missing device tips are cutoff 0 (unseen → reject seq≥1).
     let tip = grants.cutoff(&h.node_key, &h.device_id)?;

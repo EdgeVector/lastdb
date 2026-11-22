@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, HashMap};
 
 use fold_db::fold_db_core::FoldDB;
 use fold_db::record_replacement::RecordTarget;
-use fold_db::schema::types::{CasExpectation, Mutation, MutationType};
+use fold_db::schema::types::{CasExpectation, KeyValue, Mutation, MutationType};
 use mutation_log::{MaterializedRecord, VerifiedHistory};
 use serde_json::Value;
 
@@ -112,4 +112,48 @@ fn schema_declared(store: &FoldDB, namespace: &str) -> Result<bool, String> {
         .get_schema_metadata(namespace)
         .map_err(|e| e.to_string())?
         .is_some())
+}
+
+/// Delete the records of voided keys that no history winner holds.
+///
+/// A role reduction can void a member's earlier write. When the key falls back
+/// to an earlier winner, [`apply_history`] writes that winner. When no write
+/// counts any more, the store must drop the record the voided write made.
+pub async fn delete_voided(store: &FoldDB, history: &VerifiedHistory) -> Result<(), String> {
+    for (namespace, record_key) in history.voided_keys() {
+        if history
+            .records()
+            .contains_key(&(namespace.clone(), record_key.clone()))
+            || !schema_declared(store, namespace)?
+        {
+            continue;
+        }
+        let key = key_value(store, namespace, record_key)?;
+        delete_record(store, namespace, key).await?;
+    }
+    Ok(())
+}
+
+async fn delete_record(store: &FoldDB, namespace: &str, key: KeyValue) -> Result<(), String> {
+    let Some(current) = read_at(store, namespace, &key).await? else {
+        return Ok(());
+    };
+    let target = RecordTarget {
+        schema: namespace.to_owned(),
+        key,
+        alternates: BTreeMap::new(),
+    };
+    let mutation = Mutation::with_uuid(
+        uuid::Uuid::new_v4().to_string(),
+        target,
+        HashMap::new(),
+        MutationType::Delete,
+        revision_of(&current),
+    );
+    store
+        .mutation_manager()
+        .write_mutations_receipt(vec![mutation])
+        .await
+        .map(|_| ())
+        .map_err(|e| format!("delete {namespace}: {e}"))
 }

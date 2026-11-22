@@ -76,6 +76,8 @@ pub struct VerifiedHistory {
     rejects: Vec<RejectEvidence>,
     /// Equivocation evidence.
     equivocations: Vec<EquivocationEvidence>,
+    /// Keys written by an entry that a role reduction later voided.
+    voided: BTreeSet<(String, String)>,
 }
 
 impl VerifiedHistory {
@@ -99,6 +101,7 @@ impl VerifiedHistory {
             pending: VecDeque::new(),
             rejects: Vec::new(),
             equivocations: Vec::new(),
+            voided: BTreeSet::new(),
         }
     }
 
@@ -136,6 +139,14 @@ impl VerifiedHistory {
     #[must_use]
     pub fn records(&self) -> &BTreeMap<(String, String), MaterializedRecord> {
         &self.records
+    }
+
+    /// Keys written by an entry that a role reduction voided. A key with no
+    /// winner here has no valid write left, so a store that mirrored the voided
+    /// write must drop that record.
+    #[must_use]
+    pub fn voided_keys(&self) -> &BTreeSet<(String, String)> {
+        &self.voided
     }
 
     /// Borrow declared schema definitions (`namespace` → JSON bytes).
@@ -272,6 +283,7 @@ impl VerifiedHistory {
         self.accepted.insert(hash, meta);
         if rebuild {
             self.rebuild_grants();
+            self.refold_voided();
         }
     }
 
