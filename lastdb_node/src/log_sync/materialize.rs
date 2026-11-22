@@ -20,7 +20,7 @@ pub(super) struct DatabaseCtx<'a> {
 }
 
 /// The FoldDB holding `database_id`: the personal store or an owned sibling.
-pub(super) fn store_for(host: &Host, database_id: &str) -> Option<Arc<FoldDB>> {
+pub(crate) fn store_for(host: &Host, database_id: &str) -> Option<Arc<FoldDB>> {
     match host.owned.resolve(database_id) {
         Ok(ResolvedStore::Owner) => Some(Arc::clone(&host.db)),
         Ok(ResolvedStore::Owned(store)) => Some(store),
@@ -34,5 +34,32 @@ pub(super) async fn apply_history_records(
 ) -> Result<(), String> {
     signed_history_materialize::declare_history_schemas(store, history).await?;
     signed_history_materialize::apply_history(store, history).await?;
-    signed_history_materialize::delete_voided(store, history).await
+    signed_history_materialize::reconcile_keys(store, history, history.voided_keys()).await
+}
+
+/// Bring `store` back to the history at the keys of a write whose signed
+/// entries were not all confirmed.
+///
+/// A write commits to the store first, because the store validates it, and is
+/// signed second. The history is the truth, so a record with no signed entry
+/// must not stay: each key goes back to its history winner, or to no record.
+/// Entries that were signed before the failure keep their records.
+pub(crate) async fn revert_unsigned(
+    host: &Host,
+    database_id: &str,
+    store: &FoldDB,
+    keys: &[(String, String)],
+) {
+    let reverted = match super::histories_for(&host.home).snapshot(database_id) {
+        Ok(history) => signed_history_materialize::reconcile_keys(store, &history, keys).await,
+        Err(error) => Err(error),
+    };
+    if let Err(error) = reverted {
+        tracing::warn!(
+            target: "lastdbd::log_sync",
+            id = %database_id,
+            %error,
+            "an unsigned write could not be reverted to the history"
+        );
+    }
 }

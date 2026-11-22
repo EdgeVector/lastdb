@@ -34,6 +34,7 @@ use mutation_log::{NodeKey, Role};
 
 pub use config::relay_base_url;
 pub(crate) use history_store::histories_for;
+pub(crate) use materialize::{revert_unsigned, store_for as owned_store};
 pub(crate) use member_write::mirror_received_write;
 pub(crate) use mirror::{mirror_owned_write, OwnedMutation};
 pub(crate) use proposal::{

@@ -37,8 +37,20 @@ pub(super) fn plan<'a>(items: impl IntoIterator<Item = SignedParts<'a>>) -> Vec<
         .collect()
 }
 
+/// The `(schema, record key)` of each mutation, as the history names records.
+pub(super) fn keys_of(signed: &[OwnedMutation]) -> Vec<(String, String)> {
+    signed
+        .iter()
+        .map(|item| (item.schema.clone(), item.record_key.clone()))
+        .collect()
+}
+
 /// Author signed `data` for a shareable owned write; no-op when no database id.
-pub(super) fn mirror_committed(
+///
+/// The store validated and committed the write first. When its entries cannot
+/// all be signed, the unsigned records are reverted to the history, so the
+/// store never holds a record the history does not.
+pub(super) async fn mirror_committed(
     host: &Host,
     database_id: Option<&str>,
     signed: &[OwnedMutation],
@@ -46,12 +58,19 @@ pub(super) fn mirror_committed(
     let Some(database_id) = database_id else {
         return Ok(());
     };
-    mirror_owned_write(host, database_id, signed).map_err(|error| {
-        tracing::warn!(
-            target: "lastdbd::log_sync",
-            %error,
-            "owned write was not mirrored to the signed log"
-        );
-        HostError::new(503, "signed history mirror was not confirmed")
-    })
+    let Err(error) = mirror_owned_write(host, database_id, signed) else {
+        return Ok(());
+    };
+    tracing::warn!(
+        target: "lastdbd::log_sync",
+        %error,
+        "owned write was not mirrored to the signed log"
+    );
+    if let Some(store) = crate::log_sync::owned_store(host, database_id) {
+        crate::log_sync::revert_unsigned(host, database_id, &store, &keys_of(signed)).await;
+    }
+    Err(HostError::new(
+        503,
+        "signed history mirror was not confirmed",
+    ))
 }
