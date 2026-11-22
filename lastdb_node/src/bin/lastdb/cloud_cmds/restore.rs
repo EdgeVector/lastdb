@@ -3,8 +3,7 @@
 use super::enrollment_home::FreshHome;
 use super::{print_backup, read_stdin_secret, BackupRestoreArgs, RecoverCredentialsArgs};
 use base64::Engine as _;
-use cloud_backup_protocol::v2::{context::ContextReadRequest, Version};
-use cloud_backup_protocol::{AccountId, Id};
+use cloud_backup_protocol::AccountId;
 use fold_db::security::Ed25519KeyPair;
 use lastdb_node::cloud::{register_native_device, SavedCredentials, CLOUD_CREDENTIALS_FILE};
 use lastdb_node::host::{user_hash_from_pubkey, Host, IDENTITY_KEY_FILE};
@@ -25,37 +24,34 @@ const RECOVERY_ERRS: [&str; 4] = [
     "cannot commit paused credentials; retain the device intent",
 ];
 
-pub(super) fn run(home: &Path, args: BackupRestoreArgs) -> Result<(), String> {
+/// Restore the personal database into a new home from the recovery phrase and
+/// the relay. `home` is the home named by `--data-dir`, if any. It is used only
+/// to find saved cloud credentials for the relay URL.
+pub(super) fn run(home: Option<&Path>, args: BackupRestoreArgs) -> Result<(), String> {
     let phrase = read_stdin_secret(4096, "recovery phrase")?;
-    let database_id = args.database.clone();
-    let database = Id::try_from(args.database.clone())
-        .map_err(|_| "signed restore requires a 64-hex database id".to_owned())?;
-    let device_ids = args.device_ids;
     let relay_override = args.relay_url;
-    let generation = args.generation;
     let destination = args.into;
     let json = args.json;
     let parent = destination.parent().ok_or("missing recovery parent")?;
     FreshHome::preflight_empty(&destination)?;
     let relay_url = relay_override
-        .or_else(|| lastdb_node::log_sync::relay_base_url(home))
+        .or_else(lastdb_node::log_sync::explicit_relay_url)
+        .or_else(|| home.and_then(lastdb_node::log_sync::relay_base_url))
         .ok_or(
-            "signed restore requires --relay-url, LASTDB_RELAY_URL, or log-sync/relay-url under --data-dir",
+            "signed restore requires --relay-url, LASTDB_RELAY_URL, or saved cloud credentials under --data-dir",
         )?;
     let plan = SignedRestorePlan {
-        home,
         phrase: &phrase,
-        database_id: &database_id,
-        device_ids: &device_ids,
         relay_url: &relay_url,
-        generation,
         parent,
         destination: &destination,
     };
     let restored = signed_restore_worker(|| async { restore_into_staged(plan).await })?;
     print_backup(
         &serde_json::json!({
-            "ok": true, "database_id": database, "name": restored.name,
+            "ok": true,
+            "database_id": restored.database_id,
+            "devices": restored.devices,
             "through": restored.through,
             "replayed": restored.replayed,
             "destination": destination,
@@ -65,34 +61,17 @@ pub(super) fn run(home: &Path, args: BackupRestoreArgs) -> Result<(), String> {
 }
 
 struct SignedRestorePlan<'a> {
-    home: &'a Path,
     phrase: &'a str,
-    database_id: &'a str,
-    device_ids: &'a [String],
     relay_url: &'a str,
-    generation: Option<u64>,
     parent: &'a Path,
     destination: &'a Path,
 }
 
+/// Make a home from the phrase, read every stream of the owner from the relay
+/// into it, and publish it. The recovery phrase is the only input: the node key,
+/// the personal database id and the read key come from it.
 async fn restore_into_staged(plan: SignedRestorePlan<'_>) -> Result<Restored, String> {
-    let account_id = lastdb_node::cloud::account_from_phrase(plan.phrase)?;
     let seed = Zeroizing::new(lastdb_node::cloud::seed_from_phrase(plan.phrase)?);
-    let pair = Ed25519KeyPair::from_secret_key(seed.as_ref())
-        .map_err(|_| "invalid recovery identity".to_owned())?;
-    let mut scope = lastdb_node::cloud::client_from_home_with_keypair(plan.home, Arc::new(pair))?
-        .context(&ContextReadRequest {
-            version: Version::V2,
-            account_id,
-            required_destinations: Vec::new(),
-        })
-        .await
-        .map_err(|e| e.to_string())?
-        .scope;
-    if let Some(generation) = plan.generation {
-        scope.account_generation = cloud_backup_protocol::DecimalU64::new(generation);
-    }
-    let _ = scope; // Phase 1 pulls from the relay; ExeMem scope is account-check only.
     let staged_path = plan
         .parent
         .join(format!(".lastdb-signed-restore-{}", uuid::Uuid::new_v4()));
@@ -101,32 +80,17 @@ async fn restore_into_staged(plan: SignedRestorePlan<'_>) -> Result<Restored, St
     fresh.commit()?;
     drop(fresh);
     let staged = StagedHome::open(staged_path)?;
-    let streams = plan
-        .device_ids
-        .iter()
-        .map(|id| lastdb_node::log_sync::OwnedStream {
-            device_id: id.clone(),
-        })
-        .collect();
-    let report =
-        lastdb_node::log_sync::restore_owned_database(lastdb_node::log_sync::RestoreOwnedParams {
-            home: &staged.path,
-            relay_url: plan.relay_url.to_owned(),
-            seed: &seed,
-            database_id: plan.database_id.to_owned(),
-            streams,
-        })
-        .await?;
-    lastdb_node::log_sync::store_relay_base_url(&staged.path, plan.relay_url)?;
-    // FoldDB already holds winners under home/data; boot validates the layout.
     let host = Arc::new(Host::boot(&staged.path).await?);
+    let report = lastdb_node::log_sync::restore_personal_database(&host, plan.relay_url).await;
     let owned_closed = host.shutdown_owned_databases().await;
     let owner_closed = host.db.shutdown().await;
     drop(host);
+    let report = report?;
     owned_closed?;
     owner_closed.map_err(|e| e.to_string())?;
     let out = Restored {
-        name: "recovered".to_owned(),
+        database_id: report.database_id,
+        devices: report.devices,
         through: report.through,
         replayed: report.replayed,
     };
@@ -134,7 +98,8 @@ async fn restore_into_staged(plan: SignedRestorePlan<'_>) -> Result<Restored, St
 }
 
 struct Restored {
-    name: String,
+    database_id: String,
+    devices: usize,
     through: u64,
     replayed: u64,
 }

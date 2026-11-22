@@ -43,13 +43,13 @@ and bad request. There is no `manage`/`access` UX that invents grants.
 
 **Role changes live only in the chain.** Every grant and every role
 reduction (including revoke) is a signed `grant`-kind entry on a publisher
-device chain. **Cutoffs are required only when a grant lowers an existing
-role or revokes**; a first grant carries none. **No side channel** — not
+device chain. A grant that lowers a role or revokes still carries a
+`cutoffs` field for the wire format; nothing reads it. **No side channel** — not
 in ExeMem rows, not in People. People may carry **signed heads for
 comparison only**. The relay’s grant index (and any ExeMem cache) is
 **derived from verified publisher birth/grant entries**, never
 authoritative for AcceptEntry. A grant/revoke seen only off-chain **must
-be ignored** by nodes. Grantee node key, role, and cutoffs are **signed
+be ignored** by nodes. Grantee node key and role are **signed
 plaintext metadata** so the relay can gate without decrypting payloads.
 Access for merge remains local (no `manage`/`access`).
 
@@ -72,11 +72,11 @@ verified history for `E.database_id`:
    accepted entries named by `E.seen_heads` (0 if empty). Require
    `E.lamport == 1 + max(L_prev, L_seen)`. Else **reject** (inflated or
    inconsistent).
-6. **Publisher authorization / cutoffs.** Among `E.seen_heads`, use the
-   **publisher** entries for the grant-window. Owner (from birth) may write
-   publisher kinds. Else `kind=data` or `kind=bundle`: grant-window +
-   role-reduction cutoffs below. Direct writes past a cutoff are rejected
-   **regardless of** claimed seen heads.
+6. **Publisher authorization.** Only the owner (from birth) signs direct
+   `data`, `bundle`, and the publisher kinds. Any other writer may sign
+   only a proposal (`stream=proposal`). Among `E.seen_heads`, use the
+   **publisher** entries for the grant-window: the writer needs `submit`
+   or `write` there and a current `submit` or `write` grant.
 7. **Bundle body (only if `kind=bundle`).** After steps 1–6 pass, fetch the
    referenced encrypted blob (`blob.get`), verify `blob_sha256` and
    `blob_size`, decrypt under the db key, verify `change_count`, then apply
@@ -95,9 +95,9 @@ A device keeps **no full history**. It keeps:
 |---|---|
 | Materialized state | Current records (and blob refs) |
 | Per-stream heads | For each `(node_key, device_id)`: `(entry_hash, writer_seq, lamport)` |
-| Grant state | Folded roles + cutoffs |
+| Grant state | Folded roles |
 | Per-record position | Winning `(lamport, node_key, device_id)` for LWW |
-| Outbox | Signed entries not yet acknowledged by a relay |
+| Log and cursor | Entries this node signed, and how many a relay has acknowledged |
 
 **At WRITE time** the device:
 
@@ -107,7 +107,8 @@ A device keeps **no full history**. It keeps:
    `lamport = 1 + max(own prev lamport, lamports of cited entries)`,
 3. Signs the entry,
 4. **Applies locally** (same `AcceptEntry` + merge rules),
-5. Enqueues the signed bytes on the **outbox**.
+5. Appends the signed entry to the **log**; entries past the upload cursor
+   are pending.
 
 Upload sends those signed entries **unchanged**. Relays store/forward;
 they do not re-author.
@@ -141,10 +142,10 @@ Two different valid entries at the same `(node_key, device_id, writer_seq)`
 kind. The device continues under a **new `device_id`** (new stream from
 seq 1). Keep both signed entries as evidence (`history.equivocation`).
 
-**Guarantee (cutoffs):** after a reader has a publisher role reduction with
-cutoffs **in the chain**, nothing past those cutoffs from that member is
-accepted. Delayed delivery is liveness; signed `heads` / tip compare
-detects it.
+**Guarantee:** a member's entries change no record until the publisher
+signs them in. After a reader has a publisher revoke **in the chain**, the
+member's proposals are not accepted. Delayed delivery is liveness; signed
+`heads` / tip compare detects it.
 
 **Limit:** relays can delay or stop delivery. They cannot make honest nodes
 silently disagree once heads and dependencies meet.
@@ -185,45 +186,36 @@ Wire `signature`: base64url, 64 bytes.
 | Kind | Domain | Notes |
 |---|---|---|
 | `birth` | birth material in chain | First publisher-device entry (`writer_seq=1`) |
-| `data` | `lastdb-mutation-v1` | `stream` direct\|proposal; payload; optional file / incorporation / grant_at |
-| `bundle` | `lastdb-bundle-v1` | `{blob_sha256, blob_size, change_count}`; member binds `grant_at` |
-| `grant` | `lastdb-grant-v1` | grantee, role; **cutoffs only when lowering/revoking** (not on first grant) |
+| `data` | `lastdb-mutation-v1` | `stream` direct\|proposal; payload; optional file / incorporation |
+| `bundle` | `lastdb-bundle-v1` | `{blob_sha256, blob_size, change_count}`; publisher only |
+| `grant` | `lastdb-grant-v1` | grantee, role; `cutoffs` carried for the wire format, never read |
 | `blob_delete` | `lastdb-blob-delete-v1` | publisher; names blob `sha256` |
 | `heads` | `lastdb-heads-v1` | publisher tip vector for hidden-entry detection |
 | `relays` | `lastdb-relays-v1` | publisher-signed relay URL list |
 
-**Data / bundle:** publisher direct or bundle needs no grant. Member
-direct **or** member bundle binds `grant_at` (`grant_at_device` +
-`grant_at_seq`) and `seen_heads`. Proposal: `stream=proposal`, no
-grant_at; content only via incorporation (`incorporated_from`). Bundles
-never carry proposals or grant entries inside the blob.
+**Data / bundle:** direct `data` and bundles are the publisher's alone and
+need no grant. A member signs only a proposal: `stream=proposal`, no
+`grant_at`, its `seen_heads` naming the publisher grants it holds. A
+proposal changes nothing until the publisher signs a direct entry that
+cites it in `incorporated_from`, or a `heads` entry that records it as not
+accepted. Bundles never carry proposals or grant entries inside the blob.
 
 **Birth:** first chained entry on a publisher device. ExeMem
 `manage`/`create` carries the full signed `BirthEntry`.
 
 ### Grant window
 
-Member direct `data` or member `bundle` write `W` with `grant_at = G`
-and `seen_heads = H`:
+A proposal `P` with `seen_heads = H`:
 
 1. From the **publisher** entries among the accepted set named by `H`,
-   fold grants in merge order. At `G`, effective role must be **`write`**.
-2. No later publisher grant through that prefix lowers the role below
-   `write`. If those heads already cover a reduction/revoke, reject.
-3. Apply **all role-reduction cutoffs** present in verified `S`.
+   fold grants in merge order. The proposer's effective role must be
+   `submit` or `write`.
+2. The proposer's role in the full verified `S` must also be `submit` or
+   `write`, so a revoked member cannot propose by citing an older grant.
 
-### Role-reduction cutoffs
-
-Every `grant` that **lowers** a member’s existing role (or revokes) carries
-per-device cutoffs. A **first grant** does not.
-
-- `write → submit` or `write → read`
-- `submit → read`
-- any role → `revoked`
-
-`cutoffs[]`: `(device_id, writer_seq, entry_hash)`. Unseen device →
-cutoff 0. Apply only from verified chain entries. Direct writes past a
-cutoff are rejected regardless of `seen_heads`. `any` is read-only.
+A role reduction or revoke carries a `cutoffs` field because the signed
+bytes include it. Nothing reads it: no member entry changes a record, so
+there is nothing to cut off.
 
 ### Blob delete
 
@@ -257,7 +249,7 @@ revokes, role reductions, `heads`, `relays`, and `blob_delete` **must not**
 appear inside a bundle.
 
 **AcceptEntry (bundle):** run the common checks first (signature, db bind,
-chain link, seen heads, lamport, write authority, cutoffs, fork). Then
+chain link, seen heads, lamport, write authority, fork). Then
 download, verify sha256 + size, decrypt, verify `change_count`, and apply
 inner changes. Every inner change shares the **entry’s** `lamport` (and
 the entry’s `node_key` / `device_id`). A bundle **must not** hold two
@@ -299,6 +291,11 @@ No snapshots. No `cursor_expired`. Delivery cursors are pagination only.
    LWW merge; replay. Bundle bodies download via `blob.get` when the entry
    is reached (stream blocks on that entry until the blob verifies).
 4. Other file blobs **lazily** by hash via `blob.get` (presigned URL).
+
+The personal database restores and joins the same way, from the recovery
+phrase alone: it reads every stream of the owner's node key, opens the sealed
+payloads, and signs on a new stream under a new device id. See
+[personal-database-signed-log.md](personal-database-signed-log.md).
 
 After replay, keep only materialized state, per-stream heads, grant state,
 per-record positions, and the outbox — enough to validate and author the
@@ -385,7 +382,8 @@ Publisher pays. Lapsed: reads work; push/grant/create →
 8. Actions: `fetch` / `push` / `manage` / `account`.
 9. **Superseded by 42.** Stream signed on the entry; no server `landed`.
 10. Publisher sees direct+proposal; receivers direct only; acceptance =
-    publisher incorporation. Proposals are flagged `data` entries.
+    publisher incorporation, and a proposal not accepted is cited by a
+    publisher `heads` entry. Proposals are flagged `data` entries.
 11. Silent rejections — no discard call.
 12. **Superseded by 46.** No `manage`/`access`; access from the chain;
     no share-settings / `rules`.
@@ -424,10 +422,10 @@ Publisher pays. Lapsed: reads work; push/grant/create →
 40. Devices: `remove_device` bookkeeping; cap 256.
 41. Delivery cursors are pagination only.
 42. Writer signatures + device streams; local write model (sign, apply,
-    outbox); `AcceptEntry` with any-stream `seen_heads` by hash; checked
+    log + cursor); `AcceptEntry` with any-stream `seen_heads` by hash; checked
     Lamport; whole-record LWW; no checkpoints; no `landed`; no `resolve`.
-43. Signed grants; cutoffs **only** when lowering/revoking (not on first
-    grant); revoke-wins ties; publisher `heads` for hidden-entry
+43. Signed grants; the `cutoffs` field is carried but never read;
+    revoke-wins ties; publisher `heads` for hidden-entry
     detection; no side channel.
 44. Append-only logs in normal operation; proposals not GC-deleted; blob
     delete via chain; product erase via `delete` / `deactivate`.
@@ -445,7 +443,7 @@ Publisher pays. Lapsed: reads work; push/grant/create →
     blob_delete; per-db keyed blobs with per-blob nonce (no digest
     dedupe/refcount). Bootstrap = birth + current-state bundles + grants.
 48. Relay spam/cost gate from publisher-signed birth/grant entries: every
-    request signed; append/put need write (or submit for proposals);
+    request signed; append is the publisher's, or a proposal from a submit or write member; put needs write;
     read/get need read or `grant#any`; revoke cuts off new appends (403);
     already-stored entries stay. Quota billed to the publisher’s ExeMem
     account; grantees need no account. Rejected: shared db secret for
@@ -489,7 +487,7 @@ request. Relays additionally return **403** `forbidden` when the caller’s
 ### Node-side signals
 
 `history.fork` / `history.equivocation` (frozen stream), `history.withheld`
-(hidden entry via `heads`), cutoff / Lamport / signature rejects, **pending**
+(hidden entry via `heads`), Lamport / signature / authorization rejects, **pending**
 until `seen_heads` deps arrive — local only.
 
 ## CI plan (DEV E2E, not unit tests)
@@ -501,7 +499,7 @@ until `seen_heads` deps arrive — local only.
    `device_id`.
 5. Multi-device offline same seq: **not** equivocation.
 6. Forged grant: cannot authorize.
-7. Backdated write after revoke / downgrade (cutoff): reject.
+7. Member direct entry or bundle: reject. Proposal after revoke: reject.
 8. Side-channel grant/revoke ignored.
 9. **Unknown `seen_heads` hash:** entry stays **pending**; never applied if
    the hash never arrives.
@@ -524,6 +522,6 @@ until `seen_heads` deps arrive — local only.
 **Relay/ExeMem:** append-only log; blob put/get; optional anti-spam;
 account service ExeMem-specific.
 
-**Node:** local write path (sign/apply/outbox); `AcceptEntry` + pending
+**Node:** local write path (sign/apply/log); `AcceptEntry` + pending
 deps (incl. bundle blobs); LWW; frozen-stream handling; `heads` compare;
 bootstrap via bundles; blob_delete (ignore deletes of live bundle digests).

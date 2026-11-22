@@ -2,6 +2,7 @@
 
 mod blob;
 mod converge;
+mod fixture;
 mod forge;
 mod nongrantee;
 mod offchain_revoke;

@@ -74,6 +74,26 @@ impl CloudSyncTracker {
         guard.last_error = Some(message);
     }
 
+    /// Record one database's upload position: log length, acknowledged count,
+    /// and the error of its last upload attempt (none after a clean one).
+    pub(crate) fn record_upload(
+        &self,
+        database_id: &str,
+        head: u64,
+        confirmed_through: u64,
+        error: Option<String>,
+    ) {
+        let mut guard = self.lock();
+        let upload = &mut guard
+            .databases
+            .entry(database_id.to_owned())
+            .or_default()
+            .upload;
+        upload.spool_head = Some(head);
+        upload.spool_confirmed_through = Some(confirmed_through);
+        upload.last_error = error;
+    }
+
     /// Drop the sticky top-level last_error after a successful sync turn.
     pub(crate) fn clear_error(&self) {
         self.lock().last_error = None;

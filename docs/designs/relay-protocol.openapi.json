@@ -172,7 +172,7 @@
             "nodeSignature": []
           }
         ],
-        "description": "Requires nodeSignature. Accepted only for publisher or a current write grant (submit for proposal data appends). Revoke cuts off new appends immediately (403). Spam/cost gate only \u2014 not AcceptEntry."
+        "description": "Requires nodeSignature. Accepted for the publisher, or for a current submit or write grant when the entries are proposal data on the caller's own stream; direct data, bundle and publisher kinds are the publisher's alone. Revoke cuts off new appends immediately (403). Spam/cost gate only \u2014 not AcceptEntry."
       }
     },
     "/relay/v1/log/read": {
@@ -344,6 +344,175 @@
         "description": "Requires nodeSignature. Allowed with a current read grant, or grant#any/read (any signed caller). Not unsigned/anonymous."
       }
     },
+    "/relay/v1/log/streams": {
+      "post": {
+        "summary": "List the device streams of one writer and the contiguous head of each",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/NodeKey"
+          },
+          {
+            "$ref": "#/components/parameters/DatabaseId"
+          },
+          {
+            "$ref": "#/components/parameters/DeviceId"
+          },
+          {
+            "$ref": "#/components/parameters/IssuedAt"
+          },
+          {
+            "$ref": "#/components/parameters/Nonce"
+          },
+          {
+            "$ref": "#/components/parameters/Signature"
+          },
+          {
+            "$ref": "#/components/parameters/RelayProtocol"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LogStreamsBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogStreamsResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "request auth",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "quota / rate limit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "rate_limited": {
+                    "value": {
+                      "code": "rate_limited",
+                      "field": "quota"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "unknown or service error; retry",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "unavailable": {
+                    "value": {
+                      "code": "unavailable",
+                      "field": "provider.dynamo"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "arg paths / grants.any.role / batch.response, entries.signature, incorporated_from",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "invalid_request": {
+                    "value": {
+                      "code": "invalid_request",
+                      "field": "example"
+                    }
+                  },
+                  "batch_too_large": {
+                    "value": {
+                      "code": "batch_too_large",
+                      "field": "example"
+                    }
+                  },
+                  "grants_any_role": {
+                    "summary": "any grantee must be read",
+                    "value": {
+                      "code": "invalid_request",
+                      "field": "grants.any.role"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "request.protocol",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "upgrade_required": {
+                    "value": {
+                      "code": "upgrade_required",
+                      "field": "example"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "no current grant for this node_key / role",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "forbidden": {
+                    "value": {
+                      "code": "forbidden",
+                      "field": "grant"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "nodeSignature": []
+          }
+        ],
+        "description": "Requires nodeSignature. Allowed exactly when an all-devices log/read of the same writer_key is allowed (the same check decides both): a current read grant, the publisher, or grant#any/read. A caller with no grant, and a revoked member, get 403 forbidden. A writer with no stream gets an empty list, not an error. head_seq is the contiguous head: the highest writer_seq such that every sequence number from 1 up to it is stored on that stream; entries stored beyond a gap do not count until the gap is filled. head_hash is the entry hash of that entry. A stream whose seq 1 is not stored is not listed."
+      }
+    },
     "/relay/v1/blob/put": {
       "post": {
         "summary": "Put blob",
@@ -510,7 +679,7 @@
             "nodeSignature": []
           }
         ],
-        "description": "Requires nodeSignature. Accepted only for publisher or a current write grant (submit for proposal data appends). Revoke cuts off new appends immediately (403). Spam/cost gate only \u2014 not AcceptEntry."
+        "description": "Requires nodeSignature. Accepted for the publisher or a current write grant. Revoke cuts off new puts immediately (403). Spam/cost gate only \u2014 not AcceptEntry."
       }
     },
     "/relay/v1/blob/get": {
@@ -1040,6 +1209,74 @@
             "maxItems": 90,
             "items": {
               "$ref": "#/components/schemas/SignedEntry"
+            }
+          }
+        }
+      },
+      "LogStreamsBody": {
+        "type": "object",
+        "required": [
+          "database_id",
+          "writer_key"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "writer_key": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          }
+        }
+      },
+      "StreamHead": {
+        "type": "object",
+        "required": [
+          "device_id",
+          "head_seq",
+          "head_hash"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "device_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64,
+            "description": "Hex32 device stream id (32 bytes)"
+          },
+          "head_seq": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Highest writer_seq such that every sequence number from 1 up to it is stored on this stream"
+          },
+          "head_hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64,
+            "description": "Entry hash (SHA-256 of signed_bytes || signature) of the entry at head_seq"
+          }
+        }
+      },
+      "LogStreamsResult": {
+        "type": "object",
+        "required": [
+          "streams"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "streams": {
+            "type": "array",
+            "description": "Sorted by device_id",
+            "items": {
+              "$ref": "#/components/schemas/StreamHead"
             }
           }
         }

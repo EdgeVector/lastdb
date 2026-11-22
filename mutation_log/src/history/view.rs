@@ -22,6 +22,28 @@ impl VerifiedHistory {
         &self.publisher_heads
     }
 
+    /// The current tip of every device stream of the publisher, sorted by device id.
+    ///
+    /// This is the content of a `heads` attestation the publisher signs now. It is
+    /// never empty once the publisher's birth entry is accepted.
+    #[must_use]
+    pub fn publisher_stream_tips(&self) -> Vec<DeviceHead> {
+        let Some(owner) = self.owner else {
+            return Vec::new();
+        };
+        let mut tips: Vec<DeviceHead> = self
+            .stream_heads_of(owner)
+            .into_iter()
+            .map(|(device_id, head)| DeviceHead {
+                device_id,
+                writer_seq: head.writer_seq,
+                entry_hash: head.entry_hash,
+            })
+            .collect();
+        tips.sort_by_key(|tip| tip.device_id);
+        tips
+    }
+
     /// Tips of every accepted device stream written by `node_key`.
     #[must_use]
     pub fn stream_heads_of(&self, node_key: NodeKey) -> Vec<(DeviceId, StreamHead)> {
@@ -30,6 +52,39 @@ impl VerifiedHistory {
             .filter(|(stream, _)| stream.node_key == node_key)
             .map(|(stream, head)| (stream.device_id, *head))
             .collect()
+    }
+
+    /// Accepted entries that are not on `stream`, in ascending Lamport order.
+    ///
+    /// An entry's Lamport is above that of its predecessor and of every entry it
+    /// cites, so replaying in this order meets each dependency before its user.
+    #[must_use]
+    pub fn accepted_outside(&self, stream: &StreamId) -> Vec<&SignedEntry> {
+        let mut found: Vec<&SignedEntry> = self
+            .accepted
+            .values()
+            .map(|meta| &meta.entry)
+            .filter(|entry| crate::accept::stream_id_of(entry) != *stream)
+            .collect();
+        found.sort_by_key(|entry| {
+            let header = entry.header();
+            (
+                header.lamport,
+                header.node_key,
+                header.device_id,
+                header.writer_seq,
+            )
+        });
+        found
+    }
+
+    /// True when an entry of `stream` waits in the pending buffer. The tip of
+    /// that stream is then not the real one, and signing on it would fork it.
+    #[must_use]
+    pub fn pending_on(&self, stream: &StreamId) -> bool {
+        self.pending
+            .iter()
+            .any(|entry| crate::accept::stream_id_of(entry) == *stream)
     }
 
     /// Hash accepted at `(stream, writer_seq)`.
@@ -81,5 +136,59 @@ impl VerifiedHistory {
                     })
                 )
         })
+    }
+
+    /// True when the publisher signed "not accepted" for the proposal with this
+    /// hash: an accepted publisher `heads` entry cites it in `seen_heads`.
+    ///
+    /// An incorporation cites the proposal too, but it is a data entry. The
+    /// publisher signs a `heads` entry for a proposal only to decline it.
+    #[must_use]
+    pub fn proposal_declined(&self, proposal: &EntryHash) -> bool {
+        self.accepted.values().any(|meta| {
+            meta.is_publisher
+                && matches!(&meta.entry, SignedEntry::Heads { .. })
+                && meta.entry.header().seen_heads.contains(proposal)
+        })
+    }
+
+    /// Accepted proposals the publisher has not decided yet, in ascending
+    /// Lamport order, so one member's proposals are decided in the order it
+    /// signed them.
+    #[must_use]
+    pub fn unresolved_proposals(&self) -> Vec<&SignedEntry> {
+        let mut found: Vec<&SignedEntry> = self
+            .accepted
+            .iter()
+            .filter_map(|(hash, meta)| {
+                let SignedEntry::Data { body, .. } = &meta.entry else {
+                    return None;
+                };
+                if body.stream != crate::kinds::StreamKind::Proposal {
+                    return None;
+                }
+                let header = meta.entry.header();
+                let stream = StreamId {
+                    node_key: header.node_key,
+                    device_id: header.device_id,
+                };
+                if self.proposal_incorporated(&stream, header.writer_seq)
+                    || self.proposal_declined(hash)
+                {
+                    return None;
+                }
+                Some(&meta.entry)
+            })
+            .collect();
+        found.sort_by_key(|entry| {
+            let header = entry.header();
+            (
+                header.lamport,
+                header.node_key,
+                header.device_id,
+                header.writer_seq,
+            )
+        });
+        found
     }
 }

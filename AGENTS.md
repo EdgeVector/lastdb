@@ -45,7 +45,7 @@ removed page with `git show 13a2cf188:<path>`.
 The unsigned mutation log, proposal log, and snapshot path are retired.
 Read `docs/designs/cloud-api.md` and `docs/designs/relay-protocol.md` before
 changing sync, AcceptEntry, or relay code. Grants live only as signed chain
-entries; relays gate access from publisher-signed grant entries; there are no snapshots. DEV proofs run in
+entries; relays gate access from publisher-signed grant entries (and list a writer's device streams with `log/streams`, gated like an all-devices `log/read`); there are no snapshots. DEV proofs run in
 `.github/workflows/signed-history-dev.yml` against in-repo `reference_relay`.
 
 ## Code size limits (CI fails a PR that breaks them)
@@ -138,8 +138,10 @@ unsigned mutation log. Signed-history + relay DEV CI replaces them.
 
 ## Cursor Cloud specific instructions
 
-Owner byte backup and its PROD restore workflow are gone. Personal databases sync through signed history AcceptEntry and a grant-gating
-relay. No snapshots, dual readers, feature flags, or migration paths.
+Owner byte backup and its PROD restore workflow are gone. The personal database is a signed log with no grants: every device of the
+owner signs its own stream with the one node key, every payload is sealed before it is signed, and a grant-gating relay stores the
+streams. The relay copy is the backup, and reading it is how a second device or a restore catches up
+(`docs/designs/personal-database-signed-log.md`). No snapshots, dual readers, feature flags, or migration paths.
 
 The image already has Rust (`rust-toolchain.toml`, 1.96.1) and Node 22.
 `install` adds Ruby and the pinned

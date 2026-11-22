@@ -151,6 +151,9 @@ async fn verify_member(
     if winner.value != encode_string_field(MEMBER_TEXT) {
         return Err("history holds a different value for the member's write".into());
     }
+    if winner.creator != expect.member {
+        return Err("the member's record was not created by the member's proposal".into());
+    }
     if history.grants().role_of(&expect.member).is_some() {
         return Err("the member still holds a role after the revoke".into());
     }

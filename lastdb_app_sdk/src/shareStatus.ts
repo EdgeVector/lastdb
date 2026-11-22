@@ -37,7 +37,7 @@ export async function executeShareSubmissionStatus(
   );
   if (body['mutation_id'] === mutationId) {
     const status = body['status'];
-    if (status === 'submitted' || status === 'published' || status === 'discarded' || status === 'unknown') {
+    if (status === 'submitted' || status === 'published' || status === 'not_accepted' || status === 'unknown') {
       return { mutationId, status };
     }
   }

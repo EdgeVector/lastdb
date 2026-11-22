@@ -95,7 +95,7 @@ pub async fn bootstrap(http: &reqwest::Client, plan: &UploadPlan) -> Result<Uplo
         owner: publisher.actor.node_key,
         root_device: chain_a.device_id,
     };
-    let mut member = grants::write_as_member(&scene, member_actor).await?;
+    let member = grants::propose_as_member(&scene, member_actor).await?;
 
     let records = plan.total_bytes.div_ceil(VALUE_TEXT_BYTES).max(1);
     let bundles = records.div_ceil(BUNDLE_RECORDS);
@@ -106,8 +106,10 @@ pub async fn bootstrap(http: &reqwest::Client, plan: &UploadPlan) -> Result<Uplo
         .await?;
     puts.sort_by_key(|put| put.index);
 
-    let mut entries_a =
-        vec![publisher.revoke(&mut chain_a, member.node_key(), member.cutoff()?)?];
+    let mut entries_a = vec![
+        publisher.incorporate(&mut chain_a, member.proposal()?)?,
+        publisher.revoke(&mut chain_a, member.node_key())?,
+    ];
     let mut entries_b = Vec::new();
     for put in &puts {
         let body = BundleBody {
@@ -133,7 +135,7 @@ pub async fn bootstrap(http: &reqwest::Client, plan: &UploadPlan) -> Result<Uplo
     }
     client_a.append(&entries_a).await?;
     let seconds = started.elapsed().as_secs_f64();
-    grants::expect_revoked(&scene, &mut member).await?;
+    grants::expect_revoked(&scene, &member).await?;
     let nongrantee_http_status = grants::expect_nongrantee(&scene).await?;
 
     Ok(UploadReport {

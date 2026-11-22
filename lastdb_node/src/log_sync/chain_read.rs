@@ -31,7 +31,7 @@ fn with_history<R>(
     match owned_database(host, selector) {
         Ok(entry) => {
             require_enrolled(host, &entry.id)?;
-            let histories = super::histories_for(&host.home);
+            let histories = super::histories_for(host);
             histories
                 .with_mut(&entry.id, |history| view(&entry.id, history))
                 .map_err(|_| ChainError::Unconfirmed)?
@@ -39,7 +39,7 @@ fn with_history<R>(
         Err(ChainError::NotFound(_)) => {
             let id = received_id(host, selector)?;
             require_enrolled(host, &id)?;
-            let histories = super::histories_for(&host.home);
+            let histories = super::histories_for(host);
             histories
                 .peek_with(&id, |history| view(&id, history))
                 .unwrap_or(Err(ChainError::NotFound(
@@ -107,7 +107,7 @@ pub(crate) fn relays(host: &Host, selector: &str) -> Result<Value, ChainError> {
     })
 }
 
-/// The first signed relay URL, also saved as this node's relay base URL.
+/// The first signed relay URL.
 pub(crate) fn bootstrap_relay(host: &Host, selector: &str) -> Result<Value, ChainError> {
     with_history(host, selector, |id, history| {
         let url = history
@@ -117,7 +117,6 @@ pub(crate) fn bootstrap_relay(host: &Host, selector: &str) -> Result<Value, Chai
             .ok_or(ChainError::NotFound(
                 "no signed relays entry is held for this database",
             ))?;
-        super::store_relay_base_url(&host.home, &url).map_err(|_| ChainError::Unconfirmed)?;
         Ok(json!({ "databaseId": id, "url": url }))
     })
 }

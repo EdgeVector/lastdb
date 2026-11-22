@@ -1,4 +1,4 @@
-//! Record LWW payload convention (node Phase 1).
+//! Record LWW payload convention.
 //!
 //! Data entry `payload` bytes are a whole-record envelope:
 //!
@@ -14,7 +14,7 @@
 
 use thiserror::Error;
 
-use crate::ids::{DeviceId, NodeKey};
+use crate::ids::{DeviceId, EntryHash, NodeKey};
 
 /// Failure decoding a record payload envelope.
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
@@ -106,6 +106,18 @@ impl RecordPosition {
 pub struct MaterializedRecord {
     /// Winning position.
     pub position: RecordPosition,
+    /// Content author for FoldDB stamps: the signed writer, or the proposal
+    /// member when a publisher incorporation cites `incorporated_from`.
+    pub author: NodeKey,
+    /// Hash of the winning entry. Every node holds the same entry, so this is
+    /// the record revision that compare-and-set across nodes names.
+    pub entry: EntryHash,
+    /// Writer of the earliest accepted write to this key by position, whoever
+    /// wins now. A member may change only a record it created, so ownership is
+    /// this key on every node, whatever order entries arrive in.
+    pub creator: NodeKey,
+    /// Position of the write that `creator` signed.
+    pub(crate) creator_position: RecordPosition,
     /// Current value; empty = tombstone present.
     pub value: Vec<u8>,
 }

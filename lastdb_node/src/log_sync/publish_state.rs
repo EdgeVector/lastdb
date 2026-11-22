@@ -1,9 +1,9 @@
 //! In-memory publish report for one received database.
 //!
-//! `pending` is the local outbox length once a path that already holds the
-//! history (or its disk outbox) records it. The database list reads that
+//! `pending` is the count of signed log entries past the upload cursor once a
+//! path in this process reads the log and records it. The database list reads that
 //! record and does not open a store. `pending` is absent until this process
-//! has seen the outbox, including after a restart. `lastAttempt` lives only
+//! has read the log, including after a restart. `lastAttempt` lives only
 //! in this process and is empty again after a restart.
 
 use std::collections::HashMap;
@@ -39,7 +39,7 @@ struct Slot {
     pending: Option<u64>,
 }
 
-/// Record the outbox length. The list reads it.
+/// Record the pending count. The list reads it.
 pub(crate) fn note_pending(database_id: &str, pending: u64) {
     slots().entry(database_id.to_owned()).or_default().pending = Some(pending);
 }
@@ -57,7 +57,7 @@ pub(crate) fn note_failure(database_id: &str, reason: &str) {
 }
 
 /// Publish report for one received database. A registration that is not a
-/// signed log has no outbox, so `pending` is 0. Otherwise `pending` is null
+/// signed log has no log of ours, so `pending` is 0. Otherwise `pending` is null
 /// until [`note_pending`] has run in this process.
 pub(crate) fn row(database_id: &str, signed_log: bool) -> Value {
     json!({

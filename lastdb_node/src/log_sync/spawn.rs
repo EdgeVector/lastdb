@@ -1,14 +1,14 @@
-//! Daemon sync loop: idle without relay URL; otherwise upload outbox and pull.
+//! Daemon sync loop: idle without relay URL; otherwise upload the log and pull.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use app_identity_crypto::SigningKey;
 use cloud_backup_protocol::Id;
 use mutation_log::NodeKey;
 use tracing::Instrument;
 
+use crate::host::owned::RegisteredDatabase;
 use crate::host::Host;
 use crate::registered_share::{self, RegisteredShare};
 
@@ -16,21 +16,17 @@ use super::config;
 use super::device;
 use super::history_store::HistoryMap;
 use super::materialize::{self, DatabaseCtx};
-use super::outbox_upload::{outbox_pending, upload_outbox, upload_received_outboxes};
 use super::relay::RelayClient;
+use super::upload::{upload_log, upload_received_logs, uploads_pending};
 use super::wake;
 
 const IDLE: Duration = Duration::from_secs(5);
 const ACTIVE: Duration = Duration::from_secs(2);
 
-pub fn spawn(
-    host: Arc<Host>,
-    shutdown: Arc<AtomicBool>,
-    _reopen: Arc<AtomicBool>,
-) -> tokio::task::JoinHandle<()> {
+pub fn spawn(host: Arc<Host>, shutdown: Arc<AtomicBool>) -> tokio::task::JoinHandle<()> {
     tokio::spawn(
         async move {
-            let histories = super::histories_for(&host.home);
+            let histories = super::histories_for(&host);
             while !shutdown.load(Ordering::Acquire) {
                 match config::relay_base_url(&host.home) {
                     None => {
@@ -60,14 +56,25 @@ pub fn spawn(
                                 true
                             }
                         };
-                        if failed && outbox_pending(&host, &histories) {
-                            // Mark for another pass; keep ACTIVE delay so fast
-                            // failures (refused / 4xx / 429) cannot spin.
-                            wake::request_wake(&host.home);
-                        }
-                        let woken = wake::consume_wake(&host.home);
-                        if failed || !woken {
+                        if failed {
+                            // Keep the full ACTIVE backoff on errors so 4xx/429
+                            // cannot spin when authors keep writing wake markers.
+                            if uploads_pending(&host) {
+                                wake::request_wake(&host.home);
+                            }
+                            let _ = wake::consume_wake(&host.home);
                             tokio::time::sleep(ACTIVE).await;
+                        } else {
+                            // Clean turn: a tip authored during the turn, or a
+                            // wake written mid-pause, should run again without
+                            // waiting out ACTIVE.
+                            if uploads_pending(&host) {
+                                wake::request_wake(&host.home);
+                            }
+                            let woken = wake::consume_wake(&host.home);
+                            if !woken {
+                                wake::pause_unless_wake(&host.home, ACTIVE).await;
+                            }
                         }
                     }
                 }
@@ -78,44 +85,118 @@ pub fn spawn(
 }
 
 async fn one_turn(host: &Host, histories: &HistoryMap, base: &str) -> Result<(), String> {
-    let signing_key = SigningKey::from_bytes(&host.keypair.secret_key_bytes());
-    let node_key = NodeKey::from_bytes(host.keypair.public_key_bytes());
-    let node_key_hex = node_key.to_hex();
-    let device_id = device::device_id(&host.home)?;
-    let client = RelayClient::new(base, signing_key, node_key_hex, &device_id)?;
+    let client = RelayClient::for_host(host, base)?;
 
-    // Upload every owned outbox before any pull. Personal (and any shareable
-    // whose birth is not on the relay yet) gets log/read 403 field=grant; that
-    // must not abort the turn before shareable birth/grant entries upload.
-    // Personal DBs are not pulled: empty-index grant-403 is expected there and
-    // must not poison turn_error / sticky cloud_sync.last_error.
-    let mut turn_error: Option<String> = None;
     let owned: Vec<_> = crate::host::owned::registered_databases(&host.home)
         .into_iter()
         .filter(|database| syncable_owned(database.kind, &database.id))
         .collect();
-    for database in &owned {
-        // Drain every pending batch this turn. A single 32-entry prefix left
-        // grants behind continuous mirrored data and readers hit empty indexes.
-        if let Some(err) = upload_outbox(&client, histories, &host.home, &database.id).await {
+    // No phase stops the turn. A later phase's error replaces an earlier one,
+    // and the turn reports the last.
+    let mut turn_error = publish_declared_schemas(host, &owned);
+    turn_error = upload_owned_logs(host, &client, &owned)
+        .await
+        .or(turn_error);
+    turn_error = pull_owned_shareables(host, histories, &client, &owned)
+        .await
+        .or(turn_error);
+    // Phase c2: the other devices of this owner write the personal database.
+    turn_error = super::personal::turn(host, histories, &client)
+        .await
+        .or(turn_error);
+    // Phase d: decisions the publisher signed during the pull go up this turn,
+    // so members settle their submission status without waiting another loop.
+    turn_error = upload_owned_logs(host, &client, &owned)
+        .await
+        .or(turn_error);
+    // Phase e: proposals on received databases go up before their pull, so
+    // publish.lastAttempt reflects a real attempt.
+    turn_error = upload_received_logs(host, &client).await.or(turn_error);
+    // Phase f.
+    if let Err(err) = pull_received_shares(host, histories, &client).await {
+        turn_error = Some(err);
+    }
+    match turn_error {
+        Some(err) => Err(err),
+        None => Ok(()),
+    }
+}
+
+/// Phase a: sign every schema an owned shareable database declares. It runs
+/// first so a receiver can read a schema that has no record yet.
+fn publish_declared_schemas(host: &Host, owned: &[RegisteredDatabase]) -> Option<String> {
+    let mut turn_error = None;
+    for database in owned.iter().filter(|database| database.kind == "shareable") {
+        if let Err(err) = super::mirror::publish_declared_schemas(host, &database.id) {
+            tracing::warn!(
+                target: "lastdbd::log_sync",
+                id = %database.id,
+                %err,
+                "declared schemas could not be published"
+            );
             turn_error = Some(err);
         }
     }
-    for database in &owned {
+    turn_error
+}
+
+/// Phases b and d: upload every owned log. This runs before any pull because
+/// a personal database, or a shareable whose birth is not on the relay yet,
+/// gets log/read 403 field=grant; that must not keep the birth and grant
+/// entries from uploading. Each database drains every pending batch, so a
+/// long run of mirrored data cannot leave grants behind it.
+async fn upload_owned_logs(
+    host: &Host,
+    client: &RelayClient,
+    owned: &[RegisteredDatabase],
+) -> Option<String> {
+    let mut turn_error = None;
+    for database in owned {
+        if let Some(err) = upload_log(client, host, &database.id).await {
+            turn_error = Some(err);
+        }
+    }
+    turn_error
+}
+
+/// Phase c: pull the member streams of owned shareable databases that have a
+/// birth, then decide the proposals they carry. This node is the publisher, so
+/// a database with no birth has no chain on the relay and a pull would only
+/// get log/read 403 has_publisher:false. The personal database is pulled by
+/// `personal`, which treats the 403 of an owner with no birth on the relay as
+/// an empty relay. A sibling personal database has no birth, and no pull. The
+/// history is rebuilt from the log when
+/// this process has not loaded it yet; a log that cannot be read is this
+/// turn's error.
+async fn pull_owned_shareables(
+    host: &Host,
+    histories: &HistoryMap,
+    client: &RelayClient,
+    owned: &[RegisteredDatabase],
+) -> Option<String> {
+    let mut turn_error = None;
+    for database in owned {
         if database.kind == "personal" {
             continue;
         }
-        // This node is the publisher of its owned shareables. Skip pull until
-        // local birth is accepted: an offline setup with only birth.json has
-        // no chain on the relay, and log/read 403 has_publisher:false must not
-        // poison the turn (People receiver-created *-offline databases).
-        let has_birth = histories
-            .peek_with(&database.id, |history| history.owner().is_some())
-            .unwrap_or(false);
+        let has_birth = match histories.with_mut(&database.id, |history| history.owner().is_some())
+        {
+            Ok(has_birth) => has_birth,
+            Err(err) => {
+                tracing::warn!(
+                    target: "lastdbd::log_sync",
+                    id = %database.id,
+                    %err,
+                    "history could not be loaded from the log"
+                );
+                turn_error = Some(err);
+                continue;
+            }
+        };
         if !has_birth {
             continue;
         }
-        if let Err(err) = pull_owned(host, histories, &client, &database.id).await {
+        if let Err(err) = pull_owned(host, histories, client, &database.id).await {
             tracing::warn!(
                 target: "lastdbd::log_sync",
                 id = %database.id,
@@ -125,18 +206,7 @@ async fn one_turn(host: &Host, histories: &HistoryMap, base: &str) -> Result<(),
             turn_error = Some(err);
         }
     }
-    // Member proposals and direct writes land on the received outbox; upload
-    // them before pulling so publish.lastAttempt reflects a real attempt.
-    if let Some(err) = upload_received_outboxes(host, histories, &client).await {
-        turn_error = Some(err);
-    }
-    if let Err(err) = pull_received_shares(host, histories, &client).await {
-        turn_error = Some(err);
-    }
-    match turn_error {
-        Some(err) => Err(err),
-        None => Ok(()),
-    }
+    turn_error
 }
 
 fn syncable_owned(kind: &str, id: &str) -> bool {
@@ -169,7 +239,6 @@ async fn pull_owned(
         return Ok(());
     };
     let db = DatabaseCtx {
-        home: &host.home,
         database_id,
         store: &store,
     };
@@ -183,7 +252,7 @@ async fn pull_owned(
         return Ok(());
     };
     let local_device = device::device_id(&host.home)?.to_hex();
-    super::pull::pull_share_writers(
+    let pulled = super::pull::pull_share_writers(
         client,
         histories,
         &db,
@@ -191,7 +260,30 @@ async fn pull_owned(
         &publisher_hex,
         [local_device],
     )
-    .await
+    .await;
+    keep_received(host, histories, database_id);
+    pulled?;
+    super::incorporate::resolve_owned(host, histories, &store, database_id).await
+}
+
+/// Store what a pull accepted from other streams, so a restart rebuilds the
+/// history without the relay. Entries stay in memory when the write fails, and
+/// the next pull tries again.
+pub(super) fn keep_received(host: &Host, histories: &HistoryMap, database_id: &str) {
+    let stored = super::chain_author::identity_of(host)
+        .map_err(|error| error.reply().message.to_owned())
+        .and_then(|identity| {
+            let own = mutation_log::VerifiedHistory::stream(identity.node_key, identity.device_id);
+            histories.persist_received(database_id, &own)
+        });
+    if let Err(error) = stored {
+        tracing::warn!(
+            target: "lastdbd::log_sync",
+            id = %database_id,
+            %error,
+            "received entries could not be stored"
+        );
+    }
 }
 
 /// Pull publisher and write/submit member streams for signed-log received DBs.
@@ -234,13 +326,12 @@ async fn pull_one_received(
     // Ensure an in-memory history exists so AcceptEntry has a place to land.
     histories.with_mut(share.id.as_str(), |_| ())?;
     let db = DatabaseCtx {
-        home: &host.home,
         database_id: share.id.as_str(),
         store: &store,
     };
     let caller = NodeKey::from_bytes(host.keypair.public_key_bytes());
     let known = share.publisher_device_id.iter().cloned();
-    super::pull::pull_share_writers(
+    let pulled = super::pull::pull_share_writers(
         client,
         histories,
         &db,
@@ -248,5 +339,7 @@ async fn pull_one_received(
         share.publisher.as_str(),
         known,
     )
-    .await
+    .await;
+    keep_received(host, histories, share.id.as_str());
+    pulled
 }

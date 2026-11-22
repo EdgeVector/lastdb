@@ -26,9 +26,9 @@ futures = { workspace = true }
 hkdf = "0.12"
 mutation_log = { path = "../mutation_log" }
 rand = "0.8"
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "charset", "http2", "json"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "charset", "http2", "json", "stream"] }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 signed_history_materialize = { path = "../signed_history_materialize" }
-tokio = { workspace = true, features = ["time"] }
+tokio = { workspace = true, features = ["fs", "io-util", "time"] }
 uuid = { workspace = true, features = ["v4"] }

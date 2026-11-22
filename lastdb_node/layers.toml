@@ -12,6 +12,7 @@ name = "foundation"
 doc = "Pure node types, endpoints, paths, private files, and identities."
 modules = [
   "offline_home",
+  "personal_identity",
   "profile",
 ]
 

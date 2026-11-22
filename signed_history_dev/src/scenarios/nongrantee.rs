@@ -1,50 +1,45 @@
-//! E. Node without grant: relay 403 on append/read; AcceptEntry still rejects the entry.
+//! E. Node without grant: relay 403 on append/read; AcceptEntry rejects both
+//! its proposal and its direct entry.
 
-use mutation_log::{AcceptOutcome, VerifiedHistory};
+use mutation_log::{AcceptOutcome, RejectReason, SignedEntry, StreamKind, VerifiedHistory};
 
-use crate::device::{
-    author_member_write, bootstrap_owner, must_reject, now_ms, owner_grant_write, DataWrite,
-    DbBirth, Device,
-};
+use super::fixture::{Fixture, KEY, NAMESPACE};
+use super::revoke::expect_forbidden;
+use crate::device::{DataWrite, Device};
+use crate::proposal::author_member_entry;
 use crate::relay::{RelayClient, RelayHandle};
 
 pub async fn run(relay: &RelayHandle) -> Result<String, String> {
-    let owner = Device::generate();
-    let member = Device::generate();
+    let fx = Fixture::new()?;
     let stranger = Device::generate();
-    let birth = DbBirth::generate(owner.node_key);
-    let t0 = now_ms();
-    let (mut history, birth_entry) = bootstrap_owner(&owner, &birth, t0)?;
-    let grant = owner_grant_write(
-        &mut history,
-        &owner,
-        birth.database_id,
-        member.node_key,
-        t0 + 1,
-    )?;
-
-    let forged = author_member_write(
-        &history,
-        &stranger,
-        &grant,
-        &DataWrite {
-            database_id: birth.database_id,
-            namespace: "demo",
-            record_key: "sneak",
+    let db = fx.birth.database_id.to_hex();
+    let mut entries = Vec::with_capacity(2);
+    for stream in [StreamKind::Proposal, StreamKind::Direct] {
+        let write = DataWrite {
+            database_id: fx.birth.database_id,
+            namespace: NAMESPACE,
+            record_key: KEY,
             value: b"nope",
-            authored_at_ms: t0 + 2,
-        },
-    )?;
+            authored_at_ms: fx.clock + 1,
+        };
+        // The stranger cites the member's grant; it still holds none.
+        entries.push(author_member_entry(
+            &fx.owner_hist,
+            &stranger,
+            stream,
+            Some(&fx.grant),
+            &write,
+        )?);
+    }
 
-    let db = birth.database_id.to_hex();
-    RelayClient::new(&relay.base_url, &owner)
-        .append(&db, &[birth_entry.clone(), grant.clone()])
+    RelayClient::new(&relay.base_url, &fx.owner)
+        .append(&db, &[fx.birth_entry.clone(), fx.grant.clone()])
         .await?;
     let client = RelayClient::new(&relay.base_url, &stranger);
-    match client.append(&db, std::slice::from_ref(&forged)).await {
-        Err(e) if e.contains("HTTP 403") && e.contains("forbidden") => {}
-        other => return Err(format!("relay must 403 non-grantee append: {other:?}")),
+    for entry in &entries {
+        expect_forbidden(&client, &db, entry).await?;
     }
+    let owner = &fx.owner;
     match client
         .read(&db, &owner.node_key_hex(), &owner.device_id_str(), 1, 90)
         .await
@@ -53,31 +48,31 @@ pub async fn run(relay: &RelayHandle) -> Result<String, String> {
         other => return Err(format!("relay must 403 non-grantee read: {other:?}")),
     }
 
-    let reason = must_reject(&mut history, forged.clone())?;
-    match &reason {
-        mutation_log::RejectReason::Unauthorized(msg) if msg.contains("non-grantee") => {}
-        other => return Err(format!("expected Unauthorized(non-grantee), got {other:?}")),
-    }
-
-    let mut receiver = VerifiedHistory::new(birth.database_id);
-    for e in [birth_entry, grant] {
-        match receiver.accept_entry(e) {
+    let mut receiver = VerifiedHistory::new(fx.birth.database_id);
+    for e in [&fx.birth_entry, &fx.grant] {
+        match receiver.accept_entry(e.clone()) {
             AcceptOutcome::Accept { .. } => {}
             other => return Err(format!("receiver setup: {other:?}")),
         }
     }
-    match receiver.accept_entry(forged) {
-        AcceptOutcome::Reject {
-            reason: mutation_log::RejectReason::Unauthorized(msg),
-        } if msg.contains("non-grantee") => {}
-        other => {
-            return Err(format!(
-                "receiver expected non-grantee reject, got {other:?}"
-            ))
-        }
+    for (entry, want) in entries.into_iter().zip([
+        "proposal requires submit or write grant",
+        "only the publisher signs direct entries",
+    ]) {
+        expect_reject(&mut receiver, entry, want)?;
     }
-    Ok(
-        "relay 403 for non-grantee append+read; AcceptEntry Reject Unauthorized(non-grantee)"
-            .into(),
-    )
+    Ok("relay 403 for non-grantee append+read; AcceptEntry rejects its proposal and its direct entry".into())
+}
+
+fn expect_reject(
+    receiver: &mut VerifiedHistory,
+    entry: SignedEntry,
+    want: &str,
+) -> Result<(), String> {
+    match receiver.accept_entry(entry) {
+        AcceptOutcome::Reject {
+            reason: RejectReason::Unauthorized(msg),
+        } if msg.contains(want) => Ok(()),
+        other => Err(format!("expected Unauthorized({want}), got {other:?}")),
+    }
 }

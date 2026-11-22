@@ -1,25 +1,38 @@
-//! HTTP client for `/relay/v1/log/*` and `/relay/v1/blob/*`.
+//! HTTP client for `/relay/v1/log/*`.
 
 use std::time::{Duration, Instant};
 
 use app_identity_crypto::{hex_lower, sign, SigningKey};
 use base64::Engine as _;
 use mutation_log::{DatabaseId, DeviceId, SignedEntry};
+use serde::Deserialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
-/// Bound a hung peer so the sync loop can return and re-push the outbox.
+/// Bound a hung peer so the sync loop can return and re-push the log.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+pub(super) const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 /// CI probe budget: request timeout plus a little slack.
 const HUNG_PEER_BUDGET: Duration = Duration::from_secs(45);
+
+/// One device stream of a writer as `log.streams` lists it.
+#[derive(Debug, Deserialize)]
+#[expect(
+    dead_code,
+    reason = "the node pull reads streams through this in a later step"
+)]
+pub(super) struct StreamHead {
+    pub(super) device_id: String,
+    pub(super) head_seq: u64,
+    pub(super) head_hash: String,
+}
 
 pub(super) struct RelayClient {
     pub(super) base: String,
     pub(super) signing_key: SigningKey,
     pub(super) node_key_hex: String,
     pub(super) device_id: String,
-    http: reqwest::Client,
+    pub(super) http: reqwest::Client,
 }
 
 impl RelayClient {
@@ -42,6 +55,15 @@ impl RelayClient {
             device_id: device_id.to_string(),
             http,
         })
+    }
+
+    /// A client for the relay at `base` with this node's keys and device id.
+    pub(super) fn for_host(host: &crate::host::Host, base: &str) -> Result<Self, String> {
+        let signing_key = SigningKey::from_bytes(&host.keypair.secret_key_bytes());
+        let node_key_hex =
+            mutation_log::NodeKey::from_bytes(host.keypair.public_key_bytes()).to_hex();
+        let device_id = super::device::device_id(&host.home)?;
+        Self::new(base, signing_key, node_key_hex, &device_id)
     }
 
     pub(super) async fn append(
@@ -94,49 +116,34 @@ impl RelayClient {
         Ok((entries, cursor))
     }
 
-    #[allow(dead_code)]
-    pub(super) async fn blob_put_begin(
+    /// The device streams of `writer_key` and how far each reaches: for each,
+    /// the contiguous head (the highest `writer_seq` such that every seq from 1
+    /// up to it is on the relay) and the hash of that entry. A writer with no
+    /// stream gives an empty list. Access is the access of an all-devices
+    /// `log.read` of the same writer.
+    #[expect(
+        dead_code,
+        reason = "the node pull reads streams through this in a later step"
+    )]
+    pub(super) async fn streams(
         &self,
         database_id: &str,
-        sha256: &str,
-        bytes: u64,
+        writer_key: &str,
+    ) -> Result<Vec<StreamHead>, String> {
+        let body = json!({ "database_id": database_id, "writer_key": writer_key });
+        let value = self
+            .post("/relay/v1/log/streams", database_id, &body)
+            .await?;
+        serde_json::from_value(value["streams"].clone())
+            .map_err(|_| "relay log.streams returned an invalid list".to_owned())
+    }
+
+    pub(super) async fn post(
+        &self,
+        path: &str,
+        database_id: &str,
+        body: &Value,
     ) -> Result<Value, String> {
-        let body = json!({
-            "database_id": database_id,
-            "sha256": sha256,
-            "bytes": bytes,
-            "stage": "begin",
-        });
-        self.post("/relay/v1/blob/put", database_id, &body).await
-    }
-
-    #[allow(dead_code)]
-    pub(super) async fn blob_put_commit(
-        &self,
-        database_id: &str,
-        sha256: &str,
-        bytes: u64,
-    ) -> Result<(), String> {
-        let body = json!({
-            "database_id": database_id,
-            "sha256": sha256,
-            "bytes": bytes,
-            "stage": "commit",
-        });
-        self.post("/relay/v1/blob/put", database_id, &body).await?;
-        Ok(())
-    }
-
-    #[allow(dead_code)]
-    pub(super) async fn blob_get(&self, database_id: &str, sha256: &str) -> Result<Value, String> {
-        let body = json!({
-            "database_id": database_id,
-            "sha256": sha256,
-        });
-        self.post("/relay/v1/blob/get", database_id, &body).await
-    }
-
-    async fn post(&self, path: &str, database_id: &str, body: &Value) -> Result<Value, String> {
         let raw = serde_json::to_vec(body).map_err(|_| "cannot encode relay body")?;
         let headers = sign_headers(
             &self.signing_key,
@@ -195,6 +202,16 @@ fn sign_headers(
         ("X-LastDB-Signature", signature),
         ("content-type", "application/json".into()),
     ])
+}
+
+/// The name and value of each string in a JSON object of headers.
+pub(super) fn header_pairs(value: &Value) -> Vec<(String, String)> {
+    let Some(map) = value.as_object() else {
+        return Vec::new();
+    };
+    map.iter()
+        .filter_map(|(name, val)| val.as_str().map(|v| (name.clone(), v.to_owned())))
+        .collect()
 }
 
 fn rand_32() -> [u8; 32] {

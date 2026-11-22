@@ -9,6 +9,7 @@ pub mod lastdb_uds;
 pub mod log_sync;
 pub(crate) mod named_grant;
 pub mod offline_home;
+pub(crate) mod personal_identity;
 pub mod profile;
 pub(crate) mod registered_share;
 pub(crate) mod share_cache;

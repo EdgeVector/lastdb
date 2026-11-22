@@ -1,6 +1,7 @@
 //! Verified history `S` and `accept_entry` application.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::sync::Arc;
 
 use crate::accept::{
     evaluate, position_of, stream_id_of, AcceptContext, AcceptOutcome, RejectReason, StreamHead,
@@ -9,8 +10,8 @@ use crate::entry::SignedEntry;
 use crate::grants::{AcceptedMeta, GrantState};
 use crate::ids::{DatabaseId, DeviceId, EntryHash, NodeKey, StreamId};
 use crate::kinds::EntryKind;
-use crate::outbox::Outbox;
 use crate::payload::MaterializedRecord;
+use crate::sealed::SealOpener;
 use crate::wire::entry_hash;
 
 mod effects;
@@ -57,7 +58,7 @@ pub struct VerifiedHistory {
     by_seq: BTreeMap<(StreamId, u64), EntryHash>,
     /// Frozen streams (equivocation).
     frozen: BTreeSet<StreamId>,
-    /// Folded grant state + cutoffs.
+    /// Folded grant state.
     grants: GrantState,
     /// Whole-record LWW state: `(namespace, record_key)`.
     records: BTreeMap<(String, String), MaterializedRecord>,
@@ -77,8 +78,8 @@ pub struct VerifiedHistory {
     rejects: Vec<RejectEvidence>,
     /// Equivocation evidence.
     equivocations: Vec<EquivocationEvidence>,
-    /// Local outbox of authored entries not yet relay-acked.
-    outbox: Outbox,
+    /// Opens the sealed payloads of a private database. Absent for a shared one.
+    opener: Option<Arc<dyn SealOpener>>,
 }
 
 impl VerifiedHistory {
@@ -102,8 +103,18 @@ impl VerifiedHistory {
             pending: VecDeque::new(),
             rejects: Vec::new(),
             equivocations: Vec::new(),
-            outbox: Outbox::new(),
+            opener: None,
         }
+    }
+
+    /// Empty history of a private database: every data and schema entry must
+    /// carry a sealed payload that `opener` opens, and its records and schemas
+    /// are the plaintext ones. See [`crate::sealed`].
+    #[must_use]
+    pub fn with_opener(database_id: DatabaseId, opener: Arc<dyn SealOpener>) -> Self {
+        let mut history = Self::new(database_id);
+        history.opener = Some(opener);
+        history
     }
 
     /// Database id.
@@ -146,17 +157,6 @@ impl VerifiedHistory {
     #[must_use]
     pub fn schemas(&self) -> &BTreeMap<String, Vec<u8>> {
         &self.schemas
-    }
-
-    /// Borrow the outbox.
-    #[must_use]
-    pub fn outbox(&self) -> &Outbox {
-        &self.outbox
-    }
-
-    /// Mutable outbox (ack / enqueue).
-    pub fn outbox_mut(&mut self) -> &mut Outbox {
-        &mut self.outbox
     }
 
     /// Equivocation evidence.
@@ -230,7 +230,7 @@ impl VerifiedHistory {
             lookup: &|h| self.accepted.get(h),
             grants: &self.grants,
         };
-        evaluate(entry, &ctx)
+        self.require_sealed(entry, evaluate(entry, &ctx))
     }
 
     fn note_reject(&mut self, reason: RejectReason, entry: SignedEntry) {
@@ -267,7 +267,7 @@ impl VerifiedHistory {
                 self.owner = Some(body.owner);
             }
         }
-        self.apply_effects(&entry, position, is_publisher);
+        self.apply_effects(&entry, hash, position, is_publisher);
         let rebuild = is_publisher && grant_body.is_some();
         let meta = AcceptedMeta {
             position,
@@ -334,16 +334,6 @@ impl VerifiedHistory {
                 }
             }
         }
-    }
-
-    /// Enqueue an already-accepted locally authored entry onto the outbox.
-    pub fn enqueue_outbox(
-        &mut self,
-        entry: SignedEntry,
-    ) -> Result<EntryHash, crate::wire::EncodeError> {
-        let hash = entry_hash(&entry)?;
-        self.outbox.enqueue(hash, entry);
-        Ok(hash)
     }
 
     /// Convenience: stream id for `(node_key, device_id)`.

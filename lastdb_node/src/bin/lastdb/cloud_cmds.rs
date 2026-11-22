@@ -31,12 +31,7 @@ pub(super) fn backup_command(
             let expanded = data_dir
                 .map(lastdb_node::profile::paths::expand_tilde_path)
                 .transpose()?;
-            if expanded.as_deref().is_none_or(|h| !h.is_absolute()) {
-                return Err(
-                    "signed backup restore requires an explicit absolute --data-dir home".into(),
-                );
-            }
-            restore::run(&lastdb_node::host::resolve_home(expanded)?, args)
+            restore::run(expanded.as_deref(), args)
         }
     }
 }

@@ -5,7 +5,7 @@
 use super::*;
 use crate::registered_share::{self, RegisteredShare};
 
-pub(super) fn submit_signed(
+pub(super) async fn submit_signed(
     req: &UdsRequest,
     ctx: &AccessContext,
     host: &Host,
@@ -18,7 +18,7 @@ pub(super) fn submit_signed(
     let Some(id) = req.header("Idempotency-Key").and_then(mutation_id) else {
         return error_response(400, "a shared write requires a UUID Idempotency-Key", ctx);
     };
-    match crate::log_sync::submit_share_write(host, share, &id, &req.body) {
+    match crate::log_sync::submit_share_write(host, share, &id, &req.body).await {
         Ok(sequence) => {
             let mut response = json_ok(&json!({
                 "ok": true, "status": "submitted", "mutation_id": id.to_string(),

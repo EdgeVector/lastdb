@@ -2,10 +2,9 @@
 //!
 //! An owned database and the personal database behave as before. A received
 //! database is readable once its signed history has materialized into the
-//! receiver store. A write commits only when this node holds a folded Write
-//! role; after the local commit it authors a signed direct entry on this
-//! member's own stream and enqueues the received database's outbox. Otherwise
-//! the write is refused. `changes` does not open a received database.
+//! receiver store. It is never written here: only its publisher's signature
+//! changes it, so a member changes it by a proposal on the submissions route
+//! and `/v1/write` is refused. `changes` does not open a received database.
 
 use std::future::Future;
 use std::sync::Arc;
@@ -17,7 +16,6 @@ use crate::exec::reply::HostError;
 use crate::host::owned::ResolvedStore;
 use crate::host::Host;
 use crate::lastdb_uds::uds_router::valid_selector;
-use crate::log_sync::OwnedMutation;
 use crate::registered_share::{self, RegisteredShare};
 use crate::share_cache::ShareCacheError;
 
@@ -43,16 +41,15 @@ pub(super) async fn read_in<T>(
     host: &Host,
     future: impl Future<Output = Result<T, HostError>>,
 ) -> Result<T, HostError> {
-    dispatch(selector, host, OnReceived::Read, &[], future).await
+    dispatch(selector, host, OnReceived::Read, future).await
 }
 
 pub(super) async fn write_in<T>(
     selector: Option<&str>,
     host: &Host,
-    mutations: &[OwnedMutation],
     future: impl Future<Output = Result<T, HostError>>,
 ) -> Result<T, HostError> {
-    dispatch(selector, host, OnReceived::RefuseWrite, mutations, future).await
+    dispatch(selector, host, OnReceived::RefuseWrite, future).await
 }
 
 pub(super) async fn changes_in<T>(
@@ -60,14 +57,13 @@ pub(super) async fn changes_in<T>(
     host: &Host,
     future: impl Future<Output = Result<T, HostError>>,
 ) -> Result<T, HostError> {
-    dispatch(selector, host, OnReceived::RefuseChanges, &[], future).await
+    dispatch(selector, host, OnReceived::RefuseChanges, future).await
 }
 
 async fn dispatch<T>(
     selector: Option<&str>,
     host: &Host,
     received: OnReceived,
-    mutations: &[OwnedMutation],
     future: impl Future<Output = Result<T, HostError>>,
 ) -> Result<T, HostError> {
     match place(selector, host)? {
@@ -75,7 +71,7 @@ async fn dispatch<T>(
         Place::Owned(store) => host.with_records(store, future).await,
         Place::Received(share) => match received {
             OnReceived::Read => read_received(host, &share, future).await,
-            OnReceived::RefuseWrite => write_received(host, &share, mutations, future).await,
+            OnReceived::RefuseWrite => Err(HostError::new(403, READ_ONLY)),
             OnReceived::RefuseChanges => Err(HostError::new(404, CHANGES_UNSERVED)),
         },
     }
@@ -102,39 +98,6 @@ fn received(host: &Host, selector: &str) -> Result<Place, HostError> {
         Err(ShareCacheError::Invalid("database name")) => Err(bad("invalid database identifier")),
         Err(_) => Err(HostError::new(503, REGISTRY_UNAVAILABLE)),
     }
-}
-
-async fn write_received<T>(
-    host: &Host,
-    share: &RegisteredShare,
-    mutations: &[OwnedMutation],
-    future: impl Future<Output = Result<T, HostError>>,
-) -> Result<T, HostError> {
-    if !crate::log_sync::direct_write_allowed(host, share) {
-        return Err(HostError::new(403, READ_ONLY));
-    }
-    let store = registered_share::receiver_store(host, &share.id)
-        .await
-        .map_err(|_| HostError::new(503, STORE_UNAVAILABLE))?;
-    let result = host.with_records(Arc::clone(&store), future).await;
-    let Ok(body) = result else {
-        // The write may have moved the outbox. Record the count the list reads.
-        crate::log_sync::note_receiver(&host.home, share.id.as_str());
-        return result;
-    };
-    crate::log_sync::mirror_received_write(host, share, mutations).map_err(|error| {
-        let reply = error.reply();
-        tracing::warn!(
-            target: "lastdbd::log_sync",
-            status = reply.status,
-            message = reply.message,
-            "received write was not mirrored to the member stream"
-        );
-        HostError::new(reply.status, reply.message)
-    })?;
-    // Mirror enqueued the member stream entry; refresh publish.pending.
-    crate::log_sync::note_receiver(&host.home, share.id.as_str());
-    Ok(body)
 }
 
 async fn read_received<T>(

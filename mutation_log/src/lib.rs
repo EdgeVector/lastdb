@@ -22,13 +22,20 @@
 //! Wire `signature`: base64url, no padding, 86 characters. Hex ids: 64 lowercase.
 //! `device_id`: 64 lowercase hex (32 bytes, same as `node_key`). `entry_hash = SHA-256(signed_bytes ‖ signature_raw_64)`.
 //!
+//! # Who signs what
+//!
+//! Only the publisher signs direct data and bundles. A member with a `submit`
+//! or `write` grant signs proposals (`stream = proposal`), which change
+//! nothing until the publisher signs a direct entry that cites one in
+//! `incorporated_from`, or a `heads` entry that records it as not accepted.
+//! A grant entry still carries a `cutoffs` field because the wire format
+//! requires it; nothing reads it.
+//!
 //! # Record LWW payload
 //!
 //! See [`payload`]: `u16 record_key_len` + key + `value_bytes` (empty = tombstone).
 //! Whole-record LWW by `(lamport, node_key, device_id)`. Equal-lamport grants:
-//! `revoked` wins. Cutoffs only when lowering/revoking.
-//!
-//! No snapshots, checkpoints, dual path, or feature flags.
+//! `revoked` wins.
 
 #![deny(clippy::disallowed_methods, clippy::disallowed_types)]
 #![warn(missing_docs)]
@@ -47,8 +54,9 @@ mod history_bundle;
 mod history_util;
 mod ids;
 mod kinds;
-mod outbox;
 mod payload;
+mod record_key;
+mod sealed;
 mod wire;
 
 pub use accept::{
@@ -75,15 +83,19 @@ pub use entry::{
     IncorporatedFrom, MutationFileRef, RelayUrl, RelaysBody, RevocationCutoff, SchemaBody,
     SignedEntry,
 };
-pub use grants::{past_cutoff, AcceptedMeta, CutoffTip, GrantState};
+pub use grants::{AcceptedMeta, GrantState};
 pub use history::{EquivocationEvidence, GrantTip, RejectEvidence, VerifiedHistory};
 pub use history_util::{grant_body_of, next_lamport};
 pub use ids::{DatabaseId, DeviceId, EntryHash, Hex32, IdError, NodeKey, StreamId};
 pub use kinds::{domain, EntryKind, Grantee, Role, StreamKind};
-pub use outbox::Outbox;
 pub use payload::{
     decode_record_payload, encode_record_payload, MaterializedRecord, PayloadError, RecordPayload,
     RecordPosition,
+};
+pub use record_key::{join_record_key, split_record_key, RANGE_SEPARATOR};
+pub use sealed::{
+    decode_bundle_changes, decode_named, encode_bundle_changes, encode_named, SealOpener,
+    SEALED_NAMESPACE,
 };
 pub use wire::{
     decode_signature_b64url, encode_signature_b64url, entry_hash, verify_entry_signature,

@@ -2,14 +2,17 @@
 
 use std::collections::BTreeSet;
 
-use mutation_log::{AcceptOutcome, NodeKey, Role, SignedEntry, VerifiedHistory};
+use mutation_log::{AcceptOutcome, DeviceId, NodeKey, Role, SignedEntry, VerifiedHistory};
 
-use super::history_store::{self, HistoryMap};
+use super::history_store::HistoryMap;
 use super::materialize::{self, DatabaseCtx};
 use super::relay::RelayClient;
 
 /// Pull one device stream (`device_id` set). Used for the publisher's known
 /// devices so a revoked member can still read through the signed revoke.
+///
+/// The read starts after the last entry this node holds on that stream, so a
+/// sync turn costs what is new and not the whole history.
 pub(super) async fn pull_stream(
     client: &RelayClient,
     histories: &HistoryMap,
@@ -17,17 +20,36 @@ pub(super) async fn pull_stream(
     writer_key: &str,
     device_id: &str,
 ) -> Result<u64, String> {
-    pull_pages(client, histories, db, writer_key, Some(device_id)).await
+    let from_seq = next_seq(histories, db.database_id, writer_key, device_id);
+    pull_pages(client, histories, db, writer_key, Some(device_id), from_seq).await
 }
 
-/// Pull one writer's entries across every device (`device_id` omitted).
+/// Pull one writer's entries across every device (`device_id` omitted). The
+/// read starts at the first entry, because it is also how this node finds a
+/// device stream it has not seen.
 pub(super) async fn pull_writer(
     client: &RelayClient,
     histories: &HistoryMap,
     db: &DatabaseCtx<'_>,
     writer_key: &str,
 ) -> Result<u64, String> {
-    pull_pages(client, histories, db, writer_key, None).await
+    pull_pages(client, histories, db, writer_key, None, 1).await
+}
+
+/// The first sequence number this node does not hold on a device stream.
+///
+/// Only accepted entries count. An entry that waits for a dependency is not
+/// kept across a restart, so it is read again from here.
+fn next_seq(histories: &HistoryMap, database_id: &str, writer_key: &str, device_id: &str) -> u64 {
+    let (Ok(node_key), Ok(device)) = (NodeKey::from_hex(writer_key), DeviceId::from_hex(device_id))
+    else {
+        return 1;
+    };
+    let stream = VerifiedHistory::stream(node_key, device);
+    histories
+        .peek_with(database_id, |history| history.stream_head(&stream))
+        .flatten()
+        .map_or(1, |head| head.writer_seq + 1)
 }
 
 /// Publisher known-device pulls first, then AllDevices for other writers.
@@ -146,12 +168,10 @@ fn writer_keys_of(history: &VerifiedHistory) -> Vec<String> {
     if let Some(owner) = history.owner() {
         keys.insert(owner.to_hex());
     }
-    // Current write/submit holders, plus anyone who ever held those roles
-    // (including reduced/revoked members whose earlier writes still count).
+    // Current write/submit holders and revoked members. Anyone who ever held a
+    // proposing role is added below from the publisher grants.
     for (key, role) in history.grants().members() {
-        if matches!(role, Role::Write | Role::Submit | Role::Revoked)
-            || history.grants().was_reduced(&key)
-        {
+        if matches!(role, Role::Write | Role::Submit | Role::Revoked) {
             keys.insert(key.to_hex());
         }
     }
@@ -178,6 +198,7 @@ async fn pull_pages(
     db: &DatabaseCtx<'_>,
     writer_key: &str,
     device_id: Option<&str>,
+    from_seq: u64,
 ) -> Result<u64, String> {
     let mut cursor: Option<String> = None;
     let mut accepted = 0u64;
@@ -187,7 +208,7 @@ async fn pull_pages(
                 db.database_id,
                 writer_key,
                 device_id,
-                1,
+                from_seq,
                 cursor.as_deref(),
                 90,
             )
@@ -209,7 +230,7 @@ async fn pull_pages(
     Ok(accepted)
 }
 
-async fn rematerialize(
+pub(super) async fn rematerialize(
     histories: &HistoryMap,
     db: &DatabaseCtx<'_>,
     accepted: u64,
@@ -239,10 +260,7 @@ fn accept_one(
 ) -> Result<bool, String> {
     histories.with_mut(db.database_id, |history| {
         match history.accept_entry(entry) {
-            AcceptOutcome::Accept { duplicate, .. } => {
-                history_store::persist_outbox(db.home, db.database_id, history.outbox())?;
-                Ok(!duplicate)
-            }
+            AcceptOutcome::Accept { duplicate, .. } => Ok(!duplicate),
             AcceptOutcome::Pending { .. } => Ok(false),
             AcceptOutcome::Reject { reason } => {
                 tracing::warn!(
