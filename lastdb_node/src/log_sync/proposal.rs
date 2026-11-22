@@ -215,10 +215,10 @@ fn hex_digest(bytes: &[u8]) -> String {
     app_identity_crypto::hex_lower(&Sha256::digest(bytes))
 }
 
-/// `submitted`, `published`, `discarded`, or `unknown`, from local history.
+/// `submitted`, `published`, or `unknown`, from local history.
 ///
-/// Published = publisher Direct cites `incorporated_from`. Discarded = a
-/// publisher entry cites the proposal in `seen_heads` without incorporating it.
+/// Published = publisher Direct cites `incorporated_from`. Rejections are
+/// silent (Decision 11): there is no discard status derived from the chain.
 pub(crate) fn status(
     host: &Host,
     share: &RegisteredShare,
@@ -236,8 +236,6 @@ pub(crate) fn status(
         .with_mut(database_id, |history| {
             if history.proposal_incorporated(&stream, done.writer_seq) {
                 "published"
-            } else if history.proposal_acknowledged(&stream, done.writer_seq) {
-                "discarded"
             } else if history.entry_hash_at(&stream, done.writer_seq) == Some(done.entry_hash) {
                 "submitted"
             } else {

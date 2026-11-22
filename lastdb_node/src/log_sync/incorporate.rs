@@ -1,8 +1,9 @@
 //! Publisher auto-incorporation of member proposal entries.
 //!
-//! After the publisher pulls member streams, each unresolved proposal is
-//! either incorporated (Direct + `incorporated_from`) or discarded (a Heads
-//! attestation that cites the proposal in `seen_heads` without merging it).
+//! After the publisher pulls member streams, each unresolved proposal that
+//! applies cleanly is incorporated (Direct + `incorporated_from`). Invalid or
+//! CAS-failing proposals are left alone (Decision 11: silent rejection — no
+//! discard call, no discard log entry).
 
 use std::collections::{BTreeMap, HashMap};
 
@@ -10,8 +11,8 @@ use fold_db::fold_db_core::FoldDB;
 use fold_db::record_replacement::RecordTarget;
 use fold_db::schema::types::{CasExpectation, KeyValue, Mutation, MutationType};
 use mutation_log::{
-    author_data, author_heads, data_record, decode_record_payload, decode_signature_b64url,
-    entry_hash, DeviceHead, Hex32, IncorporatedFrom, SignedEntry, StreamKind,
+    author_data, data_record, decode_record_payload, decode_signature_b64url, entry_hash, Hex32,
+    IncorporatedFrom, SignedEntry, StreamKind,
 };
 use serde_json::Value;
 use sha2::{Digest as _, Sha256};
@@ -50,9 +51,7 @@ pub(super) async fn resolve_owned(
                 // the chain entry so receivers converge on the same winner.
                 publish(host, histories, database_id, &identity, &entry, ready)?;
             }
-            Decision::Discard => {
-                discard(host, histories, database_id, &identity, &entry)?;
-            }
+            // Invalid / CAS-fail: silent. No discard RPC, field, or log entry.
             Decision::Skip => {}
         }
     }
@@ -62,7 +61,6 @@ pub(super) async fn resolve_owned(
 
 enum Decision {
     Publish(Ready),
-    Discard,
     Skip,
 }
 
@@ -84,10 +82,10 @@ async fn decide(store: &FoldDB, entry: &SignedEntry) -> Result<Decision, String>
         return Ok(Decision::Skip);
     };
     let Ok(payload) = decode_record_payload(&body.payload) else {
-        return Ok(Decision::Discard);
+        return Ok(Decision::Skip);
     };
     let Ok(intent) = parse_intent(&payload.value) else {
-        return Ok(Decision::Discard);
+        return Ok(Decision::Skip);
     };
     let author = entry.header().node_key.to_hex();
     let target = RecordTarget {
@@ -115,7 +113,7 @@ async fn decide(store: &FoldDB, entry: &SignedEntry) -> Result<Decision, String>
             key: payload.record_key,
             value: intent.value,
         })),
-        Err(_) => Ok(Decision::Discard),
+        Err(_) => Ok(Decision::Skip),
     }
 }
 
@@ -194,35 +192,6 @@ fn publish(
         );
         body.incorporated_from = Some(from);
         author_data(&ctx, &identity.signing_key, body).map_err(|_| ChainError::Unconfirmed)
-    })
-    .map(|_| ())
-    .map_err(|e| e.reply().message.to_owned())
-}
-
-fn discard(
-    host: &Host,
-    histories: &HistoryMap,
-    database_id: &str,
-    identity: &AuthorIdentity,
-    proposal: &SignedEntry,
-) -> Result<(), String> {
-    let target = Target {
-        home: &host.home,
-        database_id,
-        identity,
-    };
-    chain_author::author_publisher(histories, &target, |mut ctx, history| {
-        cite_proposal(&mut ctx, proposal).map_err(|_| ChainError::Unconfirmed)?;
-        let tips: Vec<DeviceHead> = history
-            .stream_heads_of(identity.node_key)
-            .into_iter()
-            .map(|(device_id, head)| DeviceHead {
-                device_id,
-                writer_seq: head.writer_seq,
-                entry_hash: head.entry_hash,
-            })
-            .collect();
-        author_heads(&ctx, &identity.signing_key, tips).map_err(|_| ChainError::Unconfirmed)
     })
     .map(|_| ())
     .map_err(|e| e.reply().message.to_owned())
