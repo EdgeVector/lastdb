@@ -252,7 +252,7 @@ impl VerifiedHistory {
                 self.owner = Some(body.owner);
             }
         }
-        self.apply_effects(&entry, position, is_publisher);
+        self.apply_effects(&entry, hash, position, is_publisher);
         let rebuild = is_publisher && grant_body.is_some();
         let meta = AcceptedMeta {
             position,

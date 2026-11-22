@@ -1,6 +1,7 @@
 //! Side effects of accepting an entry into [`VerifiedHistory`].
 
 use crate::entry::SignedEntry;
+use crate::ids::EntryHash;
 use crate::payload::{decode_record_payload, MaterializedRecord, RecordPosition};
 
 use super::VerifiedHistory;
@@ -9,6 +10,7 @@ impl VerifiedHistory {
     pub(super) fn apply_effects(
         &mut self,
         entry: &SignedEntry,
+        hash: EntryHash,
         position: RecordPosition,
         is_publisher: bool,
     ) {
@@ -23,7 +25,7 @@ impl VerifiedHistory {
                         .as_ref()
                         .filter(|_| is_publisher)
                         .map_or(position.node_key, |from| from.node_key);
-                    self.merge_data(&body.namespace, &body.payload, position, author);
+                    self.merge_data(&body.namespace, &body.payload, position, author, hash);
                 }
             }
             SignedEntry::Schema { body, .. } => {
@@ -54,6 +56,7 @@ impl VerifiedHistory {
         payload: &[u8],
         position: RecordPosition,
         author: crate::ids::NodeKey,
+        entry: EntryHash,
     ) {
         let Ok(decoded) = decode_record_payload(payload) else {
             return;
@@ -67,6 +70,7 @@ impl VerifiedHistory {
                     MaterializedRecord {
                         position,
                         author,
+                        entry,
                         value: decoded.value,
                     },
                 );

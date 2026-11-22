@@ -101,6 +101,10 @@ A history record key is one string. A hash schema uses the hash key. A hash-rang
 
 History records are whole-record last-writer-wins. Materialize stamps FoldDB `created_by` and `updated_by` with the winning entry's writer (the proposing member for a publisher incorporation), and rewrites a record whose fields match but whose authors differ. Every node therefore stamps alike, whatever order entries arrived in.
 
+## Compare-and-set across nodes
+
+A FoldDB record revision is a hash of the node's local write stamp, so two nodes show different revisions for the same record. A proposal therefore signs the history entry that wrote the record, not the revision. The member node maps the revision the client read to the winning entry of its history, only when that revision is still the one its store holds. The publisher accepts the proposal when that entry is still the winner of its own history, then applies the write with its local revision. A revision the member no longer holds names no entry and the proposal stays submitted (Decision 11: silent rejection).
+
 ## Decisions
 
 - One LastDB PR for the log, cursor and commit function.

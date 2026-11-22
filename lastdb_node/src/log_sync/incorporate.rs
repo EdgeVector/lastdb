@@ -11,8 +11,8 @@ use fold_db::fold_db_core::FoldDB;
 use fold_db::record_replacement::RecordTarget;
 use fold_db::schema::types::{CasExpectation, Mutation, MutationType};
 use mutation_log::{
-    author_data, data_record, decode_record_payload, decode_signature_b64url, entry_hash, Hex32,
-    IncorporatedFrom, SignedEntry, StreamKind,
+    author_data, data_record, decode_record_payload, decode_signature_b64url, entry_hash,
+    EntryHash, Hex32, IncorporatedFrom, SignedEntry, StreamKind,
 };
 use serde_json::Value;
 use sha2::{Digest as _, Sha256};
@@ -45,7 +45,7 @@ pub(super) async fn resolve_owned(
         return Ok(());
     }
     for entry in pending {
-        match decide(store, &entry).await? {
+        match decide(store, histories, database_id, &entry).await? {
             Decision::Publish(ready) => {
                 // FoldDB already holds the validated write from decide; author
                 // the chain entry so receivers converge on the same winner.
@@ -70,14 +70,27 @@ struct Ready {
     value: Vec<u8>,
 }
 
+/// The record state a proposal expects, in history terms.
+enum Expect {
+    Absent,
+    /// The history entry that wrote the record. `None` names no entry, so it
+    /// never matches.
+    Entry(Option<EntryHash>),
+}
+
 struct Intent {
     mutation_type: MutationType,
-    expected: CasExpectation,
+    expected: Expect,
     fields: HashMap<String, Value>,
     value: Vec<u8>,
 }
 
-async fn decide(store: &FoldDB, entry: &SignedEntry) -> Result<Decision, String> {
+async fn decide(
+    store: &FoldDB,
+    histories: &HistoryMap,
+    database_id: &str,
+    entry: &SignedEntry,
+) -> Result<Decision, String> {
     let SignedEntry::Data { body, .. } = entry else {
         return Ok(Decision::Skip);
     };
@@ -88,6 +101,17 @@ async fn decide(store: &FoldDB, entry: &SignedEntry) -> Result<Decision, String>
         return Ok(Decision::Skip);
     };
     let author = entry.header().node_key.to_hex();
+    let Some(expected) = local_expected(
+        store,
+        histories,
+        database_id,
+        (&body.namespace, &payload.record_key),
+        &intent.expected,
+    )
+    .await?
+    else {
+        return Ok(Decision::Skip);
+    };
     let Ok(key) =
         signed_history_materialize::key_value(store, &body.namespace, &payload.record_key)
     else {
@@ -103,7 +127,7 @@ async fn decide(store: &FoldDB, entry: &SignedEntry) -> Result<Decision, String>
         target,
         intent.fields,
         intent.mutation_type,
-        intent.expected,
+        expected,
     );
     mutation.writer = Some(author);
     // Apply now: validates schema/types, advances CAS state for the next
@@ -122,6 +146,35 @@ async fn decide(store: &FoldDB, entry: &SignedEntry) -> Result<Decision, String>
     }
 }
 
+/// Check a proposal's expectation against this publisher's history, then give
+/// FoldDB the local expectation that matches it. A record's revision is node
+/// local, so the check is on the history entry that wrote the record.
+async fn local_expected(
+    store: &FoldDB,
+    histories: &HistoryMap,
+    database_id: &str,
+    key: (&str, &str),
+    expected: &Expect,
+) -> Result<Option<CasExpectation>, String> {
+    let (namespace, record_key) = key;
+    let owned_key = (namespace.to_owned(), record_key.to_owned());
+    let winner = histories.with_mut(database_id, |history| {
+        history
+            .records()
+            .get(&owned_key)
+            .map(|record| (record.entry, record.value.is_empty()))
+    })?;
+    match (expected, winner) {
+        (Expect::Absent, None | Some((_, true))) => Ok(Some(CasExpectation::Absent)),
+        (Expect::Entry(Some(want)), Some((have, false))) if *want == have => {
+            let revision =
+                signed_history_materialize::read_revision(store, namespace, record_key).await?;
+            Ok(revision.map(|revision| CasExpectation::Revision { revision }))
+        }
+        _ => Ok(None),
+    }
+}
+
 fn parse_intent(value: &[u8]) -> Result<Intent, ()> {
     let Value::Object(doc) = serde_json::from_slice(value).map_err(|_| ())? else {
         return Err(());
@@ -135,15 +188,16 @@ fn parse_intent(value: &[u8]) -> Result<Intent, ()> {
     };
     let expected = match doc.get("expected") {
         Some(Value::Object(exp)) if exp.get("type").and_then(Value::as_str) == Some("absent") => {
-            CasExpectation::Absent
+            Expect::Absent
         }
-        Some(Value::Object(exp)) if exp.get("type").and_then(Value::as_str) == Some("revision") => {
-            let revision = exp
-                .get("revision")
-                .and_then(Value::as_str)
-                .ok_or(())?
-                .to_owned();
-            CasExpectation::Revision { revision }
+        Some(Value::Object(exp)) if exp.get("type").and_then(Value::as_str) == Some("entry") => {
+            match exp.get("entry") {
+                Some(Value::String(hex)) => {
+                    Expect::Entry(Some(EntryHash::from_hex(hex).map_err(|_| ())?))
+                }
+                Some(Value::Null) => Expect::Entry(None),
+                _ => return Err(()),
+            }
         }
         _ => return Err(()),
     };

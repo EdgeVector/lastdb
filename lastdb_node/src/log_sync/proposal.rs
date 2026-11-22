@@ -7,6 +7,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use cloud_backup_protocol::Id;
 use mutation_log::{
     author_data, data_record, EntryHash, NodeKey, Role, StreamKind, VerifiedHistory,
 };
@@ -18,7 +19,7 @@ use super::chain_author::{self, Target};
 use super::chain_error::ChainError;
 use crate::host::Host;
 use crate::profile::private_fs as disk;
-use crate::registered_share::RegisteredShare;
+use crate::registered_share::{self, RegisteredShare};
 
 const BODY_MAX: usize = 64 * 1024;
 const NAMESPACE_MAX: usize = 128;
@@ -83,7 +84,9 @@ fn store_ledger(home: &Path, database_id: &str, ledger: &Ledger) -> Result<(), C
 struct Proposed {
     namespace: String,
     record_key: String,
-    value: Vec<u8>,
+    mutation_type: String,
+    expected: Value,
+    record: Option<Value>,
 }
 
 /// Map the owner submission document onto the history record convention:
@@ -115,33 +118,99 @@ fn parse(body: &[u8]) -> Result<Proposed, ContributionError> {
     {
         return Err(ContributionError::Invalid);
     }
-    let expected = doc.get("expected").ok_or(ContributionError::Invalid)?;
-    let mut envelope = serde_json::Map::new();
-    envelope.insert("mutation_type".into(), Value::String(mutation_type.clone()));
-    envelope.insert("expected".into(), expected.clone());
-    if mutation_type != "delete" {
+    let expected = doc
+        .get("expected")
+        .ok_or(ContributionError::Invalid)?
+        .clone();
+    let record = if mutation_type == "delete" {
+        None
+    } else {
         match doc.get("record") {
-            Some(record @ Value::Object(_)) => {
-                envelope.insert("record".into(), record.clone());
-            }
+            Some(record @ Value::Object(_)) => Some(record.clone()),
             _ => return Err(ContributionError::Invalid),
         }
+    };
+    Ok(Proposed {
+        namespace,
+        record_key,
+        mutation_type,
+        expected,
+        record,
+    })
+}
+
+/// The publisher decision envelope that goes into the signed proposal.
+fn envelope(proposed: &Proposed, expected: Value) -> Result<Vec<u8>, ContributionError> {
+    let mut envelope = serde_json::Map::new();
+    envelope.insert(
+        "mutation_type".into(),
+        Value::String(proposed.mutation_type.clone()),
+    );
+    envelope.insert("expected".into(), expected);
+    if let Some(record) = &proposed.record {
+        envelope.insert("record".into(), record.clone());
     }
     let value =
         serde_json::to_vec(&Value::Object(envelope)).map_err(|_| ContributionError::Invalid)?;
     if value.len() > BODY_MAX {
         return Err(ContributionError::Invalid);
     }
-    Ok(Proposed {
-        namespace,
-        record_key,
-        value,
-    })
+    Ok(value)
+}
+
+/// Name the expected record state in history terms. A revision a client read
+/// is a hash of this node's local stamp, which no other node shares. When the
+/// client's revision is still the one this node holds, the proposal names the
+/// history entry that wrote that record instead, which every node shares. A
+/// revision this node no longer holds names no entry, so the publisher cannot
+/// match it and leaves the proposal submitted.
+async fn history_expected(
+    host: &Host,
+    share: &RegisteredShare,
+    proposed: &Proposed,
+) -> Result<Value, ContributionError> {
+    let kind = proposed.expected.get("type").and_then(Value::as_str);
+    if kind == Some("absent") {
+        return Ok(proposed.expected.clone());
+    }
+    let revision = match (
+        kind,
+        proposed.expected.get("revision").and_then(Value::as_str),
+    ) {
+        (Some("revision"), Some(revision)) => revision,
+        _ => return Err(ContributionError::Invalid),
+    };
+    let id =
+        Id::try_from(share.id.as_str().to_owned()).map_err(|_| ContributionError::Unavailable)?;
+    let store = registered_share::receiver_store(host, &id)
+        .await
+        .map_err(|_| ContributionError::Unavailable)?;
+    let local = signed_history_materialize::read_revision(
+        &store,
+        &proposed.namespace,
+        &proposed.record_key,
+    )
+    .await
+    .map_err(|_| ContributionError::Unavailable)?;
+    let winner = if local.as_deref() == Some(revision) {
+        let key = (proposed.namespace.clone(), proposed.record_key.clone());
+        super::histories_for(&host.home)
+            .with_mut(share.id.as_str(), |history| {
+                history
+                    .records()
+                    .get(&key)
+                    .map(|record| record.entry.to_hex())
+            })
+            .map_err(|_| ContributionError::Unavailable)?
+    } else {
+        None
+    };
+    Ok(serde_json::json!({ "type": "entry", "entry": winner }))
 }
 
 /// Author the proposal for `mutation_id`, or find the one already authored.
 /// Returns its `writer_seq`, the submission sequence.
-pub(crate) fn submit(
+pub(crate) async fn submit(
     host: &Host,
     share: &RegisteredShare,
     mutation_id: &uuid::Uuid,
@@ -159,6 +228,8 @@ pub(crate) fn submit(
             Err(ContributionError::Conflict)
         };
     }
+    let expected = history_expected(host, share, &proposed).await?;
+    let value = envelope(&proposed, expected)?;
     let identity = chain_author::identity_of(host).map_err(|_| ContributionError::Unavailable)?;
     let target = Target {
         home: &host.home,
@@ -178,7 +249,7 @@ pub(crate) fn submit(
                 StreamKind::Proposal,
                 proposed.namespace,
                 &proposed.record_key,
-                &proposed.value,
+                &value,
             );
             author_data(&ctx, &identity.signing_key, body).map_err(|_| ChainError::Unconfirmed)
         },
