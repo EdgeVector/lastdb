@@ -1,25 +1,19 @@
 #!/usr/bin/env python3
 """The personal database on the signed log, across real nodes and the reference relay.
 
-Device A, device B and a restored home C are real `lastdbd` processes. They sync
-through one `reference_relay` that this script starts, stops and starts again.
-The proof follows the design "a personal database on the signed log":
+Devices A and B and a restored home C are real `lastdbd` processes. They sync through
+one `reference_relay` that this script stops and starts again:
 
-1. A writes records in two schemas: single writes, and batches that become
-   bundles, one of them across both schemas, with a replace and a delete.
-2. B starts from the recovery phrase alone (`lastdb backup restore`) and holds
-   every record.
-3. With the relay stopped, A and B change the same record. After the relay is
-   back both hold the value of the higher position (Lamport number, then device
-   id), and each holds the record the other created.
+1. A writes records in two schemas: singles, and batches that become bundles.
+2. B starts from the recovery phrase alone (`lastdb backup restore`) and holds every record.
+3. With the relay stopped, A and B change one record. Afterwards both hold the value of the
+   higher position (Lamport number, then device id).
 4. A third home restored from the phrase equals A and B, key by key.
-5. The bytes the relay stored contain no record key, no record value, and no
-   schema name.
-6. A restarts with the relay stopped. It rebuilds from its files, signs the next
-   entry on the right sequence, and the relay accepts that entry once it is back.
+5. The bytes the relay stored hold no record key, no record value and no schema name.
+6. A restarts with the relay stopped, rebuilds from its files, and signs the next entry on
+   the right sequence. The relay accepts it once it is back.
 
-A failure prints every node's entries (kind, sequence, device) and its recent
-daemon warnings.
+A failure prints each node's entries (kind, sequence, device) and its recent daemon warnings.
 """
 import argparse
 import json
@@ -129,16 +123,12 @@ class Device:
         return self.node.home / "log-sync" / str(self.database)
 
     def authored(self):
-        try:
-            return json.loads((self.log_dir() / "authored.json").read_text())
-        except (OSError, ValueError):
-            return []
+        path = self.log_dir() / "authored.json"
+        return json.loads(path.read_text()) if path.exists() else []
 
     def uploaded(self):
-        try:
-            return int((self.log_dir() / "uploaded.json").read_text().strip())
-        except (OSError, ValueError):
-            return 0
+        path = self.log_dir() / "uploaded.json"
+        return int(path.read_text().strip()) if path.exists() else 0
 
     def synced_up(self):
         """Every entry this node signed is on the relay."""
@@ -259,6 +249,24 @@ def record_entries(device):
     return [entry for entry in device.authored() if entry.get("kind") in ("data", "bundle")]
 
 
+def restart_a(relay, a, b, c, state):
+    """6. A restarts without the relay and rebuilds from its files."""
+    relay.stop()
+    before = a.authored()
+    a.node.stop()
+    a.node.start()
+    require(a.snapshot() == state, "A lost records across its restart")
+    a.write([create(BETA, "after-restart", "x")])
+    expect(state, BETA, "after-restart", "x")
+    after = a.authored()
+    require(len(after) == len(before) + 1 and after[-1]["writer_seq"] == before[-1]["writer_seq"] + 1,
+            "A did not continue its stream after the restart")
+    require("rejected on replay" not in "\n".join(a.warnings()), "A rejected a stored entry on replay")
+    relay.start()
+    wait("B and C to hold A's write after its restart", lambda: converged((a, b, c), state))
+    print("6. A rebuilt from its files with the relay stopped; its next entry reached B and C", flush=True)
+
+
 def prove(relay, a, b, c, out):
     report = {}
     phrase = a.init()
@@ -339,35 +347,16 @@ def prove(relay, a, b, c, out):
     report["relay"] = prove_hidden(relay, state)
     print(f"5. no key, value or schema name in {report['relay']['relay_files']} relay files", flush=True)
 
-    # 6. A restarts without the relay and rebuilds from its files.
-    relay.stop()
-    before = a.authored()
-    a.node.stop()
-    a.node.start()
-    require(a.snapshot() == state, "A lost records across its restart")
-    a.write([create(BETA, "after-restart", "x")])
-    expect(state, BETA, "after-restart", "x")
-    after = a.authored()
-    require(len(after) == len(before) + 1 and after[-1]["writer_seq"] == before[-1]["writer_seq"] + 1,
-            "A did not continue its stream after the restart")
-    require("rejected on replay" not in "\n".join(a.warnings()), "A rejected a stored entry on replay")
-    relay.start()
-    wait("B and C to hold A's write after its restart", lambda: converged((a, b, c), state))
-    print("6. A rebuilt from its files with the relay stopped; its next entry reached B and C", flush=True)
+    restart_a(relay, a, b, c, state)
     (out / "summary.json").write_text(json.dumps(report, indent=2))
 
 
-def dump(devices, relay):
+def dump(devices):
     for device in devices:
         print(f"{device.name} entries:", file=sys.stderr)
         print("\n".join(device.entries()), file=sys.stderr)
         print(f"{device.name} log (last 25 warnings):", file=sys.stderr)
         print("\n".join(device.warnings()), file=sys.stderr)
-    try:
-        print("relay stderr (tail):", file=sys.stderr)
-        print("\n".join(relay.stderr.read_text().splitlines()[-25:]), file=sys.stderr)
-    except OSError:
-        pass
 
 
 def main():
@@ -388,7 +377,7 @@ def main():
     except Exception as error:  # noqa: BLE001 the failure is printed with its evidence, then raised
         failure = error
         print(f"FAILED: {error}", file=sys.stderr)
-        dump(devices, relay)
+        dump(devices)
     finally:
         for device in devices:
             try:
