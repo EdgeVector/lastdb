@@ -5,8 +5,8 @@
 //! declines it (a `heads` entry that cites it).
 
 use mutation_log::{
-    author_data, author_heads, data_record, decode_signature_b64url, entry_hash, EntryHash, Hex32,
-    IncorporatedFrom, SignedEntry, StreamKind, VerifiedHistory,
+    author_data, author_heads, data_record, decode_signature_b64url, entry_hash, DeviceHead,
+    EntryHash, Hex32, IncorporatedFrom, SignedEntry, StreamKind, VerifiedHistory,
 };
 use sha2::{Digest, Sha256};
 
@@ -84,7 +84,15 @@ pub fn owner_decline(
         vec![proposal.header().lamport],
         authored_at_ms,
     );
-    let heads = history.publisher_heads().to_vec();
+    let heads = history
+        .stream_heads_of(owner.node_key)
+        .into_iter()
+        .map(|(device_id, head)| DeviceHead {
+            device_id,
+            writer_seq: head.writer_seq,
+            entry_hash: head.entry_hash,
+        })
+        .collect();
     let entry = author_heads(&ctx, &owner.signing_key, heads).map_err(|e| e.to_string())?;
     must_accept(history, entry.clone())?;
     Ok(entry)

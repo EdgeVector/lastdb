@@ -1,7 +1,7 @@
 //! Restore from start with stream discovery, AcceptEntry, and bundle blobs.
 //!
 //! The invite names the publisher node and its first device stream. Every other
-//! stream is found from accepted publisher entries: `heads` tips name the
+//! stream is found from publisher entries: `heads` tips name the
 //! publisher's other devices and an incorporation names the member device
 //! whose proposal it carries. Each
 //! stream is read from `writer_seq = 1`; a bundle entry is applied only after
@@ -12,8 +12,7 @@ use std::sync::Arc;
 
 use futures::stream::{self, StreamExt};
 use mutation_log::{
-    entry_hash, AcceptOutcome, BundleBody, BundleChange, DeviceId, Hex32, NodeKey, SignedEntry,
-    VerifiedHistory,
+    AcceptOutcome, BundleBody, BundleChange, DeviceId, Hex32, NodeKey, SignedEntry, VerifiedHistory,
 };
 use sha2::{Digest, Sha256};
 
@@ -198,33 +197,31 @@ fn retry_deferred(
     }
 }
 
-/// Streams named by publisher entries: `heads` tips (the publisher's other
-/// devices) and `incorporated_from` (the member device that signed a proposal
-/// the publisher incorporated). The incorporation may wait on its proposal, so
-/// it names the stream before it is accepted; AcceptEntry still judges it.
+/// Streams named by entries the publisher signed: `heads` tips (the publisher's
+/// other devices) and `incorporated_from` (the member device that signed a
+/// proposal the publisher incorporated). Either entry may wait on a stream that
+/// is not read yet, so a stream is named before its entry is accepted;
+/// AcceptEntry still judges every entry and a bad one fails the restore.
 fn discover(history: &VerifiedHistory, entries: &[SignedEntry]) -> Vec<(NodeKey, DeviceId)> {
     let mut streams = Vec::new();
     for entry in entries {
-        if let SignedEntry::Data { body, .. } = entry {
-            let by_owner = history.owner() == Some(entry.header().node_key);
-            if let Some(from) = body.incorporated_from.as_ref().filter(|_| by_owner) {
-                streams.push((from.node_key, from.device_id));
-            }
-        }
-        let accepted_publisher = entry_hash(entry)
-            .ok()
-            .and_then(|hash| history.get_accepted(&hash))
-            .is_some_and(|meta| meta.is_publisher);
-        if !accepted_publisher {
+        let owner = entry.header().node_key;
+        if history.owner() != Some(owner) {
             continue;
         }
-        let owner = entry.header().node_key;
         match entry {
             SignedEntry::Heads { body, .. } => {
                 streams.extend(
                     body.publisher_heads
                         .iter()
                         .map(|tip| (owner, tip.device_id)),
+                );
+            }
+            SignedEntry::Data { body, .. } => {
+                streams.extend(
+                    body.incorporated_from
+                        .iter()
+                        .map(|from| (from.node_key, from.device_id)),
                 );
             }
             _ => {}
