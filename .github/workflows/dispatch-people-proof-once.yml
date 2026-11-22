@@ -1,0 +1,58 @@
+name: Dispatch People proof for companion fixes once
+
+on:
+  push:
+    branches: [cursor/dispatch-people-proof-aad0]
+
+permissions: {}
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Dispatch
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          LASTDB_SHA: 6f9dbbeb5f70e413e3b8d3cb8dfafdb06f15f181
+          PEOPLE_REF: main
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN:-}" ]; then echo "::error::empty GH_PAT"; exit 1; fi
+          for id in $(gh api "repos/EdgeVector/people/actions/workflows/dev-sharing.yml/runs?per_page=15" --jq '.workflow_runs[]|select(.status=="in_progress" or .status=="queued" or .status=="pending" or .status=="waiting")|select(.display_title!="DEV sharing (6f9dbbeb5f70e413e3b8d3cb8dfafdb06f15f181)")|.id'); do
+            echo "cancel $id"
+            gh api --method POST "repos/EdgeVector/people/actions/runs/$id/cancel" || true
+          done
+          sleep 8
+          expected="DEV sharing ($LASTDB_SHA)"
+          before="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          export EXPECTED="$expected" BEFORE="$before"
+          python3 -c '
+          import json, os
+          print(json.dumps({
+              "ref": os.environ["PEOPLE_REF"],
+              "inputs": {"mode": "all", "lastdb_source_sha": os.environ["LASTDB_SHA"]},
+          }))
+          ' | gh api --method POST \
+            repos/EdgeVector/people/actions/workflows/dev-sharing.yml/dispatches \
+            --input -
+          run_id=""
+          for _ in $(seq 1 36); do
+            sleep 5
+            run_id="$(
+              gh api "repos/EdgeVector/people/actions/workflows/dev-sharing.yml/runs?event=workflow_dispatch&per_page=20" \
+              | python3 -c '
+          import json, os, sys
+          expected = os.environ["EXPECTED"]
+          before = os.environ["BEFORE"]
+          runs = json.load(sys.stdin).get("workflow_runs", [])
+          hits = [r for r in runs if r.get("display_title") == expected and (r.get("created_at") or "") >= before]
+          print(max(hits, key=lambda r: r["id"])["id"] if hits else "")
+          '
+            )"
+            if [ -n "$run_id" ]; then break; fi
+            echo "waiting for $expected"
+          done
+          if [ -z "$run_id" ]; then echo "::error::no run"; exit 1; fi
+          echo "People run id: $run_id"
+          echo "URL: https://github.com/EdgeVector/people/actions/runs/$run_id"
