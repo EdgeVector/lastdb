@@ -78,7 +78,7 @@ fn author_with(
                 ensure_publisher(history, target, database)?;
             }
             let entry = build(base_ctx(history, database, target.identity), history)?;
-            accept_local(history, target, entry)
+            accept_local(history, target, &entry)
         })
         .map_err(|_| ChainError::Unconfirmed)?;
     if result.is_ok() {
@@ -118,7 +118,7 @@ fn ensure_publisher(
         let ctx = base_ctx(history, database, target.identity);
         let entry =
             birth::entry(&material, &ctx, target.identity).map_err(|_| ChainError::Unconfirmed)?;
-        accept_local(history, target, entry)?;
+        accept_local(history, target, &entry)?;
     }
     if history.owner() == Some(target.identity.node_key) {
         Ok(())
@@ -132,11 +132,11 @@ fn ensure_publisher(
 fn accept_local(
     history: &mut VerifiedHistory,
     target: &Target<'_>,
-    entry: SignedEntry,
+    entry: &SignedEntry,
 ) -> Result<Authored, ChainError> {
-    let hash = entry_hash(&entry).map_err(|_| ChainError::Unconfirmed)?;
+    let hash = entry_hash(entry).map_err(|_| ChainError::Unconfirmed)?;
     let writer_seq = entry.header().writer_seq;
-    match history_store::commit_authored(target.home, history, &entry) {
+    match history_store::commit_authored(target.home, history, entry) {
         Ok(AcceptOutcome::Accept { .. }) => {}
         Ok(AcceptOutcome::Pending { reason }) => {
             tracing::warn!(target: "lastdbd::log_sync", ?reason, "authored entry is pending locally");

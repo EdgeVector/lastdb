@@ -88,7 +88,7 @@ fn ensure_birth(history: &mut VerifiedHistory, ctx: &MirrorCtx<'_>) -> Result<()
         .ok_or_else(|| "this database has no signed birth on this node".to_owned())?;
     let author = author_ctx(history, ctx, 0);
     let entry = birth::entry(&material, &author, ctx.identity)?;
-    accept_outbox(history, ctx, entry)
+    accept_outbox(history, ctx, &entry)
 }
 
 fn ensure_schema(
@@ -116,7 +116,7 @@ fn ensure_schema(
     };
     let entry =
         author_schema(&author, &ctx.identity.signing_key, body).map_err(|e| e.to_string())?;
-    accept_outbox(history, ctx, entry)
+    accept_outbox(history, ctx, &entry)
 }
 
 fn schema_definition_matches(prior: &[u8], current: &fold_db::schema::types::Schema) -> bool {
@@ -148,7 +148,7 @@ fn author_one(
         &value,
     );
     let entry = author_data(&author, &ctx.identity.signing_key, body).map_err(|e| e.to_string())?;
-    accept_outbox(history, ctx, entry)
+    accept_outbox(history, ctx, &entry)
 }
 
 fn author_ctx(history: &VerifiedHistory, ctx: &MirrorCtx<'_>, authored_at_ms: u64) -> AuthorCtx {
@@ -170,9 +170,9 @@ fn author_ctx(history: &VerifiedHistory, ctx: &MirrorCtx<'_>, authored_at_ms: u6
 fn accept_outbox(
     history: &mut VerifiedHistory,
     ctx: &MirrorCtx<'_>,
-    entry: mutation_log::SignedEntry,
+    entry: &mutation_log::SignedEntry,
 ) -> Result<(), String> {
-    match history_store::commit_authored(ctx.home, history, &entry)? {
+    match history_store::commit_authored(ctx.home, history, entry)? {
         AcceptOutcome::Accept { .. } => Ok(()),
         AcceptOutcome::Pending { reason } => {
             Err(format!("authored entry pending locally: {reason:?}"))
