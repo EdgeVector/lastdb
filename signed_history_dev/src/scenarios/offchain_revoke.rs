@@ -1,11 +1,13 @@
 //! Off-chain (side-channel) revoke must not change AcceptEntry's outcome.
-//! After a real on-chain revoke, an ordinary next-seq member append is refused.
+//! After a real on-chain revoke, an ordinary next-seq member append joins the
+//! chain but does not count.
 
 use mutation_log::{
     author_grant, entry_hash, grant_reduce, AcceptOutcome, RejectReason, RevocationCutoff, Role,
     VerifiedHistory,
 };
 
+use super::revoke::expect_not_counted;
 use crate::device::{
     author_member_write, bootstrap_owner, member_write, must_accept, must_reject, now_ms,
     owner_grant_write, owner_revoke, stream_head_of, DataWrite, DbBirth, Device,
@@ -83,7 +85,8 @@ pub fn run() -> Result<String, String> {
         t0 + 6,
     )?;
 
-    // Ordinary next-seq append after on-chain revoke → Reject (not a backdated rewrite).
+    // Ordinary next-seq append after on-chain revoke joins the chain but is past
+    // the cutoff, so the record keeps the last counted value.
     let late = author_member_write(
         &history,
         &member,
@@ -96,16 +99,13 @@ pub fn run() -> Result<String, String> {
             authored_at_ms: t0 + 7,
         },
     )?;
-    match must_reject(&mut history, late)? {
-        RejectReason::Unauthorized(msg) if msg.contains("cutoff") || msg.contains("role") => {}
-        other => {
-            return Err(format!(
-                "expected ordinary post-revoke Unauthorized, got {other:?}"
-            ))
-        }
-    }
+    must_accept(&mut history, late)?;
+    expect_not_counted(&history, b"still-granted")?;
 
-    Ok("off-chain revoke ignored; ordinary next-seq append after on-chain revoke Reject".into())
+    Ok(
+        "off-chain revoke ignored; ordinary next-seq append after on-chain revoke joins the chain and does not count"
+            .into(),
+    )
 }
 
 fn accept_member_once(

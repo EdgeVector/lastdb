@@ -11,7 +11,6 @@ pub fn authorize_bundle<'s>(
     entry: &SignedEntry,
     body: &BundleBody,
     owner: Option<NodeKey>,
-    grants: &GrantState,
     lookup: &dyn Fn(&EntryHash) -> Option<&'s AcceptedMeta>,
 ) -> Option<RejectReason> {
     let h = entry.header();
@@ -52,7 +51,9 @@ pub fn authorize_bundle<'s>(
             ))
         }
     }
-    check_cutoff(h, grants)
+    // A cutoff from a later role reduction does not reject the entry. It is
+    // accepted into the chain and does not count (see `within_cutoff`).
+    None
 }
 
 /// Authorize a data entry using the entry's `seen_heads` and S cutoffs.
@@ -68,7 +69,7 @@ pub fn authorize_data<'s>(
         return None;
     }
     match body.stream {
-        StreamKind::Direct => authorize_direct(h, body, grants, lookup),
+        StreamKind::Direct => authorize_direct(h, body, lookup),
         StreamKind::Proposal => authorize_proposal(h, body, grants, lookup),
     }
 }
@@ -76,7 +77,6 @@ pub fn authorize_data<'s>(
 fn authorize_direct<'s>(
     h: &EntryHeader,
     body: &DataBody,
-    grants: &GrantState,
     lookup: &dyn Fn(&EntryHash) -> Option<&'s AcceptedMeta>,
 ) -> Option<RejectReason> {
     if body.incorporated_from.is_some() {
@@ -113,7 +113,9 @@ fn authorize_direct<'s>(
             ))
         }
     }
-    check_cutoff(h, grants)
+    // A cutoff from a later role reduction does not reject the entry. It is
+    // accepted into the chain and does not count (see `within_cutoff`).
+    None
 }
 
 fn authorize_proposal<'s>(
@@ -151,24 +153,18 @@ fn authorize_proposal<'s>(
     }
 }
 
-/// True while a non-owner entry still falls inside its writer's window: not
-/// past the cutoff of a later role reduction. A later reduction can void an
-/// entry that was accepted earlier.
+/// True while a non-owner entry still counts: it is not past the cutoff of a
+/// role reduction. After a reduction, a device the publisher has not seen has
+/// cutoff 0, so everything it signed is past it. A past-cutoff entry is still
+/// accepted into its stream chain, so the entries after it can follow, but it
+/// has no effect on records. A later reduction can void an entry that was
+/// counted earlier.
 #[must_use]
 pub(crate) fn within_cutoff(entry: &SignedEntry, grants: &GrantState) -> bool {
-    check_cutoff(entry.header(), grants).is_none()
-}
-
-fn check_cutoff(h: &EntryHeader, grants: &GrantState) -> Option<RejectReason> {
-    // After a reduction, missing device tips are cutoff 0 (unseen → reject seq≥1).
-    let tip = grants.cutoff(&h.node_key, &h.device_id)?;
-    if past_cutoff(h.writer_seq, tip) {
-        Some(RejectReason::Unauthorized(
-            "write past role-reduction cutoff",
-        ))
-    } else {
-        None
-    }
+    let h = entry.header();
+    grants
+        .cutoff(&h.node_key, &h.device_id)
+        .is_none_or(|tip| !past_cutoff(h.writer_seq, tip))
 }
 
 fn seen_names_grant<'s>(
