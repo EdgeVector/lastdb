@@ -59,11 +59,14 @@ When a member's own unacknowledged direct entry is voided, the node appends a pr
 
 Implemented in the change that adds `convert_voided`: after a pull on a received database, the node looks for its own direct entries that the publisher's cutoffs void and signs each one again as a proposal on the same stream. A write to a key with no live record becomes a create that expects the record to be absent. A write over a live record becomes a replace that expects the history entry that holds it now. A delete expects that entry too. A ledger entry keyed by the voided entry's hash makes the conversion happen once. The publisher applies it under the proposal rules, so a replace of a record the member did not create stays submitted.
 
-### 4. The local database becomes a derived view (direction)
+### 4. The local database is a view of the history
 
-A direct write today commits to FoldDB first and signs second. If signing fails, or the entry is later voided, the database holds a record that history does not. The materializer needs a special delete step for it.
+The store validates a write, so a write still commits to the store first and is signed second. What changed is what happens when the two disagree. One operation, `reconcile_keys`, makes the store hold what the history holds at given keys: the winner's record, or no record. Every path that can leave the store ahead of the history ends with it:
 
-The direction: validate the write, accept the entry into the history, then materialize. The database is then only ever the fold of counted entries. Void entries, undo and prune all reduce to one operation, a refold. This needs a validate-without-commit call on FoldDB, so it is a separate, later change.
+- a publisher write, a member direct write, or a proposal incorporation whose entry cannot be signed: the unsigned record is reverted, and the caller gets the error;
+- a role reduction that voids earlier entries: the voided keys are reconciled.
+
+A full history-first write (validate without committing, sign, then materialize) needs a validate-only entry point in FoldDB's mutation manager. That entry does not exist, validation is interleaved with staging inside the commit transaction, and adding it changes the storage core. Reconciling gives the same invariant without that change. One window remains: a crash between the store commit and the signature leaves a record with no entry until the next write or reduction touches that key.
 
 ### 5. Visible state
 
@@ -77,7 +80,7 @@ A receiver's store holds only the schemas the signed history declares. Schema en
 
 1. Relay admits by grant, not by entry kind (Exemem Lambda in `exemem-infra`, and the reference relay). This clears the stall.
 2. Convert a voided direct entry into a proposal on the same stream.
-3. Derived local database for received writes (needs the FoldDB validate call).
+3. Reconcile the store to the history wherever a write cannot be signed.
 4. Drop the node-wide `last_error`.
 
 ## What stays

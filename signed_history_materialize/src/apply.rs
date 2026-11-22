@@ -114,22 +114,28 @@ fn schema_declared(store: &FoldDB, namespace: &str) -> Result<bool, String> {
         .is_some())
 }
 
-/// Delete the records of voided keys that no history winner holds.
+/// Make the store hold what the history holds at each of `keys`: the winner's
+/// record, or no record when no write counts there.
 ///
-/// A role reduction can void a member's earlier write. When the key falls back
-/// to an earlier winner, [`apply_history`] writes that winner. When no write
-/// counts any more, the store must drop the record the voided write made.
-pub async fn delete_voided(store: &FoldDB, history: &VerifiedHistory) -> Result<(), String> {
-    for (namespace, record_key) in history.voided_keys() {
-        if history
-            .records()
-            .contains_key(&(namespace.clone(), record_key.clone()))
-            || !schema_declared(store, namespace)?
-        {
+/// This is the one way a store is brought back to its history at given keys. It
+/// undoes a write whose signed entry was not confirmed, and a write that a later
+/// role reduction voided. A key of an undeclared schema is skipped.
+pub async fn reconcile_keys<'a>(
+    store: &FoldDB,
+    history: &VerifiedHistory,
+    keys: impl IntoIterator<Item = &'a (String, String)>,
+) -> Result<(), String> {
+    for key in keys {
+        let (namespace, record_key) = key;
+        if !schema_declared(store, namespace)? {
             continue;
         }
-        let key = key_value(store, namespace, record_key)?;
-        delete_record(store, namespace, key).await?;
+        if let Some(winner) = history.records().get(key) {
+            apply_winner(store, namespace, record_key, winner).await?;
+        } else {
+            let at = key_value(store, namespace, record_key)?;
+            delete_record(store, namespace, at).await?;
+        }
     }
     Ok(())
 }

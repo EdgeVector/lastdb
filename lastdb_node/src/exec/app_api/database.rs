@@ -122,7 +122,7 @@ async fn write_received<T>(
         crate::log_sync::note_receiver(&host.home, share.id.as_str());
         return result;
     };
-    crate::log_sync::mirror_received_write(host, share, mutations).map_err(|error| {
+    if let Err(error) = crate::log_sync::mirror_received_write(host, share, mutations) {
         let reply = error.reply();
         tracing::warn!(
             target: "lastdbd::log_sync",
@@ -130,8 +130,11 @@ async fn write_received<T>(
             message = reply.message,
             "received write was not mirrored to the member stream"
         );
-        HostError::new(reply.status, reply.message)
-    })?;
+        // The store never keeps a record the history does not hold.
+        let keys = super::write_signed::keys_of(mutations);
+        crate::log_sync::revert_unsigned(host, share.id.as_str(), &store, &keys).await;
+        return Err(HostError::new(reply.status, reply.message));
+    }
     // Mirror enqueued the member stream entry; refresh publish.pending.
     crate::log_sync::note_receiver(&host.home, share.id.as_str());
     Ok(body)

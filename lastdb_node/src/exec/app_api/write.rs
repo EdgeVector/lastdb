@@ -140,7 +140,7 @@ async fn write(req: &UdsRequest, host: &Host) -> Result<Value, HostError> {
     .await?;
     // Owned shareables: mirror onto the publisher stream. Received databases
     // already authored on the member stream inside `write_received`.
-    super::write_signed::mirror_committed(host, database.as_deref(), &signed)?;
+    super::write_signed::mirror_committed(host, database.as_deref(), &signed).await?;
     Ok(body)
 }
 

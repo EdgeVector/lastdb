@@ -49,7 +49,13 @@ pub(super) async fn resolve_owned(
             Decision::Publish(ready) => {
                 // FoldDB already holds the validated write from decide; author
                 // the chain entry so receivers converge on the same winner.
-                publish(host, histories, database_id, &identity, &entry, ready)?;
+                // An entry that cannot be signed leaves no record behind.
+                let key = (ready.namespace.clone(), ready.key.clone());
+                if let Err(error) = publish(host, histories, database_id, &identity, &entry, ready)
+                {
+                    materialize::revert_unsigned(host, database_id, store, &[key]).await;
+                    return Err(error);
+                }
             }
             // Invalid / CAS-fail: silent. No discard RPC, field, or log entry.
             Decision::Skip => {}
