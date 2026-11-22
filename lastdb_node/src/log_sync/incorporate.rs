@@ -4,8 +4,11 @@
 //! either incorporated (Direct + `incorporated_from`) or discarded (a Heads
 //! attestation that cites the proposal in `seen_heads` without merging it).
 
+use std::collections::{BTreeMap, HashMap};
+
 use fold_db::fold_db_core::FoldDB;
-use fold_db::schema::types::{CasExpectation, MutationType};
+use fold_db::record_replacement::RecordTarget;
+use fold_db::schema::types::{CasExpectation, KeyValue, Mutation, MutationType};
 use mutation_log::{
     author_data, author_heads, data_record, decode_record_payload, decode_signature_b64url,
     entry_hash, DeviceHead, Hex32, IncorporatedFrom, SignedEntry, StreamKind,
@@ -43,6 +46,8 @@ pub(super) async fn resolve_owned(
     for entry in pending {
         match decide(store, &entry).await? {
             Decision::Publish(ready) => {
+                // FoldDB already holds the validated write from decide; author
+                // the chain entry so receivers converge on the same winner.
                 publish(host, histories, database_id, &identity, &entry, ready)?;
             }
             Decision::Discard => {
@@ -67,13 +72,11 @@ struct Ready {
     value: Vec<u8>,
 }
 
-struct PublishArgs<'a> {
-    host: &'a Host,
-    histories: &'a HistoryMap,
-    database_id: &'a str,
-    identity: &'a AuthorIdentity,
-    proposal: &'a SignedEntry,
-    ready: Ready,
+struct Intent {
+    mutation_type: MutationType,
+    expected: CasExpectation,
+    fields: HashMap<String, Value>,
+    value: Vec<u8>,
 }
 
 async fn decide(store: &FoldDB, entry: &SignedEntry) -> Result<Decision, String> {
@@ -86,32 +89,34 @@ async fn decide(store: &FoldDB, entry: &SignedEntry) -> Result<Decision, String>
     let Ok(intent) = parse_intent(&payload.value) else {
         return Ok(Decision::Discard);
     };
-    // CAS only: FoldDB writes wait for rematerialize so authorship is the member.
-    let revision =
-        signed_history_materialize::read_revision(store, &body.namespace, &payload.record_key)
-            .await?;
-    let live = revision.is_some();
-    let matches = match &intent.expected {
-        CasExpectation::Absent => !live,
-        CasExpectation::Revision { revision: want } => revision.as_deref() == Some(want.as_str()),
+    let author = entry.header().node_key.to_hex();
+    let target = RecordTarget {
+        schema: body.namespace.clone(),
+        key: KeyValue::new(Some(payload.record_key.clone()), None),
+        alternates: BTreeMap::default(),
     };
-    if !matches {
-        return Ok(Decision::Discard);
+    let mut mutation = Mutation::with_uuid(
+        uuid::Uuid::new_v4().to_string(),
+        target,
+        intent.fields,
+        intent.mutation_type,
+        intent.expected,
+    );
+    mutation.writer = Some(author);
+    // Apply now: validates schema/types, advances CAS state for the next
+    // proposal in this turn, and stamps the member as content author.
+    match store
+        .mutation_manager()
+        .write_mutations_receipt(vec![mutation])
+        .await
+    {
+        Ok(_) => Ok(Decision::Publish(Ready {
+            namespace: body.namespace.clone(),
+            key: payload.record_key,
+            value: intent.value,
+        })),
+        Err(_) => Ok(Decision::Discard),
     }
-    if intent.mutation_type == MutationType::Delete && !live {
-        return Ok(Decision::Discard);
-    }
-    Ok(Decision::Publish(Ready {
-        namespace: body.namespace.clone(),
-        key: payload.record_key,
-        value: intent.value,
-    }))
-}
-
-struct Intent {
-    mutation_type: MutationType,
-    expected: CasExpectation,
-    value: Vec<u8>,
 }
 
 fn parse_intent(value: &[u8]) -> Result<Intent, ()> {
@@ -139,20 +144,30 @@ fn parse_intent(value: &[u8]) -> Result<Intent, ()> {
         }
         _ => return Err(()),
     };
-    let wire_value = if kind == "delete" {
-        Vec::new()
+    let (fields, wire_value) = if kind == "delete" {
+        (HashMap::new(), Vec::new())
     } else {
         let record = doc.get("record").ok_or(())?;
-        if !record.is_object() {
+        let Value::Object(map) = record else {
             return Err(());
-        }
-        serde_json::to_vec(record).map_err(|_| ())?
+        };
+        let fields = map.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+        let wire = serde_json::to_vec(record).map_err(|_| ())?;
+        (fields, wire)
     };
     Ok(Intent {
         mutation_type,
         expected,
+        fields,
         value: wire_value,
     })
+}
+
+fn cite_proposal(ctx: &mut mutation_log::AuthorCtx, proposal: &SignedEntry) -> Result<(), String> {
+    let hash = entry_hash(proposal).map_err(|e| e.to_string())?;
+    ctx.seen_heads.push(hash);
+    ctx.seen_lamports.push(proposal.header().lamport);
+    Ok(())
 }
 
 fn publish(
@@ -163,35 +178,17 @@ fn publish(
     proposal: &SignedEntry,
     ready: Ready,
 ) -> Result<(), String> {
-    let args = PublishArgs {
-        host,
-        histories,
+    let from = citation(proposal)?;
+    let target = Target {
+        home: &host.home,
         database_id,
         identity,
-        proposal,
-        ready,
     };
-    publish_ready(args)
-}
-
-fn publish_ready(args: PublishArgs<'_>) -> Result<(), String> {
-    let from = citation(args.proposal)?;
-    let proposal_hash = entry_hash(args.proposal).map_err(|e| e.to_string())?;
-    let target = Target {
-        home: &args.host.home,
-        database_id: args.database_id,
-        identity: args.identity,
-    };
-    let Ready {
-        namespace,
-        key,
-        value,
-    } = args.ready;
-    chain_author::author_publisher(args.histories, &target, |mut ctx, _history| {
-        ctx.seen_heads.push(proposal_hash);
-        let mut body = data_record(StreamKind::Direct, namespace, &key, &value);
+    chain_author::author_publisher(histories, &target, |mut ctx, _history| {
+        cite_proposal(&mut ctx, proposal).map_err(|_| ChainError::Unconfirmed)?;
+        let mut body = data_record(StreamKind::Direct, ready.namespace, &ready.key, &ready.value);
         body.incorporated_from = Some(from);
-        author_data(&ctx, &args.identity.signing_key, body).map_err(|_| ChainError::Unconfirmed)
+        author_data(&ctx, &identity.signing_key, body).map_err(|_| ChainError::Unconfirmed)
     })
     .map(|_| ())
     .map_err(|e| e.reply().message.to_owned())
@@ -204,14 +201,13 @@ fn discard(
     identity: &AuthorIdentity,
     proposal: &SignedEntry,
 ) -> Result<(), String> {
-    let proposal_hash = entry_hash(proposal).map_err(|e| e.to_string())?;
     let target = Target {
         home: &host.home,
         database_id,
         identity,
     };
     chain_author::author_publisher(histories, &target, |mut ctx, history| {
-        ctx.seen_heads.push(proposal_hash);
+        cite_proposal(&mut ctx, proposal).map_err(|_| ChainError::Unconfirmed)?;
         let tips: Vec<DeviceHead> = history
             .stream_heads_of(identity.node_key)
             .into_iter()
