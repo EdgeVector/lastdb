@@ -57,9 +57,8 @@ modules = [
 
 [[layer]]
 name = "sync_replay"
-doc = "Deterministic mutation-log replay and signed cloud log synchronization."
+doc = "Signed cloud log synchronization and history materialize."
 modules = [
-  "database_replay",
   "log_sync",
 ]
 

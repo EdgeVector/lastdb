@@ -5,7 +5,7 @@ use app_identity_crypto::SigningKey;
 use crate::accept::StreamHead;
 use crate::entry::{
     BirthBody, BlobDeleteBody, BundleBody, DataBody, DeviceHead, EntryHeader, GrantBody, HeadsBody,
-    RelayUrl, RelaysBody, SignedEntry,
+    RelayUrl, RelaysBody, SchemaBody, SignedEntry,
 };
 use crate::history_util::next_lamport;
 use crate::ids::{DatabaseId, DeviceId, EntryHash, Hex32, NodeKey};
@@ -120,6 +120,20 @@ pub fn author_grant(
     let mut entry = SignedEntry::Grant {
         header: ctx.header_unsigned(),
         namespace: "grant".into(),
+        body,
+    };
+    sign_entry(&mut entry, signing_key)?;
+    Ok(entry)
+}
+
+/// Author a schema declaration entry.
+pub fn author_schema(
+    ctx: &AuthorCtx,
+    signing_key: &SigningKey,
+    body: SchemaBody,
+) -> Result<SignedEntry, EncodeError> {
+    let mut entry = SignedEntry::Schema {
+        header: ctx.header_unsigned(),
         body,
     };
     sign_entry(&mut entry, signing_key)?;

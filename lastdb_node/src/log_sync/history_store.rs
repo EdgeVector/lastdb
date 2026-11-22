@@ -4,7 +4,7 @@
 //! serialize VerifiedHistory (crate has no serde on that type).
 
 use std::collections::hash_map::Entry;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -37,6 +37,8 @@ pub(crate) fn histories_for(home: &Path) -> Arc<HistoryMap> {
 pub(crate) struct HistoryMap {
     home: PathBuf,
     inner: Mutex<HashMap<String, VerifiedHistory>>,
+    /// Databases whose last materialize failed; zero-accept pulls retry them.
+    materialize_retry: Mutex<HashSet<String>>,
 }
 
 impl HistoryMap {
@@ -44,6 +46,7 @@ impl HistoryMap {
         Self {
             home: home.to_path_buf(),
             inner: Mutex::new(HashMap::new()),
+            materialize_retry: Mutex::new(HashSet::new()),
         }
     }
 
@@ -81,6 +84,24 @@ impl HistoryMap {
         let mut map = self.inner.lock().map_err(|_| "history lock poisoned")?;
         map.insert(id, history);
         Ok(())
+    }
+
+    pub(super) fn mark_materialize_retry(&self, database_id: &str) {
+        if let Ok(mut set) = self.materialize_retry.lock() {
+            set.insert(database_id.to_owned());
+        }
+    }
+
+    pub(super) fn clear_materialize_retry(&self, database_id: &str) {
+        if let Ok(mut set) = self.materialize_retry.lock() {
+            set.remove(database_id);
+        }
+    }
+
+    pub(super) fn needs_materialize_retry(&self, database_id: &str) -> bool {
+        self.materialize_retry
+            .lock()
+            .is_ok_and(|set| set.contains(database_id))
     }
 }
 

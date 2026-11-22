@@ -13,8 +13,8 @@
 //!
 //! Domains: birth=`lastdb-birth-v1`, data=`lastdb-mutation-v1`,
 //! bundle=`lastdb-bundle-v1`, grant=`lastdb-grant-v1`,
-//! blob_delete=`lastdb-blob-delete-v1`, heads=`lastdb-heads-v1`,
-//! relays=`lastdb-relays-v1`.
+//! schema=`lastdb-schema-v1`, blob_delete=`lastdb-blob-delete-v1`,
+//! heads=`lastdb-heads-v1`, relays=`lastdb-relays-v1`.
 //!
 //! Bundle entries stay **pending** until [`VerifiedHistory::accept_bundle_with_changes`]
 //! (or metadata-only via [`accept_entry`]) after the encrypted blob is verified off-crate.
@@ -57,11 +57,12 @@ pub use accept::{
 };
 pub use author::{
     author_birth, author_blob_delete, author_bundle, author_data, author_grant, author_heads,
-    author_relays, data_record, grant_raise, grant_reduce, hash_of, sign_entry, AuthorCtx,
+    author_relays, author_schema, data_record, grant_raise, grant_reduce, hash_of, sign_entry,
+    AuthorCtx,
 };
 pub use bootstrap::{
     bootstrap_from_records, BootstrapError, BootstrapGrant, BootstrapParams, BootstrapRecord,
-    BootstrapResult,
+    BootstrapResult, BootstrapSchema,
 };
 pub use bundle::{
     validate_bundle_body, validate_bundle_changes, BundleChange, BUNDLE_BLOB_SIZE_MAX,
@@ -71,7 +72,8 @@ pub use decode::{decode_bundle_body, decode_bundle_signed_bytes, DecodeError};
 pub use encode::signed_bytes;
 pub use entry::{
     BirthBody, BlobDeleteBody, BundleBody, DataBody, DeviceHead, EntryHeader, GrantBody, HeadsBody,
-    IncorporatedFrom, MutationFileRef, RelayUrl, RelaysBody, RevocationCutoff, SignedEntry,
+    IncorporatedFrom, MutationFileRef, RelayUrl, RelaysBody, RevocationCutoff, SchemaBody,
+    SignedEntry,
 };
 pub use grants::{past_cutoff, AcceptedMeta, CutoffTip, GrantState};
 pub use history::{EquivocationEvidence, GrantTip, RejectEvidence, VerifiedHistory};

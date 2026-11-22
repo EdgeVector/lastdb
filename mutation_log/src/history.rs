@@ -10,9 +10,10 @@ use crate::grants::{AcceptedMeta, GrantState};
 use crate::ids::{DatabaseId, DeviceId, EntryHash, NodeKey, StreamId};
 use crate::kinds::EntryKind;
 use crate::outbox::Outbox;
-use crate::payload::{decode_record_payload, MaterializedRecord, RecordPosition};
+use crate::payload::MaterializedRecord;
 use crate::wire::entry_hash;
 
+mod effects;
 mod view;
 
 pub use view::GrantTip;
@@ -60,6 +61,8 @@ pub struct VerifiedHistory {
     grants: GrantState,
     /// Whole-record LWW state: `(namespace, record_key)`.
     records: BTreeMap<(String, String), MaterializedRecord>,
+    /// Declared schema definitions by namespace (last accepted wins).
+    schemas: BTreeMap<String, Vec<u8>>,
     /// Blob hashes marked deleted.
     deleted_blobs: BTreeSet<EntryHash>,
     /// Digests referenced by accepted bundle entries (blocks invalid `blob_delete`).
@@ -91,6 +94,7 @@ impl VerifiedHistory {
             frozen: BTreeSet::new(),
             grants: GrantState::empty(),
             records: BTreeMap::new(),
+            schemas: BTreeMap::new(),
             deleted_blobs: BTreeSet::new(),
             live_bundle_blobs: BTreeSet::new(),
             relays: Vec::new(),
@@ -136,6 +140,12 @@ impl VerifiedHistory {
     #[must_use]
     pub fn records(&self) -> &BTreeMap<(String, String), MaterializedRecord> {
         &self.records
+    }
+
+    /// Borrow declared schema definitions (`namespace` → JSON bytes).
+    #[must_use]
+    pub fn schemas(&self) -> &BTreeMap<String, Vec<u8>> {
+        &self.schemas
     }
 
     /// Borrow the outbox.
@@ -288,53 +298,6 @@ impl VerifiedHistory {
                 None
             }
         }));
-    }
-
-    fn apply_effects(&mut self, entry: &SignedEntry, position: RecordPosition, is_publisher: bool) {
-        match entry {
-            SignedEntry::Data { body, .. } => {
-                // Proposals count as content only after publisher incorporation.
-                let merge = body.stream == crate::kinds::StreamKind::Direct
-                    || (is_publisher && body.incorporated_from.is_some());
-                if merge {
-                    self.merge_data(&body.namespace, &body.payload, position);
-                }
-            }
-            SignedEntry::Bundle { body, .. } => {
-                self.live_bundle_blobs.insert(body.blob_sha256);
-            }
-            SignedEntry::BlobDelete { body, .. } => {
-                if !self.live_bundle_blobs.contains(&body.sha256) {
-                    self.deleted_blobs.insert(body.sha256);
-                }
-            }
-            SignedEntry::Heads { body, .. } => {
-                self.publisher_heads = body.publisher_heads.clone();
-            }
-            SignedEntry::Relays { body, .. } => {
-                self.relays = body.relays.iter().map(|r| r.url.clone()).collect();
-            }
-            _ => {}
-        }
-    }
-
-    pub(crate) fn merge_data(&mut self, namespace: &str, payload: &[u8], position: RecordPosition) {
-        let Ok(decoded) = decode_record_payload(payload) else {
-            return;
-        };
-        let key = (namespace.to_owned(), decoded.record_key);
-        match self.records.get(&key) {
-            Some(existing) if !position.beats(existing.position) => {}
-            _ => {
-                self.records.insert(
-                    key,
-                    MaterializedRecord {
-                        position,
-                        value: decoded.value,
-                    },
-                );
-            }
-        }
     }
 
     pub(crate) fn drop_pending_hash(&mut self, hash: &EntryHash) {

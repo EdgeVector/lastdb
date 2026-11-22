@@ -1,0 +1,64 @@
+//! Side effects of accepting an entry into [`VerifiedHistory`].
+
+use crate::entry::SignedEntry;
+use crate::payload::{decode_record_payload, MaterializedRecord, RecordPosition};
+
+use super::VerifiedHistory;
+
+impl VerifiedHistory {
+    pub(super) fn apply_effects(
+        &mut self,
+        entry: &SignedEntry,
+        position: RecordPosition,
+        is_publisher: bool,
+    ) {
+        match entry {
+            SignedEntry::Data { body, .. } => {
+                // Proposals count as content only after publisher incorporation.
+                let merge = body.stream == crate::kinds::StreamKind::Direct
+                    || (is_publisher && body.incorporated_from.is_some());
+                if merge {
+                    self.merge_data(&body.namespace, &body.payload, position);
+                }
+            }
+            SignedEntry::Schema { body, .. } => {
+                self.schemas
+                    .insert(body.namespace.clone(), body.definition.clone());
+            }
+            SignedEntry::Bundle { body, .. } => {
+                self.live_bundle_blobs.insert(body.blob_sha256);
+            }
+            SignedEntry::BlobDelete { body, .. } => {
+                if !self.live_bundle_blobs.contains(&body.sha256) {
+                    self.deleted_blobs.insert(body.sha256);
+                }
+            }
+            SignedEntry::Heads { body, .. } => {
+                self.publisher_heads = body.publisher_heads.clone();
+            }
+            SignedEntry::Relays { body, .. } => {
+                self.relays = body.relays.iter().map(|r| r.url.clone()).collect();
+            }
+            _ => {}
+        }
+    }
+
+    pub(crate) fn merge_data(&mut self, namespace: &str, payload: &[u8], position: RecordPosition) {
+        let Ok(decoded) = decode_record_payload(payload) else {
+            return;
+        };
+        let key = (namespace.to_owned(), decoded.record_key);
+        match self.records.get(&key) {
+            Some(existing) if !position.beats(existing.position) => {}
+            _ => {
+                self.records.insert(
+                    key,
+                    MaterializedRecord {
+                        position,
+                        value: decoded.value,
+                    },
+                );
+            }
+        }
+    }
+}

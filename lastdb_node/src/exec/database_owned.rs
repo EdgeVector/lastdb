@@ -152,8 +152,11 @@ fn row(entry: &Entry) -> Value {
 
 fn shared_database(host: &Host, share: &RegisteredShare) -> Value {
     let mut value = json!(share);
-    let ready =
-        share.signed_log && crate::database_replay::prefix_durable(&host.home, share.id.as_str());
+    // Ready once signed history holds birth (materialize runs on pull).
+    let ready = share.signed_log
+        && crate::log_sync::histories_for(&host.home)
+            .peek_with(share.id.as_str(), |history| history.owner().is_some())
+            .unwrap_or(false);
     value["state"] = json!(if ready { "ready" } else { "restoring" });
     value["access"] = json!("reader");
     if let Some(access) = share

@@ -10,6 +10,8 @@ pub mod domain {
     pub const DATA: &str = "lastdb-mutation-v1";
     /// Grant / revoke domain.
     pub const GRANT: &str = "lastdb-grant-v1";
+    /// Schema declaration domain.
+    pub const SCHEMA: &str = "lastdb-schema-v1";
     /// Blob delete domain.
     pub const BLOB_DELETE: &str = "lastdb-blob-delete-v1";
     /// Publisher heads attestation domain.
@@ -32,6 +34,8 @@ pub enum EntryKind {
     Bundle,
     /// Grant / role change / revoke.
     Grant,
+    /// Schema declaration for a namespace used by later data entries.
+    Schema,
     /// Publisher blob reclaim marker.
     BlobDelete,
     /// Publisher tip vector for hidden-entry detection.
@@ -49,6 +53,7 @@ impl EntryKind {
             Self::Data => domain::DATA,
             Self::Bundle => domain::BUNDLE,
             Self::Grant => domain::GRANT,
+            Self::Schema => domain::SCHEMA,
             Self::BlobDelete => domain::BLOB_DELETE,
             Self::Heads => domain::HEADS,
             Self::Relays => domain::RELAYS,
@@ -60,7 +65,12 @@ impl EntryKind {
     pub const fn is_publisher_kind(self) -> bool {
         matches!(
             self,
-            Self::Birth | Self::Grant | Self::BlobDelete | Self::Heads | Self::Relays
+            Self::Birth
+                | Self::Grant
+                | Self::Schema
+                | Self::BlobDelete
+                | Self::Heads
+                | Self::Relays
         )
     }
 }

@@ -2,7 +2,8 @@
 //!
 //! Pin mapping (settle PR Q4): history namespace = FoldDB schema name, record
 //! key = primary hash key, value = UTF-8 JSON object of fields (empty value =
-//! tombstone delete). The record writes live in `signed_history_materialize`.
+//! tombstone delete). Schema definitions come from signed `schema` entries.
+//! The record writes live in `signed_history_materialize`.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -34,5 +35,6 @@ pub(super) async fn apply_history_records(
     store: &FoldDB,
     history: &VerifiedHistory,
 ) -> Result<(), String> {
+    signed_history_materialize::declare_history_schemas(store, history).await?;
     signed_history_materialize::apply_history(store, history).await
 }

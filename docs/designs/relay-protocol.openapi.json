@@ -830,6 +830,7 @@
               "data",
               "bundle",
               "grant",
+              "schema",
               "blob_delete",
               "heads",
               "relays"
