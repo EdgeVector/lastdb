@@ -480,7 +480,7 @@ export interface DatabasesDeclareRequest {
   mutationId?: never;
 }
 
-/** Append a publisher-signed grant entry for a member key or for any (public read, which only read can be). The entry is accepted on this node, queued on the outbox, and sync is woken. No cloud account is 409 no_cloud_account and is final. Still enrolling waits, then 503 enrolling with Retry-After. Enrolled but the signed entry could not be confirmed is 503 busy with the message signed grant was not confirmed. */
+/** Append a publisher-signed grant entry for a member key or for any (public read, which only read can be). The entry is accepted on this node, appended to the signed log, and sync is woken. No cloud account is 409 no_cloud_account and is final. Still enrolling waits, then 503 enrolling with Retry-After. Enrolled but the signed entry could not be confirmed is 503 busy with the message signed grant was not confirmed. */
 export interface DatabasesGrantRequest {
   action: 'grant';
   database?: DatabaseSelector;
@@ -587,7 +587,7 @@ export interface DatabasesRelaysRequest {
   mutationId?: never;
 }
 
-/** Save the first signed relay URL as this node's relay base URL. 404 when no relays entry is held. No cloud account is 409 no_cloud_account and is final. Still enrolling waits, then 503 enrolling with Retry-After. Enrolled but the signed entry could not be confirmed is 503 busy with the message signed grant was not confirmed. */
+/** Return the first signed relay URL. 404 when no relays entry is held. No cloud account is 409 no_cloud_account and is final. Still enrolling waits, then 503 enrolling with Retry-After. Enrolled but the signed entry could not be confirmed is 503 busy with the message signed grant was not confirmed. */
 export interface DatabasesBootstrapRelayRequest {
   action: 'bootstrap_relay';
   database?: DatabaseSelector;

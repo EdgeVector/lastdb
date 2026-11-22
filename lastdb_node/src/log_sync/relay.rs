@@ -8,7 +8,7 @@ use mutation_log::{DatabaseId, DeviceId, SignedEntry};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
-/// Bound a hung peer so the sync loop can return and re-push the outbox.
+/// Bound a hung peer so the sync loop can return and re-push the log.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 /// CI probe budget: request timeout plus a little slack.

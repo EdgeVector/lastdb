@@ -107,7 +107,7 @@ pub(crate) struct BackupRestoreArgs {
     /// Publisher device stream id(s) (64 lowercase hex) to pull from writer_seq = 1.
     #[arg(long = "device-id", required = true, num_args = 1..)]
     pub(crate) device_ids: Vec<String>,
-    /// Relay origin. Falls back to `LASTDB_RELAY_URL` or `log-sync/relay-url` under `--data-dir`.
+    /// Relay origin. Falls back to `LASTDB_RELAY_URL`, then the Exemem API in the saved cloud credentials under `--data-dir`.
     #[arg(long)]
     pub(crate) relay_url: Option<String>,
     /// Retired snapshot generation; ignored for signed-history restore.

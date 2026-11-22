@@ -47,7 +47,6 @@ mod history_bundle;
 mod history_util;
 mod ids;
 mod kinds;
-mod outbox;
 mod payload;
 mod wire;
 
@@ -80,7 +79,6 @@ pub use history::{EquivocationEvidence, GrantTip, RejectEvidence, VerifiedHistor
 pub use history_util::{grant_body_of, next_lamport};
 pub use ids::{DatabaseId, DeviceId, EntryHash, Hex32, IdError, NodeKey, StreamId};
 pub use kinds::{domain, EntryKind, Grantee, Role, StreamKind};
-pub use outbox::Outbox;
 pub use payload::{
     decode_record_payload, encode_record_payload, MaterializedRecord, PayloadError, RecordPayload,
     RecordPosition,

@@ -40,7 +40,7 @@ pub(super) fn run(home: &Path, args: BackupRestoreArgs) -> Result<(), String> {
     let relay_url = relay_override
         .or_else(|| lastdb_node::log_sync::relay_base_url(home))
         .ok_or(
-            "signed restore requires --relay-url, LASTDB_RELAY_URL, or log-sync/relay-url under --data-dir",
+            "signed restore requires --relay-url, LASTDB_RELAY_URL, or saved cloud credentials under --data-dir",
         )?;
     let plan = SignedRestorePlan {
         home,
@@ -117,7 +117,6 @@ async fn restore_into_staged(plan: SignedRestorePlan<'_>) -> Result<Restored, St
             streams,
         })
         .await?;
-    lastdb_node::log_sync::store_relay_base_url(&staged.path, plan.relay_url)?;
     // FoldDB already holds winners under home/data; boot validates the layout.
     let host = Arc::new(Host::boot(&staged.path).await?);
     let owned_closed = host.shutdown_owned_databases().await;
