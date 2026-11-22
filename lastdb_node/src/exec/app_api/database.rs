@@ -2,9 +2,9 @@
 //!
 //! An owned database and the personal database behave as before. A received
 //! database is readable once its signed history has materialized into the
-//! receiver store. A write commits only when `write` is `direct` and this
-//! node is an active Submit member. Otherwise the write is refused. `changes`
-//! does not open a received database.
+//! receiver store. A write commits only when this node holds a folded Write
+//! role for that database. Otherwise the write is refused. `changes` does not
+//! open a received database.
 
 use std::future::Future;
 use std::sync::Arc;
@@ -113,8 +113,8 @@ async fn write_received<T>(
         .await
         .map_err(|_| HostError::new(503, STORE_UNAVAILABLE))?;
     let result = host.with_records(Arc::clone(&store), future).await;
-    // The write may have moved the spool. Record the cursor the list reads.
-    crate::log_sync::note_receiver(share.id.as_str(), &store);
+    // The write may have moved the outbox. Record the count the list reads.
+    crate::log_sync::note_receiver(&host.home, share.id.as_str());
     result
 }
 
@@ -126,6 +126,6 @@ async fn read_received<T>(
     let store = registered_share::receiver_store(host, &share.id)
         .await
         .map_err(|_| HostError::new(503, STORE_UNAVAILABLE))?;
-    crate::log_sync::note_receiver(share.id.as_str(), &store);
+    crate::log_sync::note_receiver(&host.home, share.id.as_str());
     host.with_records(store, future).await
 }
