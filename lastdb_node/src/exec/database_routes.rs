@@ -40,7 +40,7 @@ pub(in crate::exec) async fn execute_database_request(
         return run_submission_status(selector, req, ctx, host);
     }
     if let Some(selector) = submission_selector(req) {
-        return run_submission(selector, req, ctx, host);
+        return run_submission(selector, req, ctx, host).await;
     }
     let Some((selector, path)) = split_database_path(&req.target) else {
         return content_free(404, "Not Found");
@@ -116,7 +116,7 @@ pub(in crate::exec) async fn execute_deferred_database_request(
     }
     if let Some(selector) = submission_selector(req) {
         return with_handler_timeout_budget(ctx, handler_timeout(), async {
-            run_submission(selector, req, ctx, host)
+            run_submission(selector, req, ctx, host).await
         })
         .await;
     }
@@ -156,7 +156,7 @@ fn run_submission_status(
     }
 }
 
-fn run_submission(
+async fn run_submission(
     selector: &str,
     req: &UdsRequest,
     ctx: &AccessContext,
@@ -164,7 +164,7 @@ fn run_submission(
 ) -> UdsResponse {
     match resolve_database(selector, ctx, host) {
         Ok(Selection::Signed(share)) => {
-            super::database_received::submit_signed(req, ctx, host, &share)
+            super::database_received::submit_signed(req, ctx, host, &share).await
         }
         // An owned database is not a receiver. The route does not write a record.
         Ok(_) => error_response(404, "this database has no received submissions", ctx),

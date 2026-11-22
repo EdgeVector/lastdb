@@ -14,7 +14,7 @@
 
 use thiserror::Error;
 
-use crate::ids::{DeviceId, NodeKey};
+use crate::ids::{DeviceId, EntryHash, NodeKey};
 
 /// Failure decoding a record payload envelope.
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
@@ -109,6 +109,9 @@ pub struct MaterializedRecord {
     /// Content author for FoldDB stamps: the signed writer, or the proposal
     /// member when a publisher incorporation cites `incorporated_from`.
     pub author: NodeKey,
+    /// Hash of the winning entry. Every node holds the same entry, so this is
+    /// the record revision that compare-and-set across nodes names.
+    pub entry: EntryHash,
     /// Current value; empty = tombstone present.
     pub value: Vec<u8>,
 }
