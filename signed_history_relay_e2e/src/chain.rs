@@ -2,10 +2,13 @@
 
 use app_identity_crypto::SigningKey;
 use mutation_log::{
-    author_birth, author_bundle, author_grant, author_heads, entry_hash, grant_raise, grant_reduce,
-    AuthorCtx, BundleBody, DatabaseId, DeviceHead, DeviceId, EncodeError, Grantee, NodeKey,
-    RevocationCutoff, Role, SignedEntry, StreamHead,
+    author_birth, author_bundle, author_data, author_grant, author_heads, decode_signature_b64url,
+    entry_hash, grant_raise, grant_reduce, AuthorCtx, BundleBody, DataBody, DatabaseId, DeviceHead,
+    DeviceId, EncodeError, Grantee, Hex32, IncorporatedFrom, NodeKey, Role, SignedEntry,
+    StreamHead, StreamKind,
 };
+
+use sha2::{Digest, Sha256};
 
 use crate::identity::{now_ms, Actor, DbBirth};
 
@@ -100,16 +103,47 @@ impl Publisher {
         })
     }
 
-    /// Revoke `member`; `cutoff` names the last entry of its device stream that stays valid.
-    pub fn revoke(
+    /// Revoke `member`. The entry format carries cutoffs; nothing reads them.
+    pub fn revoke(&self, chain: &mut Chain, member: NodeKey) -> Result<SignedEntry, String> {
+        self.author(chain, |ctx, key| {
+            let body = grant_reduce(Grantee::Member(member), Role::Revoked, Vec::new());
+            author_grant(ctx, key, body)
+        })
+    }
+
+    /// Incorporate a member's proposal: a direct entry that carries the proposal's
+    /// payload, cites it in `seen_heads` and names it in `incorporated_from`.
+    pub fn incorporate(
         &self,
         chain: &mut Chain,
-        member: NodeKey,
-        cutoff: RevocationCutoff,
+        proposal: &SignedEntry,
     ) -> Result<SignedEntry, String> {
+        let SignedEntry::Data { body: from, .. } = proposal else {
+            return Err("only a data entry can be incorporated".into());
+        };
+        let header = proposal.header();
+        let sig = decode_signature_b64url(&header.signature).map_err(|e| e.to_string())?;
+        let digest: [u8; 32] = Sha256::digest(sig).into();
+        let body = DataBody {
+            stream: StreamKind::Direct,
+            namespace: from.namespace.clone(),
+            payload: from.payload.clone(),
+            file: None,
+            incorporated_from: Some(IncorporatedFrom {
+                node_key: header.node_key,
+                device_id: header.device_id,
+                writer_seq: header.writer_seq,
+                signature_sha256: Hex32::from_bytes(digest),
+            }),
+            grant_at_device: None,
+            grant_at_seq: None,
+        };
+        let proposal_hash = entry_hash(proposal).map_err(|e| e.to_string())?;
         self.author(chain, |ctx, key| {
-            let body = grant_reduce(Grantee::Member(member), Role::Revoked, vec![cutoff]);
-            author_grant(ctx, key, body)
+            let mut ctx = ctx.clone();
+            ctx.seen_heads.push(proposal_hash);
+            ctx.seen_lamports.push(header.lamport);
+            author_data(&ctx, key, body)
         })
     }
 

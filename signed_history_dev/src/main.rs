@@ -4,6 +4,7 @@
 
 mod device;
 mod proof_store;
+mod proposal;
 mod relay;
 mod report;
 mod scenarios;

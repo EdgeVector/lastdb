@@ -4,8 +4,8 @@ use app_identity_crypto::{hex_lower, sign, SigningKey};
 use mutation_log::{
     author_birth, author_data, author_grant, birth_proof_bytes, data_record,
     encode_signature_b64url, entry_hash, grant_raise, grant_reduce, AcceptOutcome, AuthorCtx,
-    DatabaseId, DeviceId, EntryHash, Grantee, Hex32, NodeKey, RejectReason, RevocationCutoff, Role,
-    SignedEntry, StreamHead, StreamKind, VerifiedHistory,
+    DatabaseId, DeviceId, EntryHash, Grantee, Hex32, NodeKey, RejectReason, Role, SignedEntry,
+    StreamHead, StreamKind, VerifiedHistory,
 };
 use rand::RngCore;
 
@@ -205,61 +205,20 @@ pub fn owner_grant_write(
     Ok(entry)
 }
 
-/// Publisher revoke with a role-reduction cutoff.
+/// Publisher revoke. The entry format still carries cutoffs; nothing reads them.
 pub fn owner_revoke(
     history: &mut VerifiedHistory,
     owner: &Device,
     database_id: DatabaseId,
     member: NodeKey,
-    cutoff: RevocationCutoff,
     authored_at_ms: u64,
 ) -> Result<SignedEntry, String> {
     let head = stream_head_of(history, owner);
     let ctx = owner.author_ctx(database_id, head, Vec::new(), Vec::new(), authored_at_ms);
-    let body = grant_reduce(Grantee::Member(member), Role::Revoked, vec![cutoff]);
+    let body = grant_reduce(Grantee::Member(member), Role::Revoked, Vec::new());
     let entry = author_grant(&ctx, &owner.signing_key, body).map_err(|e| e.to_string())?;
     must_accept(history, entry.clone())?;
     Ok(entry)
-}
-
-/// Member direct write bound to a publisher grant in `seen_heads`.
-pub fn member_write(
-    history: &mut VerifiedHistory,
-    member: &Device,
-    grant: &SignedEntry,
-    write: &DataWrite<'_>,
-) -> Result<SignedEntry, String> {
-    let entry = author_member_write(history, member, grant, write)?;
-    must_accept(history, entry.clone())?;
-    Ok(entry)
-}
-
-/// Author a member direct write without accepting (for reject proofs).
-pub fn author_member_write(
-    history: &VerifiedHistory,
-    member: &Device,
-    grant: &SignedEntry,
-    write: &DataWrite<'_>,
-) -> Result<SignedEntry, String> {
-    let grant_hash = entry_hash(grant).map_err(|e| e.to_string())?;
-    let grant_hdr = grant.header();
-    let head = stream_head_of(history, member);
-    let ctx = member.author_ctx(
-        write.database_id,
-        head,
-        vec![grant_hash],
-        vec![grant_hdr.lamport],
-        write.authored_at_ms,
-    );
-    let mut body = data_record(
-        StreamKind::Direct,
-        write.namespace,
-        write.record_key,
-        write.value,
-    );
-    body.grant_at_device = Some(grant_hdr.device_id);
-    body.grant_at_seq = Some(grant_hdr.writer_seq);
-    author_data(&ctx, &member.signing_key, body).map_err(|e| e.to_string())
 }
 
 /// Tamper the wire signature so verification fails.

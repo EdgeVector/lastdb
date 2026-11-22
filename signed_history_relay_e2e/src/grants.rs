@@ -1,13 +1,16 @@
-//! Grant and revoke against the relay: a `write` member appends, the publisher
-//! revokes it with a cutoff, and the relay then refuses the member's next
-//! `log.append` and `blob.put` with HTTP 403. The member's earlier entry stays
-//! stored and is judged by the cutoff on restore. A never-granted node key also
-//! gets 403 on signed `log.append` and on `log.read` of a non-public database.
+//! Grant and revoke against the relay: a `write` member proposes, the publisher
+//! incorporates the proposal, then revokes the member, and the relay refuses the
+//! member's next `log.append` and `blob.put` with HTTP 403. Only the publisher
+//! signs direct entries, so the relay also refuses a member's direct entry
+//! while the grant is live. The member's proposal stays stored and the
+//! publisher's incorporation is what puts its record in the history. A
+//! never-granted node key gets 403 on signed `log.append` and on `log.read` of a
+//! non-public database.
 
 use bytes::Bytes;
 use mutation_log::{
     author_data, data_record, entry_hash, AcceptOutcome, AuthorCtx, DatabaseId, DeviceId, Grantee,
-    Hex32, NodeKey, RevocationCutoff, Role, SignedEntry, StreamKind, VerifiedHistory,
+    Hex32, NodeKey, Role, SignedEntry, StreamKind, VerifiedHistory,
 };
 use sha2::{Digest, Sha256};
 use signed_history_materialize::encode_string_field;
@@ -16,12 +19,12 @@ use crate::chain::Chain;
 use crate::identity::{new_device_id, now_ms, Actor};
 use crate::relay::RelayClient;
 
-/// FoldDB schema (history namespace) for records written by the member.
+/// FoldDB schema (history namespace) for records proposed by the member.
 pub const MEMBER_NAMESPACE: &str = "relay_e2e_member";
-/// Record key of the member's one accepted write.
+/// Record key of the member's one incorporated proposal.
 pub const MEMBER_KEY: &str = "from-member";
-/// Text of the member's accepted write.
-pub const MEMBER_TEXT: &str = "written by a write member before its revoke";
+/// Text of the member's incorporated proposal.
+pub const MEMBER_TEXT: &str = "proposed by a write member and incorporated by the publisher";
 
 /// Where the database lives: relay, publisher and the publisher's first device stream.
 pub struct Scene<'a> {
@@ -38,12 +41,12 @@ impl Scene<'_> {
     }
 }
 
-/// A node holding a publisher `write` grant, writing through its own device stream.
+/// A node holding a publisher `write` grant, signing through its own device stream.
 pub struct Member {
     actor: Actor,
     chain: Chain,
     grant: SignedEntry,
-    first: Option<SignedEntry>,
+    proposal: Option<SignedEntry>,
 }
 
 impl Member {
@@ -51,19 +54,19 @@ impl Member {
         self.actor.node_key
     }
 
-    /// Cutoff that keeps the member's accepted write and drops anything after it.
-    pub fn cutoff(&self) -> Result<RevocationCutoff, String> {
-        let first = self.first.as_ref().ok_or("member has not written yet")?;
-        Ok(RevocationCutoff {
-            device_id: self.chain.device_id,
-            writer_seq: first.header().writer_seq,
-            entry_hash: entry_hash(first).map_err(|e| e.to_string())?,
-        })
+    /// The proposal the member deposited; the publisher incorporates it.
+    pub fn proposal(&self) -> Result<&SignedEntry, String> {
+        self.proposal
+            .as_ref()
+            .ok_or_else(|| "member has not proposed yet".to_owned())
     }
 
-    fn write(
-        &mut self,
+    /// Author a data entry on `stream` that cites the member's grant. It does
+    /// not move the chain: the caller advances it when the entry is stored.
+    fn author(
+        &self,
         database_id: DatabaseId,
+        stream: StreamKind,
         record_key: &str,
         text: &str,
     ) -> Result<SignedEntry, String> {
@@ -79,18 +82,15 @@ impl Member {
             authored_at_ms: now_ms(),
         };
         let value = encode_string_field(text);
-        let mut body = data_record(StreamKind::Direct, MEMBER_NAMESPACE, record_key, &value);
-        body.grant_at_device = Some(grant.device_id);
-        body.grant_at_seq = Some(grant.writer_seq);
-        let entry = author_data(&ctx, &self.actor.signing_key, body).map_err(|e| e.to_string())?;
-        self.chain.advance(&entry)?;
-        Ok(entry)
+        let body = data_record(stream, MEMBER_NAMESPACE, record_key, &value);
+        author_data(&ctx, &self.actor.signing_key, body).map_err(|e| e.to_string())
     }
 }
 
 /// The member reads the publisher's root stream, verifies it with AcceptEntry,
-/// finds its own `write` grant, then appends one record bound to that grant.
-pub async fn write_as_member(scene: &Scene<'_>, actor: Actor) -> Result<Member, String> {
+/// finds its own `write` grant, appends one proposal, and checks that the relay
+/// refuses a direct entry from the same grant.
+pub async fn propose_as_member(scene: &Scene<'_>, actor: Actor) -> Result<Member, String> {
     let device = new_device_id();
     let client = scene.client(&actor, device);
     let page = client
@@ -114,11 +114,28 @@ pub async fn write_as_member(scene: &Scene<'_>, actor: Actor) -> Result<Member, 
         actor,
         chain: Chain::new(device),
         grant,
-        first: None,
+        proposal: None,
     };
-    let first = member.write(scene.database_id, MEMBER_KEY, MEMBER_TEXT)?;
+    let direct = member.author(
+        scene.database_id,
+        StreamKind::Direct,
+        "direct",
+        "sneaked in",
+    )?;
+    refused(
+        "write member",
+        "log.append of a direct entry",
+        client.append(std::slice::from_ref(&direct)).await,
+    )?;
+    let first = member.author(
+        scene.database_id,
+        StreamKind::Proposal,
+        MEMBER_KEY,
+        MEMBER_TEXT,
+    )?;
     client.append(std::slice::from_ref(&first)).await?;
-    member.first = Some(first);
+    member.chain.advance(&first)?;
+    member.proposal = Some(first);
     Ok(member)
 }
 
@@ -130,10 +147,15 @@ fn names_member(entry: &SignedEntry, member: NodeKey) -> bool {
     )
 }
 
-/// After the revoke is stored, a new `log.append` and `blob.put` by the member must get 403.
-pub async fn expect_revoked(scene: &Scene<'_>, member: &mut Member) -> Result<(), String> {
+/// After the revoke is stored, a new proposal `log.append` and `blob.put` by the member must get 403.
+pub async fn expect_revoked(scene: &Scene<'_>, member: &Member) -> Result<(), String> {
     let client = scene.client(&member.actor, member.chain.device_id);
-    let late = member.write(scene.database_id, "late", "written after the revoke")?;
+    let late = member.author(
+        scene.database_id,
+        StreamKind::Proposal,
+        "late",
+        "proposed after the revoke",
+    )?;
     refused(
         "revoked member",
         "log.append",

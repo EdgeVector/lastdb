@@ -2,7 +2,8 @@
 //!
 //! The invite names the publisher node and its first device stream. Every other
 //! stream is found from accepted publisher entries: `heads` tips name the
-//! publisher's other devices and grant cutoffs name a member's devices. Each
+//! publisher's other devices and an incorporation names the member device
+//! whose proposal it carries. Each
 //! stream is read from `writer_seq = 1`; a bundle entry is applied only after
 //! its blob downloads, hashes to the entry's digest, and decrypts.
 
@@ -11,8 +12,8 @@ use std::sync::Arc;
 
 use futures::stream::{self, StreamExt};
 use mutation_log::{
-    entry_hash, AcceptOutcome, BundleBody, BundleChange, DeviceId, Grantee, Hex32, NodeKey,
-    SignedEntry, VerifiedHistory,
+    entry_hash, AcceptOutcome, BundleBody, BundleChange, DeviceId, Hex32, NodeKey, SignedEntry,
+    VerifiedHistory,
 };
 use sha2::{Digest, Sha256};
 
@@ -197,11 +198,19 @@ fn retry_deferred(
     }
 }
 
-/// Streams named by accepted publisher entries: `heads` tips (the publisher's
-/// other devices) and grant cutoffs (a member's devices that wrote).
+/// Streams named by publisher entries: `heads` tips (the publisher's other
+/// devices) and `incorporated_from` (the member device that signed a proposal
+/// the publisher incorporated). The incorporation may wait on its proposal, so
+/// it names the stream before it is accepted; AcceptEntry still judges it.
 fn discover(history: &VerifiedHistory, entries: &[SignedEntry]) -> Vec<(NodeKey, DeviceId)> {
     let mut streams = Vec::new();
     for entry in entries {
+        if let SignedEntry::Data { body, .. } = entry {
+            let by_owner = history.owner() == Some(entry.header().node_key);
+            if let Some(from) = body.incorporated_from.as_ref().filter(|_| by_owner) {
+                streams.push((from.node_key, from.device_id));
+            }
+        }
         let accepted_publisher = entry_hash(entry)
             .ok()
             .and_then(|hash| history.get_accepted(&hash))
@@ -217,12 +226,6 @@ fn discover(history: &VerifiedHistory, entries: &[SignedEntry]) -> Vec<(NodeKey,
                         .iter()
                         .map(|tip| (owner, tip.device_id)),
                 );
-            }
-            SignedEntry::Grant { body, .. } => {
-                if let Grantee::Member(member) = body.grantee {
-                    let wrote = body.cutoffs.iter().filter(|cut| cut.writer_seq > 0);
-                    streams.extend(wrote.map(|cut| (member, cut.device_id)));
-                }
             }
             _ => {}
         }
