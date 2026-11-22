@@ -98,18 +98,15 @@ pub(crate) struct BackupConnectArgs {
 
 #[derive(Args, Debug)]
 pub(crate) struct BackupRestoreArgs {
-    /// Recover an owned database from the signed cloud log.
+    /// Restore the personal database from the recovery phrase on stdin. The
+    /// phrase gives the node key, the database id and the read key, and the
+    /// command finds every device stream on the relay by itself.
     #[arg(long, required = true)]
     pub(crate) recovery_phrase_stdin: bool,
-    /// Hex32 self-certifying database id (`--stream` is the same flag).
-    #[arg(long, visible_alias = "stream")]
-    pub(crate) database: String,
-    /// Publisher device stream id(s) (64 lowercase hex) to pull from writer_seq = 1.
-    #[arg(long = "device-id", required = true, num_args = 1..)]
-    pub(crate) device_ids: Vec<String>,
-    /// Relay origin. Falls back to `LASTDB_RELAY_URL`, then the Exemem API in the saved cloud credentials under `--data-dir`.
+    /// Relay origin. Falls back to `LASTDB_RELAY_URL`, then the Exemem API in the saved cloud credentials under `--data-dir` when that is given.
     #[arg(long)]
     pub(crate) relay_url: Option<String>,
+    /// A home that does not exist yet. It signs on a new device stream.
     #[arg(long)]
     pub(crate) into: PathBuf,
     #[arg(long)]

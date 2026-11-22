@@ -127,7 +127,8 @@ impl CommitError {
 
 impl Tables {
     pub(crate) async fn open(home: &Path, signer: Arc<Ed25519KeyPair>) -> Result<Self, String> {
-        let file = registry::load(home)?;
+        let seed = Zeroizing::new(signer.secret_key_bytes());
+        let file = registry::load(home, &seed)?;
         let stores = store::open_all(home, &file.owned, &signer).await?;
         if registry::read(home)?.is_none() {
             registry::write(home, &file).map_err(|error| error.to_string())?;

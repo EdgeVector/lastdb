@@ -138,8 +138,10 @@ unsigned mutation log. Signed-history + relay DEV CI replaces them.
 
 ## Cursor Cloud specific instructions
 
-Owner byte backup and its PROD restore workflow are gone. Personal databases sync through signed history AcceptEntry and a grant-gating
-relay. No snapshots, dual readers, feature flags, or migration paths.
+Owner byte backup and its PROD restore workflow are gone. The personal database is a signed log with no grants: every device of the
+owner signs its own stream with the one node key, every payload is sealed before it is signed, and a grant-gating relay stores the
+streams. The relay copy is the backup, and reading it is how a second device or a restore catches up
+(`docs/designs/personal-database-signed-log.md`). No snapshots, dual readers, feature flags, or migration paths.
 
 The image already has Rust (`rust-toolchain.toml`, 1.96.1) and Node 22.
 `install` adds Ruby and the pinned

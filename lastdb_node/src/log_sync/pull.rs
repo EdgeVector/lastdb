@@ -230,7 +230,7 @@ async fn pull_pages(
     Ok(accepted)
 }
 
-async fn rematerialize(
+pub(super) async fn rematerialize(
     histories: &HistoryMap,
     db: &DatabaseCtx<'_>,
     accepted: u64,

@@ -54,6 +54,21 @@ pub(crate) fn mint(
         .map_err(|_| "cannot write birth material".into())
 }
 
+/// The birth material of the personal database. Every part comes from the node
+/// seed, so every device of the owner signs the same birth and nothing is kept
+/// on disk. The birth is authored at a fixed time for the same reason.
+pub(crate) fn derived(node_seed: &[u8; 32]) -> BirthMaterial {
+    let db_key = SigningKey::from_bytes(&crate::personal_identity::database_key_seed(node_seed));
+    let db_salt = Hex32::from_bytes(crate::personal_identity::birth_salt(node_seed));
+    let owner = NodeKey::from_bytes(SigningKey::from_bytes(node_seed).verifying_key().to_bytes());
+    let proof = birth_proof_bytes(owner, db_salt);
+    BirthMaterial {
+        db_salt,
+        birth_signature: encode_signature_b64url(&app_identity_crypto::sign(&db_key, &proof)),
+        authored_at_ms: 0,
+    }
+}
+
 pub(crate) fn load(
     home: &std::path::Path,
     database_id: &str,

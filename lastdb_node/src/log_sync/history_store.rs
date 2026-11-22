@@ -16,9 +16,13 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use mutation_log::{
-    stream_id_of, AcceptOutcome, DatabaseId, SignedEntry, StreamId, VerifiedHistory,
+    stream_id_of, AcceptOutcome, BundleChange, DatabaseId, SealOpener, SignedEntry, StreamId,
+    VerifiedHistory,
 };
 
+use super::blobs;
+use super::sealed::Sealer;
+use crate::host::Host;
 use crate::profile::private_fs as disk;
 
 const LOG_LIMIT: usize = 16 * 1024 * 1024;
@@ -27,7 +31,7 @@ const CURSOR_LIMIT: usize = 32;
 /// The histories of one node home, shared by the sync loop and every request
 /// handler. Host sits below log_sync in the layer order and cannot hold the
 /// map, so the map is looked up by home and created on first use.
-pub(crate) fn histories_for(home: &Path) -> Arc<HistoryMap> {
+pub(crate) fn histories_for(host: &Host) -> Arc<HistoryMap> {
     static HOMES: OnceLock<Mutex<HashMap<PathBuf, Arc<HistoryMap>>>> = OnceLock::new();
     let mut homes = HOMES
         .get_or_init(|| Mutex::new(HashMap::new()))
@@ -35,9 +39,17 @@ pub(crate) fn histories_for(home: &Path) -> Arc<HistoryMap> {
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     Arc::clone(
         homes
-            .entry(home.to_path_buf())
-            .or_insert_with(|| Arc::new(HistoryMap::new(home))),
+            .entry(host.home.clone())
+            .or_insert_with(|| Arc::new(HistoryMap::new(&host.home, personal_sealer(host)))),
     )
+}
+
+/// The sealer of the personal database of this node. It is made from the node
+/// seed and fails only if the derived id is not a database id, which no seed
+/// produces.
+fn personal_sealer(host: &Host) -> Option<Arc<Sealer>> {
+    let seed = zeroize::Zeroizing::new(host.keypair.secret_key_bytes());
+    Sealer::for_node_seed(&seed).ok().map(Arc::new)
 }
 
 /// Process-wide histories, shared by the sync loop and every request handler.
@@ -47,6 +59,9 @@ pub(crate) fn histories_for(home: &Path) -> Arc<HistoryMap> {
 /// empty history is created in its place.
 pub(crate) struct HistoryMap {
     home: PathBuf,
+    /// Seals and opens the personal database. Every other database is shared
+    /// and keeps its payloads in clear.
+    sealer: Option<Arc<Sealer>>,
     inner: Mutex<HashMap<String, VerifiedHistory>>,
     /// How many entries `received.json` holds, per database.
     received: Mutex<HashMap<String, usize>>,
@@ -55,9 +70,10 @@ pub(crate) struct HistoryMap {
 }
 
 impl HistoryMap {
-    pub(crate) fn new(home: &Path) -> Self {
+    fn new(home: &Path, sealer: Option<Arc<Sealer>>) -> Self {
         Self {
             home: home.to_path_buf(),
+            sealer,
             inner: Mutex::new(HashMap::new()),
             received: Mutex::new(HashMap::new()),
             materialize_retry: Mutex::new(HashSet::new()),
@@ -74,7 +90,7 @@ impl HistoryMap {
         let hist = match map.entry(database_id.to_owned()) {
             Entry::Occupied(held) => held.into_mut(),
             Entry::Vacant(slot) => {
-                let (history, received) = replay(&self.home, id)?;
+                let (history, received) = self.replay(id)?;
                 self.note_received(database_id, received);
                 slot.insert(history)
             }
@@ -142,24 +158,74 @@ impl HistoryMap {
     }
 }
 
-/// Rebuild a history from the authored log and the received entries, and say
-/// how many received entries there were. Entries are replayed in ascending
-/// Lamport order, which meets every dependency before its user. A file that
-/// cannot be read or parsed is an error.
-fn replay(home: &Path, id: DatabaseId) -> Result<(VerifiedHistory, usize), String> {
-    let database_id = id.to_hex();
-    let received = load_received(home, &database_id)?;
-    let count = received.len();
-    let mut entries = load_authored(home, &database_id)?;
-    entries.extend(received);
-    entries.sort_by_key(|entry| entry.header().lamport);
-    let mut history = VerifiedHistory::new(id);
-    for entry in entries {
-        if let AcceptOutcome::Reject { reason } = history.accept_entry(entry) {
-            tracing::warn!(target: "lastdbd::log_sync", ?reason, "stored entry was rejected on replay");
-        }
+impl HistoryMap {
+    /// The sealer of `id`, when that is the personal database.
+    fn sealer_for(&self, id: DatabaseId) -> Option<&Arc<Sealer>> {
+        self.sealer
+            .as_ref()
+            .filter(|sealer| sealer.database() == id)
     }
-    Ok((history, count))
+
+    /// The sealer of the database, when it is the personal one.
+    pub(super) fn sealer_of(&self, database_id: &str) -> Option<Arc<Sealer>> {
+        let id = DatabaseId::from_hex(database_id).ok()?;
+        self.sealer_for(id).cloned()
+    }
+
+    /// Rebuild a history from the authored log and the received entries, and say
+    /// how many received entries there were. Entries are replayed in ascending
+    /// Lamport order, which meets every dependency before its user. A file that
+    /// cannot be read or parsed is an error.
+    fn replay(&self, id: DatabaseId) -> Result<(VerifiedHistory, usize), String> {
+        let database_id = id.to_hex();
+        let received = load_received(&self.home, &database_id)?;
+        let count = received.len();
+        let mut entries = load_authored(&self.home, &database_id)?;
+        entries.extend(received);
+        entries.sort_by_key(|entry| entry.header().lamport);
+        let sealer = self.sealer_for(id).cloned();
+        let mut history = match &sealer {
+            Some(sealer) => {
+                VerifiedHistory::with_opener(id, Arc::clone(sealer) as Arc<dyn SealOpener>)
+            }
+            None => VerifiedHistory::new(id),
+        };
+        for entry in entries {
+            let outcome = self.replay_entry(&mut history, entry, sealer.as_deref());
+            if let AcceptOutcome::Reject { reason } = outcome {
+                tracing::warn!(target: "lastdbd::log_sync", ?reason, "stored entry was rejected on replay");
+            }
+        }
+        Ok((history, count))
+    }
+
+    /// A bundle entry of the personal database is applied with the changes of
+    /// its kept blob. A blob that is not kept rejects the entry here, and the
+    /// writes of that stream stop until the blob is back.
+    fn replay_entry(
+        &self,
+        history: &mut VerifiedHistory,
+        entry: SignedEntry,
+        sealer: Option<&Sealer>,
+    ) -> AcceptOutcome {
+        let (SignedEntry::Bundle { header, body, .. }, Some(sealer)) = (&entry, sealer) else {
+            return history.accept_entry(entry);
+        };
+        let database_id = header.database_id.to_hex();
+        let changes = blobs::load(&self.home, &database_id, &body.blob_sha256)
+            .and_then(|blob| blob.ok_or_else(|| "bundle blob is not kept".to_owned()))
+            .and_then(|blob| blobs::open_changes(sealer, header, &blob));
+        let changes = match changes {
+            Ok(changes) => changes,
+            Err(error) => {
+                tracing::warn!(target: "lastdbd::log_sync", %error, "a bundle entry could not be replayed");
+                return AcceptOutcome::Reject {
+                    reason: mutation_log::RejectReason::Malformed("bundle blob is not usable"),
+                };
+            }
+        };
+        history.accept_bundle_with_changes(entry, &changes)
+    }
 }
 
 /// Accept `entry` on a copy of `history`, append it to the log, then swap the
@@ -174,12 +240,35 @@ pub(super) fn commit_authored(
     history: &mut VerifiedHistory,
     entry: &SignedEntry,
 ) -> Result<AcceptOutcome, String> {
+    commit_with(home, history, entry, |next| {
+        next.accept_entry(entry.clone())
+    })
+}
+
+/// [`commit_authored`] for a bundle entry, whose blob the caller has kept.
+pub(super) fn commit_authored_bundle(
+    home: &Path,
+    history: &mut VerifiedHistory,
+    entry: &SignedEntry,
+    changes: &[BundleChange],
+) -> Result<AcceptOutcome, String> {
+    commit_with(home, history, entry, |next| {
+        next.accept_bundle_with_changes(entry.clone(), changes)
+    })
+}
+
+fn commit_with(
+    home: &Path,
+    history: &mut VerifiedHistory,
+    entry: &SignedEntry,
+    accept: impl FnOnce(&mut VerifiedHistory) -> AcceptOutcome,
+) -> Result<AcceptOutcome, String> {
     if history.pending_on(&stream_id_of(entry)) {
         return Err("this stream has entries that wait for a dependency; sync first".into());
     }
     let database_id = history.database_id().to_hex();
     let mut next = history.clone();
-    let outcome = next.accept_entry(entry.clone());
+    let outcome = accept(&mut next);
     if matches!(outcome, AcceptOutcome::Accept { .. }) {
         append_authored(home, &database_id, entry)?;
         *history = next;

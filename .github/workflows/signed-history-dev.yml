@@ -29,6 +29,7 @@ on:
       - "signed_history_relay_e2e/**"
       - "scripts/signed_history/**"
       - "scripts/operations/shared_database_proof.py"
+      - "scripts/operations/personal_database_proof.py"
       - "lastdb_node/src/log_sync/**"
       - ".github/workflows/signed-history-dev.yml"
   push:
@@ -41,6 +42,7 @@ on:
       - "signed_history_relay_e2e/**"
       - "scripts/signed_history/**"
       - "scripts/operations/shared_database_proof.py"
+      - "scripts/operations/personal_database_proof.py"
       - "lastdb_node/src/log_sync/**"
       - ".github/workflows/signed-history-dev.yml"
   workflow_dispatch:
@@ -271,6 +273,61 @@ jobs:
             if [[ -f "${RUNNER_TEMP}/shared-nodes/nodes/summary.json" ]]; then
               echo '```json'
               cat "${RUNNER_TEMP}/shared-nodes/nodes/summary.json"
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  personal_nodes:
+    name: personal database on real nodes (reference_relay)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      CARGO_BUILD_JOBS: "2"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      FOLDDB_BUILD_VERSION_OVERRIDE: bench-${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: signed-history-shared-nodes
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Build reference_relay, lastdbd and lastdb
+        run: |
+          set -euo pipefail
+          cargo build --locked -p reference_relay --bin reference_relay
+          cargo build --locked -p lastdb_node --bin lastdb --bin lastdbd
+      - name: Device A, device B from the phrase, a restored home, and the relay
+        run: |
+          set -euo pipefail
+          OUT="${RUNNER_TEMP}/personal-nodes"
+          mkdir -p "$OUT"
+          python3 scripts/operations/personal_database_proof.py \
+            --daemon "$PWD/target/debug/lastdbd" --cli "$PWD/target/debug/lastdb" \
+            --relay-bin "$PWD/target/debug/reference_relay" --revision "$GITHUB_SHA" \
+            --output "$OUT/nodes" 2>&1 | tee "$OUT/proof.log"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: signed-history-personal-nodes-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/personal-nodes/proof.log
+            ${{ runner.temp }}/personal-nodes/nodes/relay.stderr
+            ${{ runner.temp }}/personal-nodes/nodes/summary.json
+            ${{ runner.temp }}/personal-nodes/nodes/*/node.log
+          retention-days: 7
+          if-no-files-found: warn
+      - name: Publish summary
+        if: always()
+        run: |
+          {
+            echo "## Personal database on real nodes"
+            echo "Source: $GITHUB_SHA"
+            echo "Device A writes single and batched records in two schemas, device B and a restored home C start from the recovery phrase alone, A and B change one record apart, the relay holds no key, value or schema name, and A rebuilds from its files with the relay stopped."
+            if [[ -f "${RUNNER_TEMP}/personal-nodes/nodes/summary.json" ]]; then
+              echo '```json'
+              cat "${RUNNER_TEMP}/personal-nodes/nodes/summary.json"
               echo '```'
             fi
           } >> "$GITHUB_STEP_SUMMARY"

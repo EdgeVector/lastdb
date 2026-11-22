@@ -195,7 +195,7 @@ async fn history_expected(
     .map_err(|_| ContributionError::Unavailable)?;
     let winner = if local.as_deref() == Some(revision) {
         let key = (proposed.namespace.clone(), proposed.record_key.clone());
-        super::histories_for(&host.home)
+        super::histories_for(host)
             .with_mut(share.id.as_str(), |history| {
                 history
                     .records()
@@ -264,19 +264,15 @@ fn author_proposal(
         database_id,
         identity: &identity,
     };
-    chain_author::author_member(
-        &super::histories_for(&host.home),
-        &target,
-        |mut ctx, history| {
-            require_submitter(history, &identity.node_key)?;
-            for (hash, lamport) in history.publisher_grants() {
-                ctx.seen_heads.push(hash);
-                ctx.seen_lamports.push(lamport);
-            }
-            let body = data_record(StreamKind::Proposal, namespace, record_key, value);
-            author_data(&ctx, &identity.signing_key, body).map_err(|_| ChainError::Unconfirmed)
-        },
-    )
+    chain_author::author_member(&super::histories_for(host), &target, |mut ctx, history| {
+        require_submitter(history, &identity.node_key)?;
+        for (hash, lamport) in history.publisher_grants() {
+            ctx.seen_heads.push(hash);
+            ctx.seen_lamports.push(lamport);
+        }
+        let body = data_record(StreamKind::Proposal, namespace, record_key, value);
+        author_data(&ctx, &identity.signing_key, body).map_err(|_| ChainError::Unconfirmed)
+    })
     .map_err(|error| contribution_error(&error))
 }
 
@@ -322,7 +318,7 @@ pub(crate) fn status(
     };
     let identity = chain_author::identity_of(host).map_err(|_| ContributionError::Unavailable)?;
     let stream = VerifiedHistory::stream(identity.node_key, identity.device_id);
-    let histories = super::histories_for(&host.home);
+    let histories = super::histories_for(host);
     histories
         .with_mut(database_id, |history| {
             if history.proposal_incorporated(&stream, done.writer_seq) {

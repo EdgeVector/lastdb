@@ -1657,7 +1657,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
- "signed_history_client",
  "signed_history_materialize",
  "tokio",
  "tracing",

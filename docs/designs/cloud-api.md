@@ -292,6 +292,11 @@ No snapshots. No `cursor_expired`. Delivery cursors are pagination only.
    is reached (stream blocks on that entry until the blob verifies).
 4. Other file blobs **lazily** by hash via `blob.get` (presigned URL).
 
+The personal database restores and joins the same way, from the recovery
+phrase alone: it reads every stream of the owner's node key, opens the sealed
+payloads, and signs on a new stream under a new device id. See
+[personal-database-signed-log.md](personal-database-signed-log.md).
+
 After replay, keep only materialized state, per-stream heads, grant state,
 per-record positions, and the outbox — enough to validate and author the
 next entry. Relays retain the full log. With current-state bundles,

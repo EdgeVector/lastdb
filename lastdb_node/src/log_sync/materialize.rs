@@ -49,7 +49,7 @@ pub(crate) async fn revert_unsigned(
     store: &FoldDB,
     keys: &[(String, String)],
 ) {
-    let reverted = match super::histories_for(&host.home).snapshot(database_id) {
+    let reverted = match super::histories_for(host).snapshot(database_id) {
         Ok(history) => signed_history_materialize::reconcile_keys(store, &history, keys).await,
         Err(error) => Err(error),
     };

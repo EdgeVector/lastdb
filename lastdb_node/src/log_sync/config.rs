@@ -2,6 +2,14 @@
 
 use std::path::Path;
 
+/// The relay that `LASTDB_RELAY_URL` names, if it names one.
+#[must_use]
+pub fn explicit_relay_url() -> Option<String> {
+    let url = std::env::var("LASTDB_RELAY_URL").ok()?;
+    let trimmed = url.trim();
+    (!trimmed.is_empty()).then(|| trimmed.to_owned())
+}
+
 /// The relay this node syncs with, if any.
 ///
 /// `LASTDB_RELAY_URL` names a relay explicitly, for a reference relay or a
@@ -9,11 +17,8 @@ use std::path::Path;
 /// Exemem API it is connected to, which serves `/relay/v1`. A node with
 /// neither has no relay, and the sync loop idles without erroring.
 pub fn relay_base_url(home: &Path) -> Option<String> {
-    if let Ok(url) = std::env::var("LASTDB_RELAY_URL") {
-        let trimmed = url.trim();
-        if !trimmed.is_empty() {
-            return Some(trimmed.to_owned());
-        }
+    if let Some(url) = explicit_relay_url() {
+        return Some(url);
     }
     match crate::cloud::load_saved_credentials(home) {
         Ok(Some(saved)) => {

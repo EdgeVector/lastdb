@@ -8,9 +8,12 @@
 
 use std::path::Path;
 
+use mutation_log::SignedEntry;
+
 use crate::host::Host;
 use crate::registered_share;
 
+use super::blobs;
 use super::history_store;
 use super::publish_state;
 use super::relay::RelayClient;
@@ -109,7 +112,7 @@ async fn drain_log(client: &RelayClient, home: &Path, database_id: &str) -> Resu
             return Ok(uploaded);
         }
         let expected = found.batch.len() as u64;
-        let (stored, _duplicate) = client.append(database_id, &found.batch).await?;
+        let stored = append_batch(client, home, database_id, &found.batch).await?;
         if stored < expected {
             return Err(format!(
                 "relay log.append stored {stored} of {expected} log entries"
@@ -118,4 +121,36 @@ async fn drain_log(client: &RelayClient, home: &Path, database_id: &str) -> Resu
         history_store::store_uploaded(home, database_id, found.uploaded + found.batch.len())?;
         uploaded = true;
     }
+}
+
+/// Append one batch. The blob of a `bundle` entry goes up before its entry, and
+/// the relay takes a blob only for a database whose birth it holds. So the
+/// entries before a bundle are appended first, then its blob, then the entry
+/// with the entries after it up to the next bundle.
+async fn append_batch(
+    client: &RelayClient,
+    home: &Path,
+    database_id: &str,
+    batch: &[SignedEntry],
+) -> Result<u64, String> {
+    let mut stored = 0;
+    let mut rest = batch;
+    while !rest.is_empty() {
+        let end = rest
+            .iter()
+            .skip(1)
+            .position(|entry| matches!(entry, SignedEntry::Bundle { .. }))
+            .map_or(rest.len(), |at| at + 1);
+        let (chunk, tail) = rest.split_at(end);
+        if let SignedEntry::Bundle { body, .. } = &chunk[0] {
+            let blob = blobs::load(home, database_id, &body.blob_sha256)?
+                .ok_or("a bundle entry has no kept blob to upload")?;
+            client
+                .blob_put(database_id, &body.blob_sha256.to_hex(), &blob)
+                .await?;
+        }
+        stored += client.append(database_id, chunk).await?.0;
+        rest = tail;
+    }
+    Ok(stored)
 }

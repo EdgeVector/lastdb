@@ -154,7 +154,7 @@ fn shared_database(host: &Host, share: &RegisteredShare) -> Value {
     let mut value = json!(share);
     // Ready once signed history holds birth (materialize runs on pull).
     let ready = share.signed_log
-        && crate::log_sync::histories_for(&host.home)
+        && crate::log_sync::histories_for(host)
             .peek_with(share.id.as_str(), |history| history.owner().is_some())
             .unwrap_or(false);
     value["state"] = json!(if ready { "ready" } else { "restoring" });

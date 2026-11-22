@@ -9,7 +9,7 @@ use crate::host::Host;
 /// no history is held yet or the key has no grant.
 pub(crate) fn view(host: &Host, database_id: &str) -> Option<Value> {
     let node = NodeKey::from_bytes(host.keypair.public_key_bytes());
-    let histories = super::histories_for(&host.home);
+    let histories = super::histories_for(host);
     histories
         .peek_with(database_id, |history| role_of(history, node))
         .flatten()

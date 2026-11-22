@@ -35,10 +35,14 @@ pub(super) struct RegistryFile {
     pub owned: Vec<Entry>,
 }
 
-pub(super) fn load(home: &Path) -> Result<RegistryFile, String> {
+/// The registry of `home`, or a fresh one. The personal database of a home is
+/// the one its node seed names, so a registry whose owner row is another
+/// database is refused. A home that was made before that rule is not converted.
+pub(super) fn load(home: &Path, node_seed: &[u8; 32]) -> Result<RegistryFile, String> {
+    let owner = crate::personal_identity::database_id(node_seed);
     match read(home)? {
-        Some(file) => check(file),
-        None => fresh(),
+        Some(file) => check(file, &owner),
+        None => Ok(fresh(owner)),
     }
 }
 
@@ -221,10 +225,6 @@ pub(super) fn used_ids(owner: &Entry, owned: &[Entry]) -> HashSet<String> {
     ids
 }
 
-pub(super) fn fresh_id(used: &HashSet<String>) -> Result<String, OwnedError> {
-    fresh_db_key(used).map(|(id, _)| id)
-}
-
 /// A fresh database id and the seed of the key whose verifying key is that id.
 /// Only a database that signs its own birth keeps the seed, and only until then.
 pub(super) fn fresh_db_key(
@@ -261,25 +261,28 @@ pub(super) fn validate_binding(spec: Option<&PublicationSpec>) -> Result<(), Own
     Ok(())
 }
 
-fn fresh() -> Result<RegistryFile, String> {
+fn fresh(owner_id: String) -> RegistryFile {
     let owner = Entry {
-        id: fresh_id(&HashSet::new()).map_err(|_| "could not allocate a database id")?,
+        id: owner_id,
         name: Some("personal".to_owned()),
         kind: Kind::Personal,
         spec: None,
     };
-    Ok(RegistryFile {
+    RegistryFile {
         format: FORMAT,
         owner,
         owned: Vec::new(),
-    })
+    }
 }
 
-fn check(file: RegistryFile) -> Result<RegistryFile, String> {
+fn check(file: RegistryFile, owner_id: &str) -> Result<RegistryFile, String> {
     if file.format != FORMAT {
         return Err("unsupported database registry format".into());
     }
     require_id(&file.owner.id)?;
+    if file.owner.id != owner_id {
+        return Err("the personal database of this home does not come from its identity key; start a fresh home and copy the data once".into());
+    }
     if file.owner.kind != Kind::Personal
         || file.owner.name.as_deref() != Some("personal")
         || file.owner.spec.is_some()

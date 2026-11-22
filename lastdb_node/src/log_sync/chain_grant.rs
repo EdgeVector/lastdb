@@ -55,14 +55,11 @@ fn publish(host: &Host, selector: &str, grantee: Grantee, role: Role) -> Result<
         database_id: &entry.id,
         identity: &identity,
     };
-    let authored = chain_author::author_publisher(
-        &super::histories_for(&host.home),
-        &target,
-        |ctx, history| {
+    let authored =
+        chain_author::author_publisher(&super::histories_for(host), &target, |ctx, history| {
             let body = grant_body(history, grantee, role)?;
             author_grant(&ctx, &identity.signing_key, body).map_err(|_| ChainError::Unconfirmed)
-        },
-    )?;
+        })?;
     Ok(ack(&entry.id, role, &authored))
 }
 
