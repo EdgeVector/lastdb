@@ -1,13 +1,13 @@
 //! B. Write grant → write → on-chain revoke with cutoff.
 //! Relay returns 403 for the revoked member's new append (stored entries stay).
-//! Ordinary next-seq member append after revoke → AcceptEntry Reject (Unauthorized).
-//! Also: new device_id after revoke → cutoff 0 → Reject.
-//! (Backdated rewrite is the same cutoff gate; this scenario proves the ordinary case.)
+//! Ordinary next-seq member append after revoke → AcceptEntry joins the stream
+//! chain, but it is past the cutoff and does not count: the record is unchanged.
+//! Also: new device_id after revoke → cutoff 0 → joins its chain, does not count.
 
-use mutation_log::{entry_hash, RejectReason, RevocationCutoff, SignedEntry, VerifiedHistory};
+use mutation_log::{entry_hash, RevocationCutoff, SignedEntry, VerifiedHistory};
 
 use crate::device::{
-    author_member_write, bootstrap_owner, member_write, must_reject, now_ms, owner_grant_write,
+    author_member_write, bootstrap_owner, member_write, must_accept, now_ms, owner_grant_write,
     owner_revoke, random_device_id, DataWrite, DbBirth, Device,
 };
 use crate::relay::{RelayClient, RelayHandle};
@@ -85,7 +85,7 @@ pub async fn run(relay: &RelayHandle) -> Result<String, String> {
         birth.database_id,
         t0 + 5,
     )?;
-    Ok("post-cutoff + new-device cutoff-0 Reject(Unauthorized); relay 403 on revoked-member append".into())
+    Ok("post-cutoff + new-device cutoff-0 entries join the chain and do not count; relay 403 on revoked-member append".into())
 }
 
 fn accept_member_write(
@@ -151,7 +151,8 @@ async fn reject_post_cutoff(
         Err(e) if e.contains("HTTP 403") && e.contains("forbidden") => {}
         other => return Err(format!("relay must 403 revoked member append: {other:?}")),
     }
-    expect_cutoff(must_reject(history, post)?)
+    must_accept(history, post)?;
+    expect_not_counted(history, b"ok")
 }
 
 fn reject_new_device_cutoff(
@@ -179,12 +180,18 @@ fn reject_new_device_cutoff(
             authored_at_ms,
         },
     )?;
-    expect_cutoff(must_reject(history, entry)?)
+    must_accept(history, entry)?;
+    expect_not_counted(history, b"ok")
 }
 
-fn expect_cutoff(reason: RejectReason) -> Result<(), String> {
-    match reason {
-        RejectReason::Unauthorized(msg) if msg.contains("cutoff") => Ok(()),
-        other => Err(format!("expected cutoff Unauthorized, got {other:?}")),
+/// The record keeps the value written before the cutoff: a past-cutoff entry
+/// joined the chain but has no effect.
+pub(crate) fn expect_not_counted(history: &VerifiedHistory, value: &[u8]) -> Result<(), String> {
+    let key = ("demo".to_owned(), "row".to_owned());
+    match history.records().get(&key) {
+        Some(record) if record.value == value => Ok(()),
+        other => Err(format!(
+            "past-cutoff entry must not change the record, expected {value:?}, got {other:?}"
+        )),
     }
 }
