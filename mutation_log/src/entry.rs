@@ -153,6 +153,16 @@ pub struct GrantBody {
     pub cutoffs: Vec<RevocationCutoff>,
 }
 
+/// Schema declaration body fields.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SchemaBody {
+    /// FoldDB schema name (history namespace).
+    pub namespace: String,
+    /// UTF-8 JSON schema definition (wire `definition_b64`).
+    #[serde(rename = "definition_b64", with = "payload_b64_serde")]
+    pub definition: Vec<u8>,
+}
+
 /// Blob-delete body.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BlobDeleteBody {
@@ -227,6 +237,15 @@ pub enum SignedEntry {
         #[serde(flatten)]
         body: GrantBody,
     },
+    /// Schema declaration.
+    Schema {
+        /// Common signed header.
+        #[serde(flatten)]
+        header: EntryHeader,
+        /// Schema body fields (includes the schema name as `namespace`).
+        #[serde(flatten)]
+        body: SchemaBody,
+    },
     /// Blob delete.
     #[serde(rename = "blob_delete")]
     BlobDelete {
@@ -272,6 +291,7 @@ impl SignedEntry {
             | Self::Data { header, .. }
             | Self::Bundle { header, .. }
             | Self::Grant { header, .. }
+            | Self::Schema { header, .. }
             | Self::BlobDelete { header, .. }
             | Self::Heads { header, .. }
             | Self::Relays { header, .. } => header,
@@ -285,6 +305,7 @@ impl SignedEntry {
             | Self::Data { header, .. }
             | Self::Bundle { header, .. }
             | Self::Grant { header, .. }
+            | Self::Schema { header, .. }
             | Self::BlobDelete { header, .. }
             | Self::Heads { header, .. }
             | Self::Relays { header, .. } => header,
@@ -299,6 +320,7 @@ impl SignedEntry {
             Self::Data { .. } => EntryKind::Data,
             Self::Bundle { .. } => EntryKind::Bundle,
             Self::Grant { .. } => EntryKind::Grant,
+            Self::Schema { .. } => EntryKind::Schema,
             Self::BlobDelete { .. } => EntryKind::BlobDelete,
             Self::Heads { .. } => EntryKind::Heads,
             Self::Relays { .. } => EntryKind::Relays,

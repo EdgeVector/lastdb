@@ -54,23 +54,15 @@ pub(super) async fn read_signed(
     host: &Host,
     share: &RegisteredShare,
 ) -> UdsResponse {
-    if !replay_durable(host, share) {
-        return error_response(503, "signed history prefix is not durable", ctx);
-    }
     let Ok(store) = registered_share::receiver_store(host, &share.id).await else {
         return error_response(503, "database store is unavailable", ctx);
     };
     crate::log_sync::note_receiver(share.id.as_str(), &store);
-    let response = host
-        .with_records(
-            store,
-            super::execute_data_route_with_timeout(route, req, ctx, host),
-        )
-        .await;
-    if !replay_durable(host, share) {
-        return error_response(503, "signed history prefix is not durable", ctx);
-    }
-    response
+    host.with_records(
+        store,
+        super::execute_data_route_with_timeout(route, req, ctx, host),
+    )
+    .await
 }
 
 pub(super) fn submission_status(
@@ -99,8 +91,4 @@ pub(super) fn submission_status(
         }
         Err(_) => error_response(503, "submission status is unavailable", ctx),
     }
-}
-
-fn replay_durable(host: &Host, share: &RegisteredShare) -> bool {
-    crate::database_replay::prefix_durable(&host.home, share.id.as_str())
 }

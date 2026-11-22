@@ -1,7 +1,8 @@
 //! Which store a `/v1` item names.
 //!
 //! An owned database and the personal database behave as before. A received
-//! database is readable. A write commits only when `write` is `direct` and this
+//! database is readable once its signed history has materialized into the
+//! receiver store. A write commits only when `write` is `direct` and this
 //! node is an active Submit member. Otherwise the write is refused. `changes`
 //! does not open a received database.
 
@@ -21,7 +22,6 @@ use crate::share_cache::ShareCacheError;
 const NOT_REGISTERED: &str = "database is not registered on this node";
 const READ_ONLY: &str = "a received database is read only";
 const CHANGES_UNSERVED: &str = "a received database is not served by /v1/x/changes";
-const NOT_DURABLE: &str = "database snapshot is not durable";
 const STORE_UNAVAILABLE: &str = "database store is unavailable";
 const REGISTRY_UNAVAILABLE: &str = "database registry is unavailable";
 
@@ -109,9 +109,6 @@ async fn write_received<T>(
     if !crate::log_sync::direct_write_allowed(host, share) {
         return Err(HostError::new(403, READ_ONLY));
     }
-    if !durable(host, share) {
-        return Err(HostError::new(503, NOT_DURABLE));
-    }
     let store = registered_share::receiver_store(host, &share.id)
         .await
         .map_err(|_| HostError::new(503, STORE_UNAVAILABLE))?;
@@ -126,20 +123,9 @@ async fn read_received<T>(
     share: &RegisteredShare,
     future: impl Future<Output = Result<T, HostError>>,
 ) -> Result<T, HostError> {
-    if !durable(host, share) {
-        return Err(HostError::new(503, NOT_DURABLE));
-    }
     let store = registered_share::receiver_store(host, &share.id)
         .await
         .map_err(|_| HostError::new(503, STORE_UNAVAILABLE))?;
     crate::log_sync::note_receiver(share.id.as_str(), &store);
-    let result = host.with_records(store, future).await;
-    if !durable(host, share) {
-        return Err(HostError::new(503, NOT_DURABLE));
-    }
-    result
-}
-
-fn durable(host: &Host, share: &RegisteredShare) -> bool {
-    crate::database_replay::prefix_durable(&host.home, share.id.as_str())
+    host.with_records(store, future).await
 }

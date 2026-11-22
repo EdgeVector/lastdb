@@ -18,7 +18,9 @@ pub(crate) struct Stored {
 /// Make FoldDB hold exactly the winners of `history`.
 ///
 /// A winner already stored with equal fields is left alone. An empty value
-/// deletes the record. The namespace's schema must already be declared.
+/// deletes the record. A live winner whose namespace has no declared schema
+/// fails closed. A tombstone for an undeclared namespace is skipped so a
+/// tombstone-only namespace does not block restore.
 pub async fn apply_history(store: &FoldDB, history: &VerifiedHistory) -> Result<(), String> {
     for ((namespace, record_key), winner) in history.records() {
         apply_winner(store, namespace, record_key, winner).await?;
@@ -32,6 +34,14 @@ async fn apply_winner(
     record_key: &str,
     winner: &MaterializedRecord,
 ) -> Result<(), String> {
+    if !schema_declared(store, namespace)? {
+        if winner.value.is_empty() {
+            return Ok(());
+        }
+        return Err(format!(
+            "schema {namespace} has no declaration in signed history"
+        ));
+    }
     let current = read_stored(store, namespace, record_key).await?;
     let fields = decode_fields(&winner.value)?;
     let (kind, expected) = match (&current, &fields) {
@@ -76,4 +86,12 @@ fn decode_fields(value: &[u8]) -> Result<Option<HashMap<String, Value>>, String>
         Ok(_) => Err("record value is not a JSON object".into()),
         Err(e) => Err(format!("record value is not JSON: {e}")),
     }
+}
+
+fn schema_declared(store: &FoldDB, namespace: &str) -> Result<bool, String> {
+    Ok(store
+        .schema_manager()
+        .get_schema_metadata(namespace)
+        .map_err(|e| e.to_string())?
+        .is_some())
 }

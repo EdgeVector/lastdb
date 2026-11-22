@@ -119,12 +119,22 @@ async fn one_turn(host: &Host, histories: &HistoryMap, base: &str) -> Result<(),
                     %err,
                     "outbox upload failed"
                 );
-                turn_error.get_or_insert(err);
+                turn_error = Some(err);
             }
         }
     }
     for database in &owned {
         if database.kind == "personal" {
+            continue;
+        }
+        // This node is the publisher of its owned shareables. Skip pull until
+        // local birth is accepted: an offline setup with only birth.json has
+        // no chain on the relay, and log/read 403 has_publisher:false must not
+        // poison the turn (People receiver-created *-offline databases).
+        let has_birth = histories
+            .peek_with(&database.id, |history| history.owner().is_some())
+            .unwrap_or(false);
+        if !has_birth {
             continue;
         }
         if let Err(err) = pull_owned(
@@ -143,11 +153,11 @@ async fn one_turn(host: &Host, histories: &HistoryMap, base: &str) -> Result<(),
                 %err,
                 "owned stream pull failed"
             );
-            turn_error.get_or_insert(err);
+            turn_error = Some(err);
         }
     }
     if let Err(err) = pull_received_shares(host, histories, &client).await {
-        turn_error.get_or_insert(err);
+        turn_error = Some(err);
     }
     match turn_error {
         Some(err) => Err(err),

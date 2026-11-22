@@ -3637,6 +3637,9 @@
             "$ref": "#/components/schemas/GrantEntry"
           },
           {
+            "$ref": "#/components/schemas/SchemaEntry"
+          },
+          {
             "$ref": "#/components/schemas/BlobDeleteEntry"
           },
           {
@@ -4177,6 +4180,88 @@
           }
         },
         "description": "Signed multi-change bundle. Encrypted blob uploaded via blob.put before append. Caps: blob_size \u2264 67108864 (64 MiB), change_count \u2264 10000. Inner changes are data-only; share the entry lamport; unique record keys; apply order = ascending record key. Missing/bad blob \u2192 pending (stream blocks). Member writers bind grant_at_device/grant_at_seq like DataEntry; publisher omits them."
+      },
+      "SchemaEntry": {
+        "type": "object",
+        "required": [
+          "kind",
+          "database_id",
+          "node_key",
+          "device_id",
+          "writer_seq",
+          "prev_hash",
+          "authored_at_ms",
+          "lamport",
+          "seen_heads",
+          "signature",
+          "namespace",
+          "definition_b64"
+        ],
+        "additionalProperties": false,
+        "description": "lastdb-schema-v1; publisher declares a namespace before data entries use it",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "schema"
+          },
+          "database_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "node_key": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "device_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "writer_seq": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "prev_hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "authored_at_ms": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Display-only wall clock"
+          },
+          "lamport": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "1 + max(prev lamport, lamports of seen_heads entries)"
+          },
+          "seen_heads": {
+            "$ref": "#/components/schemas/SeenHeads"
+          },
+          "signature": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{86}$",
+            "minLength": 86,
+            "maxLength": 86
+          },
+          "namespace": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "description": "FoldDB schema name"
+          },
+          "definition_b64": {
+            "type": "string",
+            "description": "Base64url (no pad) UTF-8 JSON schema definition"
+          }
+        }
       }
     }
   }

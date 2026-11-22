@@ -4,11 +4,12 @@
 use std::path::Path;
 
 use mutation_log::{
-    bootstrap_from_records, BootstrapGrant, BootstrapParams, BootstrapRecord, Grantee, Role,
+    bootstrap_from_records, BootstrapGrant, BootstrapParams, BootstrapRecord, BootstrapSchema,
+    Grantee, Role,
 };
 
 use signed_history_client::{restore_from_relay, RestoreRequest, StreamRef};
-use signed_history_materialize::encode_string_field;
+use signed_history_materialize::{encode_string_field, hash_string_schema_bytes};
 
 use crate::device::{now_ms, DbBirth, Device};
 use crate::proof_store::{replay_and_check, Expected, NAMESPACE};
@@ -31,6 +32,10 @@ pub async fn run(relay: &RelayHandle, store_dir: &Path) -> Result<String, String
             value: encode_string_field("two"),
         },
     ];
+    let schemas = [BootstrapSchema {
+        namespace: NAMESPACE.into(),
+        definition: hash_string_schema_bytes(NAMESPACE),
+    }];
     let boot = bootstrap_from_records(&BootstrapParams {
         database_id: birth.database_id,
         signing_key: &owner.signing_key,
@@ -39,6 +44,7 @@ pub async fn run(relay: &RelayHandle, store_dir: &Path) -> Result<String, String
         db_salt: birth.db_salt,
         birth_signature: birth.birth_signature.clone(),
         authored_at_ms: t0,
+        schemas: &schemas,
         records: &records,
         grants: &[BootstrapGrant {
             grantee: Grantee::Member(reader.node_key),

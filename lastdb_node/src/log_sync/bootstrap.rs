@@ -2,8 +2,8 @@
 
 use app_identity_crypto::SigningKey;
 use mutation_log::{
-    bootstrap_from_records, BootstrapGrant, BootstrapParams, BootstrapRecord, DatabaseId, DeviceId,
-    Hex32, NodeKey,
+    bootstrap_from_records, BootstrapGrant, BootstrapParams, BootstrapRecord, BootstrapSchema,
+    DatabaseId, DeviceId, Hex32, NodeKey,
 };
 
 use super::history_store::{self, HistoryMap};
@@ -16,6 +16,7 @@ pub(super) struct BootstrapInput<'a> {
     pub(super) db_salt: Hex32,
     pub(super) birth_signature: String,
     pub(super) authored_at_ms: u64,
+    pub(super) schemas: &'a [BootstrapSchema],
     pub(super) records: &'a [BootstrapRecord],
     pub(super) grants: &'a [BootstrapGrant],
 }
@@ -35,6 +36,7 @@ pub(super) fn bootstrap_database(
         db_salt: input.db_salt,
         birth_signature: input.birth_signature,
         authored_at_ms: input.authored_at_ms,
+        schemas: input.schemas,
         records: input.records,
         grants: input.grants,
     })

@@ -75,25 +75,8 @@ async fn publish_restored(
     // The staged home has no booted host yet, so open its personal store at
     // `home/data` and let the next boot find the materialized records.
     let store = signed_history_materialize::open_store(&home.join("data"), seed, true).await?;
-    let applied = declare_and_apply(&store, history).await;
+    let applied = materialize::apply_history_records(&store, history).await;
     let closed = store.shutdown().await.map_err(|e| e.to_string());
     applied?;
     closed
-}
-
-async fn declare_and_apply(
-    store: &fold_db::fold_db_core::FoldDB,
-    history: &VerifiedHistory,
-) -> Result<(), String> {
-    // DESIGN: Phase 1 history carries no schema entries, so a namespace with no
-    // declared schema gets the one-field Hash schema (`v: String`) before replay.
-    let namespaces: std::collections::BTreeSet<&str> = history
-        .records()
-        .keys()
-        .map(|(namespace, _)| namespace.as_str())
-        .collect();
-    for namespace in namespaces {
-        signed_history_materialize::ensure_hash_schema(store, namespace).await?;
-    }
-    materialize::apply_history_records(store, history).await
 }

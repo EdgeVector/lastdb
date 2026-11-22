@@ -1,17 +1,28 @@
 //! Bootstrap an existing local database into signed history.
 //!
-//! No migration / dual path: emit birth, then ordinary signed `data` mutations
-//! for each current record, then fresh grants.
+//! No migration / dual path: emit birth, then schema declarations, then
+//! ordinary signed `data` mutations for each current record, then fresh grants.
 
 use app_identity_crypto::SigningKey;
 
 use crate::accept::AcceptOutcome;
-use crate::author::{author_birth, author_data, author_grant, data_record, grant_raise, AuthorCtx};
-use crate::entry::SignedEntry;
+use crate::author::{
+    author_birth, author_data, author_grant, author_schema, data_record, grant_raise, AuthorCtx,
+};
+use crate::entry::{SchemaBody, SignedEntry};
 use crate::history::VerifiedHistory;
 use crate::ids::{DatabaseId, DeviceId, Hex32, NodeKey};
 use crate::kinds::{Grantee, Role, StreamKind};
 use crate::wire::EncodeError;
+
+/// One schema declaration to emit before record data.
+#[derive(Clone, Debug)]
+pub struct BootstrapSchema {
+    /// Namespace (FoldDB schema name).
+    pub namespace: String,
+    /// UTF-8 JSON schema definition.
+    pub definition: Vec<u8>,
+}
 
 /// One materialized record to emit as a signed data entry.
 #[derive(Clone, Debug)]
@@ -49,22 +60,24 @@ pub struct BootstrapParams<'a> {
     pub birth_signature: String,
     /// Wall clock for birth.
     pub authored_at_ms: u64,
+    /// Schema declarations to emit after birth (every record namespace must appear).
+    pub schemas: &'a [BootstrapSchema],
     /// Current records to emit.
     pub records: &'a [BootstrapRecord],
     /// Fresh grants to emit after records.
     pub grants: &'a [BootstrapGrant],
 }
 
-/// Result of a bootstrap: verified history with birth + data + grants accepted,
-/// and the same entries on the outbox.
+/// Result of a bootstrap: verified history with birth + schemas + data + grants
+/// accepted, and the same entries on the outbox.
 pub struct BootstrapResult {
     /// History after accepting every authored entry.
     pub history: VerifiedHistory,
-    /// Entries in author order (birth, data…, grants…).
+    /// Entries in author order (birth, schema…, data…, grants…).
     pub entries: Vec<SignedEntry>,
 }
 
-/// Author birth + data + grants, accept each into a fresh history, enqueue outbox.
+/// Author birth + schemas + data + grants, accept each into a fresh history, enqueue outbox.
 pub fn bootstrap_from_records(
     params: &BootstrapParams<'_>,
 ) -> Result<BootstrapResult, BootstrapError> {
@@ -89,8 +102,27 @@ pub fn bootstrap_from_records(
     )?;
     accept_and_track(&mut history, &mut entries, &mut ctx, birth)?;
 
-    for (i, rec) in params.records.iter().enumerate() {
+    for (i, schema) in params.schemas.iter().enumerate() {
         ctx.authored_at_ms = params.authored_at_ms.saturating_add(1 + i as u64);
+        let body = SchemaBody {
+            namespace: schema.namespace.clone(),
+            definition: schema.definition.clone(),
+        };
+        let entry = author_schema(&ctx, params.signing_key, body)?;
+        accept_and_track(&mut history, &mut entries, &mut ctx, entry)?;
+    }
+
+    let data_base = params
+        .authored_at_ms
+        .saturating_add(1 + params.schemas.len() as u64);
+    for (i, rec) in params.records.iter().enumerate() {
+        if !history.schemas().contains_key(&rec.namespace) {
+            return Err(BootstrapError::Reject(format!(
+                "bootstrap record namespace {} has no schema declaration",
+                rec.namespace
+            )));
+        }
+        ctx.authored_at_ms = data_base.saturating_add(i as u64);
         let body = data_record(
             StreamKind::Direct,
             rec.namespace.clone(),
@@ -101,11 +133,9 @@ pub fn bootstrap_from_records(
         accept_and_track(&mut history, &mut entries, &mut ctx, entry)?;
     }
 
-    let base = params
-        .authored_at_ms
-        .saturating_add(1 + params.records.len() as u64);
+    let grant_base = data_base.saturating_add(params.records.len() as u64);
     for (i, g) in params.grants.iter().enumerate() {
-        ctx.authored_at_ms = base.saturating_add(i as u64);
+        ctx.authored_at_ms = grant_base.saturating_add(i as u64);
         let body = grant_raise(g.grantee, g.role);
         let entry = author_grant(&ctx, params.signing_key, body)?;
         accept_and_track(&mut history, &mut entries, &mut ctx, entry)?;

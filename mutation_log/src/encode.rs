@@ -16,6 +16,7 @@
 //!   bit2=grant_at) · optionals in that bit order
 //! - **grant:** grantee tag (0=any / 1+node_key32) · `role` u8 ·
 //!   cutoffs (`u16` count + `device_id`(32)·`writer_seq`(u64)·`entry_hash`(32)×)
+//! - **schema:** `namespace`(u16+utf8) · `definition`(u32+bytes, UTF-8 JSON)
 //! - **blob_delete:** `sha256`(32)
 //! - **heads:** tips (`u16` + `device_id`(32)·`writer_seq`(u64)·`entry_hash`(32)×)
 //! - **relays:** urls (`u16` + per url `u16` len + utf8)
@@ -24,7 +25,7 @@
 
 use crate::entry::{
     BundleBody, DataBody, DeviceHead, GrantBody, HeadsBody, IncorporatedFrom, MutationFileRef,
-    RelaysBody, RevocationCutoff, SignedEntry,
+    RelaysBody, RevocationCutoff, SchemaBody, SignedEntry,
 };
 use crate::ids::Hex32;
 use crate::kinds::Grantee;
@@ -50,6 +51,7 @@ pub fn signed_bytes(entry: &SignedEntry) -> Result<Vec<u8>, EncodeError> {
         SignedEntry::Data { body, .. } => encode_data(&mut buf, body)?,
         SignedEntry::Bundle { body, .. } => encode_bundle(&mut buf, body)?,
         SignedEntry::Grant { body, .. } => encode_grant(&mut buf, body)?,
+        SignedEntry::Schema { body, .. } => encode_schema(&mut buf, body)?,
         SignedEntry::BlobDelete { body, .. } => {
             buf.extend_from_slice(body.sha256.as_bytes());
         }
@@ -57,6 +59,11 @@ pub fn signed_bytes(entry: &SignedEntry) -> Result<Vec<u8>, EncodeError> {
         SignedEntry::Relays { body, .. } => encode_relays(&mut buf, body)?,
     }
     Ok(buf)
+}
+
+fn encode_schema(buf: &mut Vec<u8>, body: &SchemaBody) -> Result<(), EncodeError> {
+    put_str_u16(buf, &body.namespace)?;
+    put_bytes_u32(buf, &body.definition)
 }
 
 fn encode_seen_heads(buf: &mut Vec<u8>, heads: &[Hex32]) -> Result<(), EncodeError> {
