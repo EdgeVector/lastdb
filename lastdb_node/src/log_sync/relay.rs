@@ -17,10 +17,6 @@ const HUNG_PEER_BUDGET: Duration = Duration::from_secs(45);
 
 /// One device stream of a writer as `log.streams` lists it.
 #[derive(Debug, Deserialize)]
-#[expect(
-    dead_code,
-    reason = "the node pull reads streams through this in a later step"
-)]
 pub(super) struct StreamHead {
     pub(super) device_id: String,
     pub(super) head_seq: u64,
@@ -121,10 +117,6 @@ impl RelayClient {
     /// up to it is on the relay) and the hash of that entry. A writer with no
     /// stream gives an empty list. Access is the access of an all-devices
     /// `log.read` of the same writer.
-    #[expect(
-        dead_code,
-        reason = "the node pull reads streams through this in a later step"
-    )]
     pub(super) async fn streams(
         &self,
         database_id: &str,

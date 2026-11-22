@@ -6,17 +6,17 @@
 //! chain entry for the database. A `schema` entry is authored before data when
 //! the namespace is new or its FoldDB definition has changed.
 //!
-//! A shareable database signs one `data` entry for each mutation, in clear.
-//! The personal database signs sealed entries, one for each write call: see
-//! `mirror_sealed`.
+//! A shareable database signs one `data` entry for each mutation, in clear. The
+//! personal database is not mirrored here: its writes reach the signed log from
+//! the spool of accepted writes (see `personal`).
 
 use std::path::Path;
 
 use fold_db::fold_db_core::FoldDB;
 use fold_db::schema::types::MutationType;
 use mutation_log::{
-    author_data, author_schema, data_record, AcceptOutcome, AuthorCtx, BundleChange, DatabaseId,
-    DeviceId, EntryHash, SchemaBody, StreamKind, VerifiedHistory,
+    author_data, author_schema, data_record, AcceptOutcome, AuthorCtx, DatabaseId, SchemaBody,
+    StreamKind, VerifiedHistory,
 };
 use serde_json::Value;
 
@@ -26,8 +26,6 @@ use super::chain_author::AuthorIdentity;
 use super::device;
 use super::history_store;
 use super::materialize;
-use super::mirror_sealed;
-use super::sealed::Sealer;
 use super::wake;
 use crate::host::Host;
 
@@ -39,27 +37,17 @@ pub struct OwnedMutation {
     pub fields: Option<Value>,
 }
 
-/// What only the personal database has: the sealer of its payloads, and the
-/// device id of the stream that holds its birth.
-pub(super) struct Personal<'a> {
-    pub(super) sealer: &'a Sealer,
-    pub(super) birth_device: DeviceId,
-}
-
 pub(super) struct MirrorCtx<'a> {
     pub(super) home: &'a Path,
-    pub(super) database_id: &'a str,
     pub(super) database: DatabaseId,
     pub(super) identity: &'a AuthorIdentity,
     pub(super) store: &'a FoldDB,
     material: &'a BirthMaterial,
-    pub(super) personal: Option<&'a Personal<'a>>,
 }
 
 /// Author signed entries for an owned write and wake sync.
 ///
 /// No-op when this database has no birth material (not a signed-log share).
-/// The personal database always has it: it comes from the node seed.
 pub fn mirror_owned_write(
     host: &Host,
     database_id: &str,
@@ -69,39 +57,23 @@ pub fn mirror_owned_write(
         return Ok(());
     }
     let histories = super::histories_for(host);
-    let sealer = histories.sealer_of(database_id);
-    let seed = zeroize::Zeroizing::new(host.keypair.secret_key_bytes());
-    let material = if sealer.is_some() {
-        birth::derived(&seed)
-    } else {
-        let Some(material) = birth::load(&host.home, database_id)? else {
-            return Ok(());
-        };
-        material
+    let Some(material) = birth::load(&host.home, database_id)? else {
+        return Ok(());
     };
     let store = materialize::store_for(host, database_id)
         .ok_or_else(|| "no FoldDB store is open for this database".to_owned())?;
     let identity = chain_author::identity_of(host).map_err(|e| e.reply().message.to_owned())?;
     let _ = device::device_id(&host.home)?;
     let database = DatabaseId::from_hex(database_id).map_err(|_| "database_id is not hex32")?;
-    let personal = sealer.as_deref().map(|sealer| Personal {
-        sealer,
-        birth_device: DeviceId::from_bytes(crate::personal_identity::birth_device(&seed)),
-    });
     let ctx = MirrorCtx {
         home: &host.home,
-        database_id,
         database,
         identity: &identity,
         store: &store,
         material: &material,
-        personal: personal.as_ref(),
     };
     histories.with_mut(database_id, |history| -> Result<(), String> {
         ensure_birth(history, &ctx)?;
-        if let Some(personal) = ctx.personal {
-            return mirror_sealed::author(history, &ctx, personal.sealer, mutations);
-        }
         for item in mutations {
             ensure_schema(history, &ctx, &item.schema)?;
             author_one(history, &ctx, item)?;
@@ -112,27 +84,12 @@ pub fn mirror_owned_write(
     Ok(())
 }
 
-/// Sign the birth when the history has none. The birth of the personal database
-/// is the same bytes on every device, and it sits on its own stream, so two
-/// devices that both write first cannot disagree about who signed it.
+/// Sign the birth when the history has none.
 fn ensure_birth(history: &mut VerifiedHistory, ctx: &MirrorCtx<'_>) -> Result<(), String> {
     if history.owner().is_some() {
         return Ok(());
     }
-    let own = author_ctx(history, ctx, 0);
-    let author = match ctx.personal {
-        Some(personal) => AuthorCtx {
-            device_id: personal.birth_device,
-            stream_head: history.stream_head(&VerifiedHistory::stream(
-                ctx.identity.node_key,
-                personal.birth_device,
-            )),
-            seen_heads: Vec::new(),
-            seen_lamports: Vec::new(),
-            ..own
-        },
-        None => own,
-    };
+    let author = author_ctx(history, ctx, 0);
     let entry = birth::entry(ctx.material, &author, ctx.identity)?;
     sign(history, ctx, &entry)
 }
@@ -166,12 +123,10 @@ pub(super) fn publish_declared_schemas(host: &Host, database_id: &str) -> Result
     let database = DatabaseId::from_hex(database_id).map_err(|_| "database_id is not hex32")?;
     let ctx = MirrorCtx {
         home: &host.home,
-        database_id,
         database,
         identity: &identity,
         store: &store,
         material: &material,
-        personal: None,
     };
     super::histories_for(host).with_mut(database_id, |history| {
         if history.owner().is_none() {
@@ -212,10 +167,7 @@ fn ensure_schema(
     sign(history, ctx, &entry)
 }
 
-pub(super) fn schema_definition_matches(
-    prior: &[u8],
-    current: &fold_db::schema::types::Schema,
-) -> bool {
+fn schema_definition_matches(prior: &[u8], current: &fold_db::schema::types::Schema) -> bool {
     match serde_json::from_slice::<fold_db::schema::types::Schema>(prior) {
         Ok(held) => held == *current,
         Err(_) => false,
@@ -223,7 +175,7 @@ pub(super) fn schema_definition_matches(
 }
 
 /// The value of a record in an entry: its fields as JSON, or nothing for a delete.
-pub(super) fn encode_value(item: &OwnedMutation) -> Result<Vec<u8>, String> {
+fn encode_value(item: &OwnedMutation) -> Result<Vec<u8>, String> {
     if item.op == MutationType::Delete {
         return Ok(Vec::new());
     }
@@ -251,48 +203,21 @@ fn author_one(
     sign(history, ctx, &entry)
 }
 
-/// The context of the next entry on this device's stream. An entry of the
-/// personal database cites the tip of every other stream of the owner, so its
-/// Lamport number is above everything this device has seen and a write made
-/// after a sync wins over the writes it saw.
-pub(super) fn author_ctx(
-    history: &VerifiedHistory,
-    ctx: &MirrorCtx<'_>,
-    authored_at_ms: u64,
-) -> AuthorCtx {
+/// The context of the next entry on this device's stream.
+fn author_ctx(history: &VerifiedHistory, ctx: &MirrorCtx<'_>, authored_at_ms: u64) -> AuthorCtx {
     let stream = mutation_log::StreamId {
         node_key: ctx.identity.node_key,
         device_id: ctx.identity.device_id,
-    };
-    let (seen_heads, seen_lamports) = if ctx.personal.is_some() {
-        other_stream_tips(history, ctx.identity)
-    } else {
-        (Vec::new(), Vec::new())
     };
     AuthorCtx {
         database_id: ctx.database,
         node_key: ctx.identity.node_key,
         device_id: ctx.identity.device_id,
         stream_head: history.stream_head(&stream),
-        seen_heads,
-        seen_lamports,
+        seen_heads: Vec::new(),
+        seen_lamports: Vec::new(),
         authored_at_ms,
     }
-}
-
-/// The tip hash and Lamport number of every stream of the owner but this one.
-fn other_stream_tips(
-    history: &VerifiedHistory,
-    identity: &AuthorIdentity,
-) -> (Vec<EntryHash>, Vec<u64>) {
-    let mut tips: Vec<(EntryHash, u64)> = history
-        .stream_heads_of(identity.node_key)
-        .into_iter()
-        .filter(|(device_id, _)| *device_id != identity.device_id)
-        .map(|(_, head)| (head.entry_hash, head.lamport))
-        .collect();
-    tips.sort_unstable();
-    tips.into_iter().unzip()
 }
 
 /// Accept `entry` into the history and append it to the log. A rejected or
@@ -303,18 +228,6 @@ pub(super) fn sign(
     entry: &mutation_log::SignedEntry,
 ) -> Result<(), String> {
     accepted(history_store::commit_authored(ctx.home, history, entry)?)
-}
-
-/// [`sign`] for a `bundle` entry, whose blob the caller has kept.
-pub(super) fn sign_bundle(
-    history: &mut VerifiedHistory,
-    ctx: &MirrorCtx<'_>,
-    entry: &mutation_log::SignedEntry,
-    changes: &[BundleChange],
-) -> Result<(), String> {
-    accepted(history_store::commit_authored_bundle(
-        ctx.home, history, entry, changes,
-    )?)
 }
 
 fn accepted(outcome: AcceptOutcome) -> Result<(), String> {

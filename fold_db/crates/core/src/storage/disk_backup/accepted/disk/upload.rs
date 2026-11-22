@@ -17,7 +17,10 @@ pub(in crate::storage::disk_backup::accepted) mod io {
     use std::os::unix::fs::MetadataExt;
     use std::path::Path;
 
-    const CONTROL_MAX: u64 = 65_536;
+    /// The largest control file the spool reads or writes. The pending record of
+    /// one commit names every note of it, and a commit may hold `NOTES_MAX`
+    /// (in the parent of this directory) notes, each named by about 470 bytes of JSON at most.
+    const CONTROL_MAX: u64 = 1_048_576;
 
     pub(in crate::storage::disk_backup::accepted) fn ensure_dir(path: &Path) -> Result<(), Error> {
         if path.exists() {

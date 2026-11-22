@@ -12,7 +12,7 @@ account/billing service. No dual paths, fallback, or unit tests.
 Canonical acceptance is **local** (`AcceptEntry`). Relays store, serve, and
 apply a **spam/cost gate** from publisher-signed grant metadata. That gate
 is **not** AcceptEntry: the relay does **not** decrypt payloads, check
-Lamport/`seen_heads`, or run full merge. Nodes still verify everything
+the order value or `seen_heads`, or run full merge. Nodes still verify everything
 locally, so the trust model is unchanged — a relay that lets junk through,
 or wrongly refuses, **cannot** make honest nodes disagree. It can only
 withhold, which is the same as data loss, already handled by failover
@@ -30,6 +30,18 @@ an accepted log entry (including `bundle` blobs). Product erase: ExeMem
 `manage`/`delete` erases that database’s logs and blobs on the relay
 (`database_id` stays tombstoned); `account`/`deactivate` erases all of
 that publisher’s relay data.
+
+## Order value
+
+The wire field `lamport` is the order value of an entry: a time in
+milliseconds, set when the write was made. A node accepts an entry only if its
+value is above the previous entry of the same stream, above every entry it
+cites in `seen_heads`, and below `4102444800000` (2100-01-01 in milliseconds).
+Nothing else ties the value to the entries before it. An author signs the
+larger of its clock and one more than the highest value it has seen, so a
+write made after another is always above it. Records resolve by
+`(lamport, node_key, device_id)`: the higher position wins. The relay checks
+none of this.
 
 ## Surface
 

@@ -130,8 +130,9 @@ pub(super) async fn open(
         signer,
         fold_db::fold_db_core::factory::FoldDbOptions {
             offline_maintenance: false,
-            // Owned siblings are shareable. Capture starts here, before cloud enrollment.
-            capture_accepted: true,
+            // An owned sibling is signed from its history (`log_sync::mirror`),
+            // and nothing sends a spool for it, so it captures nothing.
+            capture_accepted: false,
             record_log: entry
                 .whole_database()
                 .then(|| crate::host::share_identity::record_log(home, id)),

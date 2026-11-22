@@ -10,23 +10,22 @@
 //! The personal database is the same log with no grants. Its owner is the only
 //! publisher, every device of the owner signs its own stream with the one node
 //! key, and every payload is sealed before it is signed, so the relay cannot
-//! read it. The copy on the relay is the backup, and reading it is how another
-//! device catches up: see `personal`.
+//! read it. Its entries come from the spool of accepted writes and are applied
+//! through the store with the last-writer stamp, with no history in memory and
+//! no log files: see `personal`. The copy on the relay is the backup, and
+//! reading it is how another device catches up.
 
 pub(crate) mod birth;
 mod blob_transfer;
-mod blobs;
 mod chain_author;
 pub(crate) mod chain_error;
 pub(crate) mod chain_grant;
 pub(crate) mod chain_read;
-mod config;
 mod device;
 mod history_store;
 mod incorporate;
 mod materialize;
 mod mirror;
-mod mirror_sealed;
 mod personal;
 mod proposal;
 mod publish_state;
@@ -43,7 +42,7 @@ use std::path::Path;
 use cloud_backup_protocol::Digest;
 use fold_db::schema::types::Schema;
 
-pub use config::{explicit_relay_url, relay_base_url};
+pub use crate::cloud::{explicit_relay_url, relay_base_url};
 pub(crate) use history_store::histories_for;
 pub(crate) use materialize::{revert_unsigned, store_for as owned_store};
 pub(crate) use mirror::{mirror_owned_write, OwnedMutation};

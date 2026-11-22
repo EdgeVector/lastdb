@@ -1,6 +1,6 @@
 # Design: a personal database on the signed log (backup and multi-device)
 
-Date: 2026-11-22. Author: Claude, for Tom. Status: approved to build; step 1 built (section 13) ("Yes, build it", then "I think you probably have the right idea ... go ahead and start building it", Tom, 2026-11-22).
+Date: 2026-11-22. Author: Claude, for Tom. Status: built on the spool and the store's replay (section 13; `signed-log-on-local-machinery.md` has the details) ("Yes, build it", then "I think you probably have the right idea ... go ahead and start building it", Tom, 2026-11-22).
 
 ## 1. The idea
 
@@ -25,10 +25,12 @@ A restore needs only the recovery phrase and the relay. The phrase gives the nod
 
 ## 4. A write
 
-1. The app writes. The store validates and commits.
-2. The node signs the change on this device's stream and appends it to `authored.json`. One write call is one entry: `data` for one record, `bundle` for several.
-3. If the entry cannot be signed, the record is reverted (the existing rule).
-4. The sync loop uploads entries past the cursor in `uploaded.json`.
+1. The app writes. The store validates and commits, and puts the write in the spool of accepted writes before the caller is told. The spool is the upload queue.
+2. The sync loop takes the spool entries past the acknowledged position, opens each canonical body, seals it with the database read key for the position it will have, and signs it as the next entry of this device's stream. One write is one `data` entry. A schema put or drop is an entry of the same kind. Every entry cites the birth.
+3. The loop saves the exact signed entries before it sends them (`log-sync/<database>/outgoing.json`), so a retry sends the same bytes and never signs again. It sends up to 90 entries in one append.
+4. When the relay acknowledges, the loop confirms the position on the spool, which trims it, writes the own head row, and deletes the saved entries.
+
+The commit already put the alternate keys of a record, its file or inline file and a schema change in the body, so nothing is added for them. A home with no relay captures nothing, and the owned and received stores of shared databases capture nothing, so no spool fills that nothing sends.
 
 ## 5. Sealing: the relay cannot read a personal database
 
@@ -37,34 +39,36 @@ Every payload of a non-shareable owned database is sealed before it is signed.
 - Key: the database read key (section 3).
 - Cipher: the AEAD the repository already uses for stored data. A fresh random nonce is stored in front of the ciphertext.
 - Bound data: the database id, node key, device id and `writer_seq` of the entry, so a ciphertext cannot be moved to another position.
-- What is sealed: the record key and value of a `data` entry, the definition of a `schema` entry, the blob of a `bundle`, and file blobs.
+- What is sealed: the whole accepted body of the write (schema name, record key, fields, alternate keys, file marker, or the schema definition), and file blobs.
 - The schema name is sealed too. A sealed entry carries the fixed namespace `sealed`, and the real schema name travels inside the sealed payload.
 
 The relay sees how many entries there are, their sizes and their times. A shareable database stays as it is today (payloads in clear) until the read key delivery for members is designed. That is a separate open question.
 
 ## 6. Several devices
 
-Each sync turn, a device reads every stream signed by its own node key for the database, skips its own stream, and accepts the entries (signature, sequence, Lamport). It unseals them and applies them. Two devices that change one record: the higher position wins (Lamport number, then device id), the same rule as everywhere else.
+Each sync turn, a device asks the relay for the heads of the owner's device streams (one call, no entries). For each stream other than its own it reads from the entry after the head row it holds, merges the streams by order value, verifies each entry (signature, chain, order rule), opens it, and applies it with the stamp of the entry: the order value, the node key, the device id and the sequence number. The record, its winner row and the head row of the stream are one store transaction.
 
-A device never needs another device to be online. The relay holds the streams.
+Two devices that change one record while apart: the later edit wins, because the order value is the time of the commit. A device that has seen an entry writes later entries above it. The order is the same rule as everywhere else: the higher position wins.
+
+A device never needs another device to be online. The relay holds the streams. An idle turn reads no entry, and a restart replays nothing.
 
 ## 7. A new device, and a restore
 
 They are the same operation.
 
 1. Enter the recovery phrase. The node derives the node key, the personal database id and the read key.
-2. Read every stream of that node key from the first entry. Verify, unseal, apply.
+2. List the streams of that node key and read each from the first entry. Verify, unseal, apply.
 3. Make a new device id and start a new stream. The old device's stream stays as it is.
 
 The personal database holds the list of the owner's other databases (id, name, kind) in a reserved schema, sealed like everything else. A restore reads that list and then restores each of those databases the same way.
 
 ## 8. Files
 
-A file blob is sealed and uploaded before the entry that names it. A restore fetches a blob when a record that names it is read, or all of them when asked.
+A file blob is sealed and uploaded before the entry that names it. A device that applies the entry fetches the blob, checks it against the marker in the body, and commits the file with the record.
 
 ## 9. Existing records and the primary
 
-No conversion code. The primary moves once, by a manual copy: a fresh home on the new build, then every schema's keys are listed from the old node and its records are read in batches and written to the new node through the normal write call. The new node signs and seals them as it would any write. Batches become bundles, so the first upload is a modest number of entries.
+No conversion code. The primary moves once, by a manual copy: a fresh home on the new build, then every schema's keys are listed from the old node and its records are read in batches and written to the new node through the normal write call. The new node signs and seals them as it would any write, one entry for each write.
 
 ## 10. Costs and limits
 
@@ -76,10 +80,10 @@ No conversion code. The primary moves once, by a manual copy: a fresh home on th
 
 1. Device A writes records in two schemas, in single writes and in batches.
 2. Device B starts from the recovery phrase alone and holds every record.
-3. A and B change the same record while apart. After both sync, both hold the same value, the one with the higher position.
+3. A and B change the same record while apart, A having made more writes than B and B having edited later. After both sync, in either order, both hold the value of B. A record that A deleted does not come back when an older edit of B arrives after.
 4. A fresh home restored from the phrase equals A and B, key by key.
 5. The bytes the relay stored contain none of the record keys, values or schema names.
-6. A restarted node rebuilds from its files without the relay.
+6. A restarted node holds its records without the relay, signs its next entry on the right sequence, and replays nothing.
 7. A file written on A is readable on B and on the restored home.
 
 ## 12. Order of work
@@ -88,9 +92,9 @@ No conversion code. The primary moves once, by a manual copy: a fresh home on th
 2. Files and the list of owned databases, CI proof item 7.
 3. The copy of the primary and the move, with a restore proof of the new home before the old one is retired.
 
-## 13. What step 1 built
+## 13. What is built
 
-Step 1 is the core: sections 3 to 7, without files (section 8), the list of other owned databases, and the move of the primary (section 9). The code is in `lastdb_node/src/log_sync` (`sealed.rs`, `mirror_sealed.rs`, `personal.rs`, `blobs.rs`), `lastdb_node/src/personal_identity.rs`, and `mutation_log/src/sealed.rs`. The proof is `scripts/operations/personal_database_proof.py`, job `personal_nodes` in `signed-history-dev.yml`.
+Sections 3 to 8 are built. The code is in `lastdb_node/src/log_sync/personal/` and `personal.rs`, `lastdb_node/src/log_sync/sealed.rs`, `lastdb_node/src/personal_identity.rs`, and `mutation_log/src/sealed.rs`. The proof is `scripts/operations/personal_database_proof.py`, job `personal_nodes` in `signed-history-dev.yml`. `docs/designs/signed-log-on-local-machinery.md` section 9 lists the rows, the crash windows and what is deferred. Sealing was built in the first step and is unchanged.
 
 ### Keys
 
@@ -107,36 +111,22 @@ A home whose personal database is not the derived one is refused at boot. An old
 
 ### One birth, on its own stream
 
-The birth is the same bytes on every device: the salt and the signature come from the seed, and the entry is authored at time 0 on the stream whose device id is the birth device id. That stream holds only the birth. A device that never saw the birth signs it on its first write, and the relay and every reader get an identical entry, so two devices that both write first cannot disagree about the publisher.
+The birth is the same bytes on every device: the salt and the signature come from the seed, and the entry is authored at time 0 on the stream whose device id is the birth device id. That stream holds only the birth. A device uploads it when the relay does not list the birth stream, before any blob or entry, and the relay and every reader get an identical entry, so two devices that both write first cannot disagree about the publisher. Every personal entry cites the birth and nothing else.
 
 ### Sealing
 
-Every payload of the personal database is sealed with the AES-256-GCM envelope that LastDB uses for stored data: `0x01 ‖ nonce(12) ‖ ciphertext ‖ tag(16)`, a fresh random nonce for each payload. The bound data is 104 bytes: database id (32), node key (32), device id (32) and `writer_seq` (8, big-endian). A sealed `data` or `schema` entry carries the namespace `sealed`. A history that has an opener refuses a data or schema entry that is not sealed or does not open. Plaintext layouts:
-
-- `data`: `u16 name_len ‖ schema name ‖ u16 key_len ‖ record key ‖ value`;
-- `schema`: `u16 name_len ‖ schema name ‖ JSON definition`;
-- `bundle` blob: `u32 count`, then per change `u16 name_len ‖ schema name ‖ u16 key_len ‖ record key ‖ u32 value_len ‖ value`, sorted and unique by schema name and record key.
-
-A bundle blob is sealed the same way, at the position of its bundle entry, and its SHA-256 is the digest the entry names. The node keeps the blob under `log-sync/<database>/blobs/<digest>`, uploads it before the entry, and reads it back on a restart.
-
-### A write
-
-One write call is one entry. A write with one record is a `data` entry. A write with several records is a `bundle` entry; two mutations of one record in one call keep the last. A schema that the history does not carry yet is signed first as its own `schema` entry. If an entry cannot be signed, the store reverts the records to the history, as it does for a shareable database.
-
-Every entry of the personal database cites the tip of every other stream of the owner in `seen_heads`, the birth stream included. Its Lamport number is therefore above everything its device has seen, so a write made after a sync wins over the writes it saw, and a reader that has not seen the birth holds the entry until it does.
+Every payload of the personal database is sealed with the AES-256-GCM envelope that LastDB uses for stored data: `0x01 ‖ nonce(12) ‖ ciphertext ‖ tag(16)`, a fresh random nonce for each payload. The bound data is 104 bytes: database id (32), node key (32), device id (32) and `writer_seq` (8, big-endian). A sealed entry carries the namespace `sealed`. The plaintext of an entry is the canonical JSON body that the spool records for the write. A file blob is the file bytes sealed the same way, at the position of the entry that names it, and its SHA-256 is the digest the entry names.
 
 ### A sync turn
 
-`one_turn` uploads the logs first, so the birth is on the relay before anything is read. Then, for the personal database, it reads every stream of the node key with one all-devices read, drops its own stream, sorts the entries by Lamport number so dependencies come first, accepts them (a bundle needs its blob, which is fetched and kept), and applies the records to the store. The relay answers 403 to a read of a database whose birth it does not hold. For the personal database that is an owner who has not written on any device, and a device with no birth in its history treats it as an empty relay. A device that holds a birth gets the 403 as an error.
+`one_turn` runs the personal turn between the shared pull and the shared upload: list the streams, send the spool, apply the other streams. The relay answers 403 to a list of the streams of a database whose birth it does not hold. For the personal database that is an owner who has not written on any device, and a device that has never uploaded treats it as an empty relay. A device that has uploaded gets the 403 as an error.
 
 ### Restore and a new device
 
-`lastdb backup restore --recovery-phrase-stdin [--relay-url URL] --into DIR [--json]` makes a home from the phrase, runs the same read, and starts a new stream under a new device id. It needs no database id and no device ids. It prints `ok`, `database_id`, `devices` (device streams read, not counting the birth stream), `through` and `replayed`.
+`lastdb backup restore --recovery-phrase-stdin [--relay-url URL] --into DIR [--json]` makes a home from the phrase, runs the same incoming turn from the first entry of each stream, and signs on a new stream under a new device id from then on. It needs no database id and no device ids. It prints `ok`, `database_id`, `devices` (device streams read, not counting the birth stream), `through` and `replayed`.
 
 ### Open items
 
-- A restore and every sync turn read all streams from the first entry. A per-device read from a sequence needs the device ids, and the all-devices read starts at sequence 1 for every device but the first. A checkpoint bundle or an incremental read should come before the primary moves.
-- `authored.json` is one JSON array with a 16 MiB read limit, rewritten on every write.
-- A `data` entry carries no alternate keys of the record. The materializer writes records without them, as it does for shared databases.
-- Files (section 8) and the list of owned databases (section 7) are not built. A database of kind personal that is not the owner row stays unsynced.
-
+- A restore replays every stream from the first entry. A snapshot as the checkpoint is a later step.
+- Shared databases keep the in-memory history and their log files.
+- The list of owned databases (section 7) is not built. A database of kind personal that is not the owner row stays unsynced.

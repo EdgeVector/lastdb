@@ -20,9 +20,18 @@ pub(super) fn ensure_tree(root: &Path) -> Result<(), Error> {
 }
 
 pub(super) fn reconcile(root: &Path, inner: &mut Inner) -> Result<(), Error> {
-    if io::read_json::<Pending>(&root.join("pending.json"))?.is_none() {
+    let pending = io::read_json::<Pending>(&root.join("pending.json"))?;
+    if pending.is_none() {
         files::clear_staging(root)?;
     }
+    // A commit that crashed while its entries moved from staging to `entries` leaves
+    // some of them placed, above the head of the state. The pending record names
+    // them, and `finish_pending` places the rest. Any other entry above the head is
+    // a hole.
+    let installing: Vec<u64> = pending
+        .iter()
+        .flat_map(|pending| pending.notes.iter().map(|note| note.sequence))
+        .collect();
     let entries = root.join("entries");
     if !entries.exists() {
         if inner.state.as_ref().is_some_and(|state| state.head > 0) {
@@ -33,7 +42,10 @@ pub(super) fn reconcile(root: &Path, inner: &mut Inner) -> Result<(), Error> {
     io::require_dir(&entries)?;
     let sequences = files::list_sequences(&entries)?;
     let Some(state) = inner.state.clone() else {
-        return if sequences.is_empty() {
+        return if sequences
+            .iter()
+            .all(|sequence| installing.contains(sequence))
+        {
             Ok(())
         } else {
             Err(Error::Gap)
@@ -49,12 +61,12 @@ pub(super) fn reconcile(root: &Path, inner: &mut Inner) -> Result<(), Error> {
     {
         io::remove_dir(&entries.join(files::seq_name(sequence)))?;
     }
-    let live: Vec<u64> = sequences
+    let (live, beyond): (Vec<u64>, Vec<u64>) = sequences
         .into_iter()
         .filter(|sequence| *sequence > state.acked)
-        .collect();
+        .partition(|sequence| *sequence <= state.head);
     let expected: Vec<u64> = (state.acked + 1..=state.head).collect();
-    if live != expected {
+    if live != expected || !beyond.iter().all(|sequence| installing.contains(sequence)) {
         return Err(Error::Gap);
     }
     let mut retained = 0u64;

@@ -28,7 +28,9 @@ pub struct AuthorCtx {
     pub seen_heads: Vec<EntryHash>,
     /// Lamports of those seen heads (same order as `seen_heads`).
     pub seen_lamports: Vec<u64>,
-    /// Display-only wall clock (caller-supplied; no clock in this crate).
+    /// The time the write was made, in milliseconds (caller-supplied; no clock
+    /// in this crate). It is the entry's order value unless the stream or a
+    /// cited entry is already above it.
     pub authored_at_ms: u64,
 }
 
@@ -38,7 +40,11 @@ impl AuthorCtx {
             None => (1, EntryHash::ZERO, 0),
             Some(h) => (h.writer_seq + 1, h.entry_hash, h.lamport),
         };
-        let lamport = next_lamport(prev_lamport, self.seen_lamports.iter().copied());
+        // The larger of the clock and one more than the highest value seen, so
+        // an entry made after another is always above it, and a value stays a
+        // time in milliseconds.
+        let lamport =
+            next_lamport(prev_lamport, self.seen_lamports.iter().copied()).max(self.authored_at_ms);
         EntryHeader {
             database_id: self.database_id,
             node_key: self.node_key,
