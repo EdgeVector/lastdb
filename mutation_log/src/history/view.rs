@@ -22,6 +22,28 @@ impl VerifiedHistory {
         &self.publisher_heads
     }
 
+    /// The current tip of every device stream of the publisher, sorted by device id.
+    ///
+    /// This is the content of a `heads` attestation the publisher signs now. It is
+    /// never empty once the publisher's birth entry is accepted.
+    #[must_use]
+    pub fn publisher_stream_tips(&self) -> Vec<DeviceHead> {
+        let Some(owner) = self.owner else {
+            return Vec::new();
+        };
+        let mut tips: Vec<DeviceHead> = self
+            .stream_heads_of(owner)
+            .into_iter()
+            .map(|(device_id, head)| DeviceHead {
+                device_id,
+                writer_seq: head.writer_seq,
+                entry_hash: head.entry_hash,
+            })
+            .collect();
+        tips.sort_by_key(|tip| tip.device_id);
+        tips
+    }
+
     /// Tips of every accepted device stream written by `node_key`.
     #[must_use]
     pub fn stream_heads_of(&self, node_key: NodeKey) -> Vec<(DeviceId, StreamHead)> {
