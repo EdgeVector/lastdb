@@ -9,13 +9,14 @@ use std::path::{Path, PathBuf};
 
 use cloud_backup_protocol::Id;
 use mutation_log::{
-    author_data, data_record, EntryHash, NodeKey, Role, StreamKind, VerifiedHistory,
+    author_data, data_record, decode_record_payload, entry_hash, EntryHash, NodeKey, Role,
+    SignedEntry, StreamKind, VerifiedHistory,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest as _, Sha256};
 
-use super::chain_author::{self, Target};
+use super::chain_author::{self, AuthorIdentity, Target};
 use super::chain_error::ChainError;
 use crate::host::Host;
 use crate::profile::private_fs as disk;
@@ -229,31 +230,13 @@ pub(crate) async fn submit(
     }
     let expected = history_expected(host, share, &proposed).await?;
     let value = envelope(&proposed, expected)?;
-    let identity = chain_author::identity_of(host).map_err(|_| ContributionError::Unavailable)?;
-    let target = Target {
-        home: &host.home,
+    let authored = author_proposal(
+        host,
         database_id,
-        identity: &identity,
-    };
-    let authored = chain_author::author_member(
-        &super::histories_for(&host.home),
-        &target,
-        |mut ctx, history| {
-            require_submitter(history, &identity.node_key)?;
-            for (hash, lamport) in history.publisher_grants() {
-                ctx.seen_heads.push(hash);
-                ctx.seen_lamports.push(lamport);
-            }
-            let body = data_record(
-                StreamKind::Proposal,
-                proposed.namespace,
-                &proposed.record_key,
-                &value,
-            );
-            author_data(&ctx, &identity.signing_key, body).map_err(|_| ChainError::Unconfirmed)
-        },
-    )
-    .map_err(|error| contribution_error(&error))?;
+        proposed.namespace,
+        &proposed.record_key,
+        &value,
+    )?;
     ledger.insert(
         key,
         Submitted {
@@ -264,6 +247,155 @@ pub(crate) async fn submit(
     );
     store_ledger(&host.home, database_id, &ledger)?;
     Ok(authored.writer_seq)
+}
+
+/// Sign `value` as a proposal on this node's member stream.
+fn author_proposal(
+    host: &Host,
+    database_id: &str,
+    namespace: String,
+    record_key: &str,
+    value: &[u8],
+) -> Result<chain_author::Authored, ContributionError> {
+    let identity = chain_author::identity_of(host).map_err(|_| ContributionError::Unavailable)?;
+    let target = Target {
+        home: &host.home,
+        database_id,
+        identity: &identity,
+    };
+    chain_author::author_member(
+        &super::histories_for(&host.home),
+        &target,
+        |mut ctx, history| {
+            require_submitter(history, &identity.node_key)?;
+            for (hash, lamport) in history.publisher_grants() {
+                ctx.seen_heads.push(hash);
+                ctx.seen_lamports.push(lamport);
+            }
+            let body = data_record(StreamKind::Proposal, namespace, record_key, value);
+            author_data(&ctx, &identity.signing_key, body).map_err(|_| ChainError::Unconfirmed)
+        },
+    )
+    .map_err(|error| contribution_error(&error))
+}
+
+/// One voided direct write, as the proposal that carries the same change.
+struct Conversion {
+    mutation_id: String,
+    namespace: String,
+    record_key: String,
+    value: Vec<u8>,
+    digest: String,
+}
+
+/// Turn this node's voided direct writes into proposals on its own stream.
+///
+/// A member lowered from write to submit can have signed a direct write before
+/// its node learned of the reduction. The publisher's cutoff voids that entry
+/// on every node, so it never changes a record. Its change is not lost: the
+/// same change is signed again as a proposal, which the publisher applies under
+/// the proposal rules, or leaves submitted. The voided entry stays in the log.
+/// A ledger entry keyed by the voided entry's hash makes the conversion happen
+/// once, also across a restart. Returns how many proposals were signed.
+pub(crate) fn convert_voided(
+    host: &Host,
+    share: &RegisteredShare,
+) -> Result<usize, ContributionError> {
+    let database_id = share.id.as_str();
+    let identity = chain_author::identity_of(host).map_err(|_| ContributionError::Unavailable)?;
+    let plans = super::histories_for(&host.home)
+        .with_mut(database_id, |history| conversions(history, &identity))
+        .map_err(|_| ContributionError::Unavailable)?;
+    if plans.is_empty() {
+        return Ok(0);
+    }
+    let mut ledger = load_ledger(&host.home, database_id)?;
+    let mut converted = 0;
+    for plan in plans {
+        if ledger.contains_key(&plan.mutation_id) {
+            continue;
+        }
+        let authored = author_proposal(
+            host,
+            database_id,
+            plan.namespace,
+            &plan.record_key,
+            &plan.value,
+        )?;
+        ledger.insert(
+            plan.mutation_id,
+            Submitted {
+                writer_seq: authored.writer_seq,
+                entry_hash: authored.entry_hash,
+                body_sha256: plan.digest,
+            },
+        );
+        store_ledger(&host.home, database_id, &ledger)?;
+        converted += 1;
+    }
+    Ok(converted)
+}
+
+fn conversions(history: &VerifiedHistory, identity: &AuthorIdentity) -> Vec<Conversion> {
+    history
+        .voided_direct_by(identity.node_key)
+        .iter()
+        .filter_map(|entry| conversion(history, entry))
+        .collect()
+}
+
+fn conversion(history: &VerifiedHistory, entry: &SignedEntry) -> Option<Conversion> {
+    let SignedEntry::Data { body, .. } = entry else {
+        return None;
+    };
+    let decoded = decode_record_payload(&body.payload).ok()?;
+    let hash = entry_hash(entry).ok()?;
+    let winner = history
+        .records()
+        .get(&(body.namespace.clone(), decoded.record_key.clone()))
+        .filter(|record| !record.value.is_empty());
+    let (mutation_type, expected, record) = if decoded.value.is_empty() {
+        let winner = winner?;
+        (
+            "delete",
+            serde_json::json!({ "type": "entry", "entry": winner.entry.to_hex() }),
+            None,
+        )
+    } else {
+        let record = serde_json::from_slice::<Value>(&decoded.value)
+            .ok()
+            .filter(Value::is_object)?;
+        match winner {
+            None => (
+                "create",
+                serde_json::json!({ "type": "absent" }),
+                Some(record),
+            ),
+            Some(winner) => (
+                "replace",
+                serde_json::json!({ "type": "entry", "entry": winner.entry.to_hex() }),
+                Some(record),
+            ),
+        }
+    };
+    let proposed = Proposed {
+        namespace: body.namespace.clone(),
+        record_key: decoded.record_key.clone(),
+        mutation_type: mutation_type.to_owned(),
+        expected: Value::Null,
+        record,
+    };
+    let value = envelope(&proposed, expected).ok()?;
+    let mutation_id = uuid::Uuid::from_slice(&hash.as_bytes()[..16])
+        .ok()?
+        .to_string();
+    Some(Conversion {
+        mutation_id,
+        namespace: proposed.namespace,
+        record_key: proposed.record_key,
+        value,
+        digest: hex_digest(hash.to_hex().as_bytes()),
+    })
 }
 
 fn require_submitter(history: &VerifiedHistory, node_key: &NodeKey) -> Result<(), ChainError> {
