@@ -94,14 +94,14 @@ Step 1 is the core: sections 3 to 7, without files (section 8), the list of othe
 
 ### Keys
 
-All keys are HKDF-SHA256 outputs of the node seed (the 32 bytes behind the recovery phrase).
+All keys are HKDF-SHA256 outputs of the node seed (the 32 bytes behind the recovery phrase). The seed is uniformly random, so HKDF takes no salt, and each key has its own `info`.
 
-| Key | Salt | Info |
-|---|---|---|
-| Personal database key. Its verifying key is the database id. | `lastdb:personal-database:v1` | `database-key` |
-| Birth salt | `lastdb:personal-database:v1` | `birth-salt` |
-| Device id of the birth stream | `lastdb:personal-database:v1` | `birth-device` |
-| Read key of one database | `lastdb:database-read-key:v1` | the 64 hex characters of the database id |
+| Key | `info` |
+|---|---|
+| Personal database key. Its verifying key is the database id. | `lastdb:personal-database:v1:database-key` |
+| Birth salt | `lastdb:personal-database:v1:birth-salt` |
+| Device id of the birth stream | `lastdb:personal-database:v1:birth-device` |
+| Read key of one database | `lastdb:database-read-key:v1:` followed by the 64 hex characters of the database id |
 
 A home whose personal database is not the derived one is refused at boot. An old home is never converted.
 

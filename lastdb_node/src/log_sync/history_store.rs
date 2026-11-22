@@ -44,8 +44,9 @@ pub(crate) fn histories_for(host: &Host) -> Arc<HistoryMap> {
     )
 }
 
-/// The sealer of the personal database of this node. A node whose identity
-/// cannot seal has no personal sync, and the next use of its histories says so.
+/// The sealer of the personal database of this node. It is made from the node
+/// seed and fails only if the derived id is not a database id, which no seed
+/// produces.
 fn personal_sealer(host: &Host) -> Option<Arc<Sealer>> {
     let seed = zeroize::Zeroizing::new(host.keypair.secret_key_bytes());
     Sealer::for_node_seed(&seed).ok().map(Arc::new)

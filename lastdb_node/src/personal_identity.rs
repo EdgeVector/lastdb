@@ -16,17 +16,17 @@ use hkdf::Hkdf;
 use sha2::Sha256;
 use zeroize::Zeroizing;
 
-/// HKDF salt that separates these keys from every other use of the node seed.
-const PERSONAL_SALT: &[u8] = b"lastdb:personal-database:v1";
-const DATABASE_KEY: &[u8] = b"database-key";
-const BIRTH_SALT: &[u8] = b"birth-salt";
-const BIRTH_DEVICE: &[u8] = b"birth-device";
-/// HKDF salt of the read keys. The database id is the HKDF info.
-const READ_KEY_SALT: &[u8] = b"lastdb:database-read-key:v1";
+/// The seed is uniformly random, so HKDF takes no salt. Each key has its own
+/// `info`, which keeps every derived key apart.
+const DATABASE_KEY_INFO: &[u8] = b"lastdb:personal-database:v1:database-key";
+const BIRTH_SALT_INFO: &[u8] = b"lastdb:personal-database:v1:birth-salt";
+const BIRTH_DEVICE_INFO: &[u8] = b"lastdb:personal-database:v1:birth-device";
+/// The `info` of a read key is this prefix and the 64 hex characters of the database id.
+const READ_KEY_INFO_PREFIX: &[u8] = b"lastdb:database-read-key:v1:";
 
-fn derive(salt: &[u8], seed: &[u8; 32], info: &[u8]) -> Zeroizing<[u8; 32]> {
+fn derive(seed: &[u8; 32], info: &[u8]) -> Zeroizing<[u8; 32]> {
     let mut out = Zeroizing::new([0u8; 32]);
-    Hkdf::<Sha256>::new(Some(salt), seed)
+    Hkdf::<Sha256>::new(None, seed)
         .expand(info, out.as_mut())
         .expect("32 bytes is a valid HKDF-SHA256 output length");
     out
@@ -34,7 +34,7 @@ fn derive(salt: &[u8], seed: &[u8; 32], info: &[u8]) -> Zeroizing<[u8; 32]> {
 
 /// The seed of the personal database key. Its verifying key is the database id.
 pub(crate) fn database_key_seed(node_seed: &[u8; 32]) -> Zeroizing<[u8; 32]> {
-    derive(PERSONAL_SALT, node_seed, DATABASE_KEY)
+    derive(node_seed, DATABASE_KEY_INFO)
 }
 
 /// The 64-hex id of the personal database.
@@ -45,15 +45,18 @@ pub(crate) fn database_id(node_seed: &[u8; 32]) -> String {
 
 /// The salt of the personal database birth.
 pub(crate) fn birth_salt(node_seed: &[u8; 32]) -> [u8; 32] {
-    *derive(PERSONAL_SALT, node_seed, BIRTH_SALT)
+    *derive(node_seed, BIRTH_SALT_INFO)
 }
 
 /// The device id of the stream that holds the personal database birth.
 pub(crate) fn birth_device(node_seed: &[u8; 32]) -> [u8; 32] {
-    *derive(PERSONAL_SALT, node_seed, BIRTH_DEVICE)
+    *derive(node_seed, BIRTH_DEVICE_INFO)
 }
 
 /// The key that seals the payloads of one database of this owner.
 pub(crate) fn read_key(node_seed: &[u8; 32], database_id: &str) -> Zeroizing<[u8; 32]> {
-    derive(READ_KEY_SALT, node_seed, database_id.as_bytes())
+    derive(
+        node_seed,
+        &[READ_KEY_INFO_PREFIX, database_id.as_bytes()].concat(),
+    )
 }

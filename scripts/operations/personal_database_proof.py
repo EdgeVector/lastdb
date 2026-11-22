@@ -158,12 +158,16 @@ class Device:
                     str(entry.get("device_id"))[:8]))
         return lines
 
-    def warnings(self):
+    def warnings(self, all_lines=False):
         try:
             log = (self.out / "node.log").read_text().splitlines()
         except OSError:
             return []
-        return [line for line in log if "WARN" in line or "ERROR" in line][-25:]
+        found = [line for line in log if "WARN" in line or "ERROR" in line]
+        return found if all_lines else found[-25:]
+
+    def device_id(self):
+        return (self.node.home / "log-sync" / "device-id").read_text().strip()
 
     def write(self, mutations):
         v1.write_items(self.node, mutations)
@@ -259,6 +263,11 @@ def prove(relay, a, b, c, out):
     report = {}
     phrase = a.init()
     a.start()
+    # The relay answers 403 to a read of a database whose birth it does not hold. For an owner
+    # who has not written anywhere that is an empty relay, not a failed turn.
+    time.sleep(6)
+    require("personal database pull failed" not in "\n".join(a.warnings(all_lines=True)),
+            "A's first turns with an empty relay failed")
     for schema in SCHEMAS:
         system_seed(a.node, definition(schema, "Hash", FIELDS, description_prefix="Personal proof "))
     state = {}
@@ -292,23 +301,30 @@ def prove(relay, a, b, c, out):
     report["restore_b"] = restored
     print("2. B restored from the phrase alone and holds every record", flush=True)
 
-    # 3. A and B change one record while the relay is away.
+    # 3. A and B change one record while the relay is away. The device with the LOWER device id
+    # signs one more entry first, so its Lamport number is higher and it must win by that number,
+    # not by the device id that breaks a tie.
     relay.stop()
-    a.change([replace(ALPHA, "b1", "from-A")])
-    a.write([create(ALPHA, "only-a", "a")])
-    b.change([replace(ALPHA, "b1", "from-B")])
-    b.write([create(ALPHA, "only-b", "b")])
+    low, high = (a, b) if a.device_id() < b.device_id() else (b, a)
+    low.write([create(ALPHA, f"bump-{low.name}", "x")])
+    for device, text in ((a, "from-A"), (b, "from-B")):
+        device.change([replace(ALPHA, "b1", text)])
+        device.write([create(ALPHA, f"only-{device.name}", device.name)])
     relay.start()
-    # Each device signed its replace of b1 first and then a create, so the replace is the second last.
+    # Each device signed its replace of b1 and then a create, so the replace is the second last.
     a_replace, b_replace = record_entries(a)[-2], record_entries(b)[-2]
     a_pos, b_pos = (a_replace["lamport"], a_replace["device_id"]), (b_replace["lamport"], b_replace["device_id"])
-    winner = "from-A" if a_pos > b_pos else "from-B"
+    low_pos, high_pos = (a_pos, b_pos) if low is a else (b_pos, a_pos)
+    require(low_pos[0] > high_pos[0] and low_pos[1] < high_pos[1],
+            f"the proof does not separate the Lamport number from the device id: {low_pos} {high_pos}")
+    winner = "from-A" if low is a else "from-B"
     expect(state, ALPHA, "b1", winner)
-    expect(state, ALPHA, "only-a", "a")
-    expect(state, ALPHA, "only-b", "b")
+    expect(state, ALPHA, f"bump-{low.name}", "x")
+    expect(state, ALPHA, f"only-{a.name}", a.name)
+    expect(state, ALPHA, f"only-{b.name}", b.name)
     wait("A and B to converge", lambda: converged((a, b), state))
     report["divergence"] = {"a": list(a_pos), "b": list(b_pos), "winner": winner}
-    print(f"3. A {a_pos[0]} and B {b_pos[0]} changed one record apart; both hold {winner}", flush=True)
+    print(f"3. A {a_pos[0]} and B {b_pos[0]} changed one record apart; both hold {winner}, the higher Lamport number against the higher device id", flush=True)
 
     # 4. A third home from the phrase equals both.
     wait("A and B to upload", lambda: a.synced_up() and b.synced_up())
