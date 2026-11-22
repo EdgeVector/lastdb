@@ -24,6 +24,7 @@ use mutation_log::{
 
 use super::blobs;
 use super::device;
+use super::files_in;
 use super::history_store::HistoryMap;
 use super::materialize::{self, DatabaseCtx};
 use super::pull::rematerialize;
@@ -111,7 +112,18 @@ pub(super) async fn pull(
         database_id: &database_id,
         store: &store,
     };
-    rematerialize(histories, &db, pulled.accepted).await?;
+    // The files that new winners name are fetched before any record is applied.
+    // A failed fetch leaves the retry mark, so the next turn tries again.
+    if pulled.accepted > 0 || histories.needs_materialize_retry(&database_id) {
+        let fetched =
+            files_in::fetch_missing(&host.home, histories, client, &store, &database_id).await;
+        if let Err(error) = fetched {
+            histories.mark_materialize_retry(&database_id);
+            return Err(error);
+        }
+    }
+    let files = files_in::files_for(histories, &host.home, &database_id);
+    rematerialize(histories, &db, pulled.accepted, files.as_ref()).await?;
     Ok(pulled)
 }
 
@@ -191,7 +203,11 @@ async fn bundle_changes(
         blob
     } else {
         let blob = client
-            .blob_get(&database_id, &body.blob_sha256.to_hex(), body.blob_size)
+            .blob_get(
+                &database_id,
+                &body.blob_sha256.to_hex(),
+                Some(body.blob_size),
+            )
             .await?;
         blobs::save(&host.home, &database_id, &body.blob_sha256, &blob)?;
         blob

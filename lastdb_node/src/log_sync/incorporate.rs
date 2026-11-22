@@ -13,7 +13,7 @@
 //! record state no longer holds is not accepted. A failure that is not about
 //! the proposal (storage, signing) decides nothing, and the next turn retries.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 
 use fold_db::fold_db_core::FoldDB;
 use fold_db::record_replacement::RecordTarget;
@@ -25,6 +25,7 @@ use mutation_log::{
 };
 use serde_json::Value;
 use sha2::{Digest as _, Sha256};
+use signed_history_materialize::{Alternates, NoFiles, RecordValue};
 
 use super::chain_author::AuthorIdentity;
 use super::chain_author::{self, Target};
@@ -69,7 +70,7 @@ pub(super) async fn resolve_owned(
         }
     }
     let history = histories.snapshot(database_id)?;
-    materialize::apply_history_records(store, &history).await
+    materialize::apply_history_records(store, &history, &NoFiles).await
 }
 
 enum Decision {
@@ -95,7 +96,8 @@ struct Intent {
     mutation_type: MutationType,
     expected: Expect,
     fields: HashMap<String, Value>,
-    value: Vec<u8>,
+    /// The address under each declared alternate key, as the member chose it.
+    alternates: Alternates,
 }
 
 /// Decide one proposal. `Err` means nothing was decided.
@@ -144,10 +146,20 @@ async fn decide(
             CasExpectation::Revision { revision }
         }
     };
+    // A delete names the record's stored alternate addresses, as every delete
+    // does. A create or replace takes the addresses the member chose.
+    let alternates = if intent.mutation_type == MutationType::Delete {
+        signed_history_materialize::read_state(store, &body.namespace, &payload.record_key)
+            .await?
+            .map(|state| state.alternates)
+            .unwrap_or_default()
+    } else {
+        intent.alternates
+    };
     let target = RecordTarget {
         schema: body.namespace.clone(),
         key: at,
-        alternates: BTreeMap::default(),
+        alternates,
     };
     let mut mutation = Mutation::with_uuid(
         uuid::Uuid::new_v4().to_string(),
@@ -164,14 +176,31 @@ async fn decide(
         .write_mutations_receipt(vec![mutation])
         .await
     {
-        Ok(_) => Ok(Decision::Accept(Ready {
-            namespace: key.0,
-            key: key.1,
-            value: intent.value,
-        })),
+        Ok(_) => {
+            let value = stored_value(store, &key.0, &key.1).await?;
+            Ok(Decision::Accept(Ready {
+                namespace: key.0,
+                key: key.1,
+                value,
+            }))
+        }
         Err(error) if about_the_proposal(&error) => Ok(Decision::Decline),
         Err(error) => Err(error.to_string()),
     }
+}
+
+/// The history value of the record the store now holds, with the alternate
+/// addresses made canonical by the store. Empty when the proposal deleted it.
+async fn stored_value(store: &FoldDB, namespace: &str, key: &str) -> Result<Vec<u8>, String> {
+    let Some(state) = signed_history_materialize::read_state(store, namespace, key).await? else {
+        return Ok(Vec::new());
+    };
+    Ok(RecordValue {
+        fields: state.fields.into_iter().collect(),
+        alternates: state.alternates,
+        file: None,
+    }
+    .encode())
 }
 
 /// What the publisher's history says about a proposer and the record it names.
@@ -240,22 +269,24 @@ fn parse_intent(value: &[u8]) -> Result<Intent, ()> {
         }
         _ => return Err(()),
     };
-    let (fields, wire_value) = if kind == "delete" {
-        (HashMap::new(), Vec::new())
+    let (fields, alternates) = if kind == "delete" {
+        (HashMap::new(), Alternates::new())
     } else {
-        let record = doc.get("record").ok_or(())?;
-        let Value::Object(map) = record else {
+        let Some(Value::Object(map)) = doc.get("record") else {
             return Err(());
         };
         let fields = map.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
-        let wire = serde_json::to_vec(record).map_err(|_| ())?;
-        (fields, wire)
+        let alternates = match doc.get("alternates") {
+            None | Some(Value::Null) => Alternates::new(),
+            Some(found) => serde_json::from_value(found.clone()).map_err(|_| ())?,
+        };
+        (fields, alternates)
     };
     Ok(Intent {
         mutation_type,
         expected,
         fields,
-        value: wire_value,
+        alternates,
     })
 }
 

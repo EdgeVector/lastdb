@@ -19,6 +19,10 @@ use zeroize::Zeroizing;
 
 use crate::personal_identity;
 
+/// Starts the bound data of a file blob, so it can never equal the 104 bytes
+/// that bind an entry payload.
+const FILE_LABEL: &[u8] = b"lastdb:file-blob:v1:";
+
 /// The key and database that seal and open payloads.
 pub(crate) struct Sealer {
     key: Zeroizing<[u8; 32]>,
@@ -50,6 +54,33 @@ impl Sealer {
     ) -> Result<Vec<u8>, String> {
         let aad = self.bound_data(&node_key, &device_id, writer_seq);
         encrypt_envelope_with_aad(&self.key, &aad, plain).map_err(|e| e.to_string())
+    }
+
+    /// Seal the bytes of a file for the blob that carries them.
+    ///
+    /// The bound data is the database id and the SHA-256 of the plaintext, not
+    /// an entry position. A record that keeps its file in a later write names
+    /// the same blob, and a new device opens it knowing only the record's file
+    /// reference, so the blob cannot belong to one position. The database id
+    /// keeps it from opening under another database, and the digest ties the
+    /// ciphertext to the one plaintext that the record names.
+    pub(crate) fn seal_file(&self, plain: &[u8], sha256: &[u8; 32]) -> Result<Vec<u8>, String> {
+        encrypt_envelope_with_aad(&self.key, &self.file_bound_data(sha256), plain)
+            .map_err(|e| e.to_string())
+    }
+
+    /// The plaintext of a file blob made by [`Self::seal_file`], or `None` when
+    /// it does not open under this database and this digest.
+    pub(crate) fn open_file(&self, sealed: &[u8], sha256: &[u8; 32]) -> Option<Vec<u8>> {
+        decrypt_envelope_with_aad(&self.key, &self.file_bound_data(sha256), sealed).ok()
+    }
+
+    fn file_bound_data(&self, sha256: &[u8; 32]) -> Vec<u8> {
+        let mut aad = Vec::with_capacity(FILE_LABEL.len() + 64);
+        aad.extend_from_slice(FILE_LABEL);
+        aad.extend_from_slice(self.database.as_bytes());
+        aad.extend_from_slice(sha256);
+        aad
     }
 
     fn bound_data(&self, node_key: &NodeKey, device_id: &DeviceId, writer_seq: u64) -> Vec<u8> {

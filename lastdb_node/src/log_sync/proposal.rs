@@ -89,12 +89,17 @@ struct Proposed {
     mutation_type: String,
     expected: Value,
     record: Option<Value>,
+    /// The address under each declared alternate key, as the member chose it.
+    alternates: Option<Value>,
 }
 
 /// Map the owner submission document onto the history record convention:
 /// namespace is the schema name, key is the hash key (joined with the range
 /// key for a hash-range schema), value is the publisher
-/// decision envelope (`mutation_type`, `expected`, optional `record`).
+/// decision envelope (`mutation_type`, `expected`, optional `record` and
+/// `alternates`). The publisher's acceptance signs the record itself, in the
+/// layout of `signed_history_materialize::RecordValue`, with the alternate
+/// addresses the store holds after it wrote the record.
 fn parse(body: &[u8]) -> Result<Proposed, ContributionError> {
     let Ok(Value::Object(doc)) = serde_json::from_slice::<Value>(body) else {
         return Err(ContributionError::Invalid);
@@ -132,12 +137,18 @@ fn parse(body: &[u8]) -> Result<Proposed, ContributionError> {
             _ => return Err(ContributionError::Invalid),
         }
     };
+    let alternates = match doc.get("alternates") {
+        Some(found @ Value::Object(_)) => Some(found.clone()),
+        None | Some(Value::Null) => None,
+        _ => return Err(ContributionError::Invalid),
+    };
     Ok(Proposed {
         namespace,
         record_key,
         mutation_type,
         expected,
         record,
+        alternates,
     })
 }
 
@@ -151,6 +162,9 @@ fn envelope(proposed: &Proposed, expected: Value) -> Result<Vec<u8>, Contributio
     envelope.insert("expected".into(), expected);
     if let Some(record) = &proposed.record {
         envelope.insert("record".into(), record.clone());
+    }
+    if let Some(alternates) = &proposed.alternates {
+        envelope.insert("alternates".into(), alternates.clone());
     }
     let value =
         serde_json::to_vec(&Value::Object(envelope)).map_err(|_| ContributionError::Invalid)?;

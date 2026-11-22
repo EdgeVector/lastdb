@@ -15,6 +15,14 @@ proof follows the People "direct" recipe:
 5. The publisher lowers A and B to `submit`. B proposes a replace of A's record
    and ends `not_accepted`. A replaces her own record and ends `published`.
 
+The schema declares an alternate key, `by_author`. Every write and every proposal names the
+record's address under it, and every node reads the records by that key:
+
+6. The publisher's write, a replace that moves the record to another alternate address, and a
+   delete reach every member; the old address finds nothing. An accepted proposal gives the
+   record the same alternate address on every node, and an accepted replace that moves it
+   leaves nothing at the old address.
+
 A failure prints every proposal status and, for each node, the kind and
 sequence number of every entry it holds for the database.
 """
@@ -32,7 +40,7 @@ _OPS = Path(__file__).resolve().parent
 sys.path[:0] = [str(_OPS), str(_OPS.parent)]
 from benchmarks.node import Node  # noqa: E402
 from harness import send_unix_request  # noqa: E402
-from record_runs import definition, held, require  # noqa: E402
+from record_runs import RANGED, definition, held, require  # noqa: E402
 import v1_records as v1  # noqa: E402
 
 APP = "relayproof"
@@ -99,11 +107,21 @@ class Member:
         records = (reply.get("results") or [{}])[0].get("records") or []
         return records[0] if records else None
 
-    def propose(self, mutation_type, key, record, expected):
+    def by_author(self, group):
+        """The keys that the alternate key `by_author` lists under `group` on this node."""
+        status, reply = self.post("/v1/read", {"reads": [
+            v1.range_read(SCHEMA, {"hash": group}, via="by_author", limit=100, database=self.db)]})
+        if status != 200:
+            return None
+        page = (reply.get("results") or [{}])[0]
+        return sorted(row["key"]["hash"] for row in page.get("records") or []) if "records" in page else None
+
+    def propose(self, mutation_type, key, record, expected, group=None):
         mutation = {"type": "mutation", "schema": SCHEMA, "key_value": {"hash": key},
                     "mutation_type": mutation_type, "expected": expected}
         if record is not None:
             mutation["record"] = record
+            mutation["alternates"] = {"by_author": {"hash": group or self.name, "range": key}}
         mid = str(uuid.uuid4())
         reply = self.act(expect=202, action="submit", database=self.db, mutation=mutation, idempotency_key=mid)
         require(reply.get("status") == "submitted", f"{self.name} submit: {reply!r}")
@@ -180,13 +198,20 @@ def converge(members, key, note, creator, updater):
         wait(f"{member.name} to hold {key}={note} by {creator[:8]}/{updater[:8]}", probe)
 
 
+def listed(members, group, keys):
+    """Every node lists exactly `keys` under `group` of the alternate key."""
+    for member in members:
+        wait(f"{member.name} to list {keys} under {group}", lambda member=member: member.by_author(group) == keys)
+
+
 def prove(pub, a, b, c, proposals):
     members = (pub, a, b, c)
     pub.db = pub.act(action="create", name="circles", sharingMode="whole_database")["database"]["id"]
-    schema = definition(SCHEMA, "Hash", ["id", "note"], description_prefix="Shared proof ")
+    schema = definition(SCHEMA, "Hash", ["id", "note"], {"by_author": RANGED}, description_prefix="Shared proof ")
     schema.pop("source", None)
     pub.act(action="declare_schema", database=pub.db, schema=schema)
-    seed = v1.create_item(SCHEMA, {"hash": "seed"}, {"id": "seed", "note": "seed"}, database=pub.db)
+    seed = v1.create_item(SCHEMA, {"hash": "seed"}, {"id": "seed", "note": "seed"},
+                          alternates={"by_author": {"hash": "publisher", "range": "seed"}}, database=pub.db)
     status, reply = pub.post("/v1/write", {"mutations": [seed]})
     require(status == 200, f"seed write: HTTP {status} {reply!r}")
     write_credentials(pub)
@@ -199,9 +224,28 @@ def prove(pub, a, b, c, proposals):
     for member in (a, b, c):
         wait(f"{member.name} to hold the seed record", lambda m=member: m.row("seed"))
     print("1. publisher database shared with A (write), B (write), C (read)", flush=True)
+    listed(members, "publisher", ["seed"])
+    # The publisher moves the record to another alternate address, then creates and deletes another.
+    row = pub.row("seed")
+    moved = v1.replace_item(SCHEMA, {"hash": "seed"}, {"id": "seed", "note": "seed"}, row["revision"],
+                            alternates={"by_author": {"hash": "publisher-moved", "range": "seed"}}, database=pub.db)
+    gone = v1.create_item(SCHEMA, {"hash": "gone"}, {"id": "gone", "note": "gone"},
+                          alternates={"by_author": {"hash": "publisher-gone", "range": "gone"}}, database=pub.db)
+    status, reply = pub.post("/v1/write", {"mutations": [moved, gone]})
+    require(status == 200, f"publisher replace and create: HTTP {status} {reply!r}")
+    listed(members, "publisher-moved", ["seed"])
+    listed(members, "publisher", [])
+    listed(members, "publisher-gone", ["gone"])
+    row = pub.row("gone")
+    status, reply = pub.post("/v1/write", {"mutations": [
+        v1.delete_item(SCHEMA, {"hash": "gone"}, row["revision"], database=pub.db)]})
+    require(status == 200, f"publisher delete: HTTP {status} {reply!r}")
+    listed(members, "publisher-gone", [])
+    print("6a. publisher write, replace to another alternate address, and delete reach every member by alternate key", flush=True)
 
     # 2. A received database is read only, whatever the role.
-    item = v1.create_item(SCHEMA, {"hash": "direct"}, {"id": "direct", "note": "no"}, database=pub.db)
+    item = v1.create_item(SCHEMA, {"hash": "direct"}, {"id": "direct", "note": "no"},
+                          alternates={"by_author": {"hash": "publisher", "range": "direct"}}, database=pub.db)
     status, reply = a.post("/v1/write", {"mutations": [item]})
     error = reply.get("error") or {}
     require(status == 403 and error.get("message") == "a received database is read only",
@@ -210,7 +254,8 @@ def prove(pub, a, b, c, proposals):
         "action": "submit", "database": pub.db, "idempotency_key": str(uuid.uuid4()),
         "mutation": {"type": "mutation", "schema": SCHEMA, "key_value": {"hash": "c"},
                      "mutation_type": "create", "expected": {"type": "absent"},
-                     "record": {"id": "c", "note": "c"}}})
+                     "record": {"id": "c", "note": "c"},
+                     "alternates": {"by_author": {"hash": "member-c", "range": "c"}}}})
     require(c_status == 403, f"a read member submit was HTTP {c_status} {c_reply!r}")
     print("2. direct write refused 403; read member cannot submit", flush=True)
 
@@ -218,7 +263,8 @@ def prove(pub, a, b, c, proposals):
     proposals["a-create-k1"] = (a, a.propose("create", "k1", {"id": "k1", "note": "a1"}, {"type": "absent"}))
     settle({"a-create-k1": proposals["a-create-k1"]}, {"a-create-k1": "published"})
     converge(members, "k1", "a1", a.key, a.key)
-    print("3. A's first proposal published; k1 on every node, created by A", flush=True)
+    listed(members, "member-a", ["k1"])
+    print("3. A's first proposal published; k1 on every node, created by A, listed under member-a", flush=True)
 
     # 4. Two writers create one key. One is published, the other not accepted.
     proposals["a-create-k2"] = (a, a.propose("create", "k2", {"id": "k2", "note": "from-a"}, {"type": "absent"}))
@@ -238,9 +284,12 @@ def prove(pub, a, b, c, proposals):
     settle({"b-replace-k1": proposals["b-replace-k1"]}, {"b-replace-k1": "not_accepted"})
     row = a.row("k1")
     proposals["a-replace-k1"] = (a, a.propose(
-        "replace", "k1", {"id": "k1", "note": "a2"}, {"type": "revision", "revision": row["revision"]}))
+        "replace", "k1", {"id": "k1", "note": "a2"}, {"type": "revision", "revision": row["revision"]},
+        group="member-a-moved"))
     settle({"a-replace-k1": proposals["a-replace-k1"]}, {"a-replace-k1": "published"})
     converge(members, "k1", "a2", a.key, a.key)
+    listed(members, "member-a-moved", ["k1"])
+    listed(members, "member-a", [])
     print("5. at submit: B's replace of A's record not accepted; A's own replace published", flush=True)
 
 

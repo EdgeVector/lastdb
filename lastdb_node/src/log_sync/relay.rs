@@ -142,17 +142,32 @@ impl RelayClient {
         Ok(())
     }
 
-    /// Fetch a blob: `blob.get`, then the presigned download.
+    /// True when the relay holds the blob: `blob.get` answers, and 404 means no.
+    pub(super) async fn blob_present(
+        &self,
+        database_id: &str,
+        sha256: &str,
+    ) -> Result<bool, String> {
+        let body = json!({ "database_id": database_id, "sha256": sha256 });
+        match self.post("/relay/v1/blob/get", database_id, &body).await {
+            Ok(_) => Ok(true),
+            Err(error) if error.contains("HTTP 404") => Ok(false),
+            Err(error) => Err(error),
+        }
+    }
+
+    /// Fetch a blob: `blob.get`, then the presigned download. A caller that
+    /// knows the size from the entry passes it. The caller checks the digest.
     pub(super) async fn blob_get(
         &self,
         database_id: &str,
         sha256: &str,
-        expect_size: u64,
+        expect_size: Option<u64>,
     ) -> Result<Vec<u8>, String> {
         let body = json!({ "database_id": database_id, "sha256": sha256 });
         let meta = self.post("/relay/v1/blob/get", database_id, &body).await?;
         let url = meta["url"].as_str().ok_or("blob.get has no url")?;
-        if meta["bytes"].as_u64().is_some_and(|n| n != expect_size) {
+        if expect_size.is_some_and(|size| meta["bytes"].as_u64().is_some_and(|n| n != size)) {
             return Err(format!("blob.get size differs from its entry for {sha256}"));
         }
         let mut download = self.http.get(url);

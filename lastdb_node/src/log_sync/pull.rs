@@ -3,6 +3,7 @@
 use std::collections::BTreeSet;
 
 use mutation_log::{AcceptOutcome, DeviceId, NodeKey, Role, SignedEntry, VerifiedHistory};
+use signed_history_materialize::{FileSource, NoFiles};
 
 use super::history_store::HistoryMap;
 use super::materialize::{self, DatabaseCtx};
@@ -226,7 +227,7 @@ async fn pull_pages(
             None => break,
         }
     }
-    rematerialize(histories, db, accepted).await?;
+    rematerialize(histories, db, accepted, &NoFiles).await?;
     Ok(accepted)
 }
 
@@ -234,6 +235,7 @@ pub(super) async fn rematerialize(
     histories: &HistoryMap,
     db: &DatabaseCtx<'_>,
     accepted: u64,
+    files: &dyn FileSource,
 ) -> Result<(), String> {
     let retry = histories.needs_materialize_retry(db.database_id);
     if accepted == 0 && !retry {
@@ -243,7 +245,7 @@ pub(super) async fn rematerialize(
     if history.owner().is_none() {
         return Ok(());
     }
-    match materialize::apply_history_records(db.store, &history).await {
+    match materialize::apply_history_records(db.store, &history, files).await {
         Ok(()) => histories.clear_materialize_retry(db.database_id),
         Err(error) => {
             histories.mark_materialize_retry(db.database_id);

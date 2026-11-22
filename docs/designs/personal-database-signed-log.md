@@ -60,7 +60,7 @@ The personal database holds the list of the owner's other databases (id, name, k
 
 ## 8. Files
 
-A file blob is sealed and uploaded before the entry that names it. A restore fetches a blob when a record that names it is read, or all of them when asked.
+A file blob is sealed and uploaded before the entry that names it. A device that applies an entry fetches the blob at once and puts the file into its store (eager). An earlier text said a restore fetches a blob when a record is read. That is changed: a backup that needs the relay to read a file is not a restored home. Section 14 has the layout.
 
 ## 9. Existing records and the primary
 
@@ -137,6 +137,36 @@ Every entry of the personal database cites the tip of every other stream of the 
 
 - A restore and every sync turn read all streams from the first entry. A per-device read from a sequence needs the device ids, and the all-devices read starts at sequence 1 for every device but the first. A checkpoint bundle or an incremental read should come before the primary moves.
 - `authored.json` is one JSON array with a 16 MiB read limit, rewritten on every write.
-- A `data` entry carries no alternate keys of the record. The materializer writes records without them, as it does for shared databases.
-- Files (section 8) and the list of owned databases (section 7) are not built. A database of kind personal that is not the owner row stays unsynced.
+- The list of owned databases (section 7) is not built. A database of kind personal that is not the owner row stays unsynced. (Alternate keys and files are built: section 14.)
 
+## 14. Complete records: alternate keys and files
+
+Date: 2026-11-22. A record applied from the history must equal the record on the node that wrote it, with its alternate addresses and its file.
+
+### Alternate keys are carried, not derived
+
+A client chooses the address of a record under every declared alternate key on every write (`alternates` of `/v1/write`). No schema rule derives them from the fields, so the history carries them. The node that signs a write reads each record back from the store after the commit and signs what the store holds: fields, alternate addresses (made canonical by the store) and file. A record that the store no longer holds is signed as a tombstone. A delete on a receiving node names the record's stored alternate addresses, so the old alternate entries go with it, and a replace that changes an alternate value moves the record to the new address.
+
+### One value layout for every writer
+
+The value of a history record (the bytes after the record key in a `data` payload, and in a bundle change) is one JSON object. The owner's sealed writes, a publisher's plain writes and a publisher's acceptance of a member's proposal all use it. An empty value is still a tombstone.
+
+```text
+{ "fields":     { "<field>": <value>, ... },
+  "alternates": { "<name>": { "hash": "...", "range": "..." } | null, ... },
+  "file":       { "blob": hex32, "sha256": hex32, "size_bytes": n,
+                  "name": "...", "media_type": "..." } }          // file is optional
+```
+
+A member's proposal document already carried `alternates`. The proposal envelope that the member signs now keeps them (`mutation_type`, `expected`, `record`, `alternates`). The publisher writes the change to its store with those addresses, reads the record back, and signs the value in the layout above, so an accepted proposal produces the same alternate addresses on the publisher and on every member. Code: `signed_history_materialize/src/value.rs`; apply is `apply.rs`.
+
+### File blobs (personal database only)
+
+- The file's bytes are sealed with the database read key, with the same AES-256-GCM envelope as other payloads. The bound data is `"lastdb:file-blob:v1:" || database id || SHA-256 of the plaintext`. It is not an entry position: a record that keeps its file through a later write names the same blob, a new device opens the blob knowing only the record's file reference, and the digest ties the ciphertext to the one plaintext the record names.
+- The blob is kept under `log-sync/<database>/blobs/<sha256 of the ciphertext>`. The upload sends it to the relay before the entry that names it. A blob that a later entry names again is sent only when the relay does not hold it.
+- A record with a file is always its own `data` entry. The entry carries `file { file_handle: "sealed", sha256: <blob digest> }`, so the upload knows which blob it needs. The relay sees a handle that is always the same, the digest and the ciphertext length. The name, the type and the plaintext size are inside the sealed value.
+- A device that accepts such an entry fetches the blob before it applies the record, keeps it, opens it, checks the plaintext digest and size, and puts the file into its store with the store's own `seal_record_file`. The file is then readable with the relay stopped. A failed fetch keeps the retry mark, so the next turn tries again.
+- Limit: a sealed blob is at most 64 MiB (the relay blob limit), so a file is at most 64 MiB minus 29 bytes. A larger file is refused by the write before it commits. Nothing is chunked.
+- Kept blobs are not deleted. A device keeps the blob of every file it signed or fetched.
+- Shared databases are unchanged: they sign no files, and a record in a shared history that names one is refused.
+- Not carried: a record's inline file. No write route of this build sets one.

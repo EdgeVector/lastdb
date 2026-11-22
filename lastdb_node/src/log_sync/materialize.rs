@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use fold_db::fold_db_core::FoldDB;
 use mutation_log::VerifiedHistory;
+use signed_history_materialize::FileSource;
 
 use crate::host::owned::ResolvedStore;
 use crate::host::Host;
@@ -31,9 +32,10 @@ pub(crate) fn store_for(host: &Host, database_id: &str) -> Option<Arc<FoldDB>> {
 pub(super) async fn apply_history_records(
     store: &FoldDB,
     history: &VerifiedHistory,
+    files: &dyn FileSource,
 ) -> Result<(), String> {
     signed_history_materialize::declare_history_schemas(store, history).await?;
-    signed_history_materialize::apply_history(store, history).await
+    signed_history_materialize::apply_history(store, history, files).await
 }
 
 /// Bring `store` back to the history at the keys of a write whose signed
@@ -50,7 +52,11 @@ pub(crate) async fn revert_unsigned(
     keys: &[(String, String)],
 ) {
     let reverted = match super::histories_for(host).snapshot(database_id) {
-        Ok(history) => signed_history_materialize::reconcile_keys(store, &history, keys).await,
+        Ok(history) => {
+            let files =
+                super::files_in::files_for(&super::histories_for(host), &host.home, database_id);
+            signed_history_materialize::reconcile_keys(store, &history, keys, files.as_ref()).await
+        }
         Err(error) => Err(error),
     };
     if let Err(error) = reverted {

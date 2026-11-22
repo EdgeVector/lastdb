@@ -1,7 +1,10 @@
 //! Sign the writes of the personal database as sealed entries.
 //!
 //! One write call is one entry: a `data` entry for one record, a `bundle` entry
-//! for several. A schema the write needs and the history does not carry yet is
+//! for several. A record that holds a file is the exception: it is always its
+//! own `data` entry, and that entry names the sealed blob of the file, because a
+//! bundle names one blob only and the upload must send a file's blob before the
+//! entry that names it. A schema the write needs and the history does not carry yet is
 //! signed first, as its own `schema` entry. Every payload is sealed before it is
 //! signed (see `sealed`), so the relay sees the entry kinds, the sizes and the
 //! times, and nothing else.
@@ -14,16 +17,19 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use mutation_log::{
     author_bundle, author_data, author_schema, encode_bundle_changes, encode_named,
-    encode_record_payload, AuthorCtx, BundleBody, BundleChange, DataBody, SchemaBody, StreamKind,
-    VerifiedHistory, BUNDLE_BLOB_SIZE_MAX, BUNDLE_CHANGE_COUNT_MAX, SEALED_NAMESPACE,
+    encode_record_payload, AuthorCtx, BundleBody, BundleChange, DataBody, Hex32, MutationFileRef,
+    SchemaBody, StreamKind, VerifiedHistory, BUNDLE_BLOB_SIZE_MAX, BUNDLE_CHANGE_COUNT_MAX,
+    SEALED_NAMESPACE,
 };
 
 use super::blobs;
-use super::mirror::{
-    author_ctx, encode_value, schema_definition_matches, sign, sign_bundle, MirrorCtx,
-    OwnedMutation,
-};
+use super::mirror::{author_ctx, schema_definition_matches, sign, sign_bundle, MirrorCtx};
+use super::mirror_state::Prepared;
 use super::sealed::Sealer;
+
+/// The handle that every file reference of a sealed entry carries. The entry is
+/// signed in clear, so the handle says nothing about the file.
+pub(super) const FILE_HANDLE: &str = "sealed";
 
 /// Sign the schemas and the changes of one write call.
 ///
@@ -33,32 +39,38 @@ pub(super) fn author(
     history: &mut VerifiedHistory,
     ctx: &MirrorCtx<'_>,
     sealer: &Sealer,
-    items: &[OwnedMutation],
+    items: Vec<Prepared>,
 ) -> Result<(), String> {
-    let mut latest: BTreeMap<(String, String), Vec<u8>> = BTreeMap::new();
+    let mut latest: BTreeMap<(String, String), (Vec<u8>, Option<Hex32>)> = BTreeMap::new();
     for item in items {
-        latest.insert(
-            (item.schema.clone(), item.record_key.clone()),
-            encode_value(item)?,
-        );
+        latest.insert((item.namespace, item.record_key), (item.value, item.blob));
     }
-    let schemas: BTreeSet<&str> = latest.keys().map(|(schema, _)| schema.as_str()).collect();
-    for name in schemas {
+    let schemas: BTreeSet<String> = latest.keys().map(|(schema, _)| schema.clone()).collect();
+    for name in &schemas {
         ensure_schema(history, ctx, sealer, name)?;
     }
-    let changes: Vec<BundleChange> = latest
-        .into_iter()
-        .map(|((namespace, record_key), value)| BundleChange {
+    let mut plain = Vec::new();
+    let mut with_file = Vec::new();
+    for ((namespace, record_key), (value, blob)) in latest {
+        let change = BundleChange {
             namespace,
             record_key,
             value,
-        })
-        .collect();
-    if let [one] = changes.as_slice() {
-        author_record(history, ctx, sealer, one)
-    } else {
-        author_changes(history, ctx, sealer, &changes)
+        };
+        match blob {
+            Some(blob) => with_file.push((change, blob)),
+            None => plain.push(change),
+        }
     }
+    match plain.as_slice() {
+        [] => {}
+        [one] => author_record(history, ctx, sealer, one, None)?,
+        _ => author_changes(history, ctx, sealer, &plain)?,
+    }
+    for (change, blob) in &with_file {
+        author_record(history, ctx, sealer, change, Some(*blob))?;
+    }
+    Ok(())
 }
 
 /// Seal `plain` for the next entry of this device's stream.
@@ -109,12 +121,13 @@ fn ensure_schema(
     sign(history, ctx, &entry)
 }
 
-/// Sign one record as a `data` entry.
+/// Sign one record as a `data` entry. `blob` is the sealed blob of its file.
 fn author_record(
     history: &mut VerifiedHistory,
     ctx: &MirrorCtx<'_>,
     sealer: &Sealer,
     change: &BundleChange,
+    blob: Option<Hex32>,
 ) -> Result<(), String> {
     let record = encode_record_payload(&change.record_key, &change.value);
     let plain = encode_named(&change.namespace, &record).ok_or("schema name is not valid")?;
@@ -123,7 +136,10 @@ fn author_record(
         stream: StreamKind::Direct,
         namespace: SEALED_NAMESPACE.to_owned(),
         payload: seal_next(ctx, sealer, &author, &plain)?,
-        file: None,
+        file: blob.map(|sha256| MutationFileRef {
+            file_handle: FILE_HANDLE.to_owned(),
+            sha256,
+        }),
         incorporated_from: None,
         grant_at_device: None,
         grant_at_seq: None,

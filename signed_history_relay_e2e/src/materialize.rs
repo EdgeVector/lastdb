@@ -1,7 +1,7 @@
 //! Materialize the restored history into a fresh FoldDB in large native batches,
 //! then check it against the generator.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -10,7 +10,8 @@ use fold_db::schema::types::{CasExpectation, KeyValue, Mutation, MutationType};
 use mutation_log::{NodeKey, Role, VerifiedHistory};
 use serde_json::Value;
 use signed_history_materialize::{
-    encode_string_field, ensure_hash_schema, open_proof_store, read_field_map, FoldDB, STRING_FIELD,
+    encode_string_field, ensure_hash_schema, open_proof_store, read_field_map, FoldDB, RecordValue,
+    STRING_FIELD,
 };
 
 use crate::blob::{record_key, record_text, record_value, NAMESPACE};
@@ -71,20 +72,19 @@ async fn flush(store: &FoldDB, batch: &mut Vec<Mutation>, records: &mut u64) -> 
 }
 
 fn create_mutation(schema: &str, key: &str, value: &[u8]) -> Result<Mutation, String> {
-    let parsed: Value =
-        serde_json::from_slice(value).map_err(|e| format!("record {key} is not JSON: {e}"))?;
-    let Value::Object(map) = parsed else {
-        return Err(format!("record {key} is not a JSON object"));
-    };
+    let record = RecordValue::decode(value).map_err(|e| format!("record {key}: {e}"))?;
     let target = RecordTarget {
         schema: schema.to_owned(),
         key: KeyValue::new(Some(key.to_owned()), None),
-        alternates: BTreeMap::new(),
+        alternates: record.alternates,
     };
     Ok(Mutation::with_uuid(
         uuid::Uuid::new_v4().to_string(),
         target,
-        map.into_iter().collect::<HashMap<String, Value>>(),
+        record
+            .fields
+            .into_iter()
+            .collect::<HashMap<String, Value>>(),
         MutationType::Create,
         CasExpectation::Absent,
     ))

@@ -7,7 +7,7 @@ use rand::RngCore;
 use serde_json::json;
 use signed_history_materialize::{
     apply_history, decode_string_field, ensure_hash_schema, open_proof_store, read_field_map,
-    FoldDB,
+    FoldDB, NoFiles,
 };
 
 /// Namespace (FoldDB schema name) every proof scenario writes to.
@@ -42,8 +42,8 @@ async fn check(
     expected: &[Expected<'_>],
 ) -> Result<(), String> {
     ensure_hash_schema(store, NAMESPACE).await?;
-    apply_history(store, history).await?;
-    apply_history(store, history).await?;
+    apply_history(store, history, &NoFiles).await?;
+    apply_history(store, history, &NoFiles).await?;
     for want in expected {
         let fields = read_field_map(store, NAMESPACE, want.record_key)
             .await?

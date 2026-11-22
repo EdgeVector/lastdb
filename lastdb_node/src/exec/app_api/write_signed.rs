@@ -1,39 +1,27 @@
 //! After FoldDB commits an `/v1/write` to an owned database or to the personal
 //! database, mirror it onto the signed log.
 
-use std::collections::HashMap;
-
-use fold_db::schema::types::{KeyValue, MutationType};
-use serde_json::Value;
+use fold_db::schema::types::KeyValue;
 
 use crate::exec::reply::HostError;
 use crate::exec::schema_routes::resolve_schema_name;
 use crate::host::Host;
 use crate::log_sync::{mirror_owned_write, write_target, OwnedMutation};
 
-/// One write item's fields needed to author a signed `data` entry.
-pub(super) type SignedParts<'a> = (
-    &'a str,
-    &'a KeyValue,
-    MutationType,
-    Option<&'a HashMap<String, Value>>,
-);
-
-/// Capture schema/key/fields for the signed-history mirror after FoldDB commits.
-pub(super) fn plan<'a>(items: impl IntoIterator<Item = SignedParts<'a>>) -> Vec<OwnedMutation> {
+/// Capture the schema and key of each written record for the signed-history
+/// mirror. The signed entry carries the record as the store holds it after the
+/// commit, so the request's fields and alternates are not copied here.
+pub(super) fn plan<'a>(
+    items: impl IntoIterator<Item = (&'a str, &'a KeyValue)>,
+) -> Vec<OwnedMutation> {
     items
         .into_iter()
-        .filter_map(|(schema, key, op, record)| {
+        .filter_map(|(schema, key)| {
             let record_key =
                 mutation_log::join_record_key(key.hash.as_deref()?, key.range.as_deref())?;
-            let fields = record.map(|map| {
-                Value::Object(map.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
-            });
             Some(OwnedMutation {
                 schema: schema.to_owned(),
                 record_key,
-                op,
-                fields,
             })
         })
         .collect()
@@ -70,7 +58,7 @@ pub(super) async fn mirror_committed(
             }
         }
     }
-    let Err(error) = mirror_owned_write(host, &target.id, &signed) else {
+    let Err(error) = mirror_owned_write(host, &target.id, &signed).await else {
         return Ok(());
     };
     tracing::warn!(
@@ -85,4 +73,26 @@ pub(super) async fn mirror_committed(
         503,
         "signed history mirror was not confirmed",
     ))
+}
+
+/// Refuse a file that the personal database cannot sign: its sealed blob would
+/// not fit one relay blob. A file in a database that is not the personal one is
+/// not signed, so the limit does not apply to it.
+pub(super) fn require_file_fits(
+    host: &Host,
+    selector: Option<&str>,
+    sizes: impl IntoIterator<Item = u64>,
+) -> Result<(), HostError> {
+    let personal = write_target(host, selector).is_some_and(|target| target.personal);
+    if personal
+        && sizes
+            .into_iter()
+            .any(|size| size > crate::log_sync::FILE_SIZE_MAX)
+    {
+        return Err(super::bad(format!(
+            "a file in the personal database may be at most {} bytes",
+            crate::log_sync::FILE_SIZE_MAX
+        )));
+    }
+    Ok(())
 }

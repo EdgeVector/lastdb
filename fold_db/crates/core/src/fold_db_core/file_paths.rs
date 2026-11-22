@@ -82,4 +82,34 @@ impl FoldDB {
             })
             .await
     }
+
+    /// The marker and the plaintext of a record's file, wherever this node holds
+    /// the bytes: in its home, or as a local reference that is still intact.
+    /// `None` when the record has no file or the bytes are not on this node.
+    pub async fn record_file_bytes(
+        &self,
+        schema_name: &str,
+        key: &KeyValue,
+    ) -> Result<Option<(FileMarker, Vec<u8>)>, FoldDbError> {
+        self.db_ops
+            .read_scope()
+            .await?
+            .run_result(async {
+                let (rk, record) = self.read_file_record(schema_name, key, None).await?;
+                let Some((marker, ver)) = record
+                    .as_ref()
+                    .and_then(|r| r.file.as_ref().zip(r.file_version.as_ref()))
+                else {
+                    return Ok(None);
+                };
+                let bytes = self
+                    .db_ops
+                    .records()
+                    .format
+                    .open_record_file(&rk, ver, marker)
+                    .await?;
+                Ok(bytes.map(|bytes| (marker.clone(), bytes)))
+            })
+            .await
+    }
 }

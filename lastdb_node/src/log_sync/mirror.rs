@@ -13,30 +13,29 @@
 use std::path::Path;
 
 use fold_db::fold_db_core::FoldDB;
-use fold_db::schema::types::MutationType;
 use mutation_log::{
     author_data, author_schema, data_record, AcceptOutcome, AuthorCtx, BundleChange, DatabaseId,
     DeviceId, EntryHash, SchemaBody, StreamKind, VerifiedHistory,
 };
-use serde_json::Value;
 
 use super::birth::{self, BirthMaterial};
 use super::chain_author;
 use super::chain_author::AuthorIdentity;
 use super::device;
+use super::files_out::FileKeeper;
 use super::history_store;
 use super::materialize;
 use super::mirror_sealed;
+use super::mirror_state::{self, Prepared};
 use super::sealed::Sealer;
 use super::wake;
 use crate::host::Host;
 
-/// One FoldDB mutation to carry as a signed direct `data` entry.
+/// One record that a committed write changed. The signed entry carries the
+/// record as the store now holds it (see `mirror_state`).
 pub struct OwnedMutation {
     pub schema: String,
     pub record_key: String,
-    pub op: MutationType,
-    pub fields: Option<Value>,
 }
 
 /// What only the personal database has: the sealer of its payloads, and the
@@ -60,7 +59,7 @@ pub(super) struct MirrorCtx<'a> {
 ///
 /// No-op when this database has no birth material (not a signed-log share).
 /// The personal database always has it: it comes from the node seed.
-pub fn mirror_owned_write(
+pub async fn mirror_owned_write(
     host: &Host,
     database_id: &str,
     mutations: &[OwnedMutation],
@@ -97,13 +96,22 @@ pub fn mirror_owned_write(
         material: &material,
         personal: personal.as_ref(),
     };
+    // The store is read before the history is locked: the lock is never held
+    // across an await. Only the personal database signs files.
+    let keeper = sealer.as_deref().map(|sealer| FileKeeper {
+        sealer,
+        home: &host.home,
+        database_id,
+        histories: &histories,
+    });
+    let prepared = mirror_state::prepare(&store, mutations, keeper.as_ref()).await?;
     histories.with_mut(database_id, |history| -> Result<(), String> {
         ensure_birth(history, &ctx)?;
         if let Some(personal) = ctx.personal {
-            return mirror_sealed::author(history, &ctx, personal.sealer, mutations);
+            return mirror_sealed::author(history, &ctx, personal.sealer, prepared);
         }
-        for item in mutations {
-            ensure_schema(history, &ctx, &item.schema)?;
+        for item in &prepared {
+            ensure_schema(history, &ctx, &item.namespace)?;
             author_one(history, &ctx, item)?;
         }
         Ok(())
@@ -222,30 +230,17 @@ pub(super) fn schema_definition_matches(
     }
 }
 
-/// The value of a record in an entry: its fields as JSON, or nothing for a delete.
-pub(super) fn encode_value(item: &OwnedMutation) -> Result<Vec<u8>, String> {
-    if item.op == MutationType::Delete {
-        return Ok(Vec::new());
-    }
-    let fields = item
-        .fields
-        .as_ref()
-        .ok_or_else(|| "owned write is missing record fields".to_owned())?;
-    serde_json::to_vec(fields).map_err(|_| "cannot encode record fields".to_owned())
-}
-
 fn author_one(
     history: &mut VerifiedHistory,
     ctx: &MirrorCtx<'_>,
-    item: &OwnedMutation,
+    item: &Prepared,
 ) -> Result<(), String> {
     let author = author_ctx(history, ctx, fold_db::clock::unix_millis());
-    let value = encode_value(item)?;
     let body = data_record(
         StreamKind::Direct,
-        item.schema.clone(),
+        item.namespace.clone(),
         &item.record_key,
-        &value,
+        &item.value,
     );
     let entry = author_data(&author, &ctx.identity.signing_key, body).map_err(|e| e.to_string())?;
     sign(history, ctx, &entry)

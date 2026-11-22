@@ -8,7 +8,7 @@
 
 use std::path::Path;
 
-use mutation_log::SignedEntry;
+use mutation_log::{Hex32, SignedEntry};
 
 use crate::host::Host;
 use crate::registered_share;
@@ -123,10 +123,22 @@ async fn drain_log(client: &RelayClient, home: &Path, database_id: &str) -> Resu
     }
 }
 
-/// Append one batch. The blob of a `bundle` entry goes up before its entry, and
+/// The blob that an entry needs on the relay before it is appended, and
+/// whether the relay may already hold it. A `bundle` entry names its blob, which
+/// only its own entry uses. A `data` entry that names a file points at a sealed
+/// file blob, which an earlier entry may already have sent.
+fn blob_of(entry: &SignedEntry) -> Option<(Hex32, bool)> {
+    match entry {
+        SignedEntry::Bundle { body, .. } => Some((body.blob_sha256, false)),
+        SignedEntry::Data { body, .. } => body.file.as_ref().map(|file| (file.sha256, true)),
+        _ => None,
+    }
+}
+
+/// Append one batch. The blob that an entry names goes up before the entry, and
 /// the relay takes a blob only for a database whose birth it holds. So the
-/// entries before a bundle are appended first, then its blob, then the entry
-/// with the entries after it up to the next bundle.
+/// entries before such an entry are appended first, then its blob, then the
+/// entry with the entries after it up to the next one that names a blob.
 async fn append_batch(
     client: &RelayClient,
     home: &Path,
@@ -139,18 +151,33 @@ async fn append_batch(
         let end = rest
             .iter()
             .skip(1)
-            .position(|entry| matches!(entry, SignedEntry::Bundle { .. }))
+            .position(|entry| blob_of(entry).is_some())
             .map_or(rest.len(), |at| at + 1);
         let (chunk, tail) = rest.split_at(end);
-        if let SignedEntry::Bundle { body, .. } = &chunk[0] {
-            let blob = blobs::load(home, database_id, &body.blob_sha256)?
-                .ok_or("a bundle entry has no kept blob to upload")?;
-            client
-                .blob_put(database_id, &body.blob_sha256.to_hex(), &blob)
-                .await?;
+        if let Some((sha256, shared)) = blob_of(&chunk[0]) {
+            send_blob(client, home, database_id, &sha256, shared).await?;
         }
         stored += client.append(database_id, chunk).await?.0;
         rest = tail;
     }
     Ok(stored)
+}
+
+/// Put the kept blob on the relay. A blob that several entries may name is sent
+/// only when the relay does not hold it: a record that keeps its file through
+/// later writes must not upload the file again.
+async fn send_blob(
+    client: &RelayClient,
+    home: &Path,
+    database_id: &str,
+    sha256: &Hex32,
+    shared: bool,
+) -> Result<(), String> {
+    let digest = sha256.to_hex();
+    if shared && client.blob_present(database_id, &digest).await? {
+        return Ok(());
+    }
+    let blob = blobs::load(home, database_id, sha256)?
+        .ok_or("an entry names a blob that this node has not kept")?;
+    client.blob_put(database_id, &digest, &blob).await
 }

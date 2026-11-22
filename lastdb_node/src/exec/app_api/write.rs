@@ -108,20 +108,19 @@ async fn write(req: &UdsRequest, host: &Host) -> Result<Value, HostError> {
         require_write(&item.schema).map_err(|error| error.at(index))?;
     }
     let database = items.first().and_then(|item| item.database.clone());
-    let signed = super::write_signed::plan(items.iter().map(|item| {
-        (
-            item.schema.as_str(),
-            &item.key,
-            mutation_type(item.op),
-            item.record.as_ref(),
-        )
-    }));
+    let signed =
+        super::write_signed::plan(items.iter().map(|item| (item.schema.as_str(), &item.key)));
     let body = super::database::write_in(database.as_deref(), host, async {
         for (index, item) in items.iter().enumerate() {
             require_exact_name(host, &item.schema).map_err(|error| error.at(index))?;
         }
         let located = located_keys(host, &items)?;
         let prepared = prepare(host, items).await?;
+        super::write_signed::require_file_fits(
+            host,
+            database.as_deref(),
+            prepared.linked.iter().map(|file| file.marker.size_bytes),
+        )?;
         let receipt = commit_mutations(host, prepared.mutations)
             .await
             .map_err(|error| name_conflict(error, &located))?;

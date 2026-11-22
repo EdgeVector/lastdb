@@ -12,10 +12,17 @@ one `reference_relay` that this script stops and starts again:
 5. The bytes the relay stored hold no record key, no record value and no schema name.
 6. A restarts with the relay stopped, rebuilds from its files, and signs the next entry on
    the right sequence. The relay accepts it once it is back.
+7. Alternate keys and files: A writes records with an alternate key, moves one to another
+   alternate address, deletes one, and writes a record with a file, then changes the record
+   and keeps the file. B, C and a fourth home D restored afterwards read the records by their
+   alternate key (the old address no longer finds a moved record or a deleted one) and read the
+   file back, with the relay stopped. The relay holds neither the file's name nor its bytes, and
+   one blob for the file even though the record was written twice.
 
 A failure prints each node's entries (kind, sequence, device) and its recent daemon warnings.
 """
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -27,7 +34,7 @@ import time
 _OPS = Path(__file__).resolve().parent
 sys.path[:0] = [str(_OPS), str(_OPS.parent)]
 from benchmarks.node import Node  # noqa: E402
-from record_runs import definition, held, require, system_seed  # noqa: E402
+from record_runs import RANGED, definition, held, require, system_seed  # noqa: E402
 import v1_records as v1  # noqa: E402
 
 WAIT_SECONDS = 150
@@ -35,6 +42,11 @@ ALPHA, BETA = "proofmarkeralpha", "proofmarkerbeta"
 SCHEMAS = (ALPHA, BETA)
 FIELDS = ["id", "note"]
 MARK = "pdp"
+GAMMA = "proofmarkergamma"
+GROUPS = ("grp-x", "grp-y", "grp-f")
+GAMMA_KEYS = ("g1", "g2", "g3", "f1")
+FILE_MARK, NAME_MARK = "FILEMARK-9f3c2a71d4", "NAMEMARK-5be10c88a2"
+ENVELOPE_OVERHEAD = 29
 
 
 def wait(what, probe, seconds=WAIT_SECONDS):
@@ -249,6 +261,102 @@ def record_entries(device):
     return [entry for entry in device.authored() if entry.get("kind") in ("data", "bundle")]
 
 
+def gamma_create(key, group, text, file=None):
+    address = {"by_group": {"hash": group, "range": key}}
+    return v1.create_item(GAMMA, {"hash": key}, {"id": key, "note": text}, alternates=address, file=file)
+
+
+def gamma_replace(key, group, text):
+    """A replace names every declared alternate key. It names no file, so the record keeps its file."""
+    return {"schema": GAMMA, "op": "replace", "key": {"hash": key}, "record": {"id": key, "note": text},
+            "alternates": {"by_group": {"hash": group, "range": key}}}
+
+
+def gamma_view(device, directory):
+    """What this device reads: each group by the alternate key, each record, and the file of f1."""
+    groups = {}
+    for group in GROUPS:
+        page = v1.read_items(device.node, [v1.range_read(GAMMA, {"hash": group}, via="by_group", limit=100)])[0]
+        groups[group] = sorted(row["key"]["hash"] for row in page["records"])
+    pages = v1.read_all(device.node, [v1.point(GAMMA, {"hash": key}) for key in GAMMA_KEYS])
+    records = {key: (held(page["records"][0]["record"]) if page["records"] else None)
+               for key, page in zip(GAMMA_KEYS, pages)}
+    item = v1.point(GAMMA, {"hash": "f1"}, file=True)
+    item["file_dir"] = str(directory)
+    rows = v1.read_items(device.node, [item])[0]["records"]
+    if not rows or not rows[0].get("file") or not rows[0]["file"].get("path"):
+        return {"groups": groups, "records": records, "file": None}
+    info = rows[0]["file"]
+    data = Path(info["path"]).read_bytes()
+    return {"groups": groups, "records": records,
+            "file": {"name": info["name"], "media_type": info["media_type"], "size": len(data),
+                     "sha256": hashlib.sha256(data).hexdigest()}}
+
+
+def gamma_seen(device, directory):
+    """The view, or None while the device does not hold the schema or the file yet."""
+    try:
+        return gamma_view(device, directory)
+    except RuntimeError:
+        return None
+
+
+def relay_holds_none(relay, secrets):
+    """No stored relay byte holds any of `secrets`."""
+    for path in relay_files(relay):
+        data = path.read_bytes()
+        for secret in secrets:
+            require(secret.encode() not in data, f"the relay file {path.name} holds {secret!r}")
+
+
+def alternates_and_files(relay, a, b, c, d, phrase, out):
+    """7. Alternate keys and files reach B, C and a home restored afterwards."""
+    source = out / "source-files"
+    source.mkdir(mode=0o700)
+    content = FILE_MARK.encode() + os.urandom(200_000)
+    path = source / "attachment.bin"
+    path.write_bytes(content)
+    system_seed(a.node, definition(GAMMA, "Hash", FIELDS, {"by_group": RANGED}, description_prefix="Personal proof "))
+    a.write([gamma_create("g1", "grp-x", "g1-one")])
+    a.write([gamma_create("g2", "grp-x", "g2-one"), gamma_create("g3", "grp-y", "g3-one")])
+    attached = {"path": str(path), "name": f"{NAME_MARK}.bin", "media_type": "application/x-proof"}
+    a.write([gamma_create("f1", "grp-f", "f1-one", file=attached)])
+    a.change([gamma_replace("g1", "grp-y", "g1-two")])
+    a.change([{"schema": GAMMA, "op": "delete", "key": {"hash": "g3"}}])
+    a.change([gamma_replace("f1", "grp-f", "f1-two")])
+    expected = {
+        "groups": {"grp-x": ["g2"], "grp-y": ["g1"], "grp-f": ["f1"]},
+        "records": {"g1": {"id": "g1", "note": "g1-two"}, "g2": {"id": "g2", "note": "g2-one"}, "g3": None,
+                    "f1": {"id": "f1", "note": "f1-two"}},
+        "file": {"name": f"{NAME_MARK}.bin", "media_type": "application/x-proof", "size": len(content),
+                 "sha256": hashlib.sha256(content).hexdigest()},
+    }
+    wait("A to upload every entry", a.synced_up)
+    folders = {}
+    for device in (a, b, c, d):
+        folders[device.name] = device.out / "file-dir"
+        folders[device.name].mkdir(mode=0o700, exist_ok=True)
+    require(gamma_view(a, folders[a.name]) == expected, f"A reads {gamma_view(a, folders[a.name])!r}")
+    for device in (b, c):
+        wait(f"{device.name} to read the alternate keys and the file of A",
+             lambda device=device: gamma_seen(device, folders[device.name]) == expected)
+    restored = d.restore(phrase)
+    d.start()
+    # The restore fetched the file blob and put the file into the store before it returned.
+    relay.stop()
+    for device in (a, b, c, d):
+        found = gamma_view(device, folders[device.name])
+        require(found == expected, f"{device.name} reads {found!r} with the relay stopped, expected {expected!r}")
+    relay.start()
+    # The relay saw neither the names, nor the alternate addresses, nor the file.
+    relay_holds_none(relay, [GAMMA, NAME_MARK, FILE_MARK, "grp-x", "grp-y", "grp-f", "g1-two", "f1-two"])
+    sealed = [file for file in relay_files(relay) if file.stat().st_size == len(content) + ENVELOPE_OVERHEAD]
+    require(len(sealed) == 1, f"the relay holds {len(sealed)} blobs of the file's sealed size, expected one")
+    print("7. B, C and the restored home D read the records by their alternate key and read the file "
+          "with the relay stopped; the relay holds one sealed blob and no name or marker", flush=True)
+    return {"restore_d": restored, "file_bytes": len(content), "sealed_blob_bytes": sealed[0].stat().st_size}
+
+
 def restart_a(relay, a, b, c, state):
     """6. A restarts without the relay and rebuilds from its files."""
     relay.stop()
@@ -267,7 +375,7 @@ def restart_a(relay, a, b, c, state):
     print("6. A rebuilt from its files with the relay stopped; its next entry reached B and C", flush=True)
 
 
-def prove(relay, a, b, c, out):
+def prove(relay, a, b, c, d, out):
     report = {}
     phrase = a.init()
     a.start()
@@ -347,6 +455,7 @@ def prove(relay, a, b, c, out):
     report["relay"] = prove_hidden(relay, state)
     print(f"5. no key, value or schema name in {report['relay']['relay_files']} relay files", flush=True)
 
+    report["alternates_and_files"] = alternates_and_files(relay, a, b, c, d, phrase, out)
     restart_a(relay, a, b, c, state)
     (out / "summary.json").write_text(json.dumps(report, indent=2))
 
@@ -370,7 +479,7 @@ def main():
     args.output.mkdir(parents=True, exist_ok=True)
     relay = Relay(Path(args.relay_bin), args.output)
     relay.start()
-    devices = [Device(name, args, args.output, relay) for name in ("device-a", "device-b", "device-c")]
+    devices = [Device(name, args, args.output, relay) for name in ("device-a", "device-b", "device-c", "device-d")]
     failure = None
     try:
         prove(relay, *devices, args.output)
