@@ -1,7 +1,11 @@
-//! Signed-history sync: AcceptEntry locally, relay as blind transport.
+//! Signed-history sync between this node and the relay.
 //!
-//! No snapshots, checkpoints, landed field, or manage/access side channel.
-//! Grants exist only as signed chain entries. Relays gate access from publisher-signed grant entries and never run AcceptEntry.
+//! Every shared database has one durable log of the entries this node signed
+//! and an upload cursor. The sync loop uploads the entries past the cursor and
+//! pulls what other nodes signed into a received log. Only the publisher's
+//! signature changes records; members propose, and the publisher accepts a
+//! proposal or signs that it is not accepted. Grants exist only as signed
+//! entries, and the relay is a mailbox that checks them but never decides.
 
 pub(crate) mod birth;
 mod chain_author;
@@ -14,7 +18,6 @@ mod history_store;
 mod incorporate;
 mod materialize;
 mod mirror;
-mod outbox_upload;
 mod proposal;
 mod publish_state;
 mod pull;
@@ -22,6 +25,7 @@ pub(crate) mod received;
 mod relay;
 mod restore;
 mod spawn;
+mod upload;
 mod wake;
 
 use std::path::Path;
@@ -41,12 +45,7 @@ pub use restore::{restore_owned_database, OwnedStream, RestoreOwnedParams, Resto
 pub use spawn::spawn;
 pub use wake::{ensure_wake, publish_signed_history_intent, request_wake};
 
-/// No-op: snapshot native recovery is retired. Restore uses signed history.
-pub fn install_prepared_native_recovery(_home: &Path) -> Result<bool, String> {
-    Ok(false)
-}
-
-/// Catalog identity digest for a declared schema (unchanged helper).
+/// Catalog identity digest for a declared schema.
 pub(crate) fn schema_id(schema: &Schema) -> Result<Digest, String> {
     let id = schema
         .identity_hash
@@ -56,7 +55,7 @@ pub(crate) fn schema_id(schema: &Schema) -> Result<Digest, String> {
     Digest::try_from(portable.as_str().to_owned()).map_err(|e| e.to_string())
 }
 
-/// Enrollment wait used by share routes until People owns that surface.
+/// How far this node's cloud enrollment has got, as the share routes see it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CloudState {
     /// No cloud credentials on disk.
@@ -73,8 +72,8 @@ pub(crate) fn database_cloud_state(home: &Path, _database_id: &str) -> CloudStat
     if !crate::host::has_cloud_credentials(home) {
         return CloudState::NoAccount;
     }
-    // DESIGN: ExeMem enrollment phases are account-service concerns; Phase 1
-    // treats any saved credentials as enrolled for relay-sync gating.
+    // Saved credentials count as enrolled; this check does not ask the
+    // account service.
     CloudState::Enrolled
 }
 
@@ -84,7 +83,7 @@ pub(crate) fn wait_for_enrollment(host: &crate::host::Host, database_id: &str) -
 
 /// Record the pending count for a received database the caller already opened.
 pub(crate) fn note_receiver(home: &Path, database_id: &str) {
-    let pending = outbox_len(home, database_id);
+    let pending = pending_uploads(home, database_id);
     publish_state::note_pending(database_id, pending);
 }
 
@@ -92,6 +91,6 @@ pub(crate) fn publish_row(database_id: &str, signed_log: bool) -> serde_json::Va
     publish_state::row(database_id, signed_log)
 }
 
-fn outbox_len(home: &Path, database_id: &str) -> u64 {
+fn pending_uploads(home: &Path, database_id: &str) -> u64 {
     history_store::pending_count(home, database_id).unwrap_or(0)
 }

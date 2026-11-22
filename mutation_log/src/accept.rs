@@ -88,7 +88,7 @@ pub enum RejectReason {
         /// Claimed lamport.
         got: u64,
     },
-    /// Writer not authorized (publisher kind / grant window / cutoff).
+    /// Writer not authorized (publisher kind / grant window).
     Unauthorized(&'static str),
     /// Birth rules violated.
     Birth(&'static str),
@@ -123,7 +123,7 @@ pub struct AcceptContext<'a> {
     pub hash_at_seq: Option<EntryHash>,
     /// Lookup accepted entry meta by hash.
     pub lookup: &'a dyn Fn(&EntryHash) -> Option<&'a AcceptedMeta>,
-    /// Global grant state (cutoffs already in S).
+    /// Global grant state (already folded into S).
     pub grants: &'a GrantState,
 }
 

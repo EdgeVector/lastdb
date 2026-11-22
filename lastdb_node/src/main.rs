@@ -1,7 +1,6 @@
 //! `lastdbd` — the LastDB Mini semantic daemon and owner-socket server.
 
 use std::io::Write;
-use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -33,13 +32,12 @@ fn spawn_background(
     rt: &tokio::runtime::Runtime,
     host: &Arc<Host>,
     stop: &Arc<AtomicBool>,
-    reopen: Arc<AtomicBool>,
 ) -> Vec<(&'static str, JoinHandle<()>)> {
     let _g = rt.enter();
     let (sh, ss) = (Arc::clone(host), Arc::clone(stop));
     let sync = tokio::spawn(
         async move {
-            if log_sync::spawn(sh, ss, reopen).await.is_err() {
+            if log_sync::spawn(sh, ss).await.is_err() {
                 tracing::warn!(target: "lastdbd::log_sync", "log sync task stopped");
             }
         }
@@ -126,21 +124,19 @@ fn finish_shutdown(
 fn spawn_stop_signals(
     rt: &tokio::runtime::Runtime,
     stop: &Arc<AtomicBool>,
-    user_stop: &Arc<AtomicBool>,
 ) -> Result<JoinHandle<()>, String> {
     let _guard = rt.enter();
     let mut term = signal(SignalKind::terminate())
         .map_err(|e| format!("failed to register signal handler: {e}"))?;
     let mut intr = signal(SignalKind::interrupt())
         .map_err(|e| format!("failed to register signal handler: {e}"))?;
-    let (stop, user_stop) = (Arc::clone(stop), Arc::clone(user_stop));
+    let stop = Arc::clone(stop);
     Ok(tokio::spawn(
         async move {
             tokio::select! {
                 _ = term.recv() => {}
                 _ = intr.recv() => {}
             }
-            user_stop.store(true, Ordering::Relaxed);
             stop.store(true, Ordering::Release);
         }
         .in_current_span(),
@@ -153,18 +149,15 @@ fn serve_node(
     sock_path: Option<PathBuf>,
 ) -> Result<(), String> {
     let data_dir = home.join("data");
-    log_sync::install_prepared_native_recovery(home)?;
     let host = Arc::new(rt.block_on(Host::boot(home))?);
-    let reopen = Arc::new(AtomicBool::new(false));
     let stop = Arc::new(AtomicBool::new(false));
-    let user_stop = Arc::new(AtomicBool::new(false));
     let target_sock = sock_path.unwrap_or_else(|| data_dir.join(lastdb_uds::SOCKET_FILE_NAME));
     let app_sock = target_sock.with_file_name(lastdb_uds::APP_SOCKET_FILE_NAME);
     let socket = UdsSocket::bind_at(target_sock)
         .map_err(|e| format!("failed to bind socket in {}: {e}", data_dir.display()))?;
     let app_socket = UdsSocket::bind_at(app_sock)
         .map_err(|e| format!("failed to bind app socket in {}: {e}", data_dir.display()))?;
-    let signal_task = spawn_stop_signals(&rt, &stop, &user_stop)?;
+    let signal_task = spawn_stop_signals(&rt, &stop)?;
     println!("lastdbd serving the owner socket");
     let pool = UdsWorkerPool::from_env();
     let _ = host.uds_workers.set(pool.clone());
@@ -175,7 +168,7 @@ fn serve_node(
         "uds worker pool enabled"
     );
     let server = UdsServer::new(Arc::clone(&host), rt.handle().clone(), pool.clone());
-    let tasks = spawn_background(&rt, &host, &stop, Arc::clone(&reopen));
+    let tasks = spawn_background(&rt, &host, &stop);
     let app_server = server.for_apps();
     let app_pool = app_server.worker_pool();
     let _ = host.app_uds_workers.set(app_pool.clone());
@@ -202,14 +195,6 @@ fn serve_node(
     drop(server);
     drop(host);
     drop(socket);
-    if reopen.load(Ordering::Acquire) && !user_stop.load(Ordering::Relaxed) {
-        tracing::info!(target: "lastdbd::log_sync", "reopening the daemon for verified native recovery");
-        let exe = std::env::current_exe().map_err(|error| error.to_string())?;
-        let error = std::process::Command::new(exe)
-            .args(std::env::args_os().skip(1))
-            .exec();
-        return Err(format!("could not reopen after native recovery: {error}"));
-    }
     Ok(())
 }
 

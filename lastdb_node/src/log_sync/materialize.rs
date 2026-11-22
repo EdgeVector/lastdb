@@ -1,6 +1,6 @@
 //! Apply VerifiedHistory LWW winners into FoldDB records.
 //!
-//! Pin mapping (settle PR Q4): history namespace = FoldDB schema name, record
+//! Mapping: history namespace = FoldDB schema name, record
 //! key = primary hash key, value = UTF-8 JSON object of fields (empty value =
 //! tombstone delete). Schema definitions come from signed `schema` entries.
 //! The record writes live in `signed_history_materialize`.

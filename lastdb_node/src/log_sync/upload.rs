@@ -18,7 +18,7 @@ use super::relay::RelayClient;
 const BATCH: usize = 32;
 
 /// Upload one database's pending entries and record its upload position.
-pub(super) async fn upload_outbox(
+pub(super) async fn upload_log(
     client: &RelayClient,
     host: &Host,
     database_id: &str,
@@ -53,7 +53,7 @@ pub(super) async fn upload_outbox(
 }
 
 /// Upload every signed-log received database's log; record publish.lastAttempt.
-pub(super) async fn upload_received_outboxes(host: &Host, client: &RelayClient) -> Option<String> {
+pub(super) async fn upload_received_logs(host: &Host, client: &RelayClient) -> Option<String> {
     let shares = registered_share::list(&host.home).ok()?;
     let mut turn_error = None;
     for share in shares {
@@ -63,7 +63,7 @@ pub(super) async fn upload_received_outboxes(host: &Host, client: &RelayClient) 
         if mutation_log::DatabaseId::from_hex(share.id.as_str()).is_err() {
             continue;
         }
-        if let Some(err) = upload_outbox(client, host, share.id.as_str()).await {
+        if let Some(err) = upload_log(client, host, share.id.as_str()).await {
             turn_error = Some(err);
         }
     }
@@ -73,7 +73,7 @@ pub(super) async fn upload_received_outboxes(host: &Host, client: &RelayClient) 
 /// True when any syncable database still has log entries the relay has not
 /// acknowledged. An unreadable log or cursor counts as pending, so the loop
 /// keeps retrying and the error stays visible.
-pub(super) fn outbox_pending(host: &Host) -> bool {
+pub(super) fn uploads_pending(host: &Host) -> bool {
     for database in crate::host::owned::registered_databases(&host.home) {
         if database.kind != "personal" && database.kind != "shareable" {
             continue;

@@ -186,7 +186,7 @@ pub fn author_relays(
     Ok(entry)
 }
 
-/// Convenience: build a first-grant body (no cutoffs).
+/// Convenience: build a grant body with no cutoffs.
 #[must_use]
 pub fn grant_raise(grantee: Grantee, role: Role) -> GrantBody {
     GrantBody {
@@ -196,7 +196,7 @@ pub fn grant_raise(grantee: Grantee, role: Role) -> GrantBody {
     }
 }
 
-/// Convenience: build a reduction/revoke body (cutoffs required by OpenAPI).
+/// Convenience: build a reduction/revoke body with the cutoffs the wire format carries.
 #[must_use]
 pub fn grant_reduce(
     grantee: Grantee,
