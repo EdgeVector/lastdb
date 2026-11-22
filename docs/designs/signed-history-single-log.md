@@ -91,6 +91,12 @@ Remove `bootstrap.rs`, `apply.rs`, the `outbox.json` file, `upload_ack.json` (PR
 3. Land sections 1 to 4 and 7 in one PR.
 4. Land section 5 with it so the next failure names its stage.
 
+## Received entries
+
+An entry this node signs can cite another writer's entry: a publisher's incorporation cites the member's proposal. The authored log alone therefore cannot rebuild the history, and a restart used to leave such entries waiting for the relay. While they waited, the history's tip of this node's own stream was an older one, and the next signature reused a sequence number. The relay refused it with `409 conflict entries.writer_seq`.
+
+`received.json` holds the accepted entries of every other stream, in ascending Lamport order. A restart replays the authored log and the received entries together in Lamport order, which meets every dependency before its user, so the history is rebuilt in full without the relay. `commit_authored` also refuses to sign on a stream that has an entry waiting for a dependency.
+
 ## Relay
 
 The relay is Exemem. A node syncs with `LASTDB_RELAY_URL` when that is set (a reference relay or a deploy under test), and otherwise with the Exemem API in its saved cloud credentials. No relay URL is stored on disk. A node with neither has no relay and the sync loop idles.
