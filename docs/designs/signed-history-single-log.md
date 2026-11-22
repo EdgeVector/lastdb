@@ -105,6 +105,10 @@ History records are whole-record last-writer-wins. Materialize stamps FoldDB `cr
 
 A FoldDB record revision is a hash of the node's local write stamp, so two nodes show different revisions for the same record. A proposal therefore signs the history entry that wrote the record, not the revision. The member node maps the revision the client read to the winning entry of its history, only when that revision is still the one its store holds. The publisher accepts the proposal when that entry is still the winner of its own history, then applies the write with its local revision. A revision the member no longer holds names no entry and the proposal stays submitted (Decision 11: silent rejection).
 
+## Record ownership
+
+Each history record also keeps its creator: the writer of the earliest accepted write to the key by position, whoever wins now. A member may replace or delete only a record it created, so the publisher applies a replace or delete proposal only when the proposer is the creator. Ownership does not change when another writer, such as the publisher moderating a comment, becomes the winner. FoldDB `created_by` and `updated_by` still carry the winner, which is what the direct-write convergence check needs.
+
 ## Decisions
 
 - One LastDB PR for the log, cursor and commit function.

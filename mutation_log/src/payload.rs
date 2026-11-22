@@ -112,6 +112,12 @@ pub struct MaterializedRecord {
     /// Hash of the winning entry. Every node holds the same entry, so this is
     /// the record revision that compare-and-set across nodes names.
     pub entry: EntryHash,
+    /// Writer of the earliest accepted write to this key by position, whoever
+    /// wins now. A member may change only a record it created, so ownership is
+    /// this key on every node, whatever order entries arrive in.
+    pub creator: NodeKey,
+    /// Position of the write that `creator` signed.
+    pub(crate) creator_position: RecordPosition,
     /// Current value; empty = tombstone present.
     pub value: Vec<u8>,
 }
