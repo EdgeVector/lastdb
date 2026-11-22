@@ -56,7 +56,7 @@ pub struct VerifiedHistory {
     by_seq: BTreeMap<(StreamId, u64), EntryHash>,
     /// Frozen streams (equivocation).
     frozen: BTreeSet<StreamId>,
-    /// Folded grant state + cutoffs.
+    /// Folded grant state.
     grants: GrantState,
     /// Whole-record LWW state: `(namespace, record_key)`.
     records: BTreeMap<(String, String), MaterializedRecord>,
@@ -76,8 +76,6 @@ pub struct VerifiedHistory {
     rejects: Vec<RejectEvidence>,
     /// Equivocation evidence.
     equivocations: Vec<EquivocationEvidence>,
-    /// Keys written by an entry that a role reduction later voided.
-    voided: BTreeSet<(String, String)>,
 }
 
 impl VerifiedHistory {
@@ -101,7 +99,6 @@ impl VerifiedHistory {
             pending: VecDeque::new(),
             rejects: Vec::new(),
             equivocations: Vec::new(),
-            voided: BTreeSet::new(),
         }
     }
 
@@ -139,14 +136,6 @@ impl VerifiedHistory {
     #[must_use]
     pub fn records(&self) -> &BTreeMap<(String, String), MaterializedRecord> {
         &self.records
-    }
-
-    /// Keys written by an entry that a role reduction voided. A key with no
-    /// winner here has no valid write left, so a store that mirrored the voided
-    /// write must drop that record.
-    #[must_use]
-    pub fn voided_keys(&self) -> &BTreeSet<(String, String)> {
-        &self.voided
     }
 
     /// Borrow declared schema definitions (`namespace` → JSON bytes).
@@ -263,10 +252,7 @@ impl VerifiedHistory {
                 self.owner = Some(body.owner);
             }
         }
-        // An entry past its writer's cutoff joins the chain but has no effect.
-        if is_publisher || crate::auth::within_cutoff(&entry, &self.grants) {
-            self.apply_effects(&entry, hash, position, is_publisher);
-        }
+        self.apply_effects(&entry, hash, position, is_publisher);
         let rebuild = is_publisher && grant_body.is_some();
         let meta = AcceptedMeta {
             position,
@@ -286,7 +272,6 @@ impl VerifiedHistory {
         self.accepted.insert(hash, meta);
         if rebuild {
             self.rebuild_grants();
-            self.refold_voided();
         }
     }
 

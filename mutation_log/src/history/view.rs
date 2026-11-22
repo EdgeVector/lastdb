@@ -83,12 +83,29 @@ impl VerifiedHistory {
         })
     }
 
-    /// Accepted proposal data entries that are not yet incorporated.
+    /// True when the publisher signed "not accepted" for the proposal with this
+    /// hash: an accepted publisher `heads` entry cites it in `seen_heads`.
+    ///
+    /// An incorporation cites the proposal too, but it is a data entry. The
+    /// publisher signs a `heads` entry for a proposal only to decline it.
+    #[must_use]
+    pub fn proposal_declined(&self, proposal: &EntryHash) -> bool {
+        self.accepted.values().any(|meta| {
+            meta.is_publisher
+                && matches!(&meta.entry, SignedEntry::Heads { .. })
+                && meta.entry.header().seen_heads.contains(proposal)
+        })
+    }
+
+    /// Accepted proposals the publisher has not decided yet, in ascending
+    /// Lamport order, so one member's proposals are decided in the order it
+    /// signed them.
     #[must_use]
     pub fn unresolved_proposals(&self) -> Vec<&SignedEntry> {
-        self.accepted
-            .values()
-            .filter_map(|meta| {
+        let mut found: Vec<&SignedEntry> = self
+            .accepted
+            .iter()
+            .filter_map(|(hash, meta)| {
                 let SignedEntry::Data { body, .. } = &meta.entry else {
                     return None;
                 };
@@ -100,11 +117,23 @@ impl VerifiedHistory {
                     node_key: header.node_key,
                     device_id: header.device_id,
                 };
-                if self.proposal_incorporated(&stream, header.writer_seq) {
+                if self.proposal_incorporated(&stream, header.writer_seq)
+                    || self.proposal_declined(hash)
+                {
                     return None;
                 }
                 Some(&meta.entry)
             })
-            .collect()
+            .collect();
+        found.sort_by_key(|entry| {
+            let header = entry.header();
+            (
+                header.lamport,
+                header.node_key,
+                header.device_id,
+                header.writer_seq,
+            )
+        });
+        found
     }
 }

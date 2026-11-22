@@ -38,7 +38,7 @@ pub(super) fn plan<'a>(items: impl IntoIterator<Item = SignedParts<'a>>) -> Vec<
 }
 
 /// The `(schema, record key)` of each mutation, as the history names records.
-pub(super) fn keys_of(signed: &[OwnedMutation]) -> Vec<(String, String)> {
+fn keys_of(signed: &[OwnedMutation]) -> Vec<(String, String)> {
     signed
         .iter()
         .map(|item| (item.schema.clone(), item.record_key.clone()))

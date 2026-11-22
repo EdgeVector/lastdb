@@ -1,6 +1,6 @@
 //! Relay-side access gating from the grant index (see `docs/designs/relay-protocol.md`).
 
-use mutation_log::{DatabaseId, Hex32, NodeKey, Role, SignedEntry};
+use mutation_log::{DatabaseId, Hex32, NodeKey, Role, SignedEntry, StreamKind};
 use serde_json::Value;
 
 use crate::error::{ApiError, ApiResult};
@@ -138,16 +138,12 @@ fn authorize_member_entry(
         return Err(ApiError::forbidden("entries.node_key"));
     }
     let role = index.role_of(db, caller);
-    // A member holding submit or write may deposit a data or bundle entry. Nodes
-    // decide whether it counts (role window and cutoff), so a late entry from a
-    // member that was reduced since stays in the chain and the entries after it
-    // can follow. A caller with no grant, or a revoked one, deposits nothing.
-    let allowed = match entry {
-        SignedEntry::Data { .. } | SignedEntry::Bundle { .. } => {
-            matches!(role, Some(Role::Write | Role::Submit))
-        }
-        _ => false,
-    };
+    // Members propose; the publisher decides. A member holding submit or write
+    // may deposit proposal data on its own stream, and nothing else.
+    let allowed = matches!(
+        entry,
+        SignedEntry::Data { body, .. } if body.stream == StreamKind::Proposal
+    ) && matches!(role, Some(Role::Write | Role::Submit));
     if allowed {
         Ok(())
     } else {

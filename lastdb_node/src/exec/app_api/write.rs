@@ -116,7 +116,7 @@ async fn write(req: &UdsRequest, host: &Host) -> Result<Value, HostError> {
             item.record.as_ref(),
         )
     }));
-    let body = super::database::write_in(database.as_deref(), host, &signed, async {
+    let body = super::database::write_in(database.as_deref(), host, async {
         for (index, item) in items.iter().enumerate() {
             require_exact_name(host, &item.schema).map_err(|error| error.at(index))?;
         }
@@ -138,8 +138,8 @@ async fn write(req: &UdsRequest, host: &Host) -> Result<Value, HostError> {
         Ok(json!({ "written": revisions.len(), "revisions": revisions }))
     })
     .await?;
-    // Owned shareables: mirror onto the publisher stream. Received databases
-    // already authored on the member stream inside `write_received`.
+    // Owned shareables: mirror onto the publisher stream. A write to a
+    // received database was refused above.
     super::write_signed::mirror_committed(host, database.as_deref(), &signed).await?;
     Ok(body)
 }

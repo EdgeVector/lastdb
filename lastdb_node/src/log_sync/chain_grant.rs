@@ -1,8 +1,11 @@
 //! Publisher grant and revoke: signed `grant` entries on the owner's stream.
 //!
-//! The signed chain is the only authority. A reduction or revoke carries a
-//! cutoff for every device stream of the grantee this node holds. Devices this
-//! node has not seen fold to cutoff 0, so nothing from them is accepted later.
+//! The signed chain is the only authority. A grant decides whether a member
+//! may propose and what the publisher accepts from it; it never lets a member
+//! write. A reduction or revoke still carries a cutoff for every device stream
+//! of the grantee this node holds, because the entry format requires the field.
+//! Nothing reads it: no member entry changes a record, so there is nothing to
+//! cut off. The field goes with the next change of the entry format.
 
 use mutation_log::{
     author_grant, grant_raise, grant_reduce, GrantBody, Grantee, RevocationCutoff, Role,

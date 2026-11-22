@@ -33,8 +33,7 @@ pub(super) async fn apply_history_records(
     history: &VerifiedHistory,
 ) -> Result<(), String> {
     signed_history_materialize::declare_history_schemas(store, history).await?;
-    signed_history_materialize::apply_history(store, history).await?;
-    signed_history_materialize::reconcile_keys(store, history, history.voided_keys()).await
+    signed_history_materialize::apply_history(store, history).await
 }
 
 /// Bring `store` back to the history at the keys of a write whose signed

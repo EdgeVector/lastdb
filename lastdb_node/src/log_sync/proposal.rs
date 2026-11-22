@@ -1,8 +1,10 @@
 //! Member proposals: signed `data` entries with `stream = proposal`.
 //!
-//! A proposal never writes a record. It names the publisher grants this node
-//! holds in `seen_heads`, so AcceptEntry can fold the grant window and check
-//! that this key may submit. The publisher later incorporates or ignores it.
+//! A member changes a database it received only by a proposal. A proposal never
+//! writes a record. It names the publisher grants this node holds in
+//! `seen_heads`, so AcceptEntry can fold the grant window and check that this
+//! key may propose. The publisher decides each proposal once: it incorporates
+//! it, or signs that it is not accepted.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -50,10 +52,10 @@ impl std::fmt::Display for ContributionError {
 }
 
 #[derive(Serialize, Deserialize)]
-pub(super) struct Submitted {
-    pub(super) writer_seq: u64,
-    pub(super) entry_hash: EntryHash,
-    pub(super) body_sha256: String,
+struct Submitted {
+    writer_seq: u64,
+    entry_hash: EntryHash,
+    body_sha256: String,
 }
 
 type Ledger = BTreeMap<String, Submitted>;
@@ -64,7 +66,7 @@ fn ledger_path(home: &Path, database_id: &str) -> PathBuf {
         .join("proposals.json")
 }
 
-pub(super) fn load_ledger(home: &Path, database_id: &str) -> Result<Ledger, ContributionError> {
+fn load_ledger(home: &Path, database_id: &str) -> Result<Ledger, ContributionError> {
     let path = ledger_path(home, database_id);
     match disk::read_limited(&path, LEDGER_LIMIT) {
         Ok(Some(bytes)) => {
@@ -75,22 +77,18 @@ pub(super) fn load_ledger(home: &Path, database_id: &str) -> Result<Ledger, Cont
     }
 }
 
-pub(super) fn store_ledger(
-    home: &Path,
-    database_id: &str,
-    ledger: &Ledger,
-) -> Result<(), ContributionError> {
+fn store_ledger(home: &Path, database_id: &str, ledger: &Ledger) -> Result<(), ContributionError> {
     let bytes = serde_json::to_vec(ledger).map_err(|_| ContributionError::Unavailable)?;
     disk::write_private(&ledger_path(home, database_id), &bytes)
         .map_err(|_| ContributionError::Unavailable)
 }
 
-pub(super) struct Proposed {
-    pub(super) namespace: String,
-    pub(super) record_key: String,
-    pub(super) mutation_type: String,
-    pub(super) expected: Value,
-    pub(super) record: Option<Value>,
+struct Proposed {
+    namespace: String,
+    record_key: String,
+    mutation_type: String,
+    expected: Value,
+    record: Option<Value>,
 }
 
 /// Map the owner submission document onto the history record convention:
@@ -144,7 +142,7 @@ fn parse(body: &[u8]) -> Result<Proposed, ContributionError> {
 }
 
 /// The publisher decision envelope that goes into the signed proposal.
-pub(super) fn envelope(proposed: &Proposed, expected: Value) -> Result<Vec<u8>, ContributionError> {
+fn envelope(proposed: &Proposed, expected: Value) -> Result<Vec<u8>, ContributionError> {
     let mut envelope = serde_json::Map::new();
     envelope.insert(
         "mutation_type".into(),
@@ -253,7 +251,7 @@ pub(crate) async fn submit(
 }
 
 /// Sign `value` as a proposal on this node's member stream.
-pub(super) fn author_proposal(
+fn author_proposal(
     host: &Host,
     database_id: &str,
     namespace: String,
@@ -302,14 +300,16 @@ fn contribution_error(error: &ChainError) -> ContributionError {
     }
 }
 
-pub(super) fn hex_digest(bytes: &[u8]) -> String {
+fn hex_digest(bytes: &[u8]) -> String {
     app_identity_crypto::hex_lower(&Sha256::digest(bytes))
 }
 
-/// `submitted`, `published`, or `unknown`, from local history.
+/// `submitted`, `published`, `not_accepted`, or `unknown`, from local history.
 ///
-/// Published = publisher Direct cites `incorporated_from`. Rejections are
-/// silent (Decision 11): there is no discard status derived from the chain.
+/// `published`: a publisher data entry cites the proposal in
+/// `incorporated_from`. `not_accepted`: a publisher `heads` entry cites it. Both
+/// are final. `submitted`: the publisher has not decided, or its decision has
+/// not been pulled yet.
 pub(crate) fn status(
     host: &Host,
     share: &RegisteredShare,
@@ -327,6 +327,8 @@ pub(crate) fn status(
         .with_mut(database_id, |history| {
             if history.proposal_incorporated(&stream, done.writer_seq) {
                 "published"
+            } else if history.proposal_declined(&done.entry_hash) {
+                "not_accepted"
             } else if history.entry_hash_at(&stream, done.writer_seq) == Some(done.entry_hash) {
                 "submitted"
             } else {
