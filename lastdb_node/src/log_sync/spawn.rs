@@ -287,12 +287,17 @@ pub(super) fn keep_received(host: &Host, histories: &HistoryMap, database_id: &s
 }
 
 /// Pull publisher and write/submit member streams for signed-log received DBs.
+///
+/// A grant-403 (or other error) on one received database must not stop the
+/// turn from pulling the others. Circles holds two received DBs; revoking one
+/// while lowering the other used to abort before the active DB's grant arrived.
 async fn pull_received_shares(
     host: &Host,
     histories: &HistoryMap,
     client: &RelayClient,
 ) -> Result<(), String> {
     let shares = registered_share::list(&host.home).map_err(|e| e.to_string())?;
+    let mut turn_error = None;
     for share in shares {
         if !share.signed_log {
             continue;
@@ -307,10 +312,13 @@ async fn pull_received_shares(
                 %err,
                 "received stream pull failed"
             );
-            return Err(err);
+            turn_error = Some(err);
         }
     }
-    Ok(())
+    match turn_error {
+        Some(err) => Err(err),
+        None => Ok(()),
+    }
 }
 
 async fn pull_one_received(
