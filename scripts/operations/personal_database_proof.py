@@ -97,7 +97,7 @@ def prove(relay, relay2, a, b, c, d, e, f, g, h, j, out, args):
     d.stop()
     report["snapshot"], folders, expected = snapshot_restore_equals_replay(relay, relay2, (a, b, e, f, g, h, j), phrase, state)
     report["restore_killed"] = kill_the_restore(g, phrase, a, state, folders, expected)
-    report["second_snapshot"] = second_snapshot(relay, a, h, phrase, state, folders, expected)
+    report["second_snapshot"] = second_snapshot(relay, a, b, f, h, phrase, state, folders, expected)
     exchange_writes(relay, a, f, state, folders, expected)
     # Only A and B again: the homes restored for the proof are done.
     for device in (e, f, h):

@@ -166,12 +166,14 @@ def kill_the_restore(g, phrase, a, state, folders, expected):
     return outcomes
 
 
-def second_snapshot(relay, a, h, phrase, state, folders, expected):
+def second_snapshot(relay, a, b, f, h, phrase, state, folders, expected):
     """13. A second snapshot uploads only the files that changed, the newest is used, and the relay cannot read it."""
     a.write([create(ALPHA, "second-1", "x"), create(ALPHA, "second-2", "x")])
     expect(state, ALPHA, "second-1", "x")
     expect(state, ALPHA, "second-2", "x")
     wait("A to upload", a.synced_up)
+    # The other running devices read the two new entries now, so their reads are not counted for H.
+    wait("B and F to hold the two records", lambda: converged((b, f), state))
     mark = len(relay.lines())
     second = a.snapshot_now()
     uploaded = uploads_since(relay, mark)
