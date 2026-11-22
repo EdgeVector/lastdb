@@ -7,7 +7,7 @@
 //! both phases finish inside the time limit and nongrantee calls return 403.
 //!
 //! Two further steps are opt-in, so a relay that lacks them keeps passing:
-//! `LASTDB_RELAY_E2E_STREAMS=1` proves `log.streams` and
+//! `LASTDB_RELAY_E2E_STREAMS=true` proves `log.streams` and
 //! `LASTDB_RELAY_E2E_BLOB_FILE_BYTES=<n>` proves a large file through the blob
 //! routes.
 

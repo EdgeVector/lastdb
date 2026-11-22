@@ -32,7 +32,7 @@ Environment (flags exist for each):
 | `LASTDB_RELAY_E2E_CONCURRENCY` | 4 | Blobs in flight, clamped to 1..=8 |
 | `LASTDB_RELAY_E2E_LIMIT_SECONDS` | 60 | Each phase must finish under this |
 | `LASTDB_RELAY_E2E_WORK_DIR` | temp dir | Scratch FoldDB for the restore; removed on exit |
-| `LASTDB_RELAY_E2E_STREAMS` | off | `1` also proves `log.streams` (see "Opt-in steps") |
+| `LASTDB_RELAY_E2E_STREAMS` | off | `true` also proves `log.streams` (see "Opt-in steps") |
 | `LASTDB_RELAY_E2E_BLOB_FILE_BYTES` | 0 (off) | Also puts and gets one generated file of this size through the blob routes, from and to disk |
 
 stdout ends with exactly one JSON object; progress goes to stderr. Exit 0 only when both phases are under
@@ -55,7 +55,7 @@ and `log.append` of the chain. `restore_seconds` covers stream discovery, `log.r
 Both are off by default, so a relay that lacks the feature keeps passing the existing steps. The JSON report
 carries `streams_steps` (the step names that passed, or `null`) and `blob_file_stream` (or `null`).
 
-- `LASTDB_RELAY_E2E_STREAMS=1` runs its own publisher, reader, member and stranger on its own database and proves
+- `LASTDB_RELAY_E2E_STREAMS=true` runs its own publisher, reader, member and stranger on its own database and proves
   `log.streams`: `streams_empty_writer`, `streams_two_devices`, `streams_granted_callers_list`,
   `streams_head_advances`, `streams_contiguous_head` (a gap keeps the head back; filling it moves it),
   `streams_nongrantee_refused` and `streams_revoked_refused` (each refused with the same 403 code and field as an

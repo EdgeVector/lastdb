@@ -10,7 +10,7 @@ name: Signed history DEV proofs
 # under 60 s. Job `log_sync_relay_timeout` proves the node RelayClient's ~30s
 # request timeout against a hung TCP peer. When `exemem_relay_url` (workflow input) or the repository variable
 # EXEMEM_RELAY_URL is set, the same binary also runs against that relay. No credentials.
-# The reference_relay run also sets LASTDB_RELAY_E2E_STREAMS=1 (proves log/streams);
+# The reference_relay run also sets LASTDB_RELAY_E2E_STREAMS=true (proves log/streams);
 # the Exemem run does not, until that relay implements the route.
 # Job `blob_stream` puts and gets a 512 MiB generated file through a reference_relay
 # process, compares digests, and fails if that process's peak memory (VmHWM) is over 128 MiB.
@@ -166,7 +166,7 @@ jobs:
           [[ -n "$ADDR" ]] || { echo "reference_relay printed no address" >&2; exit 1; }
           export LASTDB_RELAY_E2E_BIN="$PWD/target/release/signed_history_relay_e2e"
           export RELAY_URL="http://${ADDR}"
-          export LASTDB_RELAY_E2E_STREAMS=1
+          export LASTDB_RELAY_E2E_STREAMS=true
           "$LASTDB_RELAY_E2E_BIN" | tee "$OUT/reference.stdout"
           python3 scripts/signed_history/check_relay_e2e.py "$OUT/reference.stdout" reference_relay --expect-streams
           python3 scripts/signed_history/check_relay_process.py --stderr "$OUT/relay.stderr" \
