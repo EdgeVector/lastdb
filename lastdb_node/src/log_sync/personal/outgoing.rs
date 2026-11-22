@@ -246,16 +246,18 @@ fn sign_one(ctx: &Ctx<'_>, item: &Entry, head: Option<StreamHead>) -> Result<Sig
     author_data(&author, &identity.signing_key, data).map_err(|e| e.to_string())
 }
 
-/// Settle, send, confirm and forget one saved batch.
+/// Settle (in one transaction), send, confirm and forget one saved batch.
 async fn finish(
     ctx: &Ctx<'_>,
     client: &RelayClient,
     saved: &Saved,
     birth_known: &mut bool,
 ) -> Result<(), String> {
+    let mut local = Vec::with_capacity(saved.entries.len());
     for entry in &saved.entries {
-        settle(ctx, entry).await?;
+        local.push(local_write(ctx, entry)?);
     }
+    apply::settle_all(ctx, &local).await?;
     if position(ctx).await?.spool_through < saved.through {
         send(ctx, client, saved, birth_known).await?;
         let (after, through) = (saved.after, saved.through);
@@ -293,8 +295,8 @@ async fn finish(
     saved::clear(&ctx.host.home, &ctx.database_id, &blobs)
 }
 
-/// Settle the local write that a signed entry carries. This repeats safely.
-async fn settle(ctx: &Ctx<'_>, entry: &SignedEntry) -> Result<(), String> {
+/// The local write that a signed entry carries, ready to settle.
+fn local_write(ctx: &Ctx<'_>, entry: &SignedEntry) -> Result<apply::Local, String> {
     let SignedEntry::Data {
         header, body: data, ..
     } = entry
@@ -308,7 +310,7 @@ async fn settle(ctx: &Ctx<'_>, entry: &SignedEntry) -> Result<(), String> {
         .file
         .as_ref()
         .map(|file| saved::blob_path(&ctx.host.home, &ctx.database_id, &file.sha256.to_hex()));
-    apply::settle(ctx, header, change, blob.as_deref()).await
+    apply::local(ctx, header, change, blob.as_deref())
 }
 
 /// Send a batch: the birth when the relay lacks it, the file blobs, then the entries.

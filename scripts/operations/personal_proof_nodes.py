@@ -201,8 +201,16 @@ class Device:
                 return int(line.split()[1]) * 1024
         raise RuntimeError(f"{self.name}: no VmHWM in {status}")
 
+    def sync_status(self):
+        """The cloud sync section of /api/status: the last error of each database's upload, or None."""
+        try:
+            return self.node.call("/api/status")[0]["status"]["cloud_sync"]
+        except Exception as error:  # noqa: BLE001 the node may be down: the evidence is then the error
+            return f"unavailable: {error}"
+
     def entries(self):
-        return [f"  spool {self.spool_state()} checkpoint {self.checkpoint()}"]
+        return [f"  spool {self.spool_state()} checkpoint {self.checkpoint()}",
+                f"  sync status {self.sync_status()}"]
 
     def warnings(self, all_lines=False):
         try:

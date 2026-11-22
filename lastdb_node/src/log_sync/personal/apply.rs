@@ -85,32 +85,53 @@ async fn remote_schema(
     }
 }
 
-/// Settle a local write whose entry is signed: its marker is cleared, and a
-/// write that lost to a newer one is replaced by the winner.
-pub(super) async fn settle(
+/// A local write whose entry is signed, ready to settle: its stamp and its
+/// change, with the bytes of a file already read.
+pub(super) struct Local {
+    stamp: ReplayStamp,
+    change: Change,
+}
+
+/// Prepare the change of a signed local write for [`settle_all`].
+pub(super) fn local(
     ctx: &Ctx<'_>,
     header: &EntryHeader,
-    change: Change,
+    mut change: Change,
     blob: Option<&Path>,
-) -> Result<(), String> {
+) -> Result<Local, String> {
+    if let Change::Record(record) = &mut change {
+        prepare(ctx, record, header, blob)?;
+    }
+    Ok(Local {
+        stamp: stamp_of(header),
+        change,
+    })
+}
+
+/// Settle the local writes of a signed batch in one transaction: the marker of
+/// each is cleared, and a write that lost to a newer one is replaced by the
+/// winner. It repeats safely, so a batch that is settled again after a crash
+/// changes nothing.
+pub(super) async fn settle_all(ctx: &Ctx<'_>, items: &[Local]) -> Result<(), String> {
     let manager = ctx.host.db.mutation_manager();
-    let stamp = stamp_of(header);
-    let result = match change {
-        Change::Record(mut record) => {
-            prepare(ctx, &mut record, header, blob)?;
-            manager
-                .write_replay(apply_record(manager, &stamp, &record.mutation, true))
-                .await
+    let settled = manager.write_replay(async {
+        for item in items {
+            match &item.change {
+                Change::Record(record) => {
+                    apply_record(manager, &item.stamp, &record.mutation, true).await?;
+                }
+                Change::Schema(schema) => {
+                    manager
+                        .clear_pending_replay_schema(&schema.name, &schema.mutation_id)
+                        .await?;
+                }
+            }
         }
-        Change::Schema(schema) => {
-            manager
-                .write_replay(
-                    manager.clear_pending_replay_schema(&schema.name, &schema.mutation_id),
-                )
-                .await
-        }
-    };
-    result.map_err(|error| failed("a local write could not be settled", &error))
+        Ok::<(), SchemaError>(())
+    });
+    settled
+        .await
+        .map_err(|error| failed("a local write could not be settled", &error))
 }
 
 /// Put the file bytes of a record write into the mutation. The bytes come from
