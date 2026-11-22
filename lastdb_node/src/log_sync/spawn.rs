@@ -57,20 +57,25 @@ pub fn spawn(host: Arc<Host>, shutdown: Arc<AtomicBool>) -> tokio::task::JoinHan
                                 true
                             }
                         };
-                        if uploads_pending(&host) {
-                            // A tip authored during this turn, or a failed
-                            // drain, must not wait out ACTIVE. Keep a short
-                            // pause only when the turn failed so 4xx/429 cannot
-                            // spin; a clean turn with pending uploads runs again
-                            // immediately after consume_wake.
-                            wake::request_wake(&host.home);
-                        }
-                        let woken = wake::consume_wake(&host.home);
-                        if failed || !woken {
-                            // Poll the wake file so an author during the pause
-                            // ends it (request_wake alone cannot interrupt
-                            // tokio::time::sleep).
-                            wake::pause_unless_wake(&host.home, ACTIVE).await;
+                        if failed {
+                            // Keep the full ACTIVE backoff on errors so 4xx/429
+                            // cannot spin when authors keep writing wake markers.
+                            if uploads_pending(&host) {
+                                wake::request_wake(&host.home);
+                            }
+                            let _ = wake::consume_wake(&host.home);
+                            tokio::time::sleep(ACTIVE).await;
+                        } else {
+                            // Clean turn: a tip authored during the turn, or a
+                            // wake written mid-pause, should run again without
+                            // waiting out ACTIVE.
+                            if uploads_pending(&host) {
+                                wake::request_wake(&host.home);
+                            }
+                            let woken = wake::consume_wake(&host.home);
+                            if !woken {
+                                wake::pause_unless_wake(&host.home, ACTIVE).await;
+                            }
                         }
                     }
                 }
