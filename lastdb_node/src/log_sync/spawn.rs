@@ -87,12 +87,19 @@ pub fn spawn(host: Arc<Host>, shutdown: Arc<AtomicBool>) -> tokio::task::JoinHan
 async fn one_turn(host: &Host, histories: &HistoryMap, base: &str) -> Result<(), String> {
     let client = RelayClient::for_host(host, base)?;
 
-    let owned: Vec<_> = crate::host::owned::registered_databases(&host.home)
+    let mut owned: Vec<_> = crate::host::owned::registered_databases(&host.home)
         .into_iter()
         .filter(|database| syncable_owned(database.kind, &database.id))
         .collect();
-    // No phase stops the turn. A later phase's error replaces an earlier one,
-    // and the turn reports the last.
+    // Shareable tips (grants/revokes) before the personal database: a long
+    // personal drain must not leave a shareable grant sitting until personal
+    // finishes in the same phase.
+    owned.sort_by_key(|database| usize::from(database.kind == "personal"));
+    // Upload failures fail the turn (ACTIVE backoff). Pull errors on the
+    // personal database or a received shareable stay soft: after #1843 a sticky
+    // personal pull error put every turn on the failed path, so a grant authored
+    // mid-pause waited out the unconditional 2s sleep instead of the wake-aware
+    // clean path (#1844). Soft pulls keep uploads on the clean wake path.
     let mut turn_error = publish_declared_schemas(host, &owned);
     turn_error = upload_owned_logs(host, &client, &owned)
         .await
@@ -101,9 +108,13 @@ async fn one_turn(host: &Host, histories: &HistoryMap, base: &str) -> Result<(),
         .await
         .or(turn_error);
     // Phase c2: the other devices of this owner write the personal database.
-    turn_error = super::personal::turn(host, histories, &client)
-        .await
-        .or(turn_error);
+    if let Some(err) = super::personal::turn(host, histories, &client).await {
+        tracing::warn!(
+            target: "lastdbd::log_sync",
+            %err,
+            "personal database turn failed; shareable uploads keep the clean path"
+        );
+    }
     // Phase d: decisions the publisher signed during the pull go up this turn,
     // so members settle their submission status without waiting another loop.
     turn_error = upload_owned_logs(host, &client, &owned)
@@ -112,10 +123,8 @@ async fn one_turn(host: &Host, histories: &HistoryMap, base: &str) -> Result<(),
     // Phase e: proposals on received databases go up before their pull, so
     // publish.lastAttempt reflects a real attempt.
     turn_error = upload_received_logs(host, &client).await.or(turn_error);
-    // Phase f.
-    if let Err(err) = pull_received_shares(host, histories, &client).await {
-        turn_error = Some(err);
-    }
+    // Phase f: per-share errors stay soft (see pull_received_shares).
+    pull_received_shares(host, histories, &client).await;
     match turn_error {
         Some(err) => Err(err),
         None => Ok(()),
@@ -289,15 +298,21 @@ pub(super) fn keep_received(host: &Host, histories: &HistoryMap, database_id: &s
 /// Pull publisher and write/submit member streams for signed-log received DBs.
 ///
 /// A grant-403 (or other error) on one received database must not stop the
-/// turn from pulling the others. Circles holds two received DBs; revoking one
-/// while lowering the other used to abort before the active DB's grant arrived.
-async fn pull_received_shares(
-    host: &Host,
-    histories: &HistoryMap,
-    client: &RelayClient,
-) -> Result<(), String> {
-    let shares = registered_share::list(&host.home).map_err(|e| e.to_string())?;
-    let mut turn_error = None;
+/// turn from pulling the others, and must not fail the turn: a failed turn
+/// takes the unconditional ACTIVE sleep (#1844) and leaves a newly authored
+/// grant tip waiting instead of the wake-aware clean path.
+async fn pull_received_shares(host: &Host, histories: &HistoryMap, client: &RelayClient) {
+    let shares = match registered_share::list(&host.home) {
+        Ok(shares) => shares,
+        Err(err) => {
+            tracing::warn!(
+                target: "lastdbd::log_sync",
+                %err,
+                "received share list failed"
+            );
+            return;
+        }
+    };
     for share in shares {
         if !share.signed_log {
             continue;
@@ -312,12 +327,7 @@ async fn pull_received_shares(
                 %err,
                 "received stream pull failed"
             );
-            turn_error = Some(err);
         }
-    }
-    match turn_error {
-        Some(err) => Err(err),
-        None => Ok(()),
     }
 }
 
