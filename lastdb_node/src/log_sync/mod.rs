@@ -16,6 +16,7 @@ mod config;
 mod device;
 mod history_store;
 mod materialize;
+mod member_write;
 mod mirror;
 mod outbox_upload;
 mod proposal;
@@ -35,6 +36,7 @@ use mutation_log::{NodeKey, Role};
 
 pub use config::{relay_base_url, store_relay_base_url};
 pub(crate) use history_store::histories_for;
+pub(crate) use member_write::mirror_received_write;
 pub(crate) use mirror::{mirror_owned_write, OwnedMutation};
 pub(crate) use proposal::{
     status as share_write_status, submit as submit_share_write, ContributionError,

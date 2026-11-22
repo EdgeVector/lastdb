@@ -85,7 +85,7 @@ pub(crate) fn authorize_blob_put(
     }
 }
 
-/// Gate `log.read` / `blob.get`: publisher, any current grant, or active `grant#any`.
+/// Gate `blob.get`: publisher, any current grant, or active `grant#any`.
 pub(crate) fn authorize_read(
     index: &GrantIndex,
     db: &DatabaseId,
@@ -99,6 +99,33 @@ pub(crate) fn authorize_read(
     } else {
         Err(ApiError::forbidden("role"))
     }
+}
+
+/// Gate `log.read`. Active grants match [`authorize_read`]. A revoked caller
+/// may only read a single publisher device stream (AllDevices → 403), matching
+/// exemem #960 so the signed revoke entry stays reachable.
+pub(crate) fn authorize_log_read(
+    index: &GrantIndex,
+    db: &DatabaseId,
+    caller: &NodeKey,
+    writer_key: &str,
+    all_devices: bool,
+) -> ApiResult<()> {
+    let birth = index
+        .birth(db)
+        .ok_or_else(|| ApiError::forbidden("publisher"))?;
+    if birth.owner == *caller || index.role_of(db, caller).is_some() || index.any_read(db) {
+        return Ok(());
+    }
+    if index.is_revoked(db, caller) {
+        if all_devices {
+            return Err(ApiError::forbidden("role"));
+        }
+        if writer_key == birth.owner.to_hex() {
+            return Ok(());
+        }
+    }
+    Err(ApiError::forbidden("role"))
 }
 
 fn authorize_member_entry(

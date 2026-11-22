@@ -33,7 +33,7 @@ pub(crate) struct ManagedRegistration {
     /// Open read link registration (content key stored locally).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub(crate) link: bool,
-    /// Publisher device stream id (Hex32) for signed-log `log.read`.
+    /// Publisher device from the open link (retained on disk).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) publisher_device_id: Option<String>,
 }
@@ -49,7 +49,8 @@ pub(crate) struct RegisteredShare {
     /// Named-database signed log. Publication shares leave this false.
     #[serde(skip)]
     pub(crate) signed_log: bool,
-    /// Publisher device stream to pull when `signed_log` is set.
+    /// Publisher device observed on the open link. Sync pulls that device
+    /// first (single-device) so a revoke on that stream remains reachable.
     #[serde(skip)]
     pub(crate) publisher_device_id: Option<String>,
 }

@@ -122,6 +122,86 @@ impl Store {
         Ok((entries, cursor))
     }
 
+    /// Read every device under `writer_key`, ordered by device id then seq.
+    ///
+    /// `from_device` resumes mid-writer (from a prior cursor). Later devices
+    /// always start at seq 1 once the resume device is exhausted.
+    pub(crate) async fn read_writer_entries(
+        &self,
+        database_id: &str,
+        writer_key: &str,
+        from_device: Option<&str>,
+        from_seq: u64,
+        limit: usize,
+    ) -> ApiResult<(Vec<Value>, Option<String>)> {
+        require_hex64(writer_key, "writer_key")?;
+        if let Some(device) = from_device {
+            require_hex64(device, "cursor")?;
+        }
+        let limit = limit.clamp(1, MAX_BATCH);
+        let devices = self.list_devices(database_id, writer_key).await?;
+        let start = match from_device {
+            Some(device) => devices.iter().position(|d| d == device).unwrap_or(0),
+            None => 0,
+        };
+        let mut entries = Vec::new();
+        let mut seq = from_seq.max(1);
+        for (index, device_id) in devices.iter().enumerate().skip(start) {
+            if index > start {
+                seq = 1;
+            }
+            while entries.len() < limit {
+                let meta = EntryKey {
+                    database_id: database_id.to_owned(),
+                    node_key: writer_key.to_owned(),
+                    device_id: device_id.clone(),
+                    writer_seq: seq,
+                };
+                let path = self.entry_path(&meta);
+                if !path.exists() {
+                    break;
+                }
+                entries.push(read_json(&path).await?);
+                seq += 1;
+            }
+            if entries.len() == limit {
+                return Ok((entries, Some(format!("{writer_key}:{device_id}:{seq}"))));
+            }
+        }
+        Ok((entries, None))
+    }
+
+    async fn list_devices(&self, database_id: &str, writer_key: &str) -> ApiResult<Vec<String>> {
+        let dir = self.root.join(format!("logs/{database_id}/{writer_key}"));
+        if !dir.exists() {
+            return Ok(Vec::new());
+        }
+        let mut devices = Vec::new();
+        let mut rd = fs::read_dir(&dir)
+            .await
+            .map_err(|_| ApiError::invalid("writer_key"))?;
+        while let Some(ent) = rd
+            .next_entry()
+            .await
+            .map_err(|_| ApiError::invalid("writer_key"))?
+        {
+            if !ent
+                .file_type()
+                .await
+                .map_err(|_| ApiError::invalid("writer_key"))?
+                .is_dir()
+            {
+                continue;
+            }
+            let name = ent.file_name().to_string_lossy().into_owned();
+            if name.len() == 64 && name.bytes().all(|b| b.is_ascii_hexdigit()) {
+                devices.push(name);
+            }
+        }
+        devices.sort();
+        Ok(devices)
+    }
+
     fn entry_path(&self, meta: &EntryKey) -> PathBuf {
         self.root.join(format!(
             "logs/{}/{}/{}/{}.json",
