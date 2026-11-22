@@ -141,7 +141,7 @@ async fn one_turn(host: &Host, histories: &HistoryMap, base: &str) -> Result<(),
     // Incorporations and discard acks authored during pull must upload this
     // turn so members can settle submission_status without waiting another loop.
     for database in &owned {
-        if let Some(err) = upload_outbox(&client, histories, &host.home, &database.id).await {
+        if let Some(err) = upload_outbox(&client, host, &database.id).await {
             turn_error = Some(err);
         }
     }

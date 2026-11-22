@@ -17,7 +17,7 @@ use mutation_log::{
 use serde_json::Value;
 use sha2::{Digest as _, Sha256};
 
-use super::apply::AuthorIdentity;
+use super::chain_author::AuthorIdentity;
 use super::chain_author::{self, Target};
 use super::chain_error::ChainError;
 use super::history_store::HistoryMap;
