@@ -7,9 +7,8 @@ use fold_db::schema::types::{KeyValue, MutationType};
 use serde_json::Value;
 
 use crate::exec::reply::HostError;
-use crate::exec::schema_routes::resolve_schema_name;
 use crate::host::Host;
-use crate::log_sync::{mirror_owned_write, write_target, OwnedMutation};
+use crate::log_sync::{mirror_owned_write, request_wake, write_target, OwnedMutation};
 
 /// One write item's fields needed to author a signed `data` entry.
 pub(super) type SignedParts<'a> = (
@@ -47,28 +46,26 @@ fn keys_of(signed: &[OwnedMutation]) -> Vec<(String, String)> {
         .collect()
 }
 
-/// Author the signed entries of an owned or personal write; no-op for a
-/// received database, which a write never reaches.
+/// Author the signed entries of an owned shareable write; no-op for a received
+/// database, which a write never reaches. The personal database is not signed
+/// here: its write is already in the spool, and this wakes the sync loop.
 ///
 /// The store validated and committed the write first. When its entries cannot
 /// all be signed, the unsigned records are reverted to the history, so the
-/// store never holds a record the history does not. The personal database
-/// names its schemas by their store name, which the owner socket may have
-/// matched loosely, so they are resolved here.
+/// store never holds a record the history does not.
 pub(super) async fn mirror_committed(
     host: &Host,
     selector: Option<&str>,
-    mut signed: Vec<OwnedMutation>,
+    signed: Vec<OwnedMutation>,
 ) -> Result<(), HostError> {
     let Some(target) = write_target(host, selector) else {
         return Ok(());
     };
     if target.personal {
-        for item in &mut signed {
-            if let Some(name) = resolve_schema_name(host, &item.schema)? {
-                item.schema = name;
-            }
-        }
+        // The commit already put the write in the spool of accepted writes, which
+        // is the upload queue of the personal database. Nothing is signed here.
+        request_wake(&host.home);
+        return Ok(());
     }
     let Err(error) = mirror_owned_write(host, &target.id, &signed) else {
         return Ok(());

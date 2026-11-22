@@ -41,6 +41,17 @@ pub(crate) async fn stage_records(
     if !capture_enabled(runtime) {
         return Ok(());
     }
+    // One commit is one pending record in the spool, and a record that names more
+    // notes than the control file bound fails the commit queue, which stops the
+    // daemon. A commit that large is refused here with an error the caller can read.
+    if mutations.len() > super::NOTES_MAX {
+        return Err(StorageError::MutationLimit {
+            detail: format!(
+                "a write that is captured for upload holds at most {} mutations",
+                super::NOTES_MAX
+            ),
+        });
+    }
     let mut seen = BTreeSet::new();
     let mut notes = Vec::with_capacity(mutations.len());
     for mutation in mutations {
@@ -57,6 +68,7 @@ pub(crate) fn stage_schema_put(
     content_key: &[u8; 32],
     name: &str,
     schema: &Schema,
+    authored_at_ms: u64,
 ) -> StorageResult<Option<String>> {
     if !capture_enabled(runtime) {
         return Ok(None);
@@ -69,7 +81,7 @@ pub(crate) fn stage_schema_put(
     })?;
     let body = body::schema_body(&mutation_id, name, "put", Some(&definition));
     let mut note = body::seal(content_key, &body)?;
-    note.authored_at_ms = Some(crate::clock::unix_millis());
+    note.authored_at_ms = Some(authored_at_ms);
     transaction::stage_accepted(runtime, vec![note])?;
     Ok(Some(mutation_id))
 }
@@ -78,6 +90,7 @@ pub(crate) fn stage_schema_drop(
     runtime: &PackRuntime,
     content_key: &[u8; 32],
     name: &str,
+    authored_at_ms: u64,
 ) -> StorageResult<Option<String>> {
     if !capture_enabled(runtime) {
         return Ok(None);
@@ -85,7 +98,7 @@ pub(crate) fn stage_schema_drop(
     let mutation_id = super::schema_drop_id(name);
     let body = body::schema_body(&mutation_id, name, "drop", None);
     let mut note = body::seal(content_key, &body)?;
-    note.authored_at_ms = Some(crate::clock::unix_millis());
+    note.authored_at_ms = Some(authored_at_ms);
     transaction::stage_accepted(runtime, vec![note])?;
     Ok(Some(mutation_id))
 }

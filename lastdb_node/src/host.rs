@@ -113,12 +113,16 @@ impl Host {
         let has_spool = !signed_restore
             && fold_db::storage::disk_backup::accepted::has_spool(&data_dir)
                 .map_err(|e| recovery::map_and_record_boot_error(home, existing, e))?;
-        let wants_bootstrap = !signed_restore && crate::cloud::signed_history_intent(home);
-        let connected =
-            !signed_restore && (!has_spool || wants_bootstrap) && has_cloud_credentials(home);
+        // The spool of accepted writes is the upload queue of the personal
+        // database. A home captures every write exactly when something sends the
+        // spool: it has a relay to sync with, it already has a spool (a capture
+        // that began cannot stop without a gap), or it is a restore, which syncs
+        // from its first turn. A home with none of these captures nothing, so no
+        // spool fills that no code drains.
+        let syncs = !signed_restore && crate::cloud::relay_base_url(home).is_some();
         let opts = fold_db::fold_db_core::factory::FoldDbOptions {
             offline_maintenance: false,
-            capture_accepted: signed_restore || has_spool || connected,
+            capture_accepted: signed_restore || has_spool || syncs,
             record_log: None,
         };
         let db = fold_db::fold_db_core::factory::create_fold_db_with_options(

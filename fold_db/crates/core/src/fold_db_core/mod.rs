@@ -46,10 +46,15 @@ pub mod factory {
         let key = e2e_keys.encryption_key();
         let store =
             PackNamespacedStore::open_keyed(&config.path, Some(&key), options.capture_accepted)?;
-        let db_ops = DbOperations::from_namespaced_store_with_content_and_field_keys(store, key)
-            .await
-            .map_err(|e| FoldDbError::Config(e.to_string()))?;
-        let fold_db = FoldDB::initialize(Arc::new(db_ops), signer.public_key_base64(), options)
+        let writer_id = signer.public_key_base64();
+        let db_ops = DbOperations::from_namespaced_store_with_content_and_field_keys(
+            store,
+            key,
+            writer_id.clone(),
+        )
+        .await
+        .map_err(|e| FoldDbError::Config(e.to_string()))?;
+        let fold_db = FoldDB::initialize(Arc::new(db_ops), writer_id, options)
             .await
             .map_err(|e| map_boot_decrypt_error(e.to_string()))?;
         Ok(Arc::new(fold_db))

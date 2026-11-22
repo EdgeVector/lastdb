@@ -5,6 +5,7 @@ mod candidate;
 mod records;
 mod served;
 mod state;
+mod stream;
 
 pub use served::ServedLocal;
 

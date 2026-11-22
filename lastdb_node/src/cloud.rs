@@ -38,14 +38,36 @@ pub fn is_payment_subscription_error(status: u16, body: &[u8]) -> bool {
         })
 }
 
-pub(crate) fn signed_history_intent(home: &Path) -> bool {
-    read_private_named(
-        &home.join(SIGNED_HISTORY_INTENT_FILE),
-        SIGNED_HISTORY_INTENT.len() as u64,
-        "invalid signed-history intent file",
-        "invalid signed-history intent length",
-    )
-    .is_ok_and(|bytes| bytes.as_deref().map(Vec::as_slice) == Some(SIGNED_HISTORY_INTENT))
+/// The relay that `LASTDB_RELAY_URL` names, if it names one.
+#[must_use]
+pub fn explicit_relay_url() -> Option<String> {
+    let url = std::env::var("LASTDB_RELAY_URL").ok()?;
+    let trimmed = url.trim();
+    (!trimmed.is_empty()).then(|| trimmed.to_owned())
+}
+
+/// The relay this node syncs with, if any.
+///
+/// `LASTDB_RELAY_URL` names a relay explicitly, for a reference relay or a
+/// deploy under test. Otherwise a node with saved cloud credentials uses the
+/// Exemem API it is connected to, which serves `/relay/v1`. A node with
+/// neither has no relay, and the sync loop idles without erroring.
+///
+/// A home that has a relay captures every write of its personal database into
+/// the spool of accepted writes, which is the queue the sync loop drains. A home
+/// with no relay captures nothing, so no spool fills that nothing sends.
+#[must_use]
+pub fn relay_base_url(home: &Path) -> Option<String> {
+    if let Some(url) = explicit_relay_url() {
+        return Some(url);
+    }
+    match load_saved_credentials(home) {
+        Ok(Some(saved)) => {
+            let url = saved.api_url.trim().trim_end_matches('/');
+            (!url.is_empty()).then(|| url.to_owned())
+        }
+        _ => None,
+    }
 }
 
 #[derive(Serialize, Deserialize)]

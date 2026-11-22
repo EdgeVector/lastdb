@@ -1,0 +1,375 @@
+//! Sign the accepted writes of the spool as the next entries of this device's
+//! stream, and send them to the relay.
+//!
+//! Every commit already lands in the spool, in order, before the caller is
+//! told. The sender takes the entries past the acknowledged position, opens each
+//! canonical body, seals it with the database read key for the position it will
+//! have, and signs it. The signed batch is saved before anything is sent, so a
+//! retry sends the same bytes. When the relay acknowledges, the spool retires
+//! the batch and the saved entries are deleted.
+//!
+//! What a crash leaves, by window, and how the next turn repairs it:
+//!
+//! - Before the batch is saved: nothing. The next turn signs the same spool
+//!   entries again at the same sequence numbers, and nothing was sent.
+//! - After the batch is saved, before the relay acknowledges: the saved file
+//!   exists and the spool position is old. The next turn settles the entries
+//!   again (a no-op if done) and sends the saved bytes. The relay counts
+//!   identical entries as duplicates.
+//! - After the relay acknowledges, before the spool confirms: the same as the
+//!   window before, and the relay answers with duplicates.
+//! - After the spool confirms, before the own head row is written: the spool
+//!   position is past the saved batch. The next turn writes the head row from
+//!   the saved entries and deletes the file.
+//! - After the head row, before the file is deleted: the next turn finds the
+//!   head row at the saved batch, and deletes the file.
+
+use std::sync::Arc;
+
+use fold_db::fold_db_core::mutation_manager::ReplayStreamHead;
+use fold_db::storage::disk_backup::accepted::{
+    Entry, Error as SpoolError, Page, UploadIdentity, UploadPosition,
+};
+use fold_db::storage::disk_pack::PackRuntime;
+use mutation_log::{
+    author_data, entry_hash, AuthorCtx, DataBody, Hex32, MutationFileRef, SignedEntry, StreamHead,
+    StreamKind, SEALED_NAMESPACE,
+};
+
+use super::body::{self, AcceptedBody, Change, RecordFile};
+use super::saved::{self, Saved};
+use super::{apply, files, Ctx};
+use crate::log_sync::relay::{RelayClient, StreamHead as RelayStream};
+
+/// The relay takes at most this many entries in one append.
+const PAGE: u32 = 90;
+/// A batch stops at this much payload, so the saved file and the request stay small.
+const BATCH_BYTES: usize = 8 * 1024 * 1024;
+
+/// Sign and send everything the spool holds. Reports the spool position to the
+/// status of the node.
+pub(super) async fn run(
+    ctx: &Ctx<'_>,
+    client: &RelayClient,
+    streams: &[RelayStream],
+) -> Result<(), String> {
+    let result = drain(ctx, client, streams).await;
+    let status = ctx.runtime.accepted_status();
+    ctx.host.cloud_sync.record_upload(
+        &ctx.database_id,
+        status.head,
+        status.acked,
+        result.as_ref().err().cloned(),
+    );
+    result
+}
+
+async fn drain(ctx: &Ctx<'_>, client: &RelayClient, streams: &[RelayStream]) -> Result<(), String> {
+    if !ctx.runtime.captures_accepted() {
+        return Err("local capture is off: the node must restart with a relay configured".into());
+    }
+    let mut birth_known = streams
+        .iter()
+        .any(|stream| stream.device_id == ctx.birth_device_hex);
+    loop {
+        let saved = match saved::load(&ctx.host.home, &ctx.database_id)? {
+            Some(saved) => saved,
+            None => match next_batch(ctx, streams).await? {
+                Some(saved) => saved,
+                None => return Ok(()),
+            },
+        };
+        finish(ctx, client, &saved, &mut birth_known).await?;
+    }
+}
+
+/// Run blocking spool work off the async threads.
+async fn blocking<T: Send + 'static>(
+    ctx: &Ctx<'_>,
+    work: impl FnOnce(&PackRuntime, &UploadIdentity) -> Result<T, SpoolError> + Send + 'static,
+) -> Result<T, String> {
+    let runtime = Arc::clone(&ctx.runtime);
+    let identity = Arc::clone(&ctx.upload);
+    tokio::task::spawn_blocking(move || work(runtime.as_ref(), identity.as_ref()))
+        .await
+        .map_err(|_| "the local upload queue worker stopped".to_owned())?
+        .map_err(|error| format!("the local upload queue failed: {error:?}"))
+}
+
+/// The confirmed position of this device. A device with none starts at zero.
+async fn position(ctx: &Ctx<'_>) -> Result<UploadPosition, String> {
+    blocking(ctx, |runtime, identity| {
+        if let Some(found) = runtime.accepted_upload_position(identity)? {
+            return Ok(found);
+        }
+        if runtime.accepted_status().acked != 0 {
+            return Err(SpoolError::Behind);
+        }
+        let first = UploadPosition {
+            writer_seq: 0,
+            spool_through: 0,
+        };
+        runtime.confirm_accepted_upload(identity, 0, first)?;
+        Ok(first)
+    })
+    .await
+}
+
+/// Sign the next batch of the spool and save it. `None` when the spool is empty.
+async fn next_batch(ctx: &Ctx<'_>, streams: &[RelayStream]) -> Result<Option<Saved>, String> {
+    let position = position(ctx).await?;
+    let relay_head = streams
+        .iter()
+        .find(|stream| stream.device_id == ctx.device_hex)
+        .map_or(0, |stream| stream.head_seq);
+    if relay_head > position.writer_seq {
+        return Err("the relay holds entries of this device that it never confirmed".into());
+    }
+    if ctx.runtime.accepted_status().gap {
+        return Err("local capture has a gap".into());
+    }
+    let after = position.spool_through;
+    let page = blocking(ctx, move |runtime, _| runtime.accepted_prefix(after, PAGE)).await?;
+    if page.items.is_empty() {
+        return Ok(None);
+    }
+    let head = match ctx.own_head().await? {
+        Some(held) if held.seq != position.writer_seq => {
+            return Err("the own stream head and the spool position disagree".into());
+        }
+        Some(held) => Some(held),
+        None if position.writer_seq != 0 => {
+            return Err("the own stream head is missing".into());
+        }
+        None => None,
+    };
+    let saved = sign_batch(ctx, &page, after, head.as_ref())?;
+    saved::store(&ctx.host.home, &ctx.database_id, &saved)?;
+    Ok(Some(saved))
+}
+
+/// Sign the entries of a page, as many as fit in a batch.
+fn sign_batch(
+    ctx: &Ctx<'_>,
+    page: &Page,
+    after: u64,
+    head: Option<&ReplayStreamHead>,
+) -> Result<Saved, String> {
+    let mut head = head.map(super::chain_head).transpose()?;
+    let (mut entries, mut bytes, mut through) = (Vec::new(), 0usize, after);
+    for item in &page.items {
+        if !entries.is_empty() && bytes > BATCH_BYTES {
+            break;
+        }
+        let entry = sign_one(ctx, item, head)?;
+        let header = entry.header();
+        head = Some(StreamHead {
+            entry_hash: entry_hash(&entry).map_err(|e| e.to_string())?,
+            writer_seq: header.writer_seq,
+            lamport: header.lamport,
+        });
+        bytes += item.envelope.len();
+        through = item.sequence;
+        entries.push(entry);
+    }
+    Ok(Saved {
+        after,
+        through,
+        entries,
+    })
+}
+
+/// The signed entry of one spool entry, after `head`.
+fn sign_one(ctx: &Ctx<'_>, item: &Entry, head: Option<StreamHead>) -> Result<SignedEntry, String> {
+    let identity = &ctx.identity;
+    let plain = fold_db::crypto::decrypt_envelope(&ctx.content_key, &item.envelope)
+        .map_err(|_| "an accepted write cannot be opened".to_owned())?;
+    let accepted: AcceptedBody = body::parse(&plain)?;
+    if accepted.mutation_id != item.mutation_id {
+        return Err("an accepted write names another mutation than its spool entry".into());
+    }
+    let writer_seq = head.map_or(1, |held| held.writer_seq + 1);
+    let marker = match body::classify(&accepted)? {
+        Change::Record(record) => match record.file {
+            RecordFile::Put(marker) => Some(marker),
+            RecordFile::Keep | RecordFile::Clear => None,
+        },
+        Change::Schema(_) => None,
+    };
+    let seal = |plain: &[u8]| {
+        ctx.sealer
+            .seal(identity.node_key, identity.device_id, writer_seq, plain)
+    };
+    let file = match marker {
+        Some(marker) => {
+            let plain_file = files::plain_of(
+                &ctx.content_key,
+                &marker,
+                item.file_ciphertext.as_deref(),
+                item.file_reference.as_deref(),
+            )?;
+            let blob = seal(&plain_file)?;
+            let sha256 = files::sha256_hex(&blob);
+            saved::save_blob(&ctx.host.home, &ctx.database_id, &sha256, &blob)?;
+            Some(MutationFileRef {
+                file_handle: "file".to_owned(),
+                sha256: Hex32::from_hex(&sha256)
+                    .map_err(|_| "a file digest is not hex".to_owned())?,
+            })
+        }
+        None => None,
+    };
+    // The order value is the time of the commit, taken from the store's author
+    // clock. It is set when the write is made, so a write made offline keeps
+    // the time it was made.
+    let order = item
+        .authored_at_ms
+        .ok_or("an accepted write has no author time")?;
+    let author = AuthorCtx {
+        database_id: ctx.database,
+        node_key: identity.node_key,
+        device_id: identity.device_id,
+        stream_head: head,
+        seen_heads: vec![ctx.birth_hash],
+        seen_lamports: vec![ctx.birth.position.lamport],
+        authored_at_ms: order,
+    };
+    let data = DataBody {
+        stream: StreamKind::Direct,
+        namespace: SEALED_NAMESPACE.to_owned(),
+        payload: seal(&plain)?,
+        file,
+        incorporated_from: None,
+        grant_at_device: None,
+        grant_at_seq: None,
+    };
+    author_data(&author, &identity.signing_key, data).map_err(|e| e.to_string())
+}
+
+/// Settle (in one transaction), send, confirm and forget one saved batch.
+async fn finish(
+    ctx: &Ctx<'_>,
+    client: &RelayClient,
+    saved: &Saved,
+    birth_known: &mut bool,
+) -> Result<(), String> {
+    let mut local = Vec::with_capacity(saved.entries.len());
+    for entry in &saved.entries {
+        local.push(local_write(ctx, entry)?);
+    }
+    apply::settle_all(ctx, &local).await?;
+    if position(ctx).await?.spool_through < saved.through {
+        send(ctx, client, saved, birth_known).await?;
+        let (after, through) = (saved.after, saved.through);
+        let writer_seq = saved
+            .entries
+            .last()
+            .map(|entry| entry.header().writer_seq)
+            .ok_or("a saved batch holds no entry")?;
+        blocking(ctx, move |runtime, identity| {
+            runtime.confirm_accepted_upload(
+                identity,
+                after,
+                UploadPosition {
+                    writer_seq,
+                    spool_through: through,
+                },
+            )
+        })
+        .await?;
+    }
+    commit_head(ctx, saved).await?;
+    let blobs: Vec<String> = saved
+        .entries
+        .iter()
+        .filter_map(|entry| match entry {
+            SignedEntry::Data {
+                body: DataBody {
+                    file: Some(file), ..
+                },
+                ..
+            } => Some(file.sha256.to_hex()),
+            _ => None,
+        })
+        .collect();
+    saved::clear(&ctx.host.home, &ctx.database_id, &blobs)
+}
+
+/// The local write that a signed entry carries, ready to settle.
+fn local_write(ctx: &Ctx<'_>, entry: &SignedEntry) -> Result<apply::Local, String> {
+    let SignedEntry::Data {
+        header, body: data, ..
+    } = entry
+    else {
+        return Err("a saved entry is not a data entry".into());
+    };
+    let plain = mutation_log::SealOpener::open(&ctx.sealer, header, &data.payload)
+        .ok_or("a saved entry does not open")?;
+    let change = body::classify(&body::parse(&plain)?)?;
+    let blob = data
+        .file
+        .as_ref()
+        .map(|file| saved::blob_path(&ctx.host.home, &ctx.database_id, &file.sha256.to_hex()));
+    apply::local(ctx, header, change, blob.as_deref())
+}
+
+/// Send a batch: the birth when the relay lacks it, the file blobs, then the entries.
+async fn send(
+    ctx: &Ctx<'_>,
+    client: &RelayClient,
+    saved: &Saved,
+    birth_known: &mut bool,
+) -> Result<(), String> {
+    if !*birth_known {
+        let stored = client
+            .append(&ctx.database_id, std::slice::from_ref(&ctx.birth_entry))
+            .await?;
+        expect_all(stored, 1)?;
+        *birth_known = true;
+    }
+    for entry in &saved.entries {
+        if let SignedEntry::Data {
+            body: DataBody {
+                file: Some(file), ..
+            },
+            ..
+        } = entry
+        {
+            let sha256 = file.sha256.to_hex();
+            let path = saved::blob_path(&ctx.host.home, &ctx.database_id, &sha256);
+            client.blob_put(&ctx.database_id, &sha256, &path).await?;
+        }
+    }
+    let stored = client.append(&ctx.database_id, &saved.entries).await?;
+    expect_all(stored, saved.entries.len())
+}
+
+fn expect_all((stored, duplicate): (u64, u64), sent: usize) -> Result<(), String> {
+    if stored + duplicate == sent as u64 {
+        Ok(())
+    } else {
+        Err(format!(
+            "the relay stored {stored} and knew {duplicate} of {sent} entries"
+        ))
+    }
+}
+
+/// Move the own head row to the last entry of the batch. It repeats safely.
+async fn commit_head(ctx: &Ctx<'_>, saved: &Saved) -> Result<(), String> {
+    let last = saved.entries.last().ok_or("a saved batch holds no entry")?;
+    let header = last.header();
+    if ctx
+        .own_head()
+        .await?
+        .is_some_and(|held| held.seq >= header.writer_seq)
+    {
+        return Ok(());
+    }
+    let hash = entry_hash(last).map_err(|e| e.to_string())?;
+    ctx.host
+        .db
+        .mutation_manager()
+        .set_replay_stream_head(&ctx.own_stream, &apply::head_of(header, &hash))
+        .await
+        .map_err(|error| format!("the own stream head could not be written: {error}"))
+}

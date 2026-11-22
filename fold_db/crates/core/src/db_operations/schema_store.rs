@@ -27,11 +27,19 @@ pub struct SchemaStore {
     pub(super) runtime: Arc<crate::storage::disk_pack::PackRuntime>,
     pub(super) content_key: [u8; 32],
     pub(super) metadata: Metadata,
+    /// The writer of the author clock that stamps record writes. A schema
+    /// change takes its author time from the same clock.
+    pub(super) writer_id: String,
     pub(super) retention_floors: Arc<RetentionFloors>,
 }
 
 impl SchemaStore {
-    pub(crate) fn new(format: SchemaFormat, content_key: [u8; 32], metadata: Metadata) -> Self {
+    pub(crate) fn new(
+        format: SchemaFormat,
+        content_key: [u8; 32],
+        metadata: Metadata,
+        writer_id: String,
+    ) -> Self {
         let (schemas_store, schema_states_store) = format.readers();
         let runtime = format.runtime();
         Self {
@@ -41,6 +49,7 @@ impl SchemaStore {
             runtime,
             content_key,
             metadata,
+            writer_id,
             retention_floors: Arc::default(),
         }
     }
@@ -165,6 +174,7 @@ impl SchemaStore {
                     &self.content_key,
                     schema_name,
                     schema,
+                    self.local_author_ms().await?,
                 )?;
                 self.note_local_replay(schema_name, mutation_id).await?;
                 Ok(())
@@ -199,6 +209,15 @@ impl SchemaStore {
             }),
         )
         .await
+    }
+
+    /// The author time of a schema change, from the clock that stamps record
+    /// writes. A store that does not capture its writes has no use for one.
+    pub(super) async fn local_author_ms(&self) -> Result<u64, SchemaError> {
+        if !accepted::capture_enabled(&self.runtime) {
+            return Ok(0);
+        }
+        self.metadata.stage_local_author_ms(&self.writer_id).await
     }
 
     pub(super) async fn note_local_replay(

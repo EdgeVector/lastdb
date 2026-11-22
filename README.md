@@ -197,8 +197,12 @@ Personal and shared databases sync through signed history (AcceptEntry) and a
 grant-gating relay. The personal database is sealed: the relay stores the
 streams of every device of the owner and cannot read them, and a new device
 or a restore needs only the recovery phrase
-(`lastdb backup restore --recovery-phrase-stdin`). See the
+(`lastdb backup restore --recovery-phrase-stdin`). Each write goes into the
+spool of accepted writes, is signed as the next entry of its device's stream,
+and is applied on the other devices by the store's last-writer stamp, so the
+later edit wins. See the
 [personal database design](docs/designs/personal-database-signed-log.md),
+[signed log on the local machinery](docs/designs/signed-log-on-local-machinery.md),
 [cloud API](docs/designs/cloud-api.md) and
 [relay protocol](docs/designs/relay-protocol.md).
 

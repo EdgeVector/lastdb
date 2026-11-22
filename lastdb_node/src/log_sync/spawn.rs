@@ -12,7 +12,6 @@ use crate::host::owned::RegisteredDatabase;
 use crate::host::Host;
 use crate::registered_share::{self, RegisteredShare};
 
-use super::config;
 use super::device;
 use super::history_store::HistoryMap;
 use super::materialize::{self, DatabaseCtx};
@@ -28,7 +27,7 @@ pub fn spawn(host: Arc<Host>, shutdown: Arc<AtomicBool>) -> tokio::task::JoinHan
         async move {
             let histories = super::histories_for(&host);
             while !shutdown.load(Ordering::Acquire) {
-                match config::relay_base_url(&host.home) {
+                match crate::cloud::relay_base_url(&host.home) {
                     None => {
                         let _ = wake::consume_wake(&host.home);
                         tracing::trace!(
@@ -100,10 +99,9 @@ async fn one_turn(host: &Host, histories: &HistoryMap, base: &str) -> Result<(),
     turn_error = pull_owned_shareables(host, histories, &client, &owned)
         .await
         .or(turn_error);
-    // Phase c2: the other devices of this owner write the personal database.
-    turn_error = super::personal::turn(host, histories, &client)
-        .await
-        .or(turn_error);
+    // Phase c2: the personal database. Its spool goes up, and what the other
+    // devices of this owner wrote is applied.
+    turn_error = super::personal::turn(host, &client).await.or(turn_error);
     // Phase d: decisions the publisher signed during the pull go up this turn,
     // so members settle their submission status without waiting another loop.
     turn_error = upload_owned_logs(host, &client, &owned)
@@ -140,10 +138,10 @@ fn publish_declared_schemas(host: &Host, owned: &[RegisteredDatabase]) -> Option
     turn_error
 }
 
-/// Phases b and d: upload every owned log. This runs before any pull because
-/// a personal database, or a shareable whose birth is not on the relay yet,
-/// gets log/read 403 field=grant; that must not keep the birth and grant
-/// entries from uploading. Each database drains every pending batch, so a
+/// Phases b and d: upload every owned shareable log. This runs before any pull
+/// because a shareable whose birth is not on the relay yet gets log/read 403
+/// field=grant; that must not keep the birth and grant entries from uploading.
+/// The personal database has no log file: `personal` sends its spool. Each database drains every pending batch, so a
 /// long run of mirrored data cannot leave grants behind it.
 async fn upload_owned_logs(
     host: &Host,
@@ -151,7 +149,7 @@ async fn upload_owned_logs(
     owned: &[RegisteredDatabase],
 ) -> Option<String> {
     let mut turn_error = None;
-    for database in owned {
+    for database in owned.iter().filter(|database| database.kind != "personal") {
         if let Some(err) = upload_log(client, host, &database.id).await {
             turn_error = Some(err);
         }
