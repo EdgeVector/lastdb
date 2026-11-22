@@ -7,8 +7,11 @@ that workflow on people main with `lastdb_source_sha` and fails when any
 sharing leg fails. It uses the same `secrets.GH_PAT` cross-repo pattern as
 `notify-schema-infra.yml`.
 
-Correlation is the People `run-name` only (full 40-hex SHA in
-`display_title`). There is no “newest dispatch” fallback.
+Correlation is the People `run-name` only: exact
+`DEV sharing (<40-hex SHA>)` on `head_branch=main`. There is no
+“newest dispatch” fallback and no adoption of a concurrent run for a
+different LastDB SHA or ref (same class of failure as exemem deploy
+prove watching People 45068459500 / 6f9dbbeb5 after a cancel redispatch).
 """
 
 from __future__ import annotations
@@ -112,18 +115,29 @@ def parse_created(run: dict) -> datetime | None:
         return None
 
 
+def expected_run_name(sha: str) -> str:
+    return f"DEV sharing ({sha.lower()})"
+
+
+def run_identity_matches(run: dict, sha: str) -> bool:
+    """True only for people main workflow_dispatch of this exact LastDB SHA."""
+    if (run.get("head_branch") or "") != "main":
+        return False
+    title = (run.get("display_title") or "").strip().lower()
+    return title == expected_run_name(sha)
+
+
 def find_run(sha: str, not_before: datetime) -> dict | None:
-    """Return the run whose display_title contains the full 40-hex SHA."""
-    needle = sha.lower()
+    """Return the run whose run-name is exactly DEV sharing (<sha>) on main."""
     floor = not_before - timedelta(seconds=5)
     matches = []
     for run in list_runs():
         created_at = parse_created(run)
         if created_at is None or created_at < floor:
             continue
-        title = (run.get("display_title") or "").lower()
-        if needle in title:
-            matches.append(run)
+        if not run_identity_matches(run, sha):
+            continue
+        matches.append(run)
     if not matches:
         return None
     return max(matches, key=lambda run: run["id"])
@@ -159,16 +173,16 @@ def wait_for_run(sha: str, not_before: datetime, wait_seconds: int) -> dict:
             break
         print(
             "people-dev-sharing-gate: waiting for a workflow_dispatch whose "
-            f"run-name contains {sha}",
+            f"run-name is exactly {expected_run_name(sha)!r} on main",
             flush=True,
         )
         time.sleep(15)
     if run is None:
         print(
-            f"people-dev-sharing-gate: FAIL no People DEV sharing run-name "
-            f"containing {sha} appeared within {wait_seconds}s. People main "
-            "must include the run-name that embeds lastdb_source_sha "
-            "(people #37). There is no newest-dispatch fallback.",
+            f"people-dev-sharing-gate: FAIL no People DEV sharing run named "
+            f"{expected_run_name(sha)!r} on main appeared within {wait_seconds}s. "
+            "People main must embed lastdb_source_sha in run-name (people #37). "
+            "There is no newest-dispatch fallback.",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -190,12 +204,12 @@ def wait_for_run(sha: str, not_before: datetime, wait_seconds: int) -> dict:
             time.sleep(30)
             continue
         run = json.loads(result.stdout)
-        # Re-check title in case the watched id was wrong (should not happen).
-        title = (run.get("display_title") or "").lower()
-        if sha not in title:
+        # Re-check identity so a watched id can never authorize another SHA/ref.
+        if not run_identity_matches(run, sha):
             print(
-                f"people-dev-sharing-gate: FAIL watched run {run_id} title "
-                f"{run.get('display_title')!r} no longer contains {sha}",
+                f"people-dev-sharing-gate: FAIL watched run {run_id} identity "
+                f"title={run.get('display_title')!r} head_branch={run.get('head_branch')!r} "
+                f"does not match {expected_run_name(sha)!r} on main",
                 file=sys.stderr,
             )
             sys.exit(1)
@@ -230,10 +244,21 @@ def main() -> int:
     not_before = datetime.now(timezone.utc)
     dispatch(sha, args.mode)
     run = wait_for_run(sha, not_before, args.wait_seconds)
+    if not run_identity_matches(run, sha):
+        print(
+            f"people-dev-sharing-gate: FAIL completed run {run.get('id')} identity "
+            f"title={run.get('display_title')!r} head_branch={run.get('head_branch')!r} "
+            f"does not match {expected_run_name(sha)!r} on main",
+            file=sys.stderr,
+        )
+        return 1
     print_legs(run["id"], run.get("html_url", ""))
     conclusion = run.get("conclusion")
     if conclusion == "success":
-        print(f"people-dev-sharing-gate: OK {run.get('html_url')}")
+        print(
+            f"people-dev-sharing-gate: OK {run.get('html_url')} "
+            f"identity={expected_run_name(sha)}",
+        )
         return 0
     print(
         f"people-dev-sharing-gate: FAIL People DEV sharing concluded "
