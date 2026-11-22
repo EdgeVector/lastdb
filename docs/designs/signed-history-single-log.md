@@ -115,6 +115,8 @@ A publisher role reduction carries a cutoff for each device stream of the grante
 
 The history remembers those keys (`voided_keys`). The materializer writes the new winners as usual and deletes the record of a voided key that has no winner left. A write that was committed locally while the member still believed it had write access is therefore undone once the member's node learns of the reduction.
 
+A cutoff limits a member's direct writes only. A proposal is checked against the member's current role (submit or write), so a member reduced from write to submit can still propose, and a revoked member cannot, even if its `seen_heads` cite an older grant.
+
 ## Decisions
 
 - One LastDB PR for the log, cursor and commit function.
