@@ -57,14 +57,20 @@ pub fn spawn(host: Arc<Host>, shutdown: Arc<AtomicBool>) -> tokio::task::JoinHan
                                 true
                             }
                         };
-                        if failed && uploads_pending(&host) {
-                            // Mark for another pass; keep ACTIVE delay so fast
-                            // failures (refused / 4xx / 429) cannot spin.
+                        if uploads_pending(&host) {
+                            // A tip authored during this turn, or a failed
+                            // drain, must not wait out ACTIVE. Keep a short
+                            // pause only when the turn failed so 4xx/429 cannot
+                            // spin; a clean turn with pending uploads runs again
+                            // immediately after consume_wake.
                             wake::request_wake(&host.home);
                         }
                         let woken = wake::consume_wake(&host.home);
                         if failed || !woken {
-                            tokio::time::sleep(ACTIVE).await;
+                            // Poll the wake file so an author during the pause
+                            // ends it (request_wake alone cannot interrupt
+                            // tokio::time::sleep).
+                            wake::pause_unless_wake(&host.home, ACTIVE).await;
                         }
                     }
                 }
