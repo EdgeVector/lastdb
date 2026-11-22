@@ -29,14 +29,14 @@ use std::io::Seek;
 use std::path::Path;
 use std::time::Instant;
 
-use fold_db::storage::disk_pack::NativeCloudWorkGuard;
+use fold_db::storage::disk_pack::{snapshot::DatabaseSnapshot, NativeCloudWorkGuard};
 use mutation_log::{
     author_snapshot, entry_hash, AuthorCtx, DeviceId, EntryHash, Hex32, SignedEntry, SnapshotBody,
     SnapshotThrough, StreamHead,
 };
 use sha2::{Digest, Sha256};
 
-use super::snapshot_manifest::{self as manifest, Manifest};
+use super::snapshot_manifest::{self as manifest, FileEntry, Manifest};
 use super::snapshot_state::{file_of, finish_request, load_last, Last, Report};
 use super::{list_streams, Ctx};
 use crate::log_sync::relay::{RelayClient, StreamHead as RelayStream};
@@ -62,7 +62,7 @@ pub(super) async fn run(ctx: &Ctx<'_>, client: &RelayClient) -> Result<(), Strin
     if request.is_none() && !auto_due(ctx).await? {
         return Ok(());
     }
-    match publish(ctx, client).await {
+    match publish(ctx, client, false).await {
         Ok(Outcome::Waiting) => Ok(()),
         Ok(Outcome::Done(report)) => {
             tracing::info!(target: "lastdbd::log_sync", seq = report.snapshot_seq, files = report.files, uploaded = report.uploaded_files, "snapshot published");
@@ -90,16 +90,42 @@ async fn auto_due(ctx: &Ctx<'_>) -> Result<bool, String> {
     Ok(own.saturating_sub(last) >= AUTO_SNAPSHOT_ENTRIES)
 }
 
-async fn publish(ctx: &Ctx<'_>, client: &RelayClient) -> Result<Outcome, String> {
+/// Publish the first snapshot of a home that held data before it began to capture writes.
+///
+/// The cut is the preserved copy of the files from before the first captured write (see
+/// `PackRuntime::begin_first_snapshot`), so it holds no stream position. Every write since is
+/// in the spool, and the spool is not read for upload until this snapshot is named on the
+/// relay, so each earlier write is in the snapshot and each later one is sent as an entry,
+/// never both and never neither. After the entry is on the relay the node records that the
+/// history is covered, which opens the spool, and removes the preserved copy. A kill at any
+/// point leaves the copy, and the next turn runs this again: the same cut gives the same
+/// files, so the next turn finds the saved record and names nothing twice.
+pub(super) async fn run_first(ctx: &Ctx<'_>, client: &RelayClient) -> Result<(), String> {
+    let Outcome::Done(report) = publish(ctx, client, true).await? else {
+        return Err("the preserved files of the first snapshot are missing".into());
+    };
+    let opened = ctx.runtime.accepted_status().opened_frontier;
+    ctx.runtime
+        .note_accepted_snapshot(opened)
+        .map_err(|error| format!("the first snapshot could not be recorded: {error:?}"))?;
+    ctx.runtime
+        .release_initial_snapshot()
+        .map_err(|error| format!("the preserved files could not be removed: {error}"))?;
+    tracing::info!(target: "lastdbd::log_sync", seq = report.snapshot_seq, files = report.files, "first snapshot published");
+    Ok(())
+}
+
+async fn publish(ctx: &Ctx<'_>, client: &RelayClient, first: bool) -> Result<Outcome, String> {
     let _work = NativeCloudWorkGuard::acquire().map_err(|error| error.to_string())?;
     let started = Instant::now();
-    let Some(cut) = ctx
-        .host
-        .db
-        .db_ops()
-        .capture_synced_snapshot()
-        .await
-        .map_err(|error| format!("cannot freeze the database files: {error}"))?
+    let db = ctx.host.db.db_ops();
+    let captured = if first {
+        db.capture_initial_snapshot().await
+    } else {
+        db.capture_synced_snapshot().await
+    };
+    let Some(cut) =
+        captured.map_err(|error| format!("cannot freeze the database files: {error}"))?
     else {
         return Ok(Outcome::Waiting);
     };
@@ -122,32 +148,8 @@ async fn publish(ctx: &Ctx<'_>, client: &RelayClient) -> Result<Outcome, String>
     let uploading = Instant::now();
     let streams = list_streams(ctx, client).await?.unwrap_or_default();
     ensure_birth(ctx, client, &streams).await?;
-    let known: Vec<(&str, &str)> = previous.as_ref().map_or_else(Vec::new, |last| {
-        last.manifest
-            .files
-            .iter()
-            .map(|file| (file.path.as_str(), file.sha256.as_str()))
-            .collect()
-    });
-    let (mut uploaded_files, mut uploaded_bytes) = (0, 0);
-    for entry in &files {
-        if known.contains(&(entry.path.as_str(), entry.sha256.as_str())) {
-            continue;
-        }
-        let mut file = cut
-            .open_file(Path::new(&entry.path))
-            .map_err(|error| error.to_string())?;
-        file.rewind().map_err(|error| error.to_string())?;
-        client
-            .blob_put_file(
-                &ctx.database_id,
-                &entry.sha256,
-                tokio::fs::File::from_std(file),
-            )
-            .await?;
-        uploaded_files += 1;
-        uploaded_bytes += entry.bytes;
-    }
+    let (uploaded_files, uploaded_bytes) =
+        upload_files(ctx, client, &cut, &files, previous.as_ref()).await?;
     let snapshot_bytes = files.iter().map(|file| file.bytes).sum();
     let list = Manifest {
         upload_id: uuid::Uuid::new_v4().to_string(),
@@ -186,6 +188,44 @@ async fn publish(ctx: &Ctx<'_>, client: &RelayClient) -> Result<Outcome, String>
     )
     .map_err(|_| "cannot save the snapshot record".to_owned())?;
     Ok(Outcome::Done(report))
+}
+
+/// Upload each file of the cut that the previous snapshot of this device did not hold, as a
+/// blob named by its digest. Returns how many files and bytes went up.
+async fn upload_files(
+    ctx: &Ctx<'_>,
+    client: &RelayClient,
+    cut: &DatabaseSnapshot,
+    files: &[FileEntry],
+    previous: Option<&Last>,
+) -> Result<(usize, u64), String> {
+    let known: Vec<(&str, &str)> = previous.map_or_else(Vec::new, |last| {
+        last.manifest
+            .files
+            .iter()
+            .map(|file| (file.path.as_str(), file.sha256.as_str()))
+            .collect()
+    });
+    let (mut uploaded_files, mut uploaded_bytes) = (0, 0);
+    for entry in files {
+        if known.contains(&(entry.path.as_str(), entry.sha256.as_str())) {
+            continue;
+        }
+        let mut file = cut
+            .open_file(Path::new(&entry.path))
+            .map_err(|error| error.to_string())?;
+        file.rewind().map_err(|error| error.to_string())?;
+        client
+            .blob_put_file(
+                &ctx.database_id,
+                &entry.sha256,
+                tokio::fs::File::from_std(file),
+            )
+            .await?;
+        uploaded_files += 1;
+        uploaded_bytes += entry.bytes;
+    }
+    Ok((uploaded_files, uploaded_bytes))
 }
 
 fn elapsed_ms(since: Instant) -> u64 {

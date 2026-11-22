@@ -9,7 +9,7 @@ use crate::storage::format::replay_pin;
 use lastdb_model::hex::sha256_hex;
 use lastdb_model::kind_partition::exact_prefix_bounds;
 use lastdb_model::portable_mutation::Position;
-use lastdb_model::record_value::{MAX_INLINE_STORED_BYTES, MAX_RECORD_BYTES};
+use lastdb_model::record_value::{StoredRecord, MAX_INLINE_STORED_BYTES, MAX_RECORD_BYTES};
 use serde::Deserialize;
 use std::sync::Arc;
 
@@ -91,10 +91,19 @@ impl Metadata {
     /// Drop saved baseline pins for one schema, including records already removed from `rk`.
     pub(crate) async fn release_schema_replay_pins(&self, schema: &str) -> Result<(), SchemaError> {
         let prefix = index_prefix(schema);
-        self.release_indexed_pins(&prefix, schema).await
+        self.release_indexed_pins(&prefix, Some(schema)).await
     }
 
-    async fn release_indexed_pins(&self, prefix: &str, schema: &str) -> Result<(), SchemaError> {
+    /// A position-zero restore keeps its visible records but has no pending cloud echoes.
+    pub(super) async fn release_bootstrap_replay_pins(&self) -> Result<(), SchemaError> {
+        self.release_indexed_pins(INDEX_PREFIX, None).await
+    }
+
+    async fn release_indexed_pins(
+        &self,
+        prefix: &str,
+        schema: Option<&str>,
+    ) -> Result<(), SchemaError> {
         let (lower, upper) = exact_prefix_bounds(prefix);
         let mut start = lower.into_bytes();
         loop {
@@ -123,7 +132,7 @@ impl Metadata {
 
     async fn release_pin_page(
         &self,
-        schema: &str,
+        schema: Option<&str>,
         rows: Vec<(Vec<u8>, Vec<u8>)>,
     ) -> Result<(), SchemaError> {
         let parsed = parse_index_page(schema, &rows)?;
@@ -137,19 +146,67 @@ impl Metadata {
                 "incomplete replay baseline read".into(),
             ));
         }
+        let live_paths = if schema.is_none() {
+            self.live_file_paths(&parsed).await?
+        } else {
+            vec![None; parsed.len()]
+        };
         let mut deletes = Vec::new();
         let mut paths = Vec::new();
-        for ((addr, baseline), (index, _)) in parsed.iter().zip(baselines).zip(rows) {
+        for (((addr, baseline), live), (index, _)) in
+            parsed.iter().zip(baselines).zip(live_paths).zip(rows)
+        {
             deletes.push((String::from_utf8(index).map_err(read_err)?, None));
             deletes.extend(cleared_rows(addr));
             if let Some(bytes) = baseline.as_deref() {
                 if let Some(path) = pinned_path(addr, bytes)? {
-                    paths.push(path);
+                    if Some(&path) != live.as_ref() {
+                        paths.push(path);
+                    }
                 }
             }
         }
         self.stage(deletes).await.map_err(read_err)?;
         replay_pin::retire_files(&self.runtime, paths)
+    }
+
+    async fn live_file_paths(
+        &self,
+        addresses: &[String],
+    ) -> Result<Vec<Option<String>>, SchemaError> {
+        let main = self
+            .runtime
+            .open_store(crate::storage::format::MAIN_NAMESPACE)
+            .await
+            .map_err(read_err)?;
+        let rows = main
+            .get_many(
+                addresses
+                    .iter()
+                    .map(|addr| addr.as_bytes().to_vec())
+                    .collect(),
+            )
+            .await
+            .map_err(read_err)?;
+        if rows.len() != addresses.len() {
+            return Err(read_err("incomplete bootstrap record read"));
+        }
+        addresses
+            .iter()
+            .zip(rows)
+            .map(|(addr, row)| {
+                let record = row
+                    .as_deref()
+                    .map(StoredRecord::decode)
+                    .transpose()
+                    .map_err(read_err)?;
+                record
+                    .filter(StoredRecord::is_live)
+                    .and_then(|record| record.file_version)
+                    .map(|version| record_file_path(addr, &version).map_err(read_err))
+                    .transpose()
+            })
+            .collect()
     }
 }
 
@@ -214,12 +271,26 @@ fn cleared_rows(addr: &str) -> [(String, Option<Vec<u8>>); 6] {
     ]
 }
 
-fn parse_index_page(schema: &str, rows: &[(Vec<u8>, Vec<u8>)]) -> Result<Vec<String>, SchemaError> {
+fn parse_index_page(
+    schema: Option<&str>,
+    rows: &[(Vec<u8>, Vec<u8>)],
+) -> Result<Vec<String>, SchemaError> {
     let mut addresses = Vec::with_capacity(rows.len());
     for (key, value) in rows {
         let key = std::str::from_utf8(key).map_err(read_err)?;
         let addr = std::str::from_utf8(value).map_err(read_err)?;
-        if addr.len() > INDEX_MAX || key != index_key(schema, addr) {
+        let matches = if let Some(schema) = schema {
+            key == index_key(schema, addr)
+        } else {
+            key.strip_prefix(INDEX_PREFIX)
+                .and_then(|suffix| suffix.split_once(':'))
+                .is_some_and(|(schema_hash, address_hash)| {
+                    schema_hash.len() == 64
+                        && schema_hash.bytes().all(|byte| byte.is_ascii_hexdigit())
+                        && address_hash == sha256_hex(addr)
+                })
+        };
+        if addr.len() > INDEX_MAX || !matches {
             return Err(SchemaError::InvalidData(
                 "replay baseline index row does not match its address".into(),
             ));

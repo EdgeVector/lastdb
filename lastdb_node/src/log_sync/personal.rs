@@ -209,6 +209,20 @@ pub(super) async fn turn(host: &Host, client: &RelayClient) -> Option<String> {
 async fn run_turn(host: &Host, client: &RelayClient) -> Result<(), String> {
     let ctx = Ctx::open(host)?;
     let streams = list_streams(&ctx, client).await?.unwrap_or_default();
+    // A home that held data before it began to capture its writes names its first snapshot
+    // before anything else goes up: until it does, the spool is not read for upload.
+    if ctx.runtime.accepted_status().snapshot_required {
+        if let Err(error) = snapshot::run_first(&ctx, client).await {
+            let status = ctx.runtime.accepted_status();
+            ctx.host.cloud_sync.record_upload(
+                &ctx.database_id,
+                status.head,
+                status.acked,
+                Some(error.clone()),
+            );
+            return Err(error);
+        }
+    }
     // A failure of the sender must not stop the incoming side, or the reverse.
     let sent = outgoing::run(&ctx, client, &streams).await;
     let read = incoming::run(&ctx, client, &streams).await;
@@ -249,6 +263,7 @@ pub(super) fn pending(host: &Host) -> bool {
         return false;
     };
     status.head > status.acked
+        || status.snapshot_required
         || !matches!(saved::load(&host.home, &database_id), Ok(None))
         || snapshot_state::requested(&host.home, &database_id)
 }
