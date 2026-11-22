@@ -115,6 +115,5 @@ fn outbox_len(home: &Path, database_id: &str) -> u64 {
     if let Some(n) = histories_for(home).peek_with(database_id, |history| history.outbox().len()) {
         return n as u64;
     }
-    history_store::load_outbox_entries(home, database_id)
-        .map_or(0, |entries| entries.len() as u64)
+    history_store::load_outbox_entries(home, database_id).map_or(0, |entries| entries.len() as u64)
 }
