@@ -1,4 +1,4 @@
-//! Daemon sync loop: idle without relay URL; otherwise upload outbox and pull.
+//! Daemon sync loop: idle without relay URL; otherwise upload the log and pull.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -60,7 +60,7 @@ pub fn spawn(
                                 true
                             }
                         };
-                        if failed && outbox_pending(&host, &histories) {
+                        if failed && outbox_pending(&host) {
                             // Mark for another pass; keep ACTIVE delay so fast
                             // failures (refused / 4xx / 429) cannot spin.
                             wake::request_wake(&host.home);
@@ -97,7 +97,7 @@ async fn one_turn(host: &Host, histories: &HistoryMap, base: &str) -> Result<(),
     for database in &owned {
         // Drain every pending batch this turn. A single 32-entry prefix left
         // grants behind continuous mirrored data and readers hit empty indexes.
-        if let Some(err) = upload_outbox(&client, histories, &host.home, &database.id).await {
+        if let Some(err) = upload_outbox(&client, host, &database.id).await {
             turn_error = Some(err);
         }
     }
@@ -109,9 +109,22 @@ async fn one_turn(host: &Host, histories: &HistoryMap, base: &str) -> Result<(),
         // local birth is accepted: an offline setup with only birth.json has
         // no chain on the relay, and log/read 403 has_publisher:false must not
         // poison the turn (People receiver-created *-offline databases).
-        let has_birth = histories
-            .peek_with(&database.id, |history| history.owner().is_some())
-            .unwrap_or(false);
+        // The history is rebuilt from the log here when this process has not
+        // loaded it yet; a log that cannot be read is this turn's error.
+        let has_birth = match histories.with_mut(&database.id, |history| history.owner().is_some())
+        {
+            Ok(has_birth) => has_birth,
+            Err(err) => {
+                tracing::warn!(
+                    target: "lastdbd::log_sync",
+                    id = %database.id,
+                    %err,
+                    "history could not be loaded from the log"
+                );
+                turn_error = Some(err);
+                continue;
+            }
+        };
         if !has_birth {
             continue;
         }
@@ -128,13 +141,13 @@ async fn one_turn(host: &Host, histories: &HistoryMap, base: &str) -> Result<(),
     // Incorporations and discard acks authored during pull must upload this
     // turn so members can settle submission_status without waiting another loop.
     for database in &owned {
-        if let Some(err) = upload_outbox(&client, histories, &host.home, &database.id).await {
+        if let Some(err) = upload_outbox(&client, host, &database.id).await {
             turn_error = Some(err);
         }
     }
     // Member proposals and direct writes land on the received outbox; upload
     // them before pulling so publish.lastAttempt reflects a real attempt.
-    if let Some(err) = upload_received_outboxes(host, histories, &client).await {
+    if let Some(err) = upload_received_outboxes(host, &client).await {
         turn_error = Some(err);
     }
     if let Err(err) = pull_received_shares(host, histories, &client).await {
@@ -176,7 +189,6 @@ async fn pull_owned(
         return Ok(());
     };
     let db = DatabaseCtx {
-        home: &host.home,
         database_id,
         store: &store,
     };
@@ -242,7 +254,6 @@ async fn pull_one_received(
     // Ensure an in-memory history exists so AcceptEntry has a place to land.
     histories.with_mut(share.id.as_str(), |_| ())?;
     let db = DatabaseCtx {
-        home: &host.home,
         database_id: share.id.as_str(),
         store: &store,
     };

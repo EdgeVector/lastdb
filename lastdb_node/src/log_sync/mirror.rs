@@ -1,4 +1,4 @@
-//! Mirror an owned shareable `/v1/write` onto the signed history outbox.
+//! Mirror an owned shareable `/v1/write` onto the signed history log.
 //!
 //! FoldDB remains the publisher's local store of truth for the write that just
 //! committed. The signed `data` entry lets receivers materialize the same
@@ -11,14 +11,14 @@ use std::path::Path;
 use fold_db::fold_db_core::FoldDB;
 use fold_db::schema::types::MutationType;
 use mutation_log::{
-    author_data, author_schema, data_record, entry_hash, AcceptOutcome, AuthorCtx, DatabaseId,
-    SchemaBody, StreamKind, VerifiedHistory,
+    author_data, author_schema, data_record, AcceptOutcome, AuthorCtx, DatabaseId, SchemaBody,
+    StreamKind, VerifiedHistory,
 };
 use serde_json::Value;
 
-use super::apply::AuthorIdentity;
 use super::birth;
 use super::chain_author;
+use super::chain_author::AuthorIdentity;
 use super::device;
 use super::history_store;
 use super::materialize;
@@ -88,7 +88,7 @@ fn ensure_birth(history: &mut VerifiedHistory, ctx: &MirrorCtx<'_>) -> Result<()
         .ok_or_else(|| "this database has no signed birth on this node".to_owned())?;
     let author = author_ctx(history, ctx, 0);
     let entry = birth::entry(&material, &author, ctx.identity)?;
-    accept_outbox(history, ctx, entry)
+    accept_outbox(history, ctx, &entry)
 }
 
 fn ensure_schema(
@@ -116,7 +116,7 @@ fn ensure_schema(
     };
     let entry =
         author_schema(&author, &ctx.identity.signing_key, body).map_err(|e| e.to_string())?;
-    accept_outbox(history, ctx, entry)
+    accept_outbox(history, ctx, &entry)
 }
 
 fn schema_definition_matches(prior: &[u8], current: &fold_db::schema::types::Schema) -> bool {
@@ -148,7 +148,7 @@ fn author_one(
         &value,
     );
     let entry = author_data(&author, &ctx.identity.signing_key, body).map_err(|e| e.to_string())?;
-    accept_outbox(history, ctx, entry)
+    accept_outbox(history, ctx, &entry)
 }
 
 fn author_ctx(history: &VerifiedHistory, ctx: &MirrorCtx<'_>, authored_at_ms: u64) -> AuthorCtx {
@@ -170,15 +170,10 @@ fn author_ctx(history: &VerifiedHistory, ctx: &MirrorCtx<'_>, authored_at_ms: u6
 fn accept_outbox(
     history: &mut VerifiedHistory,
     ctx: &MirrorCtx<'_>,
-    entry: mutation_log::SignedEntry,
+    entry: &mutation_log::SignedEntry,
 ) -> Result<(), String> {
-    let hash = entry_hash(&entry).map_err(|e| e.to_string())?;
-    match history.accept_entry(entry.clone()) {
-        AcceptOutcome::Accept { .. } => {
-            history_store::append_authored(ctx.home, ctx.database_id, &entry)?;
-            history.outbox_mut().enqueue(hash, entry);
-            history_store::persist_outbox(ctx.home, ctx.database_id, history.outbox())
-        }
+    match history_store::commit_authored(ctx.home, history, entry)? {
+        AcceptOutcome::Accept { .. } => Ok(()),
         AcceptOutcome::Pending { reason } => {
             Err(format!("authored entry pending locally: {reason:?}"))
         }

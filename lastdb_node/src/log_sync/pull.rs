@@ -4,7 +4,7 @@ use std::collections::BTreeSet;
 
 use mutation_log::{AcceptOutcome, NodeKey, Role, SignedEntry, VerifiedHistory};
 
-use super::history_store::{self, HistoryMap};
+use super::history_store::HistoryMap;
 use super::materialize::{self, DatabaseCtx};
 use super::relay::RelayClient;
 
@@ -239,10 +239,7 @@ fn accept_one(
 ) -> Result<bool, String> {
     histories.with_mut(db.database_id, |history| {
         match history.accept_entry(entry) {
-            AcceptOutcome::Accept { duplicate, .. } => {
-                history_store::persist_outbox(db.home, db.database_id, history.outbox())?;
-                Ok(!duplicate)
-            }
+            AcceptOutcome::Accept { duplicate, .. } => Ok(!duplicate),
             AcceptOutcome::Pending { .. } => Ok(false),
             AcceptOutcome::Reject { reason } => {
                 tracing::warn!(

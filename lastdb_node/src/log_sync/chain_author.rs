@@ -1,22 +1,28 @@
 //! Author one signed entry on this node's device stream.
 //!
-//! The entry is accepted locally, appended to the authored log, queued on the
-//! outbox, and the sync loop is woken. All of it happens under the history
-//! lock, so two callers cannot take the same `writer_seq`.
+//! The entry is accepted on a copy of the history, appended to the authored
+//! log, and the sync loop is woken. All of it happens under the history lock,
+//! so two callers cannot take the same `writer_seq`.
 
 use std::path::Path;
 
 use app_identity_crypto::SigningKey;
 use mutation_log::{
-    entry_hash, AcceptOutcome, AuthorCtx, DatabaseId, EntryHash, NodeKey, RejectReason,
+    entry_hash, AcceptOutcome, AuthorCtx, DatabaseId, DeviceId, EntryHash, NodeKey, RejectReason,
     SignedEntry, VerifiedHistory,
 };
 
-use super::apply::AuthorIdentity;
 use super::birth;
 use super::chain_error::ChainError;
 use super::history_store::{self, HistoryMap};
 use crate::host::Host;
+
+/// The key and device that sign every entry this node authors.
+pub(crate) struct AuthorIdentity {
+    pub(crate) signing_key: SigningKey,
+    pub(crate) node_key: NodeKey,
+    pub(crate) device_id: DeviceId,
+}
 
 /// Where an entry is authored.
 pub(super) struct Target<'a> {
@@ -72,7 +78,7 @@ fn author_with(
                 ensure_publisher(history, target, database)?;
             }
             let entry = build(base_ctx(history, database, target.identity), history)?;
-            accept_local(history, target, entry)
+            accept_local(history, target, &entry)
         })
         .map_err(|_| ChainError::Unconfirmed)?;
     if result.is_ok() {
@@ -112,7 +118,7 @@ fn ensure_publisher(
         let ctx = base_ctx(history, database, target.identity);
         let entry =
             birth::entry(&material, &ctx, target.identity).map_err(|_| ChainError::Unconfirmed)?;
-        accept_local(history, target, entry)?;
+        accept_local(history, target, &entry)?;
     }
     if history.owner() == Some(target.identity.node_key) {
         Ok(())
@@ -126,26 +132,22 @@ fn ensure_publisher(
 fn accept_local(
     history: &mut VerifiedHistory,
     target: &Target<'_>,
-    entry: SignedEntry,
+    entry: &SignedEntry,
 ) -> Result<Authored, ChainError> {
-    let hash = entry_hash(&entry).map_err(|_| ChainError::Unconfirmed)?;
+    let hash = entry_hash(entry).map_err(|_| ChainError::Unconfirmed)?;
     let writer_seq = entry.header().writer_seq;
-    match history.accept_entry(entry.clone()) {
-        AcceptOutcome::Accept { .. } => {}
-        AcceptOutcome::Pending { reason } => {
+    match history_store::commit_authored(target.home, history, entry) {
+        Ok(AcceptOutcome::Accept { .. }) => {}
+        Ok(AcceptOutcome::Pending { reason }) => {
             tracing::warn!(target: "lastdbd::log_sync", ?reason, "authored entry is pending locally");
             return Err(ChainError::Unconfirmed);
         }
-        AcceptOutcome::Reject { reason } => return Err(rejected(&reason)),
+        Ok(AcceptOutcome::Reject { reason }) => return Err(rejected(&reason)),
+        Err(error) => {
+            tracing::warn!(target: "lastdbd::log_sync", %error, "authored entry was not appended to the log");
+            return Err(ChainError::Unconfirmed);
+        }
     }
-    if history_store::append_authored(target.home, target.database_id, &entry).is_err() {
-        // Memory must not run ahead of the log it is rebuilt from.
-        *history = history_store::replay_authored(target.home, history.database_id());
-        return Err(ChainError::Unconfirmed);
-    }
-    history.outbox_mut().enqueue(hash, entry);
-    history_store::persist_outbox(target.home, target.database_id, history.outbox())
-        .map_err(|_| ChainError::Unconfirmed)?;
     Ok(Authored {
         entry_hash: hash,
         writer_seq,

@@ -1,28 +1,39 @@
-//! Outbox upload to the relay, with publish-state notes for received DBs.
+//! Upload the authored log to the relay by cursor, with publish-state notes
+//! for received databases.
+//!
+//! Pending entries are the log entries past `uploaded.json`. The cursor moves
+//! only after the relay acknowledges a batch. A crash between the
+//! acknowledgement and the cursor write re-sends that batch, and the relay
+//! counts identical entries as stored.
 
 use std::path::Path;
-
-use mutation_log::{entry_hash, SignedEntry};
 
 use crate::host::Host;
 use crate::registered_share;
 
-use super::history_store::{self, HistoryMap};
+use super::history_store;
 use super::publish_state;
 use super::relay::RelayClient;
 
-/// Drain one outbox and record publish state when an upload ran.
+const BATCH: usize = 32;
+
+/// Upload one database's pending entries and record its upload position.
 pub(super) async fn upload_outbox(
     client: &RelayClient,
-    histories: &HistoryMap,
-    home: &Path,
+    host: &Host,
     database_id: &str,
 ) -> Option<String> {
-    match drain_outbox(client, histories, home, database_id).await {
+    let result = drain_log(client, &host.home, database_id).await;
+    let (head, confirmed) = history_store::pending(&host.home, database_id, 0)
+        .map_or((0, 0), |found| {
+            (found.log_len as u64, found.uploaded as u64)
+        });
+    match result {
         Ok(uploaded) => {
+            host.cloud_sync
+                .record_upload(database_id, head, confirmed, None);
             if uploaded {
-                let pending = super::outbox_len(home, database_id);
-                publish_state::note_confirmed(database_id, pending);
+                publish_state::note_confirmed(database_id, head - confirmed);
             }
             None
         }
@@ -31,20 +42,18 @@ pub(super) async fn upload_outbox(
                 target: "lastdbd::log_sync",
                 id = %database_id,
                 %err,
-                "outbox upload failed"
+                "log upload failed"
             );
+            host.cloud_sync
+                .record_upload(database_id, head, confirmed, Some(err.clone()));
             publish_state::note_failure(database_id, &err);
             Some(err)
         }
     }
 }
 
-/// Upload every signed-log received outbox; record publish.lastAttempt.
-pub(super) async fn upload_received_outboxes(
-    host: &Host,
-    histories: &HistoryMap,
-    client: &RelayClient,
-) -> Option<String> {
+/// Upload every signed-log received database's log; record publish.lastAttempt.
+pub(super) async fn upload_received_outboxes(host: &Host, client: &RelayClient) -> Option<String> {
     let shares = registered_share::list(&host.home).ok()?;
     let mut turn_error = None;
     for share in shares {
@@ -54,29 +63,28 @@ pub(super) async fn upload_received_outboxes(
         if mutation_log::DatabaseId::from_hex(share.id.as_str()).is_err() {
             continue;
         }
-        if let Some(err) = upload_outbox(client, histories, &host.home, share.id.as_str()).await {
+        if let Some(err) = upload_outbox(client, host, share.id.as_str()).await {
             turn_error = Some(err);
         }
     }
     turn_error
 }
 
-/// True when any syncable database still has unacked outbox entries.
-pub(super) fn outbox_pending(host: &Host, histories: &HistoryMap) -> bool {
+/// True when any syncable database still has log entries the relay has not
+/// acknowledged. An unreadable log or cursor counts as pending, so the loop
+/// keeps retrying and the error stays visible.
+pub(super) fn outbox_pending(host: &Host) -> bool {
     for database in crate::host::owned::registered_databases(&host.home) {
         if database.kind != "personal" && database.kind != "shareable" {
             continue;
         }
-        if database_outbox_pending(histories, &host.home, &database.id) {
+        if database_pending(&host.home, &database.id) {
             return true;
         }
     }
     if let Ok(shares) = registered_share::list(&host.home) {
         for share in shares {
-            if !share.signed_log {
-                continue;
-            }
-            if database_outbox_pending(histories, &host.home, share.id.as_str()) {
+            if share.signed_log && database_pending(&host.home, share.id.as_str()) {
                 return true;
             }
         }
@@ -84,79 +92,30 @@ pub(super) fn outbox_pending(host: &Host, histories: &HistoryMap) -> bool {
     false
 }
 
-fn database_outbox_pending(histories: &HistoryMap, home: &Path, database_id: &str) -> bool {
+fn database_pending(home: &Path, database_id: &str) -> bool {
     if mutation_log::DatabaseId::from_hex(database_id).is_err() {
         return false;
     }
-    let memory = histories
-        .peek_with(database_id, |history| !history.outbox().is_empty())
-        .unwrap_or(false);
-    if memory {
-        return true;
-    }
-    matches!(
-        history_store::load_outbox_entries(home, database_id),
-        Ok(entries) if !entries.is_empty()
-    )
+    !matches!(history_store::pending_count(home, database_id), Ok(0))
 }
 
-/// Upload until this database's outbox is empty (or the batch cap is hit).
-/// Returns whether any batch was sent to the relay.
-async fn drain_outbox(
-    client: &RelayClient,
-    histories: &HistoryMap,
-    home: &Path,
-    database_id: &str,
-) -> Result<bool, String> {
-    let disk_entries = history_store::load_outbox_entries(home, database_id)?;
-    if !disk_entries.is_empty() {
-        histories.with_mut(database_id, |history| {
-            history_store::requeue_outbox(history, disk_entries)
-        })??;
-    }
+/// Upload until the cursor reaches the log head. Returns whether any batch
+/// was sent to the relay.
+async fn drain_log(client: &RelayClient, home: &Path, database_id: &str) -> Result<bool, String> {
     let mut uploaded = false;
-    for _ in 0..64 {
-        let batch = histories.with_mut(database_id, |history| {
-            history
-                .outbox()
-                .batch(32)
-                .into_iter()
-                .cloned()
-                .collect::<Vec<_>>()
-        })?;
-        if batch.is_empty() {
+    loop {
+        let found = history_store::pending(home, database_id, BATCH)?;
+        if found.batch.is_empty() {
             return Ok(uploaded);
         }
-        upload_batch(client, histories, home, database_id, &batch).await?;
+        let expected = found.batch.len() as u64;
+        let (stored, _duplicate) = client.append(database_id, &found.batch).await?;
+        if stored < expected {
+            return Err(format!(
+                "relay log.append stored {stored} of {expected} log entries"
+            ));
+        }
+        history_store::store_uploaded(home, database_id, found.uploaded + found.batch.len())?;
         uploaded = true;
     }
-    Err(format!(
-        "outbox for {database_id} still pending after 64 upload batches"
-    ))
-}
-
-async fn upload_batch(
-    client: &RelayClient,
-    histories: &HistoryMap,
-    home: &Path,
-    database_id: &str,
-    batch: &[SignedEntry],
-) -> Result<(), String> {
-    let (stored, duplicate) = client.append(database_id, batch).await?;
-    let _ = duplicate;
-    let expected = batch.len() as u64;
-    if stored < expected {
-        return Err(format!(
-            "relay log.append stored {stored} of {expected} outbox entries"
-        ));
-    }
-    histories.with_mut(database_id, |history| {
-        for entry in batch {
-            if let Ok(hash) = entry_hash(entry) {
-                history.outbox_mut().ack(&hash);
-            }
-        }
-        history_store::persist_outbox(home, database_id, history.outbox())
-    })??;
-    Ok(())
 }
