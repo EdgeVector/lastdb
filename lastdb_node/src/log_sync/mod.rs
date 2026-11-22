@@ -116,6 +116,5 @@ fn outbox_len(home: &Path, database_id: &str) -> u64 {
         return n as u64;
     }
     history_store::load_outbox_entries(home, database_id)
-        .map(|entries| entries.len() as u64)
-        .unwrap_or(0)
+        .map_or(0, |entries| entries.len() as u64)
 }

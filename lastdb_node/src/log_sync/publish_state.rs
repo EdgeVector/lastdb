@@ -86,7 +86,7 @@ fn http_status(reason: &str) -> Option<u16> {
     let start = reason.find(marker)? + marker.len();
     let digits: String = reason[start..]
         .chars()
-        .take_while(|c| c.is_ascii_digit())
+        .take_while(char::is_ascii_digit)
         .collect();
     digits.parse().ok()
 }
