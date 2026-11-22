@@ -49,7 +49,7 @@ pub(crate) use mirror::{mirror_owned_write, OwnedMutation};
 pub use personal::{
     install_newest_snapshot, restore_personal_database, RestoreReport, SnapshotBase,
 };
-pub(crate) use personal::{request_snapshot, snapshot_status};
+pub(crate) use personal::{known_snapshot, request_snapshot, snapshot_status};
 pub(crate) use proposal::{
     status as share_write_status, submit as submit_share_write, ContributionError,
 };

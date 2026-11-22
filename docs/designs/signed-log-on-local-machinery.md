@@ -308,3 +308,48 @@ The size of the owner's home, any `pending` row its old store holds (the CI vari
 ### Deferred
 
 Step 6 (the relay drops the entries a snapshot covers). A second snapshot entry after a kill at one window is left on the relay, harmless and small.
+
+## 12. Where the snapshot is: status, and a file the relay refuses
+
+### What `lastdb status` says
+
+After the `Cloud sync:` line, `lastdb status` prints where the newest snapshot of the personal database is. The node does not call the relay for it. It reads `snapshot-known.json` (beside `snapshot-last.json`, outside the store), which the node writes when it publishes a snapshot and when a restore installs one. The daemon reads it at boot, so the line is right after a restart.
+
+| State | Line |
+|---|---|
+| A snapshot is known | `Snapshot: 2026-11-22 14:03:11 +0000, 7 files, 1.4 MiB, on https://relay.example, covers this device through entry 311` |
+| None yet | `Snapshot: none yet` |
+| The first snapshot of an existing home is being published | `Snapshot: none yet, the first snapshot of this home is in progress` |
+| A snapshot cannot be published | the line above for the newest known snapshot, then `Snapshot blocked: <message>` |
+
+The time is local, from the signed time of the `snapshot` entry. The relay is its origin. "Through entry N" is the last entry of this device's own stream that the snapshot covers. It is 0 for a snapshot that holds no entry of this device: the first snapshot of a home that held data before it began to sync, and a snapshot that a restore installed for a new device. The line is not printed when the node has no cloud sync and knows no snapshot.
+
+`/api/status` carries the same facts as a new object, `cloud_sync.snapshot`. Existing fields of `cloud_sync` are unchanged.
+
+| Field | Meaning |
+|---|---|
+| `state` | `none`, `in_progress`, `published`, `installed` or `blocked` |
+| `taken_at_ms` | Signed time of the `snapshot` entry (Unix ms) |
+| `files`, `bytes` | Files in the manifest and their total length |
+| `relay` | Origin of the relay that holds it |
+| `manifest_sha256` | Digest of the manifest the entry names |
+| `through_seq` | Last entry of this device's own stream that the snapshot covers (0 if none) |
+| `snapshot_seq` | Sequence number of the `snapshot` entry |
+| `streams` | Device streams the snapshot covers |
+| `message` | Why a snapshot is blocked, else null |
+
+A field is null while the state is `none` or `in_progress`.
+
+### A file larger than the relay accepts
+
+The Exemem relay takes at most 64 MiB for one blob and answers a larger `blob.put` begin with HTTP 400, code `invalid_request`, field `bytes`. The reference relay has no limit unless it starts with `--max-blob-bytes`, and then answers the same way (`relay-protocol.md`). The node knows this answer when it comes from the begin of an upload of a file with a length above zero. It does not know the limit, because the relay does not say it.
+
+The snapshot then stops. The report is the one in the status (`state` `blocked`, `message`), in the daemon log as one warning, and, for a request, in the error of `lastdb backup snapshot --wait`. It names the run file (the file name only, no path and no content), its length, the relay, says that the relay's limit on one file is smaller, and that the snapshot can be published when the limit is raised or the node can send large files in parts. Large files are not split in this step.
+
+- A refusal is not a failed sync turn. Entries upload and ordinary writes go on. The next automatic attempt waits ten minutes (in memory; a restart clears it), because each attempt freezes and hashes every file. `lastdb backup snapshot` always tries.
+- The first snapshot of a home that held data before it began to sync is the one exception to "entries go on": until it is named on the relay the spool is not read for upload (section 11), so entries wait. The turn returns the message as its error and does not start a new attempt for ten minutes.
+- A success clears the state.
+
+### What CI proves
+
+`personal_database_proof.py`, step 15: a fresh home says `Snapshot: none yet`; after a snapshot, the line and the object equal the report and the signed entry on the relay (time, file count, bytes, relay, digest, own sequence); a home restored from it reports the same snapshot as `installed` with through entry 0; against a reference relay started with a 64 KiB limit, a home with larger data files gets one refusal, the message above in the status and in the daemon log, no second request in twelve seconds of sync turns, and its entries still upload. CI cannot cover the real Exemem relay's answer.
