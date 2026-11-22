@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use app_identity_crypto::SigningKey;
 use cloud_backup_protocol::Id;
-use mutation_log::{entry_hash, NodeKey, SignedEntry};
+use mutation_log::NodeKey;
 use tracing::Instrument;
 
 use crate::host::Host;
@@ -14,8 +14,9 @@ use crate::registered_share::{self, RegisteredShare};
 
 use super::config;
 use super::device;
-use super::history_store::{self, HistoryMap};
+use super::history_store::HistoryMap;
 use super::materialize::{self, DatabaseCtx};
+use super::outbox_upload::{outbox_pending, upload_outbox, upload_received_outboxes};
 use super::relay::RelayClient;
 use super::wake;
 
@@ -81,34 +82,24 @@ async fn one_turn(host: &Host, histories: &HistoryMap, base: &str) -> Result<(),
     let node_key = NodeKey::from_bytes(host.keypair.public_key_bytes());
     let node_key_hex = node_key.to_hex();
     let device_id = device::device_id(&host.home)?;
-    let client = RelayClient::new(base, signing_key, node_key_hex.clone(), &device_id)?;
+    let client = RelayClient::new(base, signing_key, node_key_hex, &device_id)?;
 
-    // Upload every owned and received outbox before any pull. Personal (and any
-    // shareable whose birth is not on the relay yet) gets log/read 403
-    // field=grant; that must not abort the turn before shareable birth/grant
-    // entries upload. Personal DBs are not pulled: empty-index grant-403 is
-    // expected there and must not poison turn_error / sticky last_error.
+    // Upload every owned outbox before any pull. Personal (and any shareable
+    // whose birth is not on the relay yet) gets log/read 403 field=grant; that
+    // must not abort the turn before shareable birth/grant entries upload.
+    // Personal DBs are not pulled: empty-index grant-403 is expected there and
+    // must not poison turn_error / sticky cloud_sync.last_error.
     let mut turn_error: Option<String> = None;
     let owned: Vec<_> = crate::host::owned::registered_databases(&host.home)
         .into_iter()
-        .filter(|database| syncable_owned(database.kind, &database.id))
+        .filter(|database| syncable_owned(&database.kind, &database.id))
         .collect();
     for database in &owned {
-        match drain_outbox(&client, histories, &host.home, &database.id).await {
-            Ok(()) => {}
-            Err(err) => {
-                tracing::warn!(
-                    target: "lastdbd::log_sync",
-                    id = %database.id,
-                    %err,
-                    "outbox upload failed"
-                );
-                turn_error = Some(err);
-            }
+        // Drain every pending batch this turn. A single 32-entry prefix left
+        // grants behind continuous mirrored data and readers hit empty indexes.
+        if let Some(err) = upload_outbox(&client, histories, &host.home, &database.id).await {
+            turn_error = Some(err);
         }
-    }
-    if let Err(err) = drain_received_outboxes(host, histories, &client).await {
-        turn_error = Some(err);
     }
     for database in &owned {
         if database.kind == "personal" {
@@ -134,6 +125,11 @@ async fn one_turn(host: &Host, histories: &HistoryMap, base: &str) -> Result<(),
             turn_error = Some(err);
         }
     }
+    // Member proposals and direct writes land on the received outbox; upload
+    // them before pulling so publish.lastAttempt reflects a real attempt.
+    if let Some(err) = upload_received_outboxes(host, histories, &client).await {
+        turn_error = Some(err);
+    }
     if let Err(err) = pull_received_shares(host, histories, &client).await {
         turn_error = Some(err);
     }
@@ -156,32 +152,6 @@ fn syncable_owned(kind: &str, id: &str) -> bool {
         return false;
     }
     true
-}
-
-async fn drain_received_outboxes(
-    host: &Host,
-    histories: &HistoryMap,
-    client: &RelayClient,
-) -> Result<(), String> {
-    let shares = registered_share::list(&host.home).map_err(|e| e.to_string())?;
-    for share in shares {
-        if !share.signed_log {
-            continue;
-        }
-        if mutation_log::DatabaseId::from_hex(share.id.as_str()).is_err() {
-            continue;
-        }
-        if let Err(err) = drain_outbox(client, histories, &host.home, share.id.as_str()).await {
-            tracing::warn!(
-                target: "lastdbd::log_sync",
-                id = %share.id.as_str(),
-                %err,
-                "received outbox upload failed"
-            );
-            return Err(err);
-        }
-    }
-    Ok(())
 }
 
 async fn pull_owned(
@@ -256,104 +226,4 @@ async fn pull_one_received(
         seed.push(share.publisher.as_str().to_owned());
     }
     super::pull::pull_writers(client, histories, &db, seed).await
-}
-
-/// Upload until this database's outbox is empty (or the batch cap is hit).
-async fn drain_outbox(
-    client: &RelayClient,
-    histories: &HistoryMap,
-    home: &std::path::Path,
-    database_id: &str,
-) -> Result<(), String> {
-    // Reload disk outbox into memory if history is empty.
-    let disk_entries = history_store::load_outbox_entries(home, database_id)?;
-    if !disk_entries.is_empty() {
-        histories.with_mut(database_id, |history| {
-            history_store::requeue_outbox(history, disk_entries)
-        })??;
-    }
-    // Cap batches so a runaway outbox cannot block the turn forever.
-    for _ in 0..64 {
-        let batch = histories.with_mut(database_id, |history| {
-            history
-                .outbox()
-                .batch(32)
-                .into_iter()
-                .cloned()
-                .collect::<Vec<_>>()
-        })?;
-        if batch.is_empty() {
-            return Ok(());
-        }
-        upload_batch(client, histories, home, database_id, &batch).await?;
-    }
-    Err(format!(
-        "outbox for {database_id} still pending after 64 upload batches"
-    ))
-}
-
-async fn upload_batch(
-    client: &RelayClient,
-    histories: &HistoryMap,
-    home: &std::path::Path,
-    database_id: &str,
-    batch: &[SignedEntry],
-) -> Result<(), String> {
-    let (stored, duplicate) = client.append(database_id, batch).await?;
-    let _ = duplicate;
-    let expected = batch.len() as u64;
-    if stored < expected {
-        return Err(format!(
-            "relay log.append stored {stored} of {expected} outbox entries"
-        ));
-    }
-    histories.with_mut(database_id, |history| {
-        for entry in batch {
-            if let Ok(hash) = entry_hash(entry) {
-                history.outbox_mut().ack(&hash);
-            }
-        }
-        history_store::persist_outbox(home, database_id, history.outbox())
-    })??;
-    Ok(())
-}
-
-/// True when any syncable database still has unacked outbox entries.
-fn outbox_pending(host: &Host, histories: &HistoryMap) -> bool {
-    for database in crate::host::owned::registered_databases(&host.home) {
-        if !syncable_owned(database.kind, &database.id) {
-            continue;
-        }
-        if outbox_pending_one(histories, &host.home, &database.id) {
-            return true;
-        }
-    }
-    let Ok(shares) = registered_share::list(&host.home) else {
-        return false;
-    };
-    for share in shares {
-        if !share.signed_log {
-            continue;
-        }
-        if mutation_log::DatabaseId::from_hex(share.id.as_str()).is_err() {
-            continue;
-        }
-        if outbox_pending_one(histories, &host.home, share.id.as_str()) {
-            return true;
-        }
-    }
-    false
-}
-
-fn outbox_pending_one(histories: &HistoryMap, home: &std::path::Path, database_id: &str) -> bool {
-    let memory = histories
-        .peek_with(database_id, |history| !history.outbox().is_empty())
-        .unwrap_or(false);
-    if memory {
-        return true;
-    }
-    matches!(
-        history_store::load_outbox_entries(home, database_id),
-        Ok(entries) if !entries.is_empty()
-    )
 }

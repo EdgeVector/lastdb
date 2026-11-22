@@ -2,9 +2,10 @@
 //!
 //! An owned database and the personal database behave as before. A received
 //! database is readable once its signed history has materialized into the
-//! receiver store. A write commits locally, then authors a signed direct entry
-//! on this member's own stream and enqueues the received database's outbox.
-//! Otherwise the write is refused. `changes` does not open a received database.
+//! receiver store. A write commits only when this node holds a folded Write
+//! role; after the local commit it authors a signed direct entry on this
+//! member's own stream and enqueues the received database's outbox. Otherwise
+//! the write is refused. `changes` does not open a received database.
 
 use std::future::Future;
 use std::sync::Arc;
@@ -116,9 +117,9 @@ async fn write_received<T>(
         .await
         .map_err(|_| HostError::new(503, STORE_UNAVAILABLE))?;
     let result = host.with_records(Arc::clone(&store), future).await;
-    // The write may have moved the spool. Record the cursor the list reads.
-    crate::log_sync::note_receiver(share.id.as_str(), &store);
     let Ok(body) = result else {
+        // The write may have moved the outbox. Record the count the list reads.
+        crate::log_sync::note_receiver(&host.home, share.id.as_str());
         return result;
     };
     crate::log_sync::mirror_received_write(host, share, mutations).map_err(|error| {
@@ -131,6 +132,8 @@ async fn write_received<T>(
         );
         HostError::new(reply.status, reply.message)
     })?;
+    // Mirror enqueued the member stream entry; refresh publish.pending.
+    crate::log_sync::note_receiver(&host.home, share.id.as_str());
     Ok(body)
 }
 
@@ -142,6 +145,6 @@ async fn read_received<T>(
     let store = registered_share::receiver_store(host, &share.id)
         .await
         .map_err(|_| HostError::new(503, STORE_UNAVAILABLE))?;
-    crate::log_sync::note_receiver(share.id.as_str(), &store);
+    crate::log_sync::note_receiver(&host.home, share.id.as_str());
     host.with_records(store, future).await
 }

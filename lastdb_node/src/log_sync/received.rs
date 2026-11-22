@@ -16,7 +16,9 @@ pub(crate) fn view(host: &Host, database_id: &str) -> Option<Value> {
         .map(|role| json!({ "role": role }))
 }
 
-fn role_of(history: &VerifiedHistory, node: NodeKey) -> Option<Role> {
+/// Folded role for `node` in `history`: owner is Write; else the grant window;
+/// else a public `any` role when present.
+pub(crate) fn role_of(history: &VerifiedHistory, node: NodeKey) -> Option<Role> {
     if history.owner() == Some(node) {
         return Some(Role::Write);
     }
