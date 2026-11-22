@@ -19,6 +19,9 @@ use std::path::Path;
 use crate::storage::disk_pack::PackRuntime;
 use crate::storage::error::{StorageError, StorageResult};
 
+/// The most notes one commit may put in the spool. See `CONTROL_MAX`.
+pub(crate) const NOTES_MAX: usize = 1024;
+
 pub(crate) fn schema_drop_id(name: &str) -> String {
     body::schema_id(name, "drop")
 }

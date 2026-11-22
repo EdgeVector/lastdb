@@ -2,11 +2,11 @@
 //!
 //! The relay stores what a node signs, and it must learn nothing about the
 //! records in it. Every payload of the personal database is sealed with the
-//! database read key before the entry is signed: the record key and value of a
-//! `data` entry, the definition of a `schema` entry, and the blob of a `bundle`.
-//! There is one mechanism for all three: the AES-256-GCM envelope that LastDB
-//! already uses for stored data, `0x01 ‖ nonce(12) ‖ ciphertext ‖ tag(16)`,
-//! with a fresh random nonce.
+//! database read key before the entry is signed: the accepted body of a `data`
+//! entry (a record write with its alternate keys, a schema put or drop) and the
+//! blob of a file that a record names. There is one mechanism for both: the
+//! AES-256-GCM envelope that LastDB already uses for stored data,
+//! `0x01 ‖ nonce(12) ‖ ciphertext ‖ tag(16)`, with a fresh random nonce.
 //!
 //! The bound data of the envelope is the database id, the node key, the device
 //! id and the `writer_seq` of the entry (32 + 32 + 32 + 8 bytes). A ciphertext
@@ -33,11 +33,6 @@ impl Sealer {
             key: personal_identity::read_key(node_seed, &id),
             database: DatabaseId::from_hex(&id).map_err(|_| "personal database id is not hex32")?,
         })
-    }
-
-    /// The database this sealer belongs to.
-    pub(crate) fn database(&self) -> DatabaseId {
-        self.database
     }
 
     /// Seal `plain` for the entry that this node will sign at this position.

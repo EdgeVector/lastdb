@@ -131,8 +131,12 @@ impl SchemaStore {
             if let Some(replay) = replay {
                 self.metadata.finish_schema_drop(name, replay).await?;
             } else if existed {
-                let mutation_id =
-                    accepted::stage_schema_drop(&self.runtime, &self.content_key, name)?;
+                let mutation_id = accepted::stage_schema_drop(
+                    &self.runtime,
+                    &self.content_key,
+                    name,
+                    self.local_author_ms().await?,
+                )?;
                 self.note_local_replay(name, mutation_id).await?;
             }
             publish()?;

@@ -1,215 +1,232 @@
-//! The personal database on several devices, and its restore.
+//! The personal database on the signed log.
 //!
-//! Every device of one owner signs with the same node key and has its own
-//! device id, so the relay holds one stream for each device under that key. A
-//! device reads all of them, skips its own, accepts the entries, opens the
-//! sealed payloads, and applies the records to its store. Two devices that
-//! change one record while apart agree afterwards: the higher position wins,
-//! the Lamport number first and the device id second.
+//! Every device of one owner signs its own stream under the one node key, and
+//! the relay holds one stream for each device. A device does two things each
+//! turn, and both use the machinery of the store:
 //!
-//! A new device and a restore are the same operation. The recovery phrase gives
-//! the node key, the personal database id and the read key. The device reads
-//! every stream from its first entry, rebuilds the database, and then signs on
-//! a new stream under a new device id. No device has to be online for that: the
-//! relay holds the streams.
+//! - [`outgoing`] signs the writes of the spool of accepted writes as the next
+//!   entries of its own stream and sends them. The spool is the upload queue. It
+//!   trims when the relay acknowledges.
+//! - [`incoming`] reads the other devices' streams from the head row of each,
+//!   and applies every entry with the stamp that the store keeps beside each
+//!   record. The head rows live in the store, so a snapshot carries them, and a
+//!   restart replays nothing.
 //!
-//! The relay refuses to read a database whose birth it does not hold yet. For
-//! the personal database that is the state of an owner who has not written
-//! anything on any device, and it is not an error. It stays one only for a
-//! device that holds a birth itself, because then the relay lost the database.
+//! A new device and a restore are the same operation as an ordinary turn: the
+//! recovery phrase gives the node key, the personal database id and the read
+//! key, and the first turn reads every stream from its first entry. The relay
+//! refuses to list the streams of a database whose birth it does not hold. For
+//! the personal database that is an owner who has not written anywhere yet,
+//! and it is not an error for a device that has never uploaded.
 
+mod apply;
+mod body;
+mod files;
+mod incoming;
+mod outgoing;
+mod saved;
+mod verify;
+
+use std::sync::Arc;
+
+use cloud_backup_protocol::{AccountId, CloudScope, DecimalU64};
+use fold_db::fold_db_core::mutation_manager::ReplayStreamHead;
+use fold_db::storage::disk_backup::accepted::UploadIdentity;
+use fold_db::storage::disk_pack::PackRuntime;
 use mutation_log::{
-    entry_hash, AcceptOutcome, BundleBody, BundleChange, DeviceId, EntryHeader, SignedEntry,
+    position_of, AcceptedMeta, AuthorCtx, DatabaseId, DeviceId, EntryHash, SignedEntry, StreamHead,
 };
+use zeroize::Zeroizing;
 
-use super::blobs;
-use super::device;
-use super::history_store::HistoryMap;
-use super::materialize::{self, DatabaseCtx};
-use super::pull::rematerialize;
-use super::relay::RelayClient;
+use super::birth;
+use super::chain_author::{self, AuthorIdentity};
+use super::relay::{RelayClient, StreamHead as RelayStream};
 use super::sealed::Sealer;
 use crate::host::Host;
+use crate::personal_identity;
 
-/// What one pull of the owner's streams accepted.
-#[derive(Default)]
-pub(super) struct Pulled {
-    /// Entries that were new to this node.
-    pub(super) accepted: u64,
-    /// The highest `writer_seq` among them.
-    pub(super) through: u64,
+/// Everything one turn of the personal database needs, derived from the node seed.
+pub(super) struct Ctx<'a> {
+    pub(super) host: &'a Host,
+    pub(super) database_id: String,
+    pub(super) database: DatabaseId,
+    pub(super) identity: AuthorIdentity,
+    pub(super) node_hex: String,
+    pub(super) device_hex: String,
+    pub(super) birth_device_hex: String,
+    /// The name of this device's stream in the head rows.
+    pub(super) own_stream: String,
+    pub(super) sealer: Sealer,
+    pub(super) content_key: Zeroizing<[u8; 32]>,
+    /// The birth entry. It is the same on every device. A device uploads it
+    /// when the relay lacks it, and every personal entry cites it.
+    pub(super) birth_entry: SignedEntry,
+    pub(super) birth: AcceptedMeta,
+    pub(super) birth_hash: EntryHash,
+    pub(super) runtime: Arc<PackRuntime>,
+    pub(super) upload: Arc<UploadIdentity>,
 }
 
-/// The id of the personal database of this node.
-pub(super) fn personal_database_id(host: &Host) -> Result<String, String> {
-    host.owned
-        .owner()
-        .map(|owner| owner.id)
-        .map_err(|_| "the personal database is not registered".to_owned())
+impl<'a> Ctx<'a> {
+    pub(super) fn open(host: &'a Host) -> Result<Self, String> {
+        let seed = Zeroizing::new(host.keypair.secret_key_bytes());
+        let database_id = personal_identity::database_id(&seed);
+        let registered = host
+            .owned
+            .owner()
+            .map_err(|_| "the personal database is not registered".to_owned())?
+            .id;
+        if registered != database_id {
+            return Err("the personal database id is not the one of the recovery phrase".into());
+        }
+        let database = DatabaseId::from_hex(&database_id).map_err(|_| "database id is not hex")?;
+        let identity =
+            chain_author::identity_of(host).map_err(|error| error.reply().message.to_owned())?;
+        let birth_device = DeviceId::from_bytes(personal_identity::birth_device(&seed));
+        let material = birth::derived(&seed);
+        let birth_ctx = AuthorCtx {
+            database_id: database,
+            node_key: identity.node_key,
+            device_id: birth_device,
+            stream_head: None,
+            seen_heads: Vec::new(),
+            seen_lamports: Vec::new(),
+            authored_at_ms: 0,
+        };
+        let birth_entry = birth::entry(&material, &birth_ctx, &identity)?;
+        let birth_hash = mutation_log::entry_hash(&birth_entry).map_err(|e| e.to_string())?;
+        let birth = AcceptedMeta {
+            position: position_of(&birth_entry),
+            is_publisher: true,
+            grant_body: None,
+            entry: birth_entry.clone(),
+        };
+        let node_hex = identity.node_key.to_hex();
+        let device_hex = identity.device_id.to_hex();
+        let content_key = fold_db::crypto::E2eKeys::from_ed25519_seed(&seed)
+            .map_err(|_| "the content key cannot be derived".to_owned())?
+            .encryption_key();
+        let account = AccountId::try_from(node_hex[..32].to_owned())
+            .map_err(|_| "the writer key is not an account id".to_owned())?;
+        // The upload position of the spool is bound to this identity. The relay
+        // is named by a fixed word, not by its address, so moving to another
+        // relay keeps the position: the stream is the same on every relay.
+        let upload = Arc::new(UploadIdentity {
+            scope: CloudScope {
+                account_id: account,
+                account_generation: DecimalU64::new(1),
+            },
+            environment: "relay".to_owned(),
+            database_id: database_id.clone(),
+            device_id: device_hex.clone(),
+            writer_key: node_hex.clone(),
+        });
+        Ok(Self {
+            host,
+            sealer: Sealer::for_node_seed(&seed)?,
+            content_key: Zeroizing::new(content_key),
+            birth_device_hex: birth_device.to_hex(),
+            own_stream: format!("{node_hex}:{device_hex}"),
+            runtime: host.db.db_ops().native_runtime(),
+            database_id,
+            database,
+            identity,
+            node_hex,
+            device_hex,
+            birth_entry,
+            birth,
+            birth_hash,
+            upload,
+        })
+    }
+
+    /// The name of a device stream of this owner in the head rows.
+    pub(super) fn stream_name(&self, device_hex: &str) -> String {
+        format!("{}:{device_hex}", self.node_hex)
+    }
+
+    /// The head row of this device's own stream: the last entry the relay
+    /// acknowledged. `None` before the first one.
+    pub(super) async fn own_head(&self) -> Result<Option<ReplayStreamHead>, String> {
+        let mut rows = self
+            .host
+            .db
+            .mutation_manager()
+            .replay_stream_heads(std::slice::from_ref(&self.own_stream))
+            .await
+            .map_err(|error| format!("the own stream head could not be read: {error}"))?;
+        Ok(rows.pop().flatten())
+    }
 }
 
-/// One sync turn of the personal database: read, accept, open, apply. The
-/// result is the error of the turn, if any.
-pub(super) async fn turn(
-    host: &Host,
-    histories: &HistoryMap,
-    client: &RelayClient,
-) -> Option<String> {
-    match pull(host, histories, client).await {
-        Ok(_) => None,
+/// The head row as the chain check reads it.
+pub(super) fn chain_head(head: &ReplayStreamHead) -> Result<StreamHead, String> {
+    Ok(StreamHead {
+        entry_hash: EntryHash::from_hex(&head.hash)
+            .map_err(|_| "a stream head row holds a bad hash".to_owned())?,
+        writer_seq: head.seq,
+        lamport: head.order,
+    })
+}
+
+/// One sync turn of the personal database: list the streams, send what is in
+/// the spool, apply what the other devices wrote. The result is the error of
+/// the turn, if any.
+pub(super) async fn turn(host: &Host, client: &RelayClient) -> Option<String> {
+    match run_turn(host, client).await {
+        Ok(()) => None,
         Err(error) => {
-            tracing::warn!(target: "lastdbd::log_sync", %error, "personal database pull failed");
+            tracing::warn!(target: "lastdbd::log_sync", %error, "personal database sync failed");
             Some(error)
         }
     }
 }
 
-/// Read every stream of this node key, accept what is new, and apply it.
-pub(super) async fn pull(
-    host: &Host,
-    histories: &HistoryMap,
-    client: &RelayClient,
-) -> Result<Pulled, String> {
-    let database_id = personal_database_id(host)?;
-    let store = materialize::store_for(host, &database_id)
-        .ok_or("no store is open for the personal database")?;
-    let sealer = histories
-        .sealer_of(&database_id)
-        .ok_or("this node cannot seal the personal database")?;
-    let own = device::device_id(&host.home)?;
-    let mut entries = match read_streams(client, &database_id, &own).await {
-        Ok(entries) => entries,
-        Err(error)
-            if error.contains("HTTP 403")
-                && histories.with_mut(&database_id, |history| history.owner().is_none())? =>
-        {
-            return Ok(Pulled::default());
-        }
-        Err(error) => return Err(error),
-    };
-    // Dependencies come first: an entry's Lamport number is above its
-    // predecessor's and above every entry it cites.
-    entries.sort_by_key(|entry| {
-        let header = entry.header();
-        (
-            header.lamport,
-            header.node_key,
-            header.device_id,
-            header.writer_seq,
-        )
-    });
-    let mut pulled = Pulled::default();
-    for entry in entries {
-        let writer_seq = entry.header().writer_seq;
-        if accept(host, histories, client, &sealer, entry).await? {
-            pulled.accepted += 1;
-            pulled.through = pulled.through.max(writer_seq);
-        }
-    }
-    super::spawn::keep_received(host, histories, &database_id);
-    let db = DatabaseCtx {
-        database_id: &database_id,
-        store: &store,
-    };
-    rematerialize(histories, &db, pulled.accepted).await?;
-    Ok(pulled)
+async fn run_turn(host: &Host, client: &RelayClient) -> Result<(), String> {
+    let ctx = Ctx::open(host)?;
+    let streams = list_streams(&ctx, client).await?.unwrap_or_default();
+    // A failure of the sender must not stop the incoming side, or the reverse.
+    let sent = outgoing::run(&ctx, client, &streams).await;
+    let read = incoming::run(&ctx, client, &streams).await;
+    sent.and(read.map(|_| ()))
 }
 
-/// Every entry of every stream of this node key except this device's own.
-async fn read_streams(
+/// The device streams of the owner on the relay. `None` when the relay does not
+/// know the database yet, which is the state of an owner who has not written
+/// anywhere. A device that has uploaded before must not see that answer.
+async fn list_streams(
+    ctx: &Ctx<'_>,
     client: &RelayClient,
-    database_id: &str,
-    own: &DeviceId,
-) -> Result<Vec<SignedEntry>, String> {
-    let node_key = client.node_key_hex.clone();
-    let mut found = Vec::new();
-    let mut cursor: Option<String> = None;
-    loop {
-        let (entries, next) = client
-            .read(database_id, &node_key, None, 1, cursor.as_deref(), 90)
-            .await?;
-        if entries.is_empty() {
-            return Ok(found);
-        }
-        found.extend(
-            entries
-                .into_iter()
-                .filter(|entry| entry.header().device_id != *own),
-        );
-        let Some(next) = next else {
-            return Ok(found);
-        };
-        cursor = Some(next);
-    }
-}
-
-/// Accept one entry. True when it was new. A bundle needs its blob first.
-async fn accept(
-    host: &Host,
-    histories: &HistoryMap,
-    client: &RelayClient,
-    sealer: &Sealer,
-    entry: SignedEntry,
-) -> Result<bool, String> {
-    let database_id = entry.header().database_id.to_hex();
-    let hash = entry_hash(&entry).map_err(|e| e.to_string())?;
-    if histories.with_mut(&database_id, |history| {
-        history.get_accepted(&hash).is_some()
-    })? {
-        return Ok(false);
-    }
-    let changes = if let SignedEntry::Bundle { header, body, .. } = &entry {
-        Some(bundle_changes(host, client, sealer, header, body).await?)
-    } else {
-        None
-    };
-    let outcome = histories.with_mut(&database_id, |history| match changes {
-        Some(changes) => history.accept_bundle_with_changes(entry, &changes),
-        None => history.accept_entry(entry),
-    })?;
-    match outcome {
-        AcceptOutcome::Accept { duplicate, .. } => Ok(!duplicate),
-        AcceptOutcome::Pending { .. } => Ok(false),
-        AcceptOutcome::Reject { reason } => {
-            tracing::warn!(target: "lastdbd::log_sync", ?reason, "relay entry rejected by AcceptEntry");
-            Ok(false)
+) -> Result<Option<Vec<RelayStream>>, String> {
+    match client.streams(&ctx.database_id, &ctx.node_hex).await {
+        Ok(streams) => Ok(Some(streams)),
+        Err(error) => {
+            if error.contains("HTTP 403") && ctx.own_head().await?.is_none() {
+                Ok(None)
+            } else {
+                Err(error)
+            }
         }
     }
 }
 
-/// The changes of a bundle. The kept blob is used when there is one. Otherwise
-/// the blob comes from the relay and is kept, so a restart does not need it.
-async fn bundle_changes(
-    host: &Host,
-    client: &RelayClient,
-    sealer: &Sealer,
-    header: &EntryHeader,
-    body: &BundleBody,
-) -> Result<Vec<BundleChange>, String> {
-    let database_id = header.database_id.to_hex();
-    let kept = blobs::path(&host.home, &database_id, &body.blob_sha256);
-    if !kept.is_file() {
-        client
-            .blob_get(
-                &database_id,
-                &body.blob_sha256.to_hex(),
-                body.blob_size,
-                &kept,
-            )
-            .await?;
-    }
-    let blob = blobs::load(&host.home, &database_id, &body.blob_sha256)?
-        .ok_or("bundle blob is missing after its download")?;
-    blobs::open_changes(sealer, header, &blob)
+/// True while the spool or the saved batch holds something the relay has not
+/// acknowledged. The loop keeps waking while this is true.
+pub(super) fn pending(host: &Host) -> bool {
+    let status = host.db.db_ops().native_runtime().accepted_status();
+    let Ok(database_id) = host.owned.owner().map(|owner| owner.id) else {
+        return false;
+    };
+    status.head > status.acked || !matches!(saved::load(&host.home, &database_id), Ok(None))
 }
 
 /// What a restore found.
 pub struct RestoreReport {
     /// The id of the personal database.
     pub database_id: String,
-    /// Entries that were new to the restored home.
+    /// Entries applied to the restored home.
     pub replayed: u64,
-    /// The highest `writer_seq` among them.
+    /// The highest sequence number among them.
     pub through: u64,
     /// Device streams that were read, not counting the stream of the birth.
     pub devices: usize,
@@ -223,22 +240,16 @@ pub async fn restore_personal_database(
     host: &Host,
     relay_url: &str,
 ) -> Result<RestoreReport, String> {
-    let histories = super::histories_for(host);
     let client = RelayClient::for_host(host, relay_url)?;
-    let pulled = pull(host, &histories, &client).await?;
-    let database_id = personal_database_id(host)?;
-    let devices = histories
-        .with_mut(&database_id, |history| {
-            history
-                .owner()
-                .map(|owner| history.stream_heads_of(owner).len())
-        })?
+    let ctx = Ctx::open(host)?;
+    let streams = list_streams(&ctx, &client)
+        .await?
         .ok_or("the relay holds no personal database for this recovery phrase")?;
+    let applied = incoming::run(&ctx, &client, &streams).await?;
     Ok(RestoreReport {
-        database_id,
-        replayed: pulled.accepted,
-        through: pulled.through,
-        // The birth stream is one of them.
-        devices: devices.saturating_sub(1),
+        database_id: ctx.database_id,
+        replayed: applied.entries,
+        through: applied.through,
+        devices: applied.streams,
     })
 }

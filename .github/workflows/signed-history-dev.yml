@@ -34,7 +34,11 @@ on:
       - "scripts/signed_history/**"
       - "scripts/operations/shared_database_proof.py"
       - "scripts/operations/personal_database_proof.py"
+      - "scripts/operations/personal_proof_*.py"
       - "lastdb_node/src/log_sync/**"
+      - "lastdb_node/src/host.rs"
+      - "fold_db/crates/core/src/fold_db_core/mutation_manager/**"
+      - "fold_db/crates/core/src/storage/disk_backup/**"
       - ".github/workflows/signed-history-dev.yml"
   push:
     paths:
@@ -47,7 +51,11 @@ on:
       - "scripts/signed_history/**"
       - "scripts/operations/shared_database_proof.py"
       - "scripts/operations/personal_database_proof.py"
+      - "scripts/operations/personal_proof_*.py"
       - "lastdb_node/src/log_sync/**"
+      - "lastdb_node/src/host.rs"
+      - "fold_db/crates/core/src/fold_db_core/mutation_manager/**"
+      - "fold_db/crates/core/src/storage/disk_backup/**"
       - ".github/workflows/signed-history-dev.yml"
   workflow_dispatch:
     inputs:
@@ -366,9 +374,11 @@ jobs:
   personal_nodes:
     name: personal database on real nodes (reference_relay)
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 90
     env:
       CARGO_BUILD_JOBS: "2"
+      # Writes of the scale step. Tens of thousands, sized to finish in a few minutes.
+      PROOF_SCALE_WRITES: "20000"
       CARGO_PROFILE_DEV_DEBUG: "0"
       FOLDDB_BUILD_VERSION_OVERRIDE: bench-${{ github.sha }}
     steps:
@@ -384,7 +394,7 @@ jobs:
           set -euo pipefail
           cargo build --locked -p reference_relay --bin reference_relay
           cargo build --locked -p lastdb_node --bin lastdb --bin lastdbd
-      - name: Device A, device B from the phrase, a restored home, and the relay
+      - name: Devices A to D, the relay, order by edit time, kill -9 under load, and scale
         run: |
           set -euo pipefail
           OUT="${RUNNER_TEMP}/personal-nodes"
@@ -410,7 +420,7 @@ jobs:
           {
             echo "## Personal database on real nodes"
             echo "Source: $GITHUB_SHA"
-            echo "Device A writes single and batched records in two schemas, device B and a restored home C start from the recovery phrase alone, A and B change one record apart, the relay holds no key, value or schema name, and A rebuilds from its files with the relay stopped."
+            echo "Device A writes single and batched records in two schemas, device B and restored homes C and D start from the recovery phrase alone, the later edit wins whichever device syncs first, a deleted record stays deleted, alternate keys and files arrive with the relay stopped, the relay holds no key, value or schema name, an idle turn reads nothing, kill -9 under write load loses and repeats nothing, and tens of thousands of writes run in bounded memory."
             if [[ -f "${RUNNER_TEMP}/personal-nodes/nodes/summary.json" ]]; then
               echo '```json'
               cat "${RUNNER_TEMP}/personal-nodes/nodes/summary.json"

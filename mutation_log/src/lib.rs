@@ -34,7 +34,8 @@
 //! # Record LWW payload
 //!
 //! See [`payload`]: `u16 record_key_len` + key + `value_bytes` (empty = tombstone).
-//! Whole-record LWW by `(lamport, node_key, device_id)`. Equal-lamport grants:
+//! Whole-record LWW by `(lamport, node_key, device_id)`. The order value
+//! `lamport` is a time in milliseconds set when the write was made. Equal-lamport grants:
 //! `revoked` wins.
 
 #![deny(clippy::disallowed_methods, clippy::disallowed_types)]
@@ -60,8 +61,8 @@ mod sealed;
 mod wire;
 
 pub use accept::{
-    birth_proof_bytes, position_of, stream_id_of, verify_birth_signature, AcceptOutcome,
-    PendingReason, RejectReason, StreamHead,
+    birth_proof_bytes, evaluate, position_of, stream_id_of, verify_birth_signature, AcceptContext,
+    AcceptOutcome, PendingReason, RejectReason, StreamHead, LAMPORT_LIMIT,
 };
 pub use author::{
     author_birth, author_blob_delete, author_bundle, author_data, author_grant, author_heads,

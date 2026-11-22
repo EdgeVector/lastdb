@@ -17,6 +17,13 @@ use crate::wire::{
     decode_signature_b64url, entry_hash, verify_entry_signature, EncodeError, VerifyError,
 };
 
+/// No entry may carry an order value at or past this. It is 2100-01-01 in
+/// milliseconds. An order value is a time in milliseconds, so a value that far
+/// ahead is a clock error or an attack, and it would win every conflict for
+/// the rest of the database's life. The limit is far below the point where the
+/// store's author clock would overflow, which is about the year 2540.
+pub const LAMPORT_LIMIT: u64 = 4_102_444_800_000;
+
 /// Outcome of [`super::history::VerifiedHistory::accept_entry`].
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AcceptOutcome {
@@ -81,11 +88,12 @@ pub enum RejectReason {
     },
     /// Stream already frozen.
     StreamFrozen,
-    /// Lamport ≠ 1 + max(L_prev, L_seen).
+    /// The order value is not above the previous entry of the stream and every
+    /// cited entry, or it is at or past [`LAMPORT_LIMIT`].
     Lamport {
-        /// Expected lamport.
-        expected: u64,
-        /// Claimed lamport.
+        /// The lowest value the entry could carry.
+        at_least: u64,
+        /// The value the entry carries.
         got: u64,
     },
     /// Writer not authorized (publisher kind / grant window).
@@ -153,10 +161,13 @@ pub fn evaluate(entry: &SignedEntry, ctx: &AcceptContext<'_>) -> AcceptOutcome {
             },
         };
     }
-    let expected = expected_lamport(h.writer_seq, ctx.stream_head, &h.seen_heads, ctx);
-    if h.lamport != expected {
+    // The order value is a time set when the write was made. It must be above
+    // the previous entry of the stream and every cited entry, and below the
+    // far-future limit. Nothing else ties it to the entries before it.
+    let at_least = lamport_floor(h.writer_seq, ctx.stream_head, &h.seen_heads, ctx);
+    if h.lamport < at_least || h.lamport >= LAMPORT_LIMIT {
         return reject(RejectReason::Lamport {
-            expected,
+            at_least,
             got: h.lamport,
         });
     }
@@ -235,7 +246,9 @@ fn missing_seen_head(seen: &[EntryHash], ctx: &AcceptContext<'_>) -> Option<Entr
     seen.iter().find(|h| (ctx.lookup)(h).is_none()).copied()
 }
 
-fn expected_lamport(
+/// The lowest order value an entry may carry: one more than the previous entry
+/// of its stream and one more than every entry it cites.
+fn lamport_floor(
     writer_seq: u64,
     head: Option<StreamHead>,
     seen: &[EntryHash],

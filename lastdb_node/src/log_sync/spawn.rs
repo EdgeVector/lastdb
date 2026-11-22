@@ -12,7 +12,6 @@ use crate::host::owned::RegisteredDatabase;
 use crate::host::Host;
 use crate::registered_share::{self, RegisteredShare};
 
-use super::config;
 use super::device;
 use super::history_store::HistoryMap;
 use super::materialize::{self, DatabaseCtx};
@@ -28,7 +27,7 @@ pub fn spawn(host: Arc<Host>, shutdown: Arc<AtomicBool>) -> tokio::task::JoinHan
         async move {
             let histories = super::histories_for(&host);
             while !shutdown.load(Ordering::Acquire) {
-                match config::relay_base_url(&host.home) {
+                match crate::cloud::relay_base_url(&host.home) {
                     None => {
                         let _ = wake::consume_wake(&host.home);
                         tracing::trace!(
@@ -87,19 +86,16 @@ pub fn spawn(host: Arc<Host>, shutdown: Arc<AtomicBool>) -> tokio::task::JoinHan
 async fn one_turn(host: &Host, histories: &HistoryMap, base: &str) -> Result<(), String> {
     let client = RelayClient::for_host(host, base)?;
 
-    let mut owned: Vec<_> = crate::host::owned::registered_databases(&host.home)
+    let owned: Vec<_> = crate::host::owned::registered_databases(&host.home)
         .into_iter()
         .filter(|database| syncable_owned(database.kind, &database.id))
         .collect();
-    // Shareable tips (grants/revokes) before the personal database: a long
-    // personal drain must not leave a shareable grant sitting until personal
-    // finishes in the same phase.
-    owned.sort_by_key(|database| usize::from(database.kind == "personal"));
-    // Upload failures fail the turn (ACTIVE backoff). Pull errors on the
-    // personal database or a received shareable stay soft: after #1843 a sticky
-    // personal pull error put every turn on the failed path, so a grant authored
-    // mid-pause waited out the unconditional 2s sleep instead of the wake-aware
-    // clean path (#1844). Soft pulls keep uploads on the clean wake path.
+    // Upload failures fail the turn (ACTIVE backoff). Soft personal and
+    // received pulls: after #1843 a sticky personal error put every turn on
+    // the failed path, so a grant authored mid-pause waited out the
+    // unconditional ACTIVE sleep instead of the wake-aware clean path (#1844).
+    // #1848 moved personal onto spool/replay; soft handling still applies so
+    // shareable grant tips keep the clean wake path (#1846).
     let mut turn_error = publish_declared_schemas(host, &owned);
     turn_error = upload_owned_logs(host, &client, &owned)
         .await
@@ -107,8 +103,10 @@ async fn one_turn(host: &Host, histories: &HistoryMap, base: &str) -> Result<(),
     turn_error = pull_owned_shareables(host, histories, &client, &owned)
         .await
         .or(turn_error);
-    // Phase c2: the other devices of this owner write the personal database.
-    if let Some(err) = super::personal::turn(host, histories, &client).await {
+    // Phase c2: the personal database. Its spool goes up, and what the other
+    // devices of this owner wrote is applied. Soft: a sticky personal error
+    // must not put every turn on the failed wake path (#1846).
+    if let Some(err) = super::personal::turn(host, &client).await {
         tracing::warn!(
             target: "lastdbd::log_sync",
             %err,
@@ -149,10 +147,10 @@ fn publish_declared_schemas(host: &Host, owned: &[RegisteredDatabase]) -> Option
     turn_error
 }
 
-/// Phases b and d: upload every owned log. This runs before any pull because
-/// a personal database, or a shareable whose birth is not on the relay yet,
-/// gets log/read 403 field=grant; that must not keep the birth and grant
-/// entries from uploading. Each database drains every pending batch, so a
+/// Phases b and d: upload every owned shareable log. This runs before any pull
+/// because a shareable whose birth is not on the relay yet gets log/read 403
+/// field=grant; that must not keep the birth and grant entries from uploading.
+/// The personal database has no log file: `personal` sends its spool. Each database drains every pending batch, so a
 /// long run of mirrored data cannot leave grants behind it.
 async fn upload_owned_logs(
     host: &Host,
@@ -160,7 +158,7 @@ async fn upload_owned_logs(
     owned: &[RegisteredDatabase],
 ) -> Option<String> {
     let mut turn_error = None;
-    for database in owned {
+    for database in owned.iter().filter(|database| database.kind != "personal") {
         if let Some(err) = upload_log(client, host, &database.id).await {
             turn_error = Some(err);
         }

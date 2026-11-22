@@ -154,6 +154,7 @@ impl DbOperations {
     pub(crate) async fn from_namespaced_store_with_content_and_field_keys(
         store: PackNamespacedStore,
         node_key: [u8; 32],
+        writer_id: String,
     ) -> Result<Self, StorageError> {
         let BoundFormat {
             runtime,
@@ -163,7 +164,7 @@ impl DbOperations {
         } = bind::open(store, node_key).await?;
         Ok(Self {
             runtime,
-            schema_store: SchemaStore::new(schemas, node_key, metadata.clone()),
+            schema_store: SchemaStore::new(schemas, node_key, metadata.clone(), writer_id),
             record_store: RecordStore::new(records, node_key),
             metadata,
         })

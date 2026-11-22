@@ -23,7 +23,7 @@ use crate::schema::types::{KeyValue, Mutation, Schema};
 use crate::schema::{SchemaCore, SchemaError};
 use crate::storage::disk_pack::transaction;
 
-pub use crate::storage::format::metadata::ReplayStamp;
+pub use crate::storage::format::metadata::{ReplayStamp, ReplayStreamHead};
 pub use replay::ServedLocal;
 
 /// The author clock keeps `writer_id` in base64. Record authorship uses lowercase hex.
