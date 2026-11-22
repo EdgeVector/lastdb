@@ -101,7 +101,7 @@ impl CloudSyncTracker {
                 payment_hold: false,
                 last_error,
                 databases: BTreeMap::new(),
-                snapshot: crate::log_sync::known_snapshot(home).unwrap_or_default(),
+                snapshot: SnapshotStatus::default(),
             }),
             wake_notify: Arc::new(Notify::new()),
         }
