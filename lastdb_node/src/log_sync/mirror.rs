@@ -172,7 +172,7 @@ fn accept_outbox(
     ctx: &MirrorCtx<'_>,
     entry: mutation_log::SignedEntry,
 ) -> Result<(), String> {
-    match history_store::commit_authored(ctx.home, history, entry)? {
+    match history_store::commit_authored(ctx.home, history, &entry)? {
         AcceptOutcome::Accept { .. } => Ok(()),
         AcceptOutcome::Pending { reason } => {
             Err(format!("authored entry pending locally: {reason:?}"))

@@ -136,7 +136,7 @@ fn accept_local(
 ) -> Result<Authored, ChainError> {
     let hash = entry_hash(&entry).map_err(|_| ChainError::Unconfirmed)?;
     let writer_seq = entry.header().writer_seq;
-    match history_store::commit_authored(target.home, history, entry) {
+    match history_store::commit_authored(target.home, history, &entry) {
         Ok(AcceptOutcome::Accept { .. }) => {}
         Ok(AcceptOutcome::Pending { reason }) => {
             tracing::warn!(target: "lastdbd::log_sync", ?reason, "authored entry is pending locally");

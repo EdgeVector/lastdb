@@ -121,13 +121,13 @@ fn replay_authored(home: &Path, id: DatabaseId) -> Result<VerifiedHistory, Strin
 pub(super) fn commit_authored(
     home: &Path,
     history: &mut VerifiedHistory,
-    entry: SignedEntry,
+    entry: &SignedEntry,
 ) -> Result<AcceptOutcome, String> {
     let database_id = history.database_id().to_hex();
     let mut next = history.clone();
     let outcome = next.accept_entry(entry.clone());
     if matches!(outcome, AcceptOutcome::Accept { .. }) {
-        append_authored(home, &database_id, &entry)?;
+        append_authored(home, &database_id, entry)?;
         *history = next;
     }
     Ok(outcome)
