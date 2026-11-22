@@ -172,7 +172,7 @@
             "nodeSignature": []
           }
         ],
-        "description": "Requires nodeSignature. Accepted only for publisher or a current write grant (submit for proposal data appends). Revoke cuts off new appends immediately (403). Spam/cost gate only \u2014 not AcceptEntry."
+        "description": "Requires nodeSignature. Accepted for the publisher, or for a current submit or write grant when the entries are proposal data on the caller's own stream; direct data, bundle and publisher kinds are the publisher's alone. Revoke cuts off new appends immediately (403). Spam/cost gate only \u2014 not AcceptEntry."
       }
     },
     "/relay/v1/log/read": {
@@ -510,7 +510,7 @@
             "nodeSignature": []
           }
         ],
-        "description": "Requires nodeSignature. Accepted only for publisher or a current write grant (submit for proposal data appends). Revoke cuts off new appends immediately (403). Spam/cost gate only \u2014 not AcceptEntry."
+        "description": "Requires nodeSignature. Accepted for the publisher or a current write grant. Revoke cuts off new puts immediately (403). Spam/cost gate only \u2014 not AcceptEntry."
       }
     },
     "/relay/v1/blob/get": {

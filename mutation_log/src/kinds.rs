@@ -30,7 +30,7 @@ pub enum EntryKind {
     Birth,
     /// Record mutation (direct or proposal).
     Data,
-    /// Encrypted multi-change batch (members may author with `grant_at`).
+    /// Encrypted multi-change batch, signed by the publisher.
     Bundle,
     /// Grant / role change / revoke.
     Grant,
@@ -111,9 +111,10 @@ impl StreamKind {
 pub enum Role {
     /// Read-only.
     Read,
-    /// May submit proposals.
+    /// May submit proposals; the publisher accepts creates and changes to
+    /// records the member created.
     Submit,
-    /// May write direct mutations.
+    /// May submit proposals; the publisher accepts a change to any record.
     Write,
     /// Revoked (wins equal-lamport grant ties).
     Revoked,

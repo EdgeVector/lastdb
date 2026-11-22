@@ -20,7 +20,8 @@ mod registry;
 mod store;
 
 pub(crate) use registry::{
-    find_shareable, find_shareable_database, registered_databases, registry_claims, validate_create,
+    find_shareable, find_shareable_database, registered_databases, registry_claims,
+    validate_create, RegisteredDatabase,
 };
 pub(crate) use store::CreateArgs;
 

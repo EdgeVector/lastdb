@@ -88,7 +88,7 @@ fn ensure_birth(history: &mut VerifiedHistory, ctx: &MirrorCtx<'_>) -> Result<()
         .ok_or_else(|| "this database has no signed birth on this node".to_owned())?;
     let author = author_ctx(history, ctx, 0);
     let entry = birth::entry(&material, &author, ctx.identity)?;
-    accept_outbox(history, ctx, &entry)
+    sign(history, ctx, &entry)
 }
 
 /// Publish every schema this publisher's store declares and its history does
@@ -161,7 +161,7 @@ fn ensure_schema(
     };
     let entry =
         author_schema(&author, &ctx.identity.signing_key, body).map_err(|e| e.to_string())?;
-    accept_outbox(history, ctx, &entry)
+    sign(history, ctx, &entry)
 }
 
 fn schema_definition_matches(prior: &[u8], current: &fold_db::schema::types::Schema) -> bool {
@@ -193,7 +193,7 @@ fn author_one(
         &value,
     );
     let entry = author_data(&author, &ctx.identity.signing_key, body).map_err(|e| e.to_string())?;
-    accept_outbox(history, ctx, &entry)
+    sign(history, ctx, &entry)
 }
 
 fn author_ctx(history: &VerifiedHistory, ctx: &MirrorCtx<'_>, authored_at_ms: u64) -> AuthorCtx {
@@ -212,7 +212,9 @@ fn author_ctx(history: &VerifiedHistory, ctx: &MirrorCtx<'_>, authored_at_ms: u6
     }
 }
 
-fn accept_outbox(
+/// Accept `entry` into the history and append it to the log. A rejected or
+/// pending entry is an error, and the log is unchanged.
+fn sign(
     history: &mut VerifiedHistory,
     ctx: &MirrorCtx<'_>,
     entry: &mutation_log::SignedEntry,

@@ -1,4 +1,5 @@
-//! Wake markers and first-sync intent (signed history, not snapshots).
+//! Wake marker that ends the sync loop's sleep early, and the first-sync
+//! intent file.
 
 use std::path::Path;
 

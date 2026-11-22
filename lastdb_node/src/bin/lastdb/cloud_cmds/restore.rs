@@ -32,7 +32,6 @@ pub(super) fn run(home: &Path, args: BackupRestoreArgs) -> Result<(), String> {
         .map_err(|_| "signed restore requires a 64-hex database id".to_owned())?;
     let device_ids = args.device_ids;
     let relay_override = args.relay_url;
-    let generation = args.generation;
     let destination = args.into;
     let json = args.json;
     let parent = destination.parent().ok_or("missing recovery parent")?;
@@ -48,7 +47,6 @@ pub(super) fn run(home: &Path, args: BackupRestoreArgs) -> Result<(), String> {
         database_id: &database_id,
         device_ids: &device_ids,
         relay_url: &relay_url,
-        generation,
         parent,
         destination: &destination,
     };
@@ -70,7 +68,6 @@ struct SignedRestorePlan<'a> {
     database_id: &'a str,
     device_ids: &'a [String],
     relay_url: &'a str,
-    generation: Option<u64>,
     parent: &'a Path,
     destination: &'a Path,
 }
@@ -80,19 +77,16 @@ async fn restore_into_staged(plan: SignedRestorePlan<'_>) -> Result<Restored, St
     let seed = Zeroizing::new(lastdb_node::cloud::seed_from_phrase(plan.phrase)?);
     let pair = Ed25519KeyPair::from_secret_key(seed.as_ref())
         .map_err(|_| "invalid recovery identity".to_owned())?;
-    let mut scope = lastdb_node::cloud::client_from_home_with_keypair(plan.home, Arc::new(pair))?
+    // The context read only proves the recovery phrase belongs to a live
+    // account; the entries themselves come from the relay.
+    lastdb_node::cloud::client_from_home_with_keypair(plan.home, Arc::new(pair))?
         .context(&ContextReadRequest {
             version: Version::V2,
             account_id,
             required_destinations: Vec::new(),
         })
         .await
-        .map_err(|e| e.to_string())?
-        .scope;
-    if let Some(generation) = plan.generation {
-        scope.account_generation = cloud_backup_protocol::DecimalU64::new(generation);
-    }
-    let _ = scope; // Phase 1 pulls from the relay; ExeMem scope is account-check only.
+        .map_err(|e| e.to_string())?;
     let staged_path = plan
         .parent
         .join(format!(".lastdb-signed-restore-{}", uuid::Uuid::new_v4()));

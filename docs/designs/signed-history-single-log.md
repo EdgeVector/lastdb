@@ -115,13 +115,9 @@ A FoldDB record revision is a hash of the node's local write stamp, so two nodes
 
 Each history record also keeps its creator: the writer of the earliest accepted write to the key by position, whoever wins now. A member may replace or delete only a record it created, so the publisher applies a replace or delete proposal only when the proposer is the creator. Ownership does not change when another writer, such as the publisher moderating a comment, becomes the winner. FoldDB `created_by` and `updated_by` still carry the winner, which is what the direct-write convergence check needs.
 
-## Void entries
+## Role reductions
 
-A publisher role reduction carries a cutoff for each device stream of the grantee. A member entry accepted before the reduction can fall past that cutoff, and then it must not count on any node. The entry stays in the accepted entries, so the stream chain and the log are untouched. When a publisher grant entry is accepted, the history looks at the non-publisher direct entries that are now past their cutoff, and recomputes the winner of each key they wrote from the entries that still count. A key falls back to its previous winner, or has none. This is one pass over the accepted entries, only on a publisher grant, and nothing is saved per entry.
-
-The history remembers those keys (`voided_keys`). The materializer writes the new winners as usual and deletes the record of a voided key that has no winner left. A write that was committed locally while the member still believed it had write access is therefore undone once the member's node learns of the reduction.
-
-A cutoff limits a member's direct writes only. A proposal is checked against the member's current role (submit or write), so a member reduced from write to submit can still propose, and a revoked member cannot, even if its `seen_heads` cite an older grant.
+A publisher role reduction or revoke carries a `cutoffs` field for each device stream of the grantee, because the signed bytes include it. Nothing reads it: a member's entries are proposals, and a proposal is checked against the member's current role (`submit` or `write`), so a revoked member cannot propose even when its `seen_heads` cite an older grant. See `signed-history-sharing.md`.
 
 ## Decisions
 

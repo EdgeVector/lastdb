@@ -1,4 +1,4 @@
-//! Record LWW payload convention (node Phase 1).
+//! Record LWW payload convention.
 //!
 //! Data entry `payload` bytes are a whole-record envelope:
 //!

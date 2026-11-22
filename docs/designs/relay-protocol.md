@@ -77,15 +77,18 @@ revokes) in **chain order**.
 the `birth` entry, verified against `database_id` (the db public key) and
 the birth signature.
 
-**`log.append` / `blob.put`.** Accepted only when the signing `node_key` is
-the publisher, **or** a publisher-signed grant in that database’s chain
-currently gives that key **`write`** (direct/`bundle` appends and blob
-puts) or **`submit`** (proposal `data` appends only), and no later revoke /
-role reduction has removed that authority. A **revoke cuts off appends
-immediately** (new requests → **403** `forbidden`). Entries the relay
-already stored before the revoke **stay**; the relay does **not**
-retroactively delete them. Nodes judge those with the existing per-device
-cutoff rules.
+**`log.append`.** Accepted only when the signing `node_key` is the
+publisher, **or** a publisher-signed grant in that database’s chain
+currently gives that key **`submit`** or **`write`**, and no later revoke /
+role reduction has removed that authority. A member may append proposal
+`data` (`stream = proposal`) to its own stream and nothing else. Direct
+`data`, `bundle`, and the publisher kinds are the publisher’s alone (403
+`forbidden`). A **revoke cuts off appends immediately** (new requests →
+**403** `forbidden`). Entries the relay already stored before the revoke
+**stay**; the relay does **not** retroactively delete them.
+
+**`blob.put`.** Accepted for the publisher, or for a key whose current
+grant is **`write`**.
 
 **`log.read` / `blob.get`.** Require a current **read** grant for the
 signing `node_key`, or an active **`grant#any` / `read`**. Meaning of
@@ -97,8 +100,8 @@ unsigned/anonymous access. There is no unsigned public path.
 index. It does **not** decrypt record payloads or run full `AcceptEntry`.
 
 **Readable grant metadata.** Because the relay must gate on them, grant /
-revoke / role-reduction entries expose **grantee node key, role, and
-cutoffs** as signed plaintext metadata the relay can see (not encrypted
+revoke / role-reduction entries expose **grantee node key and role**
+(and the `cutoffs` field, which nothing reads) as signed plaintext metadata the relay can see (not encrypted
 inside the payload).
 
 **Rejected alternative:** a shared database secret for append auth —

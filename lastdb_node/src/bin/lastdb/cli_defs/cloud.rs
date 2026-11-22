@@ -110,9 +110,6 @@ pub(crate) struct BackupRestoreArgs {
     /// Relay origin. Falls back to `LASTDB_RELAY_URL`, then the Exemem API in the saved cloud credentials under `--data-dir`.
     #[arg(long)]
     pub(crate) relay_url: Option<String>,
-    /// Retired snapshot generation; ignored for signed-history restore.
-    #[arg(long)]
-    pub(crate) generation: Option<u64>,
     #[arg(long)]
     pub(crate) into: PathBuf,
     #[arg(long)]

@@ -118,8 +118,8 @@ fn schema_declared(store: &FoldDB, namespace: &str) -> Result<bool, String> {
 /// record, or no record when no write counts there.
 ///
 /// This is the one way a store is brought back to its history at given keys. It
-/// undoes a write whose signed entry was not confirmed, and a write that a later
-/// role reduction voided. A key of an undeclared schema is skipped.
+/// undoes a write whose signed entry could not be signed. A key of an
+/// undeclared schema is skipped.
 pub async fn reconcile_keys<'a>(
     store: &FoldDB,
     history: &VerifiedHistory,

@@ -1,4 +1,4 @@
-//! HTTP client for `/relay/v1/log/*` and `/relay/v1/blob/*`.
+//! HTTP client for `/relay/v1/log/*`.
 
 use std::time::{Duration, Instant};
 
@@ -92,48 +92,6 @@ impl RelayClient {
             .map_err(|_| "relay log.read returned invalid entries".to_owned())?;
         let cursor = value["cursor"].as_str().map(str::to_owned);
         Ok((entries, cursor))
-    }
-
-    #[allow(dead_code)]
-    pub(super) async fn blob_put_begin(
-        &self,
-        database_id: &str,
-        sha256: &str,
-        bytes: u64,
-    ) -> Result<Value, String> {
-        let body = json!({
-            "database_id": database_id,
-            "sha256": sha256,
-            "bytes": bytes,
-            "stage": "begin",
-        });
-        self.post("/relay/v1/blob/put", database_id, &body).await
-    }
-
-    #[allow(dead_code)]
-    pub(super) async fn blob_put_commit(
-        &self,
-        database_id: &str,
-        sha256: &str,
-        bytes: u64,
-    ) -> Result<(), String> {
-        let body = json!({
-            "database_id": database_id,
-            "sha256": sha256,
-            "bytes": bytes,
-            "stage": "commit",
-        });
-        self.post("/relay/v1/blob/put", database_id, &body).await?;
-        Ok(())
-    }
-
-    #[allow(dead_code)]
-    pub(super) async fn blob_get(&self, database_id: &str, sha256: &str) -> Result<Value, String> {
-        let body = json!({
-            "database_id": database_id,
-            "sha256": sha256,
-        });
-        self.post("/relay/v1/blob/get", database_id, &body).await
     }
 
     async fn post(&self, path: &str, database_id: &str, body: &Value) -> Result<Value, String> {

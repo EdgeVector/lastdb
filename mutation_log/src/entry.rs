@@ -61,7 +61,8 @@ pub struct DeviceHead {
     pub entry_hash: EntryHash,
 }
 
-/// Role-reduction cutoff for one device stream.
+/// Per-device-stream position carried in a grant entry. Nothing reads it; it
+/// stays because the signed bytes include it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RevocationCutoff {
     /// Cutoff device id.
@@ -92,10 +93,10 @@ pub struct BundleBody {
     pub blob_size: u64,
     /// Inner direct data changes (must match decrypted body).
     pub change_count: u32,
-    /// Grant device binding for member bundles.
+    /// Grant device binding. Bundles are the publisher's, so this is absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub grant_at_device: Option<DeviceId>,
-    /// Grant seq binding for member bundles.
+    /// Grant seq binding. Bundles are the publisher's, so this is absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub grant_at_seq: Option<u64>,
 }
@@ -116,10 +117,10 @@ pub struct DataBody {
     /// Optional incorporation of a proposal.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub incorporated_from: Option<IncorporatedFrom>,
-    /// Grant device binding for member direct writes.
+    /// Grant device binding. Rejected on a proposal and unused on direct entries.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub grant_at_device: Option<DeviceId>,
-    /// Grant seq binding for member direct writes.
+    /// Grant seq binding. Rejected on a proposal and unused on direct entries.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub grant_at_seq: Option<u64>,
 }
@@ -148,7 +149,7 @@ pub struct GrantBody {
     pub grantee: Grantee,
     /// Role assigned (or `revoked`).
     pub role: Role,
-    /// Cutoffs required only when lowering / revoking.
+    /// Carried for the wire format only; nothing reads it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub cutoffs: Vec<RevocationCutoff>,
 }

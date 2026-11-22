@@ -22,13 +22,20 @@
 //! Wire `signature`: base64url, no padding, 86 characters. Hex ids: 64 lowercase.
 //! `device_id`: 64 lowercase hex (32 bytes, same as `node_key`). `entry_hash = SHA-256(signed_bytes ‖ signature_raw_64)`.
 //!
+//! # Who signs what
+//!
+//! Only the publisher signs direct data and bundles. A member with a `submit`
+//! or `write` grant signs proposals (`stream = proposal`), which change
+//! nothing until the publisher signs a direct entry that cites one in
+//! `incorporated_from`, or a `heads` entry that records it as not accepted.
+//! A grant entry still carries a `cutoffs` field because the wire format
+//! requires it; nothing reads it.
+//!
 //! # Record LWW payload
 //!
 //! See [`payload`]: `u16 record_key_len` + key + `value_bytes` (empty = tombstone).
 //! Whole-record LWW by `(lamport, node_key, device_id)`. Equal-lamport grants:
-//! `revoked` wins. Cutoffs only when lowering/revoking.
-//!
-//! No snapshots, checkpoints, dual path, or feature flags.
+//! `revoked` wins.
 
 #![deny(clippy::disallowed_methods, clippy::disallowed_types)]
 #![warn(missing_docs)]
