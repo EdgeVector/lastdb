@@ -42,8 +42,8 @@ pub(super) struct RelayClient {
     /// read timeout when the request starts and keeps it until the response headers arrive, which
     /// for a PUT is after the whole body is sent, so it would cut off every upload longer than
     /// the timeout however fast it moves. The upload watches its own body instead (see
-    /// `blob_transfer`). What still applies: connect timeout 10 s; pool idle timeout 90 s (an idle
-    /// pooled connection only); TCP keepalive 15 s (keeps a quiet connection open, ends nothing);
+    /// `blob_transfer`). What still applies: connect timeout 10 s; no idle pool (each upload opens its
+    /// own connection); TCP keepalive 15 s (keeps a quiet connection open, ends nothing);
     /// no HTTP/2 keep-alive ping and no other timeout.
     pub(super) transfer: reqwest::Client,
     /// For the presigned download of a blob: the same, with [`STALL_TIMEOUT`] for each read of the
@@ -67,6 +67,10 @@ impl RelayClient {
         // trace-egress: public — presigned blob URLs; the signed headers go only to the relay.
         let transfer = reqwest::Client::builder()
             .connect_timeout(CONNECT_TIMEOUT)
+            // A fresh connection for each upload: a body cannot be sent again on a pooled
+            // connection that the store closed while it was idle ("connection closed before
+            // message completed").
+            .pool_max_idle_per_host(0)
             .build()
             .map_err(|e| format!("relay http client: {e}"))?;
         // trace-egress: public — presigned blob URLs; the signed headers go only to the relay.

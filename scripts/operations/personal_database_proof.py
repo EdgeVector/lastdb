@@ -40,6 +40,8 @@ as its own stream and applies the other streams through the store's last-writer 
 18. A transfer fails when the connection stalls, not when it is slow. A snapshot whose file reaches the
     relay at about 32 KiB/s takes longer than the old allowance (30 s) and completes; an upload that the
     relay stops reading fails after 30 s with a message that says how many of how many bytes were sent.
+19. An upload that fails before an answer (the store closed the connection) is sent again from its start to
+    the same URL, at most 3 tries in all; an HTTP status from the store (400) is final and is not sent again.
 10. Scale: tens of thousands of writes. The peak resident memory of the daemons does not grow with
     the number of entries, the spool returns to near empty, and an idle turn reads nothing.
 
@@ -66,6 +68,7 @@ from personal_proof_nodes import DELTA, DeployedRelay, Device, Relay, converged,
 from personal_proof_status import prove_none_yet, refused_snapshot, RELAY_LIMIT_BYTES  # noqa: E402
 from personal_proof_retries import prove_retries  # noqa: E402
 from personal_proof_uplink import prove_uplink  # noqa: E402
+from personal_proof_upload_retry import prove_upload_retry  # noqa: E402
 from personal_proof_snapshot import (  # noqa: E402
     exchange_writes, kill_the_restore, scale_snapshot, second_snapshot, snapshot_restore_equals_replay)
 from personal_proof_steps import (  # noqa: E402
@@ -131,6 +134,7 @@ def prove(relay, relay2, relay3, relay4, a, b, c, d, e, f, g, h, j, k, m, n, p, 
     report["retries"] = prove_retries(relay4, m, n, p)
     relay4.stop()
     report["uplink"] = prove_uplink(args)
+    report["upload_retry"] = prove_upload_retry(args)
     # Only A and B again: the homes restored for the proof are done.
     for device in (e, f, h):
         device.stop()
