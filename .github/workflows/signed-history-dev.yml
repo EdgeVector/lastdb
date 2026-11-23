@@ -216,8 +216,9 @@ jobs:
           mkdir -p "$OUT"
           export LASTDB_RELAY_E2E_BIN="$PWD/target/release/signed_history_relay_e2e"
           export RELAY_URL="${EXEMEM_RELAY_URL%/}"
+          export LASTDB_RELAY_E2E_STREAMS=true
           "$LASTDB_RELAY_E2E_BIN" | tee "$OUT/exemem.stdout"
-          python3 scripts/signed_history/check_relay_e2e.py "$OUT/exemem.stdout" exemem
+          python3 scripts/signed_history/check_relay_e2e.py "$OUT/exemem.stdout" exemem --expect-streams
       - uses: actions/upload-artifact@v7
         if: always()
         with:
@@ -239,7 +240,7 @@ jobs:
           {
             echo "## Signed history relay e2e"
             echo "Source: $GITHUB_SHA"
-            echo "Binary: signed_history_relay_e2e (LASTDB_RELAY_E2E_BIN). Scenarios: signed append/read, grant + revoke (403), never-granted append/read (403), ~300 MiB signed bundles, discovering restore into FoldDB; on reference_relay also log/streams (steps streams_*). No credentials."
+            echo "Binary: signed_history_relay_e2e (LASTDB_RELAY_E2E_BIN). Scenarios: signed append/read, grant + revoke (403), never-granted append/read (403), ~300 MiB signed bundles, discovering restore into FoldDB, and log/streams (steps streams_*). No credentials."
             if [[ -z "${EXEMEM_RELAY_URL}" ]]; then
               echo "Exemem relay: skipped (no exemem_relay_url input or EXEMEM_RELAY_URL variable)."
             else

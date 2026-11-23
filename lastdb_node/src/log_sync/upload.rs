@@ -79,9 +79,20 @@ pub(super) async fn upload_log(
 }
 
 /// Upload every signed-log received database's log; record publish.lastAttempt.
-pub(super) async fn upload_received_logs(host: &Host, client: &RelayClient) -> Option<String> {
-    let shares = registered_share::list(&host.home).ok()?;
-    let mut turn_error = None;
+/// Returns `true` when every signed-log received database uploaded cleanly.
+pub(super) async fn upload_received_logs(host: &Host, client: &RelayClient) -> bool {
+    let shares = match registered_share::list(&host.home) {
+        Ok(shares) => shares,
+        Err(err) => {
+            tracing::warn!(
+                target: "lastdbd::log_sync",
+                %err,
+                "received share list failed"
+            );
+            return false;
+        }
+    };
+    let mut all_ok = true;
     for share in shares {
         if !share.signed_log {
             continue;
@@ -89,20 +100,19 @@ pub(super) async fn upload_received_logs(host: &Host, client: &RelayClient) -> O
         if mutation_log::DatabaseId::from_hex(share.id.as_str()).is_err() {
             continue;
         }
-        if let Some(err) = upload_log(client, host, share.id.as_str(), true).await {
-            turn_error = Some(err);
+        if upload_log(client, host, share.id.as_str(), true)
+            .await
+            .is_some()
+        {
+            all_ok = false;
         }
     }
-    turn_error
+    all_ok
 }
 
-/// True when any syncable database still has log entries the relay has not
-/// acknowledged. An unreadable log or cursor counts as pending, so the loop
-/// keeps retrying and the error stays visible.
-pub(super) fn uploads_pending(host: &Host) -> bool {
-    if super::personal::pending(host) {
-        return true;
-    }
+/// True when any owned shareable database (or received share when
+/// `include_received` is true) still has unheld log entries past `uploaded.json`.
+pub(super) fn shareable_uploads_pending(host: &Host, include_received: bool) -> bool {
     for database in crate::host::owned::registered_databases(&host.home) {
         if database.kind != "shareable" {
             continue;
@@ -111,16 +121,18 @@ pub(super) fn uploads_pending(host: &Host) -> bool {
             return true;
         }
     }
-    if let Ok(shares) = registered_share::list(&host.home) {
-        for share in shares {
-            if share.signed_log
-                && database_pending(&host.home, share.id.as_str())
-                && !publish_state::uploads_held(
-                    share.id.as_str(),
-                    Some(grant_and_lease_tip(host, share.id.as_str()).as_str()),
-                )
-            {
-                return true;
+    if include_received {
+        if let Ok(shares) = registered_share::list(&host.home) {
+            for share in shares {
+                if share.signed_log
+                    && database_pending(&host.home, share.id.as_str())
+                    && !publish_state::uploads_held(
+                        share.id.as_str(),
+                        Some(grant_and_lease_tip(host, share.id.as_str()).as_str()),
+                    )
+                {
+                    return true;
+                }
             }
         }
     }
@@ -190,10 +202,10 @@ async fn drain_log(client: &RelayClient, home: &Path, database_id: &str) -> Resu
             return Ok(uploaded);
         }
         let expected = found.batch.len() as u64;
-        let stored = client.append(database_id, &found.batch).await?.0;
-        if stored < expected {
+        let (stored, duplicate) = client.append(database_id, &found.batch).await?;
+        if stored + duplicate < expected {
             return Err(format!(
-                "relay log.append stored {stored} of {expected} log entries"
+                "relay log.append stored {stored} (duplicate {duplicate}) of {expected} log entries"
             ));
         }
         history_store::store_uploaded(home, database_id, found.uploaded + found.batch.len())?;

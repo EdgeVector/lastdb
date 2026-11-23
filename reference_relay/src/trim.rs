@@ -1,23 +1,10 @@
-//! `log/trim`: drop the entries that a snapshot covers.
+//! `log/trim`: drop the entries that a snapshot covers on a personal database.
 //!
-//! The owner names one `snapshot` entry on the snapshot stream. The relay reads that stored
-//! entry itself, checks its signature, and trusts nothing else in the request: the
-//! positions to drop are the `through` list of that entry. For each stream it drops the
-//! entries up to the position and keeps a `floor.json` file (the last dropped seq and its
-//! hash), so the head of the stream, `log/streams` and the gapless append go on as before.
-//! It then drops the snapshot entries older than the named one. It never drops a blob: the
-//! manifests and files of a dropped snapshot entry stay on the relay. The named snapshot,
-//! the newer ones and everything after the positions stay, so a restore from any retained
-//! snapshot still has all it reads.
-//!
-//! Only a personal database is trimmed: every entry that would be dropped must carry the
-//! namespace `sealed` (data and schema entries) or be a `snapshot` entry. A database whose
-//! members read the publisher's streams from the start is refused. The `birth` entry is
-//! never dropped, because it is on a stream of its own that no snapshot covers.
-//!
-//! The call is safe to repeat. The floor is written before the entry files go, and each
-//! step skips what is already gone.
+//! Reads and verifies the named `snapshot` entry, checks its manifest blob, rejects shared
+//! databases or regressed `through` positions, atomically updates `floor.json` via a unique
+//! temp file, and removes covered stream and older snapshot entries while retaining all blobs.
 
+use std::collections::BTreeMap;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -46,35 +33,40 @@ struct LogTrimBody {
     writer_seq: u64,
 }
 
-/// What an entry of a stream may be for the trim to drop it.
-#[derive(Clone, Copy)]
-enum Allowed {
-    /// A sealed `data` or `schema` entry of a personal database.
-    Sealed,
-    /// A `snapshot` entry.
-    Snapshot,
-}
-
-impl Allowed {
-    fn permits(self, entry: &Value) -> bool {
-        let kind = entry.get("kind").and_then(Value::as_str);
-        match self {
-            Self::Sealed => {
-                matches!(kind, Some("data" | "schema"))
-                    && entry.get("namespace").and_then(Value::as_str) == Some("sealed")
-            }
-            Self::Snapshot => kind == Some("snapshot"),
-        }
+fn permits_entry(is_snapshot: bool, entry: &Value) -> bool {
+    let kind = entry.get("kind").and_then(Value::as_str);
+    if is_snapshot {
+        kind == Some("snapshot")
+    } else {
+        matches!(kind, Some("data" | "schema"))
+            && entry.get("namespace").and_then(Value::as_str) == Some("sealed")
     }
 }
 
-/// The entries of one stream that the trim drops, checked and not yet dropped.
+struct TrimScope<'a> {
+    store: &'a Store,
+    database_id: &'a str,
+    writer: &'a str,
+}
+
+impl TrimScope<'_> {
+    fn stream_dir(&self, device: &str) -> PathBuf {
+        let mut p = self.store.root.join("logs");
+        p.extend([self.database_id, self.writer, device]);
+        p
+    }
+
+    fn floor(&self, device: &str) -> u64 {
+        self.store
+            .heads
+            .floor(self.database_id, self.writer, device)
+    }
+}
+
 struct Plan {
     device: String,
     dir: PathBuf,
-    /// Seq of the last entry to drop, and its hash. `None` when it is already gone.
     floor: Option<(u64, String)>,
-    /// Every stored seq up to the floor, ascending.
     covered: Vec<u64>,
 }
 
@@ -86,69 +78,150 @@ pub(crate) async fn log_trim(
     let verified = auth::verify_request(&headers, "/relay/v1/log/trim", &body)?;
     let req: LogTrimBody = parse_body(&body, SMALL_BODY_BYTES)?;
     verified.check_database(&req.database_id)?;
-    let caller = verified.node_key;
+    require_hex64(&req.database_id, "database_id")?;
     let db = gate::parse_id(&req.database_id, "database_id")?;
     require_hex64(&req.device_id, "device_id")?;
     if req.writer_seq == 0 {
         return Err(ApiError::invalid("writer_seq"));
     }
     {
-        // Only the owner's node key trims, and the owner's key is the publisher.
         let grants = state.grants.lock().await;
         let birth = grants
             .birth(&db)
             .ok_or_else(|| ApiError::forbidden("publisher"))?;
-        if birth.owner != caller {
+        if birth.owner != verified.node_key {
             return Err(ApiError::forbidden("publisher"));
         }
+        if grants.any_read(&db) {
+            return Err(ApiError::forbidden("grant"));
+        }
     }
-    let writer = caller.to_hex();
-    let store = &state.store;
-    let snapshot = snapshot_entry(store, &req, &writer).await?;
-
-    // Check everything first. Nothing is dropped until every stream passed.
-    let mut plans = Vec::new();
-    for position in &snapshot.through {
-        let device = position.device_id.to_hex();
-        let hash = position.entry_hash.to_hex();
-        plans.push(
-            plan(
-                store,
-                &req.database_id,
-                &writer,
-                &device,
-                position.writer_seq,
-                Some(hash.as_str()),
-                Allowed::Sealed,
-            )
-            .await?,
-        );
+    let writer = verified.node_key.to_hex();
+    let scope = TrimScope {
+        store: &state.store,
+        database_id: &req.database_id,
+        writer: &writer,
+    };
+    let snap_floor = scope.floor(&req.device_id);
+    if req.writer_seq <= snap_floor {
+        let retained = scope
+            .stream_dir(&req.device_id)
+            .join(format!("{}.json", snap_floor + 1));
+        let entry = read_json(&retained)
+            .await
+            .map_err(|_| ApiError::invalid("kind"))?;
+        if !permits_entry(true, &entry) {
+            return Err(ApiError::invalid("kind"));
+        }
+        ensure_personal_logs(&scope, &req.device_id, snap_floor, &BTreeMap::new()).await?;
+        return Ok(Json(json!({ "done": true, "entries_deleted": 0 })));
     }
+    let snapshot = snapshot_entry(scope.store, &req, &writer).await?;
+    verify_manifest_blob(scope.store, &req.database_id, &snapshot).await?;
+    let through_map = check_through_monotonic(&scope, &req.device_id, &snapshot)?;
     let older = req.writer_seq - 1;
-    let snapshot_plan = plan(
-        store,
-        &req.database_id,
-        &writer,
-        &req.device_id,
-        older,
-        None,
-        Allowed::Snapshot,
-    )
-    .await?;
+    ensure_personal_logs(&scope, &req.device_id, older, &through_map).await?;
 
-    // The streams first, then the older snapshot entries. No file or manifest is dropped.
-    let mut entries_deleted = 0;
-    for each in &plans {
-        entries_deleted += apply(store, &req.database_id, &writer, each).await?;
+    let mut plans = Vec::with_capacity(snapshot.through.len() + 1);
+    for pos in &snapshot.through {
+        let (dev, hash) = (pos.device_id.to_hex(), pos.entry_hash.to_hex());
+        plans.push(plan(&scope, &dev, pos.writer_seq, Some(&hash), false).await?);
     }
-    entries_deleted += apply(store, &req.database_id, &writer, &snapshot_plan).await?;
-    Ok(Json(json!({
-        "done": true,
-        "entries_deleted": entries_deleted,
-    })))
+    plans.push(plan(&scope, &req.device_id, older, None, true).await?);
+
+    let mut deleted = 0;
+    for each in &plans {
+        deleted += apply(&scope, each).await?;
+    }
+    Ok(Json(json!({ "done": true, "entries_deleted": deleted })))
 }
 
-/// The stored, signed `snapshot` entry that the request names.
+async fn verify_manifest_blob(
+    store: &Store,
+    database_id: &str,
+    snapshot: &mutation_log::SnapshotBody,
+) -> ApiResult<()> {
+    let hex = snapshot.manifest_sha256.to_hex();
+    let (bytes, _) = store
+        .blob_meta(database_id, &hex)
+        .await
+        .map_err(|_| ApiError::not_found("manifest_sha256"))?;
+    if bytes == snapshot.manifest_bytes {
+        Ok(())
+    } else {
+        Err(ApiError::invalid("manifest_bytes"))
+    }
+}
+
+fn check_through_monotonic(
+    scope: &TrimScope<'_>,
+    snapshot_device: &str,
+    snapshot: &mutation_log::SnapshotBody,
+) -> ApiResult<BTreeMap<String, u64>> {
+    let mut through_map = BTreeMap::new();
+    for pos in &snapshot.through {
+        let dev = pos.device_id.to_hex();
+        if dev == snapshot_device || through_map.insert(dev, pos.writer_seq).is_some() {
+            return Err(ApiError::invalid("through"));
+        }
+    }
+    for listed in scope.store.list_streams(scope.database_id, scope.writer) {
+        let dev = &listed.device_id;
+        let floor = scope.floor(dev);
+        if dev != snapshot_device && floor > 0 && through_map.get(dev).copied().unwrap_or(0) < floor
+        {
+            return Err(ApiError::invalid("through"));
+        }
+    }
+    Ok(through_map)
+}
+
+async fn ensure_personal_logs(
+    scope: &TrimScope<'_>,
+    snapshot_device: &str,
+    snap_covered: u64,
+    through_map: &BTreeMap<String, u64>,
+) -> ApiResult<()> {
+    let db_dir = scope.store.root.join("logs").join(scope.database_id);
+    for (writer_name, writer_path) in subdirs(&db_dir).await {
+        if writer_name != scope.writer {
+            return Err(ApiError::forbidden("grant"));
+        }
+        for (dev, dev_path) in subdirs(&writer_path).await {
+            let skip = if dev == snapshot_device {
+                snap_covered
+            } else {
+                through_map.get(&dev).copied().unwrap_or(0)
+            };
+            check_stream_tail(&dev_path, &dev, snapshot_device, skip, through_map).await?;
+        }
+    }
+    Ok(())
+}
+
+async fn check_stream_tail(
+    dir: &Path,
+    dev: &str,
+    snapshot_device: &str,
+    skip: u64,
+    through_map: &BTreeMap<String, u64>,
+) -> ApiResult<()> {
+    let is_snap = dev == snapshot_device;
+    for seq in stored_seqs(dir, skip + 1, u64::MAX).await {
+        let entry = read_json(&dir.join(format!("{seq}.json"))).await?;
+        let kind = entry.get("kind").and_then(Value::as_str);
+        if matches!(kind, Some("grant" | "lease" | "bundle")) {
+            return Err(ApiError::forbidden("grant"));
+        }
+        let is_valid_birth =
+            kind == Some("birth") && seq == 1 && !is_snap && !through_map.contains_key(dev);
+        if !is_valid_birth && !permits_entry(is_snap, &entry) {
+            return Err(ApiError::forbidden("namespace"));
+        }
+    }
+    Ok(())
+}
+
 async fn snapshot_entry(
     store: &Store,
     req: &LogTrimBody,
@@ -173,22 +246,18 @@ async fn snapshot_entry(
     Ok(body)
 }
 
-/// Check the entries of one stream up to `through`, and say what dropping them means.
 async fn plan(
-    store: &Store,
-    database_id: &str,
-    writer: &str,
+    scope: &TrimScope<'_>,
     device: &str,
     through: u64,
     expect: Option<&str>,
-    allowed: Allowed,
+    is_snapshot: bool,
 ) -> ApiResult<Plan> {
-    let dir = store
-        .root
-        .join("logs")
-        .join(database_id)
-        .join(writer)
-        .join(device);
+    let dir = scope.stream_dir(device);
+    let current_floor = scope.floor(device);
+    if through < current_floor {
+        return Err(ApiError::invalid("through"));
+    }
     if through == 0 {
         return Ok(Plan {
             device: device.to_owned(),
@@ -197,17 +266,14 @@ async fn plan(
             covered: Vec::new(),
         });
     }
-    let head = store
+    let head = scope
+        .store
         .heads
-        .head_seq(database_id, writer, device)
-        .ok_or_else(|| ApiError::invalid("through"))?;
-    if head < through {
+        .head_seq(scope.database_id, scope.writer, device);
+    if head.is_none_or(|h| h < through) {
         return Err(ApiError::invalid("through"));
     }
-    let covered = stored_up_to(&dir, through).await;
-    let mut floor = None;
-    if through > store.heads.floor(database_id, writer, device) {
-        // The last entry is still here, so it must be the one the snapshot names.
+    let floor = if through > current_floor {
         let last = read_json(&dir.join(format!("{through}.json")))
             .await
             .map_err(|_| ApiError::invalid("through"))?;
@@ -215,11 +281,26 @@ async fn plan(
         if expect.is_some_and(|want| want != hash.as_str()) {
             return Err(ApiError::invalid("through"));
         }
-        floor = Some((through, hash));
-    }
+        Some((through, hash))
+    } else if let Some(want) = expect {
+        let raw = fs::read(dir.join(FLOOR_FILE))
+            .await
+            .map_err(|_| ApiError::invalid("through"))?;
+        let rec: FloorFile =
+            serde_json::from_slice(&raw).map_err(|_| ApiError::invalid("through"))?;
+        if rec.seq != through || rec.hash != want {
+            return Err(ApiError::invalid("through"));
+        }
+        None
+    } else {
+        None
+    };
+    let covered = stored_seqs(&dir, 1, through).await;
     for seq in &covered {
-        let entry = read_json(&dir.join(format!("{seq}.json"))).await?;
-        if !allowed.permits(&entry) {
+        if !permits_entry(
+            is_snapshot,
+            &read_json(&dir.join(format!("{seq}.json"))).await?,
+        ) {
             return Err(ApiError::forbidden("namespace"));
         }
     }
@@ -231,39 +312,54 @@ async fn plan(
     })
 }
 
-/// Drop what a plan names. Returns how many entries went.
-async fn apply(store: &Store, database_id: &str, writer: &str, plan: &Plan) -> ApiResult<u64> {
+async fn apply(scope: &TrimScope<'_>, plan: &Plan) -> ApiResult<u64> {
     if let Some((seq, hash)) = &plan.floor {
-        let record = FloorFile {
+        let rec = FloorFile {
             seq: *seq,
             hash: hash.clone(),
         };
-        let bytes = serde_json::to_vec(&record).map_err(|_| ApiError::invalid("floor"))?;
+        let bytes = serde_json::to_vec(&rec).map_err(|_| ApiError::invalid("floor"))?;
         atomic_write(&plan.dir.join(FLOOR_FILE), &bytes).await?;
-        store
-            .heads
-            .set_floor(database_id, writer, &plan.device, *seq, hash.clone());
+        let heads = &scope.store.heads;
+        heads.set_floor(
+            scope.database_id,
+            scope.writer,
+            &plan.device,
+            *seq,
+            hash.clone(),
+        );
     }
-    let mut dropped = 0;
-    // Listed again after the floor is set: an append that raced the plan may have written an
-    // entry at or below the floor, and it must go too (see `Store::append_one`).
     let covered = if let Some((through, _)) = &plan.floor {
-        stored_up_to(&plan.dir, *through).await
+        stored_seqs(&plan.dir, 1, *through).await
     } else {
         plan.covered.clone()
     };
+    let mut dropped = 0;
     for seq in &covered {
         match fs::remove_file(plan.dir.join(format!("{seq}.json"))).await {
             Ok(()) => dropped += 1,
-            Err(error) if error.kind() == ErrorKind::NotFound => {}
+            Err(e) if e.kind() == ErrorKind::NotFound => {}
             Err(_) => return Err(ApiError::invalid("data_dir")),
         }
     }
     Ok(dropped)
 }
 
-/// The seq of every entry file of a stream that is at most `through`, ascending.
-async fn stored_up_to(dir: &Path, through: u64) -> Vec<u64> {
+async fn subdirs(dir: &Path) -> Vec<(String, PathBuf)> {
+    let mut out = Vec::new();
+    if let Ok(mut rd) = fs::read_dir(dir).await {
+        while let Ok(Some(ent)) = rd.next_entry().await {
+            if ent.file_type().await.is_ok_and(|t| t.is_dir()) {
+                if let Some(name) = ent.file_name().to_str() {
+                    out.push((name.to_owned(), ent.path()));
+                }
+            }
+        }
+    }
+    out
+}
+
+async fn stored_seqs(dir: &Path, min: u64, max: u64) -> Vec<u64> {
     let mut found = Vec::new();
     if let Ok(mut files) = fs::read_dir(dir).await {
         while let Ok(Some(file)) = files.next_entry().await {
@@ -272,7 +368,7 @@ async fn stored_up_to(dir: &Path, through: u64) -> Vec<u64> {
                 .to_str()
                 .and_then(|name| name.strip_suffix(".json"))
                 .and_then(|name| name.parse::<u64>().ok());
-            if let Some(seq) = seq.filter(|seq| *seq <= through) {
+            if let Some(seq) = seq.filter(|s| *s >= min && *s <= max) {
                 found.push(seq);
             }
         }
