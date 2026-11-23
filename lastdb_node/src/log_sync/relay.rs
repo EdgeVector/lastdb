@@ -112,13 +112,8 @@ impl RelayClient {
             .post("/relay/v1/log/append", database_id, &body)
             .await?;
         let (stored, duplicate) = parse_append_counts(&value, entries.len() as u64);
-        // Every entry the relay holds now counts once in the account of this device.
-        if let Some(usage) = self
-            .usage
-            .as_ref()
-            .filter(|_| stored + duplicate == entries.len() as u64)
-        {
-            usage.entries_accepted(database_id, entries)?;
+        if let Some(usage) = &self.usage {
+            usage.entries_accepted(database_id, entries, stored + duplicate)?;
         }
         Ok((stored, duplicate))
     }
@@ -181,11 +176,7 @@ impl RelayClient {
         });
         let value = self.post("/relay/v1/log/trim", database_id, &body).await?;
         if let Some(usage) = &self.usage {
-            usage.released(
-                database_id,
-                value["entries_deleted"].as_u64().unwrap_or(0),
-                value["released_bytes"].as_u64().unwrap_or(0),
-            )?;
+            usage.released(database_id, &value)?;
         }
         Ok(value["done"].as_bool().unwrap_or(false))
     }
