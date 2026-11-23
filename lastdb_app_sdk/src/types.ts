@@ -127,6 +127,15 @@ export interface MutationOptions {
   definitionId?: string;
 }
 
+/**
+ * The answer of one change call. `applied`: the record is in this node's database now.
+ * `pending`: the node queued a proposal and the database changes only after the publisher
+ * accepts it. The node decides which; the app does not.
+ */
+export type ChangeResult =
+  | { status: 'applied'; mutationId: string }
+  | { status: 'pending'; mutationId: string; submissionSequence: number };
+
 /** An append receipt. The publisher may still reject the proposal. */
 export interface ShareSubmissionResult {
   status: 'submitted';

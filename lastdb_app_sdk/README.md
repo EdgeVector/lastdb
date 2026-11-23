@@ -15,7 +15,7 @@ are generated from the node source.
 ## Install a build of the SDK
 
 ```bash
-npm install /path/to/lastdb-app-sdk-0.19.0.tgz
+npm install /path/to/lastdb-app-sdk-0.20.0.tgz
 ```
 
 Build a tarball from this directory with `npm ci`, `npm run build`, and
@@ -130,6 +130,20 @@ const proposal = await share.submitProposal('social/Comment', {
 console.log(`Queued ${proposal.mutationId}`);
 ```
 
+`changeRecord(schemaName, op, options?)` changes one record of the selected
+database and lets the node decide how. It takes the same proposal document and
+the same `mutationId` as `submitProposal`, and returns `{ status, mutationId,
+submissionSequence? }`. `applied` means the record is in this node's database
+now: the database is owned or personal, or it is a received database where this
+node holds the `write` role and a write lease that covers it. `pending` means the
+node queued a proposal (`submissionSequence` is set) and the database changes
+only after the publisher accepts it. A member that may neither write nor propose
+gets `PermissionDeniedError`, and a document with a file is refused. Reuse the
+same `mutationId` after an uncertain outcome (`ShareSubmissionUncertainError`).
+A repeat of a pending change answers `pending` with the same sequence. The
+direct path keeps no record of ids, so a repeat of an applied create or replace
+is refused with `CasConflictError` by its own condition. It never applies twice.
+
 `getShareSubmissionStatus(mutationId)` on a client selected to that database
 reports `submitted`, `published`, `discarded`, or `unknown` for a submission
 this node already sent.
@@ -143,6 +157,7 @@ this node already sent.
 - `listDatabases()`, `createDatabase(req)`, `bindDatabaseSpec(id, spec)`,
   `select(id)` — named databases.
 - `submitProposal(schemaName, op, options?)` — queue one proposal on a received database.
+- `changeRecord(schemaName, op, options?)` — change one record: applied now or queued as a proposal.
 - `getShareSubmissionStatus(mutationId)` — status of one share submission.
 
 ## App API
@@ -181,8 +196,10 @@ addresses the personal database.
   The reply type follows `body.action`. The body is the owner route's JSON.
   `submit` answers 202. `submitProposal` uses this call when `LASTDB_APP` is
   set. Without that variable, `submitProposal` stays on the owner path.
+  `change` takes the same body as `submit` and answers 200 `applied` or 202
+  `pending`. `changeRecord` uses it when `LASTDB_APP` is set.
 
-Version 0.19.0 adds `databases()` and takes the app API types from `lastdb_node/app-api.json`.
+Version 0.20.0 adds `changeRecord()`. Version 0.19.0 added `databases()` and takes the app API types from `lastdb_node/app-api.json`.
 Regenerate them with `python3 scripts/lints/app_api_types.py --write`.
 CI runs the same script with `--check` and fails when the committed file differs.
 Use the schema names: `ReadItem`, `WriteItem`, `ChangesRequest`, `ChangesReply`,

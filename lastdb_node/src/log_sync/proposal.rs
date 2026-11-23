@@ -275,6 +275,16 @@ pub(crate) async fn submit(
     Ok(authored.writer_seq)
 }
 
+/// True when this node already signed a proposal for `mutation_id`.
+pub(crate) fn has_submitted(
+    host: &Host,
+    share: &RegisteredShare,
+    mutation_id: &uuid::Uuid,
+) -> Result<bool, ContributionError> {
+    let ledger = load_ledger(&host.home, share.id.as_str())?;
+    Ok(ledger.contains_key(&mutation_id.to_string()))
+}
+
 /// Sign `value` as a proposal on this node's member stream.
 pub(super) fn author_proposal(
     host: &Host,

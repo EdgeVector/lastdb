@@ -130,6 +130,7 @@ fn placeholder(path: &str) -> Option<&'static str> {
         return Some("/api/databases/{database}");
     }
     Some(match suffix {
+        "change" => "/api/databases/{database}/change",
         "submissions" => "/api/databases/{database}/submissions",
         "submissions/status" => "/api/databases/{database}/submissions/status",
         "schemas" => "/api/databases/{database}/schemas",

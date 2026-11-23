@@ -12,6 +12,8 @@ export const LASTDB_API_ROUTES = {
   /** Owner socket. Scoped to `/api/databases/{id}/submissions`. A proposal, not a record write. */
   shareSubmission: '/api/submissions',
   shareSubmissionStatus: '/api/submissions/status',
+  /** Owner socket. Scoped to `/api/databases/{id}/change`. One change that applies or queues. */
+  change: '/api/change',
   autoIdentity: '/api/system/auto-identity',
   schemas: '/api/schemas',
   /** Single schema lookup prefix (`/api/schema/<encoded-name>`). */

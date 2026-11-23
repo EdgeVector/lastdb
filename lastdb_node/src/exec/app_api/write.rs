@@ -26,7 +26,7 @@ use crate::exec::wire::QueryRequest;
 use crate::host::Host;
 use crate::lastdb_uds::uds_http::{UdsRequest, UdsResponse};
 
-type Alternates = BTreeMap<String, Option<KeyValue>>;
+pub(super) type Alternates = BTreeMap<String, Option<KeyValue>>;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -36,25 +36,25 @@ struct WriteBody {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct WriteItem {
+pub(super) struct WriteItem {
     #[serde(default)]
-    database: Option<String>,
-    schema: String,
-    op: Op,
-    key: KeyValue,
+    pub(super) database: Option<String>,
+    pub(super) schema: String,
+    pub(super) op: Op,
+    pub(super) key: KeyValue,
     #[serde(default)]
-    record: Option<HashMap<String, Value>>,
+    pub(super) record: Option<HashMap<String, Value>>,
     #[serde(default)]
-    alternates: Alternates,
+    pub(super) alternates: Alternates,
     #[serde(default)]
-    revision: Option<String>,
+    pub(super) revision: Option<String>,
     /// Absent keeps a replace's file. JSON null clears it. An object links a path.
     #[serde(default, deserialize_with = "file_input")]
-    file: FileInput,
+    pub(super) file: FileInput,
 }
 
 #[derive(Default)]
-enum FileInput {
+pub(super) enum FileInput {
     #[default]
     Absent,
     Clear,
@@ -75,7 +75,7 @@ where
 /// the request, and LastDB keeps a reference in place of a copy.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct FileLink {
+pub(super) struct FileLink {
     path: String,
     #[serde(default)]
     name: Option<String>,
@@ -85,7 +85,7 @@ struct FileLink {
 
 #[derive(Clone, Copy, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-enum Op {
+pub(super) enum Op {
     Create,
     Replace,
     Delete,
@@ -104,6 +104,10 @@ pub(in crate::exec) async fn write_route(
 
 async fn write(req: &UdsRequest, host: &Host) -> Result<Value, HostError> {
     let items = parse(req)?;
+    run(host, items).await
+}
+
+pub(super) async fn run(host: &Host, items: Vec<WriteItem>) -> Result<Value, HostError> {
     for (index, item) in items.iter().enumerate() {
         require_write(&item.schema).map_err(|error| error.at(index))?;
     }

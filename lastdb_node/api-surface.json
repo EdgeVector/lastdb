@@ -1,5 +1,5 @@
 {
-  "api_version": 45,
+  "api_version": 46,
   "min_supported_api_version": 38,
   "app_api_version": 1,
   "min_supported_app_api_version": 1,
@@ -21,6 +21,7 @@
     "/api/databases",
     "/api/databases/accept",
     "/api/databases/spec",
+    "/api/databases/{database}/change",
     "/api/databases/{database}/submissions",
     "/api/databases/{database}/submissions/status",
     "/api/db/cleanup",
@@ -47,6 +48,7 @@
     "databases"
   ],
   "app_routes": [
+    "/api/change",
     "/api/databases",
     "/api/databases/accept",
     "/api/databases/spec",

@@ -57,7 +57,8 @@ pub use personal::{
 };
 pub(crate) use personal::{known_snapshot, request_snapshot, snapshot_status};
 pub(crate) use proposal::{
-    status as share_write_status, submit as submit_share_write, ContributionError,
+    has_submitted as share_write_submitted, status as share_write_status,
+    submit as submit_share_write, ContributionError,
 };
 pub use relay::hung_relay_must_timeout;
 pub use spawn::spawn;

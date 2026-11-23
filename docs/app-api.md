@@ -78,7 +78,7 @@ Every write carries a condition, so two writers cannot overwrite each other with
 - `{ "error": { "code": "conflict", "message": "mutation 1: the record is at another revision", "index": 1, "reason": "revision" } }`
 - A schema that declares alternate keys takes their addresses in `alternates` on a `create` and a `replace`.
 - The list is all or nothing. Every mutation in one list names the same database. Omit `database` to use the personal database.
-- A write that names a received database is refused for every member, whatever its role: the status is 403, the code is `permission_denied`, and the message is `a received database is read only`. Only the publisher's signature changes a shared database. A member changes it by a proposal on the owner socket, and the publisher's node accepts it or signs that it is not accepted. See Sharing. An unknown identifier is `not_found` with the message `database is not registered on this node`.
+- A write that names a received database is refused for every member, whatever its role: the status is 403, the code is `permission_denied`, and the message is `a received database is read only`. The one exception is a member whose role is `write` while a write lease covers it: then the write applies at once and is signed as a direct entry. Otherwise only the publisher's signature changes a shared database. A member changes it by a proposal on the owner socket, or by the change call, and the publisher's node accepts it or signs that it is not accepted. See Sharing. An unknown identifier is `not_found` with the message `database is not registered on this node`.
 - The reply comes after the write is on disk. `revisions` holds the new revision of each record, in order.
 
 A read returns each record's `revision` beside its key. It also returns `created_by` and `updated_by` when the record has them. Each value is the lowercase hex node key of a writer. The node omits a key when the record has no value for it. It does not send null. A record written before the values existed omits both keys, and so does a node on an older build at this API version. `created_by` is set only when the write creates the record. A replace keeps the previous `created_by`, including when that value is absent. `updated_by` is the writer of this revision. A write that names `created_by` or `updated_by`, on the write item or inside `record`, is refused.
@@ -185,6 +185,7 @@ POST /v1/x/databases
 | `bootstrap_relay` | none: the first signed relay URL | `database` | 200 `{ok, user_hash, databaseId, url}` |
 | `share_link` | `POST /api/databases/{id}/share/link` | `database` | 200 `{ok, user_hash, databaseId, link}` |
 | `submit` | `POST /api/databases/{id}/submissions` | `database`, `mutation`, `idempotency_key` | 202 `{ok, status, mutation_id, submission_sequence}` |
+| `change` | `POST /api/databases/{id}/change` | `database`, `mutation`, `idempotency_key` | 200 `{ok, status: "applied", mutation_id}` or 202 `{ok, status: "pending", mutation_id, submission_sequence}` |
 | `submission_status` | `POST /api/databases/{id}/submissions/status` | `database`, `mutationId` | 200 `{ok, mutation_id, status}` |
 
 - `database` is the id or the name. Omit it, or send JSON null, and the call uses the personal database. A bad value is `invalid_request` and the message is `invalid database identifier`. `list`, `create`, and `accept` reject the field as `unknown field database`.
@@ -447,6 +448,8 @@ A node serves two sockets in its data directory.
   key list, file-byte upload, or `GET /api/changes`. Those calls are unknown
   paths. Record reads and writes use `/v1/read` and `/v1/write`. A receiver's
   proposal is `POST /api/databases/{id}/submissions`. That call is not a record write.
+  One change to one record, applied or queued as the node decides, is
+  `POST /api/databases/{id}/change` (see Sharing).
 - The installer places one schema on the personal database with
   `POST /api/apps/declare-schema`. The same body placed in one database this
   node owns is `POST /api/databases/{id}/apps/declare-schema`. The app socket
@@ -559,7 +562,27 @@ Idempotency-Key: <uuid>
 - The service's authorization refusal is the same 403 and the same text, with no `Retry-After`. Do not retry. That refusal is the service code `unauthorized`, or HTTP 401 or 403, other than an unpaid account (`unauthorized` with field `payment.subscription`). The node does not decide that this member may not write. It repeats the service's refusal.
 - A snapshot that is not durable answers `503` with the text `database snapshot is not durable`. An append the node cannot confirm answers `503` with the text `shared mutation was not confirmed` and `Retry-After`. That is an unreachable service or an answer that is not a confirmation. Retry after the delay. An unpaid account on this append is that 503.
 - `GET` on this path is not served. The status call beside it is `POST /api/databases/{id}/submissions/status` with `{ "mutationId": "<uuid>" }`. Its answer is `submitted`, `published`, `not_accepted`, or `unknown`.
-- `/v1/write` to a received database is refused for every member with `a received database is read only`. This submissions route is the only way a member changes a shared database. The publisher's node decides each proposal once, in the order the member signed them. With a `write` grant it accepts a create, replace or delete of any record. With a `submit` grant it accepts a create, and a replace or delete of a record that member created. `expected` must hold: `absent` needs no live record, and a `revision` must be the one this node shows for the record. The member's copy of the database changes only after the publisher accepted the proposal and this node pulled that. A reader with no member entry never proposes.
+- `/v1/write` to a received database is refused for every member with `a received database is read only`. A member without a covering write lease changes a shared database only by this route or by the change call below. The publisher's node decides each proposal once, in the order the member signed them. With a `write` grant it accepts a create, replace or delete of any record. With a `submit` grant it accepts a create, and a replace or delete of a record that member created. `expected` must hold: `absent` needs no live record, and a `revision` must be the one this node shows for the record. The member's copy of the database changes only after the publisher accepted the proposal and this node pulled that. A reader with no member entry never proposes.
+
+### The change call
+
+`POST /api/databases/{id}/change` changes one record and lets the node decide how, so an
+app does not need to know whether the node holds a write lease. On the app socket it is
+the `databases` action `change`, with the same fields as `submit`.
+
+```
+POST /api/databases/{id}/change
+Idempotency-Key: <non-nil lowercase uuid>
+
+<the same proposal document as the submissions route>
+```
+
+- The body and the `Idempotency-Key` are the submissions route's. A file in the document is `400`.
+- The node asks the one question `/v1/write` asks: may this node sign a direct entry now. It may for the personal database, an owned database, and a received whole-database share where this node's role is `write` and the newest lease it holds covers it, less the margin. Then it applies the change at once and answers `200 {"ok": true, "status": "applied", "mutation_id": "<id>"}`. `expected` becomes the revision a replace or delete names, and a create expects the key absent. A condition that does not hold is `409`, as on `/v1/write`. `purge` is not served.
+- Otherwise it appends a proposal, as the submissions route does, and answers `202 {"ok": true, "status": "pending", "mutation_id": "<id>", "submission_sequence": N}`. The record changes after the publisher accepts it.
+- If the lease ends between the node's decision and the write, the node queues the change once and answers `202` `pending`. A member that may neither write nor propose is `403` with `this member cannot submit this shared mutation`. A share that is not a whole database is `403` with `this share is read-only`. Other errors are those of the path that ran.
+- A repeat of a pending change (same id) answers `pending` with the same sequence, and so does a repeat of an id this node already queued after the lease has since begun to cover it. The direct path keeps no record of ids: a repeat of an applied create or replace is `409`, because its own condition no longer holds. It never applies twice.
+- On the app socket the calling app must have declared a write grant for the schema, whichever path runs.
 
 ## The launcher
 

@@ -40,6 +40,7 @@ from shared_database_proof import (  # noqa: E402
     APP, SCHEMA, Member, converge, dump, wait, write_credentials,
 )
 from record_runs import definition  # noqa: E402
+from lease_change_proof import change_lapsed, lapsed_published, prove_change  # noqa: E402
 
 LEASE_MS = 60_000
 READ_ONLY = "a received database is read only"
@@ -277,6 +278,7 @@ def prove(pub, a, b, c, proxies):
     require(status == 403 and (reply.get("error") or {}).get("message") == READ_ONLY,
             f"a write after the lease ran out was HTTP {status} {reply!r}")
     mid = a.propose("create", "k4", {"id": "k4", "note": "a-proposal"}, {"type": "absent"})
+    lapsed_id = change_lapsed(a)
     pub.restart()
     wait("A to hold a renewed lease", lambda: (x := a.lease()) and x["directWrites"] and x, 90)
     wait("A's proposal to be decided", lambda: a.status(mid) == "published")
@@ -284,7 +286,8 @@ def prove(pub, a, b, c, proxies):
     everywhere(members, "k4", "a-proposal", a.key)
     everywhere(members, "k5", "direct-again", a.key)
     print("4. lease lapsed at A's clock, A proposed, renewed after the publisher returned", flush=True)
-
+    lapsed_published(a, lapsed_id, members, everywhere, OUTCOMES)
+    prove_change(pub, a, b, c, pb, members, everywhere, OUTCOMES)
     # 5. A new writer is covered right after the membership change.
     seen = publisher_lease(pub)["authoredAtMs"]
     fresh = wait("the publisher to renew", lambda: (x := publisher_lease(pub)) and x["authoredAtMs"] > seen and x, 60)
