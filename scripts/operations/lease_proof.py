@@ -168,6 +168,22 @@ class Node(Member):
         status = self.node.call("/api/status")[0]["status"]["cloud_sync"]
         return (((status.get("databases") or {}).get(self.db) or {}).get("upload") or {}).get("last_error")
 
+    def upload_settled(self, signed):
+        """Every entry this node had signed when `signed` was counted is on the relay.
+
+        The status keeps its old numbers until the next sync turn, so a head that
+        equals the confirmed count proves nothing until the head has caught up."""
+        status = self.node.call("/api/status")[0]["status"]["cloud_sync"]
+        upload = ((status.get("databases") or {}).get(self.db) or {}).get("upload") or {}
+        head = upload.get("spool_head")
+        return head is not None and head >= signed and head == upload.get("spool_confirmed_through")
+
+    def signed_count(self):
+        try:
+            return len(json.loads((self.node.home / "log-sync" / str(self.db) / "authored.json").read_text()))
+        except (OSError, ValueError):
+            return 0
+
     def log_count(self, text):
         try:
             return (self.out / "node.log").read_text().count(text)
@@ -333,9 +349,16 @@ def prove(pub, a, b, c, proxies):
     pb.block()
     b.write("h1", "unsent")
     pub.act(action="grant", database=pub.db, grantee=b.key, role="read")
+    # The reduction must be on the relay before B reconnects. Otherwise B's upload
+    # can win the race and the relay takes the entry, which is correct and proves nothing
+    # (both failed runs: B's entry was on the publisher and C).
+    signed = pub.signed_count()
+    wait("the reduction to be on the relay", lambda: pub.upload_settled(signed))
     pb.unblock()
-    message = wait("B's sync status to name the refusal",
-                   lambda: (m := b.upload_error()) and "refused entry" in m and m, 90)
+    # Whichever happens first, the relay refusing the entry or B learning that it
+    # is read, the status says the entries cannot be deposited.
+    message = wait("B's sync status to say its entries cannot be uploaded",
+                   lambda: (m := b.upload_error()) and "read or removed" in m and m, 90)
     require("read or removed" in message, f"the refusal message is unclear: {message!r}")
     refusals = b.log_count("the relay refused this member's entries")
     time.sleep(12)
