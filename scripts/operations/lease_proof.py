@@ -155,11 +155,11 @@ class Node(Member):
         except (OSError, ValueError):
             return counts
         for entry in log:
-            body = entry.get("body") or {}
-            if body.get("incorporated_from"):
+            # The entry is flat: header and body fields sit side by side.
+            if entry.get("incorporated_from"):
                 counts["incorporations"] += 1
-            elif body.get("stream") in counts:
-                counts[body["stream"]] += 1
+            elif entry.get("kind") == "data" and entry.get("stream") in counts:
+                counts[entry["stream"]] += 1
         return counts
 
     def upload_error(self):
