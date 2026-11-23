@@ -18,7 +18,7 @@ name: Signed history DEV proofs
 # account that the signing node key derives: no account, API key or secret is used. It runs on pushes to main, on the
 # daily run (cloud-backup-daily.yml) and on dispatch, and on a pull request only when the PR changes a file of the
 # proof, its nodes, the log sync, replay and spool code that the personal sync uses, the relays or this workflow
-# (job `deployed_scope`; a docs-only pull request does not run it). The relay URL is the
+# (job `scope`, output `deployed`; a docs-only pull request does not run it). The relay URL is the
 # `exemem_relay_url` input, else the variable EXEMEM_RELAY_URL, else environments.dev.exemem_api. Storage on the
 # relay cannot be deleted by a node, so each run adds to it for good: the job summary says how much.
 # Job `upgrade` takes the newest published nightly build that is not the commit under test, makes a connected home with it
@@ -33,59 +33,16 @@ name: Signed history DEV proofs
 # then export LASTDB_RELAY_E2E_BIN=$PWD/target/release/signed_history_relay_e2e and
 # RELAY_URL=<relay origin>. Its last stdout line is JSON with upload_seconds and
 # restore_seconds (see signed_history_relay_e2e/README.md).
+#
+# Job `signed-history-proofs-complete` is the merge gate (ruleset `signed-history-proofs-required` on main). It
+# reports on every pull request: it passes when every proof in scope passed, and when the pull request changes no
+# file of the proofs (then no proof runs). The files in scope are one list, in job `scope`. The workflow has no
+# `paths` filter because a required check that never reports blocks the pull request for good.
 on:
   pull_request:
-    paths:
-      - "mutation_log/**"
-      - "reference_relay/**"
-      - "signed_history_dev/**"
-      - "signed_history_client/**"
-      - "signed_history_materialize/**"
-      - "signed_history_relay_e2e/**"
-      - "scripts/signed_history/**"
-      - "scripts/operations/shared_database_proof.py"
-      - "scripts/operations/lease_proof.py"
-      - "scripts/operations/lease_change_proof.py"
-      - "scripts/operations/personal_database_proof.py"
-      - "scripts/operations/personal_proof_*.py"
-      - "scripts/operations/existing_home_proof.py"
-      - "scripts/operations/upgrade_proof.py"
-      - "scripts/benchmarks/node.py"
-      - "fold_db/crates/core/src/storage/format/metadata/**"
-      - "lastdb_node/src/log_sync/**"
-      - "lastdb_node/src/host.rs"
-      - "lastdb_node/src/host/cloud_sync.rs"
-      - "lastdb_node/src/bin/lastdb/admin_cmds.rs"
-      - "lastdb_node/src/bin/lastdb/snapshot_line.rs"
-      - "fold_db/crates/core/src/fold_db_core/mutation_manager/**"
-      - "fold_db/crates/core/src/storage/disk_backup/**"
-      - ".github/workflows/signed-history-dev.yml"
   push:
-    paths:
-      - "mutation_log/**"
-      - "reference_relay/**"
-      - "signed_history_dev/**"
-      - "signed_history_client/**"
-      - "signed_history_materialize/**"
-      - "signed_history_relay_e2e/**"
-      - "scripts/signed_history/**"
-      - "scripts/operations/shared_database_proof.py"
-      - "scripts/operations/lease_proof.py"
-      - "scripts/operations/lease_change_proof.py"
-      - "scripts/operations/personal_database_proof.py"
-      - "scripts/operations/personal_proof_*.py"
-      - "scripts/operations/existing_home_proof.py"
-      - "scripts/operations/upgrade_proof.py"
-      - "scripts/benchmarks/node.py"
-      - "fold_db/crates/core/src/storage/format/metadata/**"
-      - "lastdb_node/src/log_sync/**"
-      - "lastdb_node/src/host.rs"
-      - "lastdb_node/src/host/cloud_sync.rs"
-      - "lastdb_node/src/bin/lastdb/admin_cmds.rs"
-      - "lastdb_node/src/bin/lastdb/snapshot_line.rs"
-      - "fold_db/crates/core/src/fold_db_core/mutation_manager/**"
-      - "fold_db/crates/core/src/storage/disk_backup/**"
-      - ".github/workflows/signed-history-dev.yml"
+    # A branch push is covered by its pull request: one run for a commit, and one gate result.
+    branches: [main]
   workflow_dispatch:
     inputs:
       exemem_relay_url:
@@ -109,8 +66,62 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  scope:
+    name: scope of the proofs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.scope.outputs.run }}
+      deployed: ${{ steps.scope.outputs.deployed }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: A pull request and a push to main run the proofs only for their own files
+        id: scope
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          # The files the proofs depend on. This is the only list.
+          proofs='^(mutation_log/|reference_relay/|signed_history_dev/|signed_history_client/|signed_history_materialize/|signed_history_relay_e2e/|scripts/signed_history/|scripts/operations/(shared_database_proof|lease_proof|lease_change_proof|personal_database_proof|personal_proof_[^/]*|existing_home_proof|upgrade_proof)\.py$|scripts/benchmarks/node\.py$|fold_db/crates/core/src/storage/format/metadata/|lastdb_node/src/log_sync/|lastdb_node/src/host\.rs$|lastdb_node/src/host/cloud_sync\.rs$|lastdb_node/src/bin/lastdb/(admin_cmds|snapshot_line)\.rs$|fold_db/crates/core/src/fold_db_core/mutation_manager/|fold_db/crates/core/src/storage/disk_backup/|\.github/workflows/signed-history-dev\.yml$)'
+          # The personal sync: its proofs, the log sync, the replay and spool code it imports, both relays.
+          own='^(scripts/operations/personal_[^/]*|lastdb_node/src/log_sync/.*|mutation_log/.*|reference_relay/.*|signed_history_relay_e2e/.*|fold_db/crates/model/.*|fold_db/crates/core/src/(fold_db_core/mutation_manager|storage/disk_pack|storage/disk_backup)/.*|fold_db/crates/core/src/crypto\.rs|\.github/workflows/signed-history-dev\.yml)$'
+          # Dispatch, the daily call and anything else run every proof.
+          run=true
+          deployed=true
+          base=""
+          if [[ "$EVENT" == pull_request ]]; then
+            # The checkout is the merge of the pull request into main: its first parent is main.
+            base="$(git rev-parse --verify --quiet 'HEAD^1' || true)"
+          elif [[ "$EVENT" == push ]]; then
+            base="$BEFORE"
+          fi
+          if [[ "$EVENT" == pull_request || "$EVENT" == push ]]; then
+            # With no usable base the change is unknown, so every proof runs.
+            if [[ -n "$base" ]] && git cat-file -e "${base}^{commit}" 2>/dev/null; then
+              changed="$(git diff --name-only "$base" HEAD)"
+              if ! grep -Eq "$proofs" <<< "$changed"; then
+                run=false
+              fi
+              if [[ "$EVENT" == pull_request ]] && ! grep -Eq "$own" <<< "$changed"; then
+                deployed=false
+              fi
+            fi
+          fi
+          if [[ "$run" == false ]]; then
+            deployed=false
+          fi
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+          echo "deployed=$deployed" >> "$GITHUB_OUTPUT"
+          echo "proofs run: $run; deployed relay proof runs: $deployed (event $EVENT)" >> "$GITHUB_STEP_SUMMARY"
+
   proofs:
     name: reference_relay scenarios
+    needs: scope
+    if: ${{ needs.scope.outputs.run == 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     env:
@@ -168,6 +179,8 @@ jobs:
 
   relay_e2e:
     name: relay e2e (reference_relay, optional exemem)
+    needs: scope
+    if: ${{ needs.scope.outputs.run == 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 75
     env:
@@ -261,6 +274,8 @@ jobs:
 
   blob_stream:
     name: large file through blob routes (reference_relay memory)
+    needs: scope
+    if: ${{ needs.scope.outputs.run == 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
@@ -338,6 +353,8 @@ jobs:
 
   shared_nodes:
     name: shared database on real nodes (reference_relay)
+    needs: scope
+    if: ${{ needs.scope.outputs.run == 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
@@ -403,6 +420,8 @@ jobs:
 
   lease_nodes:
     name: write leases on real nodes (reference_relay)
+    needs: scope
+    if: ${{ needs.scope.outputs.run == 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
@@ -468,6 +487,8 @@ jobs:
 
   personal_nodes:
     name: personal database on real nodes (reference_relay)
+    needs: scope
+    if: ${{ needs.scope.outputs.run == 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
@@ -525,6 +546,8 @@ jobs:
 
   existing_home:
     name: a home that holds data gets a relay and publishes its first snapshot (reference_relay)
+    needs: scope
+    if: ${{ needs.scope.outputs.run == 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
@@ -575,6 +598,8 @@ jobs:
 
   upgrade:
     name: a home of the previous nightly continues on the build under test (reference_relay)
+    needs: scope
+    if: ${{ needs.scope.outputs.run == 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
@@ -618,45 +643,10 @@ jobs:
           retention-days: 7
           if-no-files-found: warn
 
-  deployed_scope:
-    name: scope of the deployed relay proofs
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    outputs:
-      run: ${{ steps.scope.outputs.run }}
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Run on every event but a pull request; a pull request runs only for its own files
-        id: scope
-        env:
-          EVENT: ${{ github.event_name }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          REF: ${{ github.ref }}
-        run: |
-          set -euo pipefail
-          run=true
-          # A branch push is covered by its pull request: one run, not two, adds to the shared DEV relay.
-          if [[ "$EVENT" == push && "$REF" != refs/heads/main ]]; then
-            run=false
-          fi
-          if [[ "$EVENT" == pull_request ]]; then
-            changed="$(git diff --name-only "$BASE_SHA" HEAD)"
-            # The personal sync: its proofs, the log sync, the replay and spool code it imports, both relays.
-            own='^(scripts/operations/personal_[^/]*|lastdb_node/src/log_sync/.*|mutation_log/.*|reference_relay/.*|signed_history_relay_e2e/.*|fold_db/crates/model/.*|fold_db/crates/core/src/(fold_db_core/mutation_manager|storage/disk_pack|storage/disk_backup)/.*|fold_db/crates/core/src/crypto\.rs|\.github/workflows/signed-history-dev\.yml)$'
-            if ! grep -Eq "$own" <<< "$changed"; then
-              run=false
-            fi
-          fi
-          echo "run=$run" >> "$GITHUB_OUTPUT"
-          echo "deployed relay proofs run: $run (event $EVENT)" >> "$GITHUB_STEP_SUMMARY"
-
   deployed_relay:
     name: personal database on the Exemem DEV relay
-    needs: deployed_scope
-    if: ${{ needs.deployed_scope.outputs.run == 'true' }}
+    needs: scope
+    if: ${{ needs.scope.outputs.deployed == 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 75
     env:
@@ -708,6 +698,8 @@ jobs:
 
   log_sync_relay_timeout:
     name: log_sync relay timeout on hung peer
+    needs: scope
+    if: ${{ needs.scope.outputs.run == 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
@@ -741,3 +733,27 @@ jobs:
           export RELAY_URL="http://${ADDR}"
           ./target/release/log_sync_relay_timeout_probe | tee "$OUT/probe.stderr"
           echo "hung peer timed out as required (RELAY_URL=$RELAY_URL)" >> "$GITHUB_STEP_SUMMARY"
+
+  complete:
+    # The merge gate. Ruleset `signed-history-proofs-required` on main requires a check of this name.
+    name: signed-history-proofs-complete
+    needs: [scope, proofs, relay_e2e, blob_stream, shared_nodes, lease_nodes, personal_nodes, existing_home, upgrade, deployed_relay, log_sync_relay_timeout]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Every proof in scope passed
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          jq -r 'to_entries[] | "- \(.key): \(.value.result)"' <<< "$NEEDS" | tee -a "$GITHUB_STEP_SUMMARY"
+          # In scope a proof must succeed. Out of scope it must not have run at all.
+          jq -e '
+            (.scope.outputs.run == "true") as $run
+            | (.scope.outputs.deployed == "true") as $deployed
+            | .scope.result == "success"
+              and (del(.scope) | to_entries | all(
+                .value.result == (if $run and (.key != "deployed_relay" or $deployed) then "success" else "skipped" end)))
+          ' <<< "$NEEDS" > /dev/null || { echo "::error::A proof in scope did not pass, or the scope job failed."; exit 1; }
+          echo "Every proof in scope passed." >> "$GITHUB_STEP_SUMMARY"
