@@ -132,10 +132,27 @@ pub(super) fn finish_request(ctx: &Ctx<'_>, nonce: &str, report: &Report) -> Res
     let bytes = serde_json::to_vec(&answer).map_err(|_| "cannot encode the report")?;
     disk::write_private(&file_of(home, &ctx.database_id, "snapshot-result"), &bytes)
         .map_err(|_| "cannot record the snapshot result".to_owned())?;
-    let path = file_of(home, &ctx.database_id, "snapshot-request");
+    retire_request(ctx, nonce).map_err(|_| "cannot retire the snapshot request".to_owned())
+}
+
+/// Record why the request `nonce` failed, and retire it. A newer request may have replaced it
+/// while the snapshot ran, and it keeps its file and its own answer.
+pub(super) fn fail_request(ctx: &Ctx<'_>, nonce: &str, error: &str) {
+    let path = file_of(&ctx.host.home, &ctx.database_id, "snapshot-request");
+    if disk::read_limited(&path, 64).ok().flatten().as_deref() == Some(nonce.as_bytes()) {
+        let _ = disk::write_private(
+            &file_of(&ctx.host.home, &ctx.database_id, "snapshot-error"),
+            error.as_bytes(),
+        );
+        let _ = retire_request(ctx, nonce);
+    }
+}
+
+fn retire_request(ctx: &Ctx<'_>, nonce: &str) -> std::io::Result<()> {
+    let path = file_of(&ctx.host.home, &ctx.database_id, "snapshot-request");
     let same = disk::read_limited(&path, 64).ok().flatten().as_deref() == Some(nonce.as_bytes());
     if same {
-        disk::remove_private(&path).map_err(|_| "cannot retire the snapshot request".to_owned())?;
+        disk::remove_private(&path)?;
     }
     Ok(())
 }

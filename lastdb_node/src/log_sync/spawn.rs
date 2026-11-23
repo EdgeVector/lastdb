@@ -82,12 +82,14 @@ pub fn spawn(host: Arc<Host>, shutdown: Arc<AtomicBool>) -> tokio::task::JoinHan
                     }
                 }
             }
+            // A snapshot that is still uploading stops here, and the next start takes it again.
+            super::personal::stop_snapshot_lane().await;
         }
         .in_current_span(),
     )
 }
 
-async fn one_turn(host: &Host, histories: &HistoryMap, base: &str) -> Result<(), String> {
+async fn one_turn(host: &Arc<Host>, histories: &HistoryMap, base: &str) -> Result<(), String> {
     let client = RelayClient::for_host(host, base)?;
 
     let owned: Vec<_> = crate::host::owned::registered_databases(&host.home)
