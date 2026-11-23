@@ -14,8 +14,17 @@ pub(crate) struct EntriesReturned(pub(crate) usize);
 /// `route=log/read status=200 entries=3`, or without `entries=` for other routes.
 pub(crate) async fn log_request(request: Request, next: Next) -> Response {
     let route = route_of(request.uri().path());
+    let started = std::time::Instant::now();
     let response = next.run(request).await;
     let status = response.status().as_u16();
+    // An upload says how long it took (`ms=`), so a proof can tell one long upload from many short ones.
+    if route == "blob/upload" {
+        eprintln!(
+            "relay route={route} status={status} ms={}",
+            started.elapsed().as_millis()
+        );
+        return response;
+    }
     match response.extensions().get::<EntriesReturned>() {
         Some(EntriesReturned(n)) => eprintln!("relay route={route} status={status} entries={n}"),
         None => eprintln!("relay route={route} status={status}"),

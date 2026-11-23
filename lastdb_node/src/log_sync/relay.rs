@@ -38,10 +38,17 @@ pub(super) struct RelayClient {
     pub(super) node_key_hex: String,
     pub(super) device_id: String,
     pub(super) http: reqwest::Client,
-    /// For the presigned transfers of a blob: no total timeout, so a slow link is not cut off.
-    /// A transfer fails when the connection stalls: each read of the answer has
-    /// [`STALL_TIMEOUT`], and an upload watches its own body (see `blob_transfer`).
+    /// For the presigned upload of a blob. No total timeout and no read timeout: reqwest arms its
+    /// read timeout when the request starts and keeps it until the response headers arrive, which
+    /// for a PUT is after the whole body is sent, so it would cut off every upload longer than
+    /// the timeout however fast it moves. The upload watches its own body instead (see
+    /// `blob_transfer`). What still applies: connect timeout 10 s; pool idle timeout 90 s (an idle
+    /// pooled connection only); TCP keepalive 15 s (keeps a quiet connection open, ends nothing);
+    /// no HTTP/2 keep-alive ping and no other timeout.
     pub(super) transfer: reqwest::Client,
+    /// For the presigned download of a blob: the same, with [`STALL_TIMEOUT`] for each read of the
+    /// answer. The body of a download is the answer, so the timeout is a stall timeout there.
+    pub(super) download: reqwest::Client,
 }
 
 impl RelayClient {
@@ -60,6 +67,11 @@ impl RelayClient {
         // trace-egress: public — presigned blob URLs; the signed headers go only to the relay.
         let transfer = reqwest::Client::builder()
             .connect_timeout(CONNECT_TIMEOUT)
+            .build()
+            .map_err(|e| format!("relay http client: {e}"))?;
+        // trace-egress: public — presigned blob URLs; the signed headers go only to the relay.
+        let download = reqwest::Client::builder()
+            .connect_timeout(CONNECT_TIMEOUT)
             .read_timeout(STALL_TIMEOUT)
             .build()
             .map_err(|e| format!("relay http client: {e}"))?;
@@ -70,6 +82,7 @@ impl RelayClient {
             device_id: device_id.to_string(),
             http,
             transfer,
+            download,
         })
     }
 

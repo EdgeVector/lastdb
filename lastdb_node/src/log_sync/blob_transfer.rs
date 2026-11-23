@@ -7,7 +7,7 @@
 //! on the size of the blob.
 //!
 //! A transfer fails when the connection stalls, not when it is slow: a download when no byte arrives
-//! for `STALL_TIMEOUT`, an upload when the transport takes no byte of the body (or sends no answer
+//! for `STALL_TIMEOUT` (the client's read timeout; an upload client has none, because that timeout runs until the answer starts), an upload when the transport takes no byte of the body (or sends no answer
 //! after the last one) for that long. No minimum rate is assumed.
 
 use std::path::{Path, PathBuf};
@@ -41,9 +41,12 @@ fn is_size_refusal(error: &str) -> bool {
         && body.is_some_and(|body| body["code"] == "invalid_request" && body["field"] == "bytes")
 }
 
-/// The error with its causes (`source` chain), since reqwest alone says "error sending request".
-fn describe(error: &reqwest::Error) -> String {
+/// The error with its causes (`source` chain), since reqwest alone says "error sending request",
+/// and the place: scheme, host and path of the URL. A presigned URL carries its signature and
+/// credential in the query, so the query is never printed.
+fn describe(error: reqwest::Error, url: &str) -> String {
     use std::error::Error as _;
+    let error = error.without_url();
     let mut text = error.to_string();
     let mut cause = error.source();
     while let Some(next) = cause {
@@ -51,7 +54,20 @@ fn describe(error: &reqwest::Error) -> String {
         text.push_str(&next.to_string());
         cause = next.source();
     }
-    text
+    format!("{text} (for {})", place(url))
+}
+
+/// `scheme://host[:port]/path` of a URL, without the query or the fragment.
+fn place(url: &str) -> String {
+    match reqwest::Url::parse(url) {
+        Ok(url) => format!(
+            "{}://{}{}",
+            url.scheme(),
+            url.host_str().unwrap_or("?"),
+            url.path()
+        ),
+        Err(_) => "an unreadable URL".to_owned(),
+    }
 }
 
 /// Fails when `taken`, the bytes the transport has taken from an upload body, does not move for
@@ -155,7 +171,7 @@ impl RelayClient {
             .map_err(|e| {
                 format!(
                     "blob upload: {} after {} s with {} of {size} bytes sent",
-                    describe(&e),
+                    describe(e, url),
                     started.elapsed().as_secs(),
                     taken.load(Ordering::Relaxed)
                 )
@@ -185,19 +201,19 @@ impl RelayClient {
         if meta["bytes"].as_u64().is_some_and(|n| n != expect_size) {
             return Err(format!("blob.get size differs from its entry for {sha256}"));
         }
-        let mut download = self.transfer.get(url);
+        let mut download = self.download.get(url);
         for (name, value) in header_pairs(&meta["headers"]) {
             download = download.header(name, value);
         }
         let response = download
             .send()
             .await
-            .map_err(|e| format!("blob download: {}", describe(&e)))?;
+            .map_err(|e| format!("blob download: {}", describe(e, url)))?;
         if !response.status().is_success() {
             return Err(format!("blob download HTTP {}", response.status()));
         }
         let part = part_path(dest, sha256);
-        let written = write_verified(response, &part, sha256, expect_size).await;
+        let written = write_verified(response, &part, sha256, expect_size, url).await;
         match written {
             Ok(()) => fs::rename(&part, dest)
                 .await
@@ -240,6 +256,7 @@ async fn write_verified(
     part: &Path,
     sha256: &str,
     expect_size: u64,
+    url: &str,
 ) -> Result<(), String> {
     if let Some(parent) = part.parent() {
         fs::create_dir_all(parent)
@@ -261,7 +278,7 @@ async fn write_verified(
         let chunk = chunk.map_err(|e| {
             format!(
                 "blob download body: {} after {count} of {expect_size} bytes",
-                describe(&e)
+                describe(e, url)
             )
         })?;
         count += chunk.len() as u64;

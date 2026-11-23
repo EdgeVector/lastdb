@@ -18,6 +18,9 @@ use crate::presign;
 /// Bytes read from disk per chunk of a download.
 const CHUNK_BYTES: usize = 64 * 1024;
 
+/// The smallest upload that `--upload-bytes-per-second` and `--upload-stall-after` apply to.
+const PROOF_MIN_BYTES: u64 = 256 * 1024;
+
 /// `PUT /relay/v1/blob/upload/{token}`: the body is streamed to staging. The request must carry
 /// `x-amz-checksum-sha256` with the base64 SHA-256 that `blob.put` begin returned.
 pub(crate) async fn blob_upload(
@@ -29,7 +32,15 @@ pub(crate) async fn blob_upload(
     let checksum = headers
         .get("x-amz-checksum-sha256")
         .and_then(|value| value.to_str().ok());
-    let (rate, stall_after) = (state.upload_bytes_per_second, state.upload_stall_after);
+    // Proof options apply to an upload of at least this declared size, so the small files of a
+    // snapshot and the manifest pass at once and only the large file is slow or stalls.
+    let large = headers
+        .get(header::CONTENT_LENGTH)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<u64>().ok())
+        .is_some_and(|length| length >= PROOF_MIN_BYTES);
+    let rate = state.upload_bytes_per_second.filter(|_| large);
+    let stall_after = state.upload_stall_after.filter(|_| large);
     let mut seen = 0u64;
     // Proof options: a slow or a stalled reader. Without them the body passes untouched.
     let chunks = body.into_data_stream().then(move |chunk| {
