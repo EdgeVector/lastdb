@@ -17,10 +17,16 @@ snapshot file uses. Two homes attach a file:
 
 Both run at the same time.
 
-A file above 32 MiB (`MAX_RECORD_FILE_BYTES`, the largest value the file store holds) is accepted by
-the write up to 512 MiB (LastDB #1872). What the node accepts, it must be able to back up: a third home
-attaches such a file and writes one more record after it. Then the home publishes a snapshot, and a
-home restored from the recovery phrase holds both records and reads the same file bytes.
+What the node accepts, it must be able to back up. A snapshot and a receiving device hold a record
+file as one value of the file store, at most `MAX_RECORD_FILE_BYTES` (32 MiB less 29 bytes). A third
+home shows both sides of that limit (step 18b):
+
+    above:  a write that attaches a 40,000,000 byte file is refused with a 400 that states the limit,
+            and the record does not exist. (For one day the write took such a file, and the home then
+            could not publish a snapshot: "disk run: value larger than the run limit".)
+    under:  a 33,000,000 byte file is accepted. The home writes one more record, syncs up and publishes
+            a snapshot, and a home restored from the recovery phrase holds both records and reads the
+            same file bytes.
 
 Not proven here: a download that stalls (the download client has the 30 s read
 timeout), the redaction of a query on a failing upload (the reference relay URL has none), a real network.
@@ -39,10 +45,12 @@ from record_runs import RANGED, definition, system_seed
 
 SLOW_BYTES_PER_SECOND = 32 * 1024
 SLOW_FILE_BYTES = 1_500_000
-# Under 32 MiB, and far above the kernel buffers of a loopback connection.
+# Under the record file limit, and far above the kernel buffers of a loopback connection.
 STALL_FILE_BYTES = 24_000_000
-# Above 32 MiB, the largest value the file store holds, and under the 512 MiB the write accepts.
+# Above the record file limit (33,554,403 bytes): refused at the write.
 OVER_CEILING_FILE_BYTES = 40_000_000
+# Just under the limit: accepted, and it must survive a snapshot and a restore.
+LARGEST_FILE_BYTES = 33_000_000
 STALL_AFTER_BYTES = 256 * 1024
 OLD_ALLOWANCE_SECONDS = 30
 STALL_SECONDS = 30
@@ -61,8 +69,27 @@ def home_with_file(device, size):
     return time.monotonic()
 
 
+def refuses_file_over_limit(device):
+    """A write that attaches a file above the limit answers 400 with the limit, and leaves no record."""
+    source = device.out / "oversized.bin"
+    source.write_bytes(os.urandom(OVER_CEILING_FILE_BYTES))
+    attached = {"path": str(source), "name": "oversized.bin", "media_type": "application/x-proof"}
+    try:
+        device.write([gamma_create("f0", "grp-f", "oversized", file=attached)])
+    except RuntimeError as error:
+        text = str(error)
+        require("HTTP 400" in text and str(OVER_CEILING_FILE_BYTES) in text and "at most" in text,
+                f"a file above the limit was not refused with a 400 that states the sizes: {text}")
+    else:
+        raise RuntimeError(f"a write accepted a file of {OVER_CEILING_FILE_BYTES} bytes, above the record file limit")
+    finally:
+        source.unlink()
+    held = v1.read_items(device.node, [v1.point(GAMMA, {"hash": "f0"})])[0]["records"]
+    require(not held, f"the refused write left a record: {held!r}")
+
+
 def large_file_is_backed_up(args, out):
-    """A home that attaches a file above 32 MiB still publishes a snapshot, and a restore equals it."""
+    """The limit from both sides: a file above it is refused; one just under it is snapshotted and restored."""
     root = out / "relay9"
     root.mkdir()
     relay = Relay(Path(args.relay_bin), root)
@@ -72,7 +99,8 @@ def large_file_is_backed_up(args, out):
         phrase = source.init()
         source.start()
         system_seed(source.node, definition(GAMMA, "Hash", FIELDS, {"by_group": RANGED}, description_prefix="Personal proof "))
-        content = os.urandom(OVER_CEILING_FILE_BYTES)
+        refuses_file_over_limit(source)
+        content = os.urandom(LARGEST_FILE_BYTES)
         attachment = source.out / "large.bin"
         attachment.write_bytes(content)
         attached = {"path": str(attachment), "name": "large.bin", "media_type": "application/x-proof"}
@@ -93,7 +121,8 @@ def large_file_is_backed_up(args, out):
         read = Path(rows[0]["file"]["path"]).read_bytes()
         require(hashlib.sha256(read).digest() == hashlib.sha256(content).digest(),
                 f"the restored file differs: {len(read)} bytes read, {len(content)} written")
-        return {"file_bytes": OVER_CEILING_FILE_BYTES, "snapshot_seq": snapshot.get("snapshot_seq")}
+        return {"file_bytes": LARGEST_FILE_BYTES, "refused_file_bytes": OVER_CEILING_FILE_BYTES,
+                "snapshot_seq": snapshot.get("snapshot_seq")}
     except Exception:
         for device in (source, restored):
             try:
@@ -143,9 +172,10 @@ def prove_uplink(args):
               f"(old allowance {OLD_ALLOWANCE_SECONDS} s) and completed after {slow_seconds:.0f} s; an upload the relay "
               f"stopped reading failed after {stall_seconds:.0f} s: {message[0]}", flush=True)
         large = large_file_is_backed_up(args, out)
-        print(f"18b. a home with a file of {large['file_bytes']} bytes attached, above 32 MiB, published snapshot "
-              f"{large['snapshot_seq']}; a home restored from the phrase holds the record written after it and reads "
-              f"the same file bytes", flush=True)
+        print(f"18b. a file of {large['refused_file_bytes']} bytes, above the record file limit, was refused at the "
+              f"write with a 400 that states the limit; a home with a file of {large['file_bytes']} bytes attached "
+              f"published snapshot {large['snapshot_seq']}, and a home restored from the phrase holds the record "
+              f"written after it and reads the same file bytes", flush=True)
         return {"longest_upload_ms": max(uploads), "slow_seconds": round(slow_seconds),
                 "stall_seconds": round(stall_seconds), "stall_message": message[0],
                 "stall_file_bytes": STALL_FILE_BYTES, "large_file": large}
