@@ -15,7 +15,7 @@ name: Signed history DEV proofs
 # Job `deployed_relay` runs the personal database proof (`personal_database_proof.py --relay-url`) and the
 # plain-home part of the old-home proof (`old_home_proof.py --relay-url`) against the Exemem DEV relay. Each run
 # makes a fresh identity (a new seed, offline), so it writes to a personal database of its own. The relay bills the
-# account that the signing node key derives: no account, API key or secret is used. It runs on every push, on the
+# account that the signing node key derives: no account, API key or secret is used. It runs on pushes to main, on the
 # daily run (cloud-backup-daily.yml) and on dispatch, and on a pull request only when the PR changes a file of the
 # two proofs, their nodes, the blob transfer or this workflow (job `deployed_scope`). The relay URL is the
 # `exemem_relay_url` input, else the variable EXEMEM_RELAY_URL, else environments.dev.exemem_api. Storage on the
@@ -533,9 +533,14 @@ jobs:
         env:
           EVENT: ${{ github.event_name }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          REF: ${{ github.ref }}
         run: |
           set -euo pipefail
           run=true
+          # A branch push is covered by its pull request: one run, not two, adds to the shared DEV relay.
+          if [[ "$EVENT" == push && "$REF" != refs/heads/main ]]; then
+            run=false
+          fi
           if [[ "$EVENT" == pull_request ]]; then
             changed="$(git diff --name-only "$BASE_SHA" HEAD)"
             own='^(scripts/operations/(personal_database_proof|personal_proof_nodes|personal_proof_deployed|old_home_proof|old_home_steps|old_home_deployed)\.py|lastdb_node/src/log_sync/blob_transfer\.rs|\.github/workflows/signed-history-dev\.yml)$'
