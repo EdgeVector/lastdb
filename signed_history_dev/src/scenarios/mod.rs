@@ -1,9 +1,11 @@
-//! Phase 1 signed-history DEV scenarios (7 proofs).
+//! Phase 1 signed-history DEV scenarios (proofs).
 
 mod blob;
 mod converge;
 mod fixture;
 mod forge;
+mod lease;
+mod lease_world;
 mod nongrantee;
 mod offchain_revoke;
 mod restore;
@@ -16,7 +18,7 @@ use crate::report::{ScenarioResult, ScenarioRun};
 
 /// Run every scenario against the grant-gating reference relay.
 pub async fn run_all(relay: &RelayHandle, blob_bytes: u64, work: &Path) -> Vec<ScenarioResult> {
-    let mut out = Vec::with_capacity(7);
+    let mut out = Vec::with_capacity(12);
     out.push(run_named("forge_reject", forge::run(relay)).await);
     out.push(run_named("revoke_cutoff", revoke::run(relay)).await);
     out.push(run_named("offchain_revoke", async { offchain_revoke::run() }).await);
@@ -36,6 +38,26 @@ pub async fn run_all(relay: &RelayHandle, blob_bytes: u64, work: &Path) -> Vec<S
     );
     out.push(run_named("nongrantee_reject", nongrantee::run(relay)).await);
     out.push(run_named("blob_perf", blob::run(relay, blob_bytes)).await);
+    out.push(
+        run_named("lease_covered_write_counts", async {
+            lease::covered_write_counts()
+        })
+        .await,
+    );
+    out.push(
+        run_named("lease_uncovered_write_refused", async {
+            lease::uncovered_write_refused()
+        })
+        .await,
+    );
+    out.push(run_named("lease_closing_point", async { lease::closing_point() }).await);
+    out.push(
+        run_named("lease_unlisted_stream", async {
+            lease::unlisted_stream_loses_all()
+        })
+        .await,
+    );
+    out.push(run_named("lease_order_converges", async { lease::order_converges() }).await);
     out
 }
 

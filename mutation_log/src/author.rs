@@ -5,7 +5,7 @@ use app_identity_crypto::SigningKey;
 use crate::accept::StreamHead;
 use crate::entry::{
     BirthBody, BlobDeleteBody, BundleBody, DataBody, DeviceHead, EntryHeader, GrantBody, HeadsBody,
-    RelayUrl, RelaysBody, SchemaBody, SignedEntry, SnapshotBody,
+    LeaseBody, RelayUrl, RelaysBody, SchemaBody, SignedEntry, SnapshotBody,
 };
 use crate::history_util::next_lamport;
 use crate::ids::{DatabaseId, DeviceId, EntryHash, Hex32, NodeKey};
@@ -187,6 +187,23 @@ pub fn author_snapshot(
     let mut entry = SignedEntry::Snapshot {
         header: ctx.header_unsigned(),
         namespace: "snapshot".into(),
+        body,
+    };
+    sign_entry(&mut entry, signing_key)?;
+    Ok(entry)
+}
+
+/// Author a lease entry. The closed streams are sorted by node key and device id.
+pub fn author_lease(
+    ctx: &AuthorCtx,
+    signing_key: &SigningKey,
+    mut body: LeaseBody,
+) -> Result<SignedEntry, EncodeError> {
+    body.closed
+        .sort_by_key(|stream| (stream.node_key, stream.device_id));
+    let mut entry = SignedEntry::Lease {
+        header: ctx.header_unsigned(),
+        namespace: "lease".into(),
         body,
     };
     sign_entry(&mut entry, signing_key)?;

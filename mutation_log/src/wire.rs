@@ -42,6 +42,11 @@ pub enum EncodeError {
     /// Snapshot positions: more than 1024, or not strictly ascending by device id.
     #[error("snapshot through must be at most 1024 positions, strictly ascending by device id")]
     BadSnapshotThrough,
+    /// Lease closed streams: more than 65535, or not strictly ascending by node key and device id.
+    #[error(
+        "lease closed must be at most 65535 streams, strictly ascending by node key and device id"
+    )]
+    BadLeaseClosed,
 }
 
 /// Decode a wire signature (base64url, no pad, 86 chars → 64 bytes).

@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 use crate::ids::{DatabaseId, DeviceId, EntryHash, Hex32, NodeKey};
 use crate::kinds::{EntryKind, Grantee, Role, StreamKind};
 
+pub use crate::lease_body::{ClosedStream, LeaseBody};
+
 /// Common header fields shared by every signed entry (OpenAPI).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EntryHeader {
@@ -318,6 +320,17 @@ pub enum SignedEntry {
         #[serde(flatten)]
         body: SnapshotBody,
     },
+    /// Write lease.
+    Lease {
+        /// Common signed header.
+        #[serde(flatten)]
+        header: EntryHeader,
+        /// Const namespace `"lease"`.
+        namespace: String,
+        /// Lease body fields.
+        #[serde(flatten)]
+        body: LeaseBody,
+    },
 }
 
 impl SignedEntry {
@@ -333,7 +346,8 @@ impl SignedEntry {
             | Self::BlobDelete { header, .. }
             | Self::Heads { header, .. }
             | Self::Relays { header, .. }
-            | Self::Snapshot { header, .. } => header,
+            | Self::Snapshot { header, .. }
+            | Self::Lease { header, .. } => header,
         }
     }
 
@@ -348,7 +362,8 @@ impl SignedEntry {
             | Self::BlobDelete { header, .. }
             | Self::Heads { header, .. }
             | Self::Relays { header, .. }
-            | Self::Snapshot { header, .. } => header,
+            | Self::Snapshot { header, .. }
+            | Self::Lease { header, .. } => header,
         }
     }
 
@@ -365,6 +380,7 @@ impl SignedEntry {
             Self::Heads { .. } => EntryKind::Heads,
             Self::Relays { .. } => EntryKind::Relays,
             Self::Snapshot { .. } => EntryKind::Snapshot,
+            Self::Lease { .. } => EntryKind::Lease,
         }
     }
 }

@@ -2,10 +2,10 @@
 
 use app_identity_crypto::SigningKey;
 use mutation_log::{
-    author_birth, author_bundle, author_data, author_grant, author_heads, decode_signature_b64url,
-    entry_hash, grant_raise, grant_reduce, AuthorCtx, BundleBody, DataBody, DatabaseId, DeviceHead,
-    DeviceId, EncodeError, Grantee, Hex32, IncorporatedFrom, NodeKey, Role, SignedEntry,
-    StreamHead, StreamKind,
+    author_birth, author_bundle, author_data, author_grant, author_heads, author_lease,
+    decode_signature_b64url, entry_hash, grant_raise, grant_reduce, AuthorCtx, BundleBody,
+    DataBody, DatabaseId, DeviceHead, DeviceId, EncodeError, Grantee, Hex32, IncorporatedFrom,
+    LeaseBody, NodeKey, Role, SignedEntry, StreamHead, StreamKind,
 };
 
 use sha2::{Digest, Sha256};
@@ -100,6 +100,29 @@ impl Publisher {
     pub fn grant_write(&self, chain: &mut Chain, member: NodeKey) -> Result<SignedEntry, String> {
         self.author(chain, |ctx, key| {
             author_grant(ctx, key, grant_raise(Grantee::Member(member), Role::Write))
+        })
+    }
+
+    pub fn grant_submit(&self, chain: &mut Chain, member: NodeKey) -> Result<SignedEntry, String> {
+        self.author(chain, |ctx, key| {
+            author_grant(ctx, key, grant_raise(Grantee::Member(member), Role::Submit))
+        })
+    }
+
+    /// A write lease for the whole database. The relay stores it without reading it.
+    pub fn lease(
+        &self,
+        chain: &mut Chain,
+        expires_at_ms: u64,
+        closes_at_ms: u64,
+    ) -> Result<SignedEntry, String> {
+        self.author(chain, |ctx, key| {
+            let body = LeaseBody {
+                expires_at_ms,
+                closes_at_ms,
+                closed: Vec::new(),
+            };
+            author_lease(ctx, key, body)
         })
     }
 

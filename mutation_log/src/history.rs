@@ -4,20 +4,26 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::Arc;
 
 use crate::accept::{
-    evaluate, position_of, stream_id_of, AcceptContext, AcceptOutcome, RejectReason, StreamHead,
+    evaluate_with_leases, position_of, stream_id_of, AcceptContext, AcceptOutcome, RejectReason,
+    StreamHead,
 };
 use crate::entry::SignedEntry;
 use crate::grants::{AcceptedMeta, GrantState};
 use crate::ids::{DatabaseId, DeviceId, EntryHash, NodeKey, StreamId};
-use crate::kinds::EntryKind;
+use crate::kinds::{EntryKind, Role};
 use crate::payload::MaterializedRecord;
 use crate::sealed::SealOpener;
 use crate::wire::entry_hash;
 
 mod effects;
+mod lease;
+mod recompute;
 mod view;
 
+pub use lease::LeaseView;
 pub use view::GrantTip;
+
+use lease::{LeaseMeta, PosKey, Under};
 
 /// Equivocation evidence kept when a stream freezes.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -80,6 +86,19 @@ pub struct VerifiedHistory {
     equivocations: Vec<EquivocationEvidence>,
     /// Opens the sealed payloads of a private database. Absent for a shared one.
     opener: Option<Arc<dyn SealOpener>>,
+    /// Each member's role in publisher grant order, by grant position.
+    member_roles: BTreeMap<NodeKey, BTreeMap<PosKey, Role>>,
+    /// Accepted lease entries by position.
+    leases: BTreeMap<PosKey, LeaseMeta>,
+    /// Position of each accepted lease entry.
+    lease_by_hash: BTreeMap<EntryHash, PosKey>,
+    /// Accepted direct entries of members, by the lease they name.
+    under_lease: BTreeMap<EntryHash, Vec<Under>>,
+    /// Entries that name a lease and do not count.
+    excluded: BTreeSet<EntryHash>,
+    /// Per record key, the best bundle write that a non-bundle write shadowed
+    /// or displaced. A recompute after a lease closing needs it.
+    bundle_floor: BTreeMap<(String, String), MaterializedRecord>,
 }
 
 impl VerifiedHistory {
@@ -104,6 +123,12 @@ impl VerifiedHistory {
             rejects: Vec::new(),
             equivocations: Vec::new(),
             opener: None,
+            member_roles: BTreeMap::new(),
+            leases: BTreeMap::new(),
+            lease_by_hash: BTreeMap::new(),
+            under_lease: BTreeMap::new(),
+            excluded: BTreeSet::new(),
+            bundle_floor: BTreeMap::new(),
         }
     }
 
@@ -230,7 +255,10 @@ impl VerifiedHistory {
             lookup: &|h| self.accepted.get(h),
             grants: &self.grants,
         };
-        self.require_sealed(entry, evaluate(entry, &ctx))
+        self.require_sealed(
+            entry,
+            evaluate_with_leases(entry, &ctx, &|lease, key| self.writer_under(lease, key)),
+        )
     }
 
     fn note_reject(&mut self, reason: RejectReason, entry: SignedEntry) {
@@ -269,6 +297,9 @@ impl VerifiedHistory {
         }
         self.apply_effects(&entry, hash, position, is_publisher);
         let rebuild = is_publisher && grant_body.is_some();
+        if rebuild {
+            self.note_member_role(&entry);
+        }
         let meta = AcceptedMeta {
             position,
             is_publisher,

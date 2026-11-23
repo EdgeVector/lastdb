@@ -57,7 +57,7 @@ pub async fn run(relay: &RelayHandle) -> Result<String, String> {
     }
     for (entry, want) in entries.into_iter().zip([
         "proposal requires submit or write grant",
-        "only the publisher signs direct entries",
+        "must cite exactly one lease",
     ]) {
         expect_reject(&mut receiver, entry, want)?;
     }
@@ -71,8 +71,8 @@ fn expect_reject(
 ) -> Result<(), String> {
     match receiver.accept_entry(entry) {
         AcceptOutcome::Reject {
-            reason: RejectReason::Unauthorized(msg),
+            reason: RejectReason::Unauthorized(msg) | RejectReason::Malformed(msg),
         } if msg.contains(want) => Ok(()),
-        other => Err(format!("expected Unauthorized({want}), got {other:?}")),
+        other => Err(format!("expected a rejection with {want}, got {other:?}")),
     }
 }

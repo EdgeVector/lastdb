@@ -13,7 +13,7 @@ use crate::device::{random_device_id, DataWrite, Device};
 use crate::proposal::author_member_entry;
 use crate::relay::{RelayClient, RelayHandle};
 
-const DIRECT: &str = "only the publisher signs direct entries";
+const DIRECT: &str = "must cite exactly one lease";
 
 pub async fn run(relay: &RelayHandle) -> Result<String, String> {
     let mut fx = Fixture::new()?;
@@ -31,7 +31,7 @@ pub async fn run(relay: &RelayHandle) -> Result<String, String> {
         .append(&db, std::slice::from_ref(&accepted))
         .await?;
 
-    reject_direct(&mut fx, &db, &member_client).await?;
+    reject_direct(&mut fx)?;
 
     let incorporation = fx.incorporate(&accepted, KEY, b"ok")?;
     fx.expect_record(Some(b"ok"))?;
@@ -54,16 +54,12 @@ pub async fn run(relay: &RelayHandle) -> Result<String, String> {
     Ok("proposal joins the chain and changes no record; member direct entry rejected; record changes only by publisher incorporation; not accepted proposal leaves it unchanged; after revoke proposals are rejected and relay 403s the append".into())
 }
 
-/// A member direct entry is rejected by AcceptEntry and by the relay.
-async fn reject_direct(
-    fx: &mut Fixture,
-    db: &str,
-    member_client: &RelayClient,
-) -> Result<(), String> {
+/// A member direct entry that names no lease is rejected by AcceptEntry. The
+/// relay would store it from a `write` member: it does not read leases.
+fn reject_direct(fx: &mut Fixture) -> Result<(), String> {
     for cite_grant in [true, false] {
         let direct = fx.author(StreamKind::Direct, cite_grant, KEY, b"sneak")?;
-        fx.expect_unauthorized(direct.clone(), DIRECT)?;
-        expect_forbidden(member_client, db, &direct).await?;
+        fx.expect_malformed(direct, DIRECT)?;
     }
     fx.expect_record(None)
 }

@@ -6,7 +6,7 @@
 //! `owner(32) ‖ db_salt(32)`, signed by that key (`birth_signature` on the
 //! wire). See [`birth_proof_bytes`] and [`verify_birth_signature`].
 
-use crate::auth::{authorize_bundle, authorize_data};
+use crate::auth::{authorize_bundle, authorize_data, check_lease};
 use crate::bundle::validate_bundle_body;
 use crate::entry::SignedEntry;
 use crate::grants::{AcceptedMeta, GrantState};
@@ -136,7 +136,22 @@ pub struct AcceptContext<'a> {
 }
 
 /// Run AcceptEntry checks 1–6. Does not mutate S.
+///
+/// A direct entry of a member is refused here: leases live in a
+/// [`crate::VerifiedHistory`], which checks them through
+/// [`evaluate_with_leases`].
 pub fn evaluate(entry: &SignedEntry, ctx: &AcceptContext<'_>) -> AcceptOutcome {
+    evaluate_with_leases(entry, ctx, &|_, _| false)
+}
+
+/// [`evaluate`] with the lease facts of a history. `writer_under(lease, key)`
+/// answers whether `key` held the `write` role as of the accepted lease entry
+/// `lease`.
+pub(crate) fn evaluate_with_leases(
+    entry: &SignedEntry,
+    ctx: &AcceptContext<'_>,
+    writer_under: &dyn Fn(&EntryHash, &NodeKey) -> bool,
+) -> AcceptOutcome {
     if let Err(err) = verify_entry_signature(entry) {
         return reject(RejectReason::Signature(err));
     }
@@ -171,7 +186,7 @@ pub fn evaluate(entry: &SignedEntry, ctx: &AcceptContext<'_>) -> AcceptOutcome {
             got: h.lamport,
         });
     }
-    if let Some(reason) = check_auth(entry, ctx) {
+    if let Some(reason) = check_auth(entry, ctx, writer_under) {
         return reject(reason);
     }
     if let SignedEntry::Bundle { body, .. } = entry {
@@ -268,10 +283,23 @@ fn lamport_floor(
     1 + l_prev.max(l_seen)
 }
 
-fn check_auth(entry: &SignedEntry, ctx: &AcceptContext<'_>) -> Option<RejectReason> {
+fn check_auth(
+    entry: &SignedEntry,
+    ctx: &AcceptContext<'_>,
+    writer_under: &dyn Fn(&EntryHash, &NodeKey) -> bool,
+) -> Option<RejectReason> {
     let h = entry.header();
     match entry.kind() {
         EntryKind::Birth => check_birth(entry, ctx),
+        EntryKind::Lease => match (entry, ctx.owner) {
+            (SignedEntry::Lease { body, .. }, Some(owner)) if h.node_key == owner => {
+                check_lease(body)
+            }
+            (SignedEntry::Lease { .. }, _) => Some(RejectReason::Unauthorized(
+                "publisher kind requires birth owner",
+            )),
+            _ => Some(RejectReason::Malformed("lease kind mismatch")),
+        },
         k if k.is_publisher_kind() => match ctx.owner {
             Some(owner) if h.node_key == owner => None,
             _ => Some(RejectReason::Unauthorized(
@@ -280,7 +308,7 @@ fn check_auth(entry: &SignedEntry, ctx: &AcceptContext<'_>) -> Option<RejectReas
         },
         EntryKind::Data => match entry {
             SignedEntry::Data { body, .. } => {
-                authorize_data(entry, body, ctx.owner, ctx.grants, ctx.lookup)
+                authorize_data(entry, body, ctx.owner, ctx.grants, ctx.lookup, writer_under)
             }
             _ => Some(RejectReason::Malformed("data kind mismatch")),
         },

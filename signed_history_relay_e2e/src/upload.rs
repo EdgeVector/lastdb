@@ -1,4 +1,4 @@
-//! Bootstrap: birth, read and write grants, a member write, ~300 MiB of encrypted
+//! Bootstrap: birth, read, write and submit grants, a write lease, a member write, ~300 MiB of encrypted
 //! bundles, the member's revoke, then `heads`.
 //!
 //! The publisher writes through two device streams of one node key. Blobs are
@@ -18,7 +18,9 @@ use sha2::{Digest, Sha256};
 use crate::blob::{bundle_changes, encode_changes, BundleCipher, BUNDLE_RECORDS, VALUE_TEXT_BYTES};
 use crate::chain::{Chain, Publisher};
 use crate::grants::{self, Scene};
-use crate::identity::{new_device_id, Actor, DbBirth};
+use crate::identity::{new_device_id, now_ms, Actor, DbBirth};
+
+const DAY_MS: u64 = 86_400_000;
 use crate::relay::RelayClient;
 
 /// What a restoring node learns out of band (an invite): the database, the
@@ -63,6 +65,7 @@ pub async fn bootstrap(http: &reqwest::Client, plan: &UploadPlan) -> Result<Uplo
     let started = Instant::now();
     let owner = Actor::generate();
     let member_actor = Actor::generate();
+    let submit_actor = Actor::generate();
     let birth = DbBirth::generate(owner.node_key);
     let publisher = Publisher {
         actor: owner,
@@ -86,6 +89,8 @@ pub async fn bootstrap(http: &reqwest::Client, plan: &UploadPlan) -> Result<Uplo
         publisher.birth(&mut chain_a, &birth)?,
         publisher.grant_read(&mut chain_a, plan.reader)?,
         publisher.grant_write(&mut chain_a, member_actor.node_key)?,
+        publisher.grant_submit(&mut chain_a, submit_actor.node_key)?,
+        publisher.lease(&mut chain_a, now_ms() + DAY_MS, now_ms() + 2 * DAY_MS)?,
     ];
     client_a.append(&opening).await?;
     let scene = Scene {
@@ -95,7 +100,7 @@ pub async fn bootstrap(http: &reqwest::Client, plan: &UploadPlan) -> Result<Uplo
         owner: publisher.actor.node_key,
         root_device: chain_a.device_id,
     };
-    let member = grants::propose_as_member(&scene, member_actor).await?;
+    let member = grants::propose_as_member(&scene, member_actor, &submit_actor).await?;
 
     let records = plan.total_bytes.div_ceil(VALUE_TEXT_BYTES).max(1);
     let bundles = records.div_ceil(BUNDLE_RECORDS);

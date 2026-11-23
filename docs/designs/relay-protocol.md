@@ -96,10 +96,12 @@ the birth signature.
 **`log.append`.** Accepted only when the signing `node_key` is the
 publisher, **or** a publisher-signed grant in that database’s chain
 currently gives that key **`submit`** or **`write`**, and no later revoke /
-role reduction has removed that authority. A member may append proposal
-`data` (`stream = proposal`) to its own stream and nothing else. Direct
-`data`, `bundle`, and the publisher kinds are the publisher’s alone (403
-`forbidden`). A **revoke cuts off appends immediately** (new requests →
+role reduction has removed that authority. A member holding `submit` or
+`write` may append proposal `data` (`stream = proposal`) to its own stream. A
+member holding `write` may also append direct `data` and `bundle` entries to its
+own stream: the relay does not know whether a lease covers them, and the nodes
+decide (see "The `lease` entry"). Everything else, the publisher kinds and
+`lease` among them, is the publisher’s alone (403 `forbidden`). A **revoke cuts off appends immediately** (new requests →
 **403** `forbidden`). Entries the relay already stored before the revoke
 **stay**; the relay does **not** retroactively delete them.
 
@@ -134,7 +136,7 @@ non-`grant#any` reads.
 
 Store key `(database_id, node_key, device_id, writer_seq)`; `device_id` is
 Hex32 (64 lowercase hex, 32 bytes in `signed_bytes`), never a UUID. Entries:
-`birth`|`data`|`bundle`|`grant`|`schema`|`blob_delete`|`heads`|`relays`|`snapshot`.
+`birth`|`data`|`bundle`|`grant`|`schema`|`blob_delete`|`heads`|`relays`|`snapshot`|`lease`.
 
 Read by `writer_key` from `from_seq` (default 1) or opaque delivery cursor
 (pagination only; never expires). A read of one device stream from a seq that a
@@ -272,6 +274,40 @@ the entry is appended).
 - **Blob size.** One native file is one blob. The protocol sets no cap. Run files
   grow as the store compacts, and the node moves each file in one `blob.put` and
   one `blob.get`, streamed, with no resume: a failed transfer restarts that file.
+
+### The `lease` entry
+
+A `lease` entry is the publisher's statement that every key holding `write` in
+the grant entries before it may sign direct entries until a time. The design is
+`write-leases.md`. A relay stores it like any publisher entry and reads nothing in
+it; only the publisher may append it (403 `forbidden` for anyone else).
+
+- **Kind string:** `lease` (JSON `"kind":"lease"`, `"namespace":"lease"`).
+- **JSON body fields** (beside the common header): `expires_at_ms` (a covered
+  member signs direct entries only before it, by its own clock), `closes_at_ms`
+  (above `expires_at_ms`; a lease entry signed at or after it closes the lease),
+  `closed` (array, at most 65535, strictly ascending by `node_key` then
+  `device_id`) of `{ "node_key", "device_id", "writer_seq" }`: for the earlier
+  leases that this entry closes, per device stream that wrote under them, the last
+  entry the publisher had accepted.
+- **Signed bytes:** the common header (domain `lastdb-lease-v1` + `0x00`), then
+  `expires_at_ms`(u64) `closes_at_ms`(u64) `closed` count (u16) and for each
+  stream `node_key`(32) `device_id`(32) `writer_seq`(u64). All integers
+  big-endian.
+- **Order value:** the normal rule. The publisher cites the lease it renews in
+  `seen_heads` where it can; a node reads the grants before the lease in position
+  order `(lamport, node_key, device_id)`.
+- **A member's direct entry** names its lease by citing exactly one `lease` entry in
+  `seen_heads`. A node accepts it into the stream when the member held `write`
+  as of that lease. It counts unless the lease is closed and the entry lies past
+  the closing point; the rule is in `write-leases.md` section 5 and lives in
+  `mutation_log` only. `grant_at_device` and `grant_at_seq` stay absent on such an
+  entry.
+- **A relay must:** accept the kind from the publisher only, derive the stream head
+  from it like any entry, and accept a `write` member's direct data and bundle
+  entries on its own stream. A parser that refuses unknown kinds must learn this kind.
+- **Bundles:** a node takes a bundle from the publisher only. A member's
+  bundle entry is stored by the relay and ignored by nodes.
 
 ### `blob.put` / `blob.get`
 
