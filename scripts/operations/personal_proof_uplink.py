@@ -90,10 +90,11 @@ def refuses_file_over_limit(device):
 
 def large_file_is_backed_up(args, out):
     """The limit from both sides: a file above it is refused; one just under it is snapshotted and restored."""
-    root = out / "relay9"
+    root = out / "relay-large-file"
     root.mkdir()
     relay = Relay(Path(args.relay_bin), root)
-    source, restored = Device("device-u", args, out, relay), Device("device-v", args, out, relay)
+    source, restored = (Device("device-large-file", args, out, relay),
+                        Device("device-large-file-restored", args, out, relay))
     try:
         relay.start()
         phrase = source.init()
