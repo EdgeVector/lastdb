@@ -28,6 +28,7 @@ mod incoming;
 mod outgoing;
 mod saved;
 mod snapshot;
+mod snapshot_entry;
 mod snapshot_known;
 mod snapshot_lane;
 mod snapshot_manifest;
