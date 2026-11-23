@@ -75,7 +75,8 @@ def prove_uplink(args):
         require(30 <= int(message[1]) < 40 and int(message[2]) < int(message[3]),
                 f"the stall did not end in the middle of the body after 30 s: {message[0]!r}")
         require(not stalled.synced_up(), "the stalled home reports its writes as uploaded")
-        require("?" not in json.dumps(stalled.sync_status()).split("stalled for")[1][:60], "the error holds a URL query")
+        place = re.search(r"\(for (\S+)\)", json.dumps(stalled.sync_status()))
+        require(place and "?" not in place[1] and "X-Amz" not in place[1], f"the error names no URL or one with a query: {place}")
         print(f"18. a file upload at {SLOW_BYTES_PER_SECOND // 1024} KiB/s took {max(uploads) / 1000:.0f} s as one upload "
               f"(old allowance {OLD_ALLOWANCE_SECONDS} s) and completed after {slow_seconds:.0f} s; an upload the relay "
               f"stopped reading failed after {stall_seconds:.0f} s: {message[0]}", flush=True)
