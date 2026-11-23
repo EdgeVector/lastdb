@@ -47,13 +47,13 @@ pub fn uncovered_write_refused() -> Result<String, String> {
     let lease = world.lease()?;
     world.grant(late.key(), Role::Write)?;
     let entry = submit.direct(&mut world, Some(&lease), "k", b"from submit")?;
-    accepted_not_counted(&mut world.hist, entry)?;
+    accepted_not_counted(&mut world.hist, &entry)?;
     let entry = late.direct(&mut world, Some(&lease), "k", b"from late writer")?;
-    accepted_not_counted(&mut world.hist, entry)?;
+    accepted_not_counted(&mut world.hist, &entry)?;
     let mut nameless = Member::new();
     world.grant(nameless.key(), Role::Write)?;
     let entry = nameless.direct(&mut world, None, "k", b"names no lease")?;
-    accepted_not_counted(&mut world.hist, entry)?;
+    accepted_not_counted(&mut world.hist, &entry)?;
     expect(&world.hist, "publisher", "k", None)?;
     // The next lease covers the writer added after the first one.
     let second = world.lease()?;
@@ -89,9 +89,9 @@ pub fn uncovered_write_refused() -> Result<String, String> {
 }
 
 /// The entry joins its stream and does not count.
-fn accepted_not_counted(history: &mut VerifiedHistory, entry: SignedEntry) -> Result<(), String> {
+fn accepted_not_counted(history: &mut VerifiedHistory, entry: &SignedEntry) -> Result<(), String> {
     must_accept(history, entry.clone())?;
-    expect_excluded(history, "publisher", &entry, true)
+    expect_excluded(history, "publisher", entry, true)
 }
 
 /// The scenario's world after a closing: member stream `a` wrote five entries

@@ -4,8 +4,7 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::Arc;
 
 use crate::accept::{
-    evaluate, position_of, stream_id_of, AcceptContext, AcceptOutcome, RejectReason,
-    StreamHead,
+    evaluate, position_of, stream_id_of, AcceptContext, AcceptOutcome, RejectReason, StreamHead,
 };
 use crate::entry::SignedEntry;
 use crate::grants::{AcceptedMeta, GrantState};
@@ -255,10 +254,7 @@ impl VerifiedHistory {
             lookup: &|h| self.accepted.get(h),
             grants: &self.grants,
         };
-        self.require_sealed(
-            entry,
-            evaluate(entry, &ctx),
-        )
+        self.require_sealed(entry, evaluate(entry, &ctx))
     }
 
     fn note_reject(&mut self, reason: RejectReason, entry: SignedEntry) {
