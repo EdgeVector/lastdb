@@ -62,6 +62,13 @@ struct Cli {
     /// the retry proof uses it.
     #[arg(long, value_name = "ROUTE=FIELD")]
     refuse_first: Vec<String>,
+    /// Read an upload body at most this many bytes a second (a slow uplink). Only the proof uses it.
+    #[arg(long)]
+    upload_bytes_per_second: Option<u64>,
+    /// After this many bytes of an upload body, stop reading it and hold the connection (a stalled
+    /// uplink). Only the proof uses it.
+    #[arg(long)]
+    upload_stall_after: Option<u64>,
 }
 
 #[tokio::main]
@@ -92,6 +99,8 @@ async fn run() -> Result<(), String> {
         secret,
         grants: Mutex::new(grants),
         max_blob_bytes: cli.max_blob_bytes,
+        upload_bytes_per_second: cli.upload_bytes_per_second,
+        upload_stall_after: cli.upload_stall_after,
     });
     let app = Router::new()
         .route("/relay/v1/log/append", post(log_append))

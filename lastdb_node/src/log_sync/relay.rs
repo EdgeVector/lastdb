@@ -11,7 +11,9 @@ use sha2::{Digest, Sha256};
 
 /// Bound a hung peer so the sync loop can return and re-push the log.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
-pub(super) const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+/// A blob transfer fails when it makes no progress for this long, however slow the link.
+pub(super) const STALL_TIMEOUT: Duration = Duration::from_secs(30);
 /// CI probe budget: request timeout plus a little slack.
 const HUNG_PEER_BUDGET: Duration = Duration::from_secs(45);
 /// A relay call that the relay marks as transient is sent again at most this many times. The waits
@@ -36,6 +38,10 @@ pub(super) struct RelayClient {
     pub(super) node_key_hex: String,
     pub(super) device_id: String,
     pub(super) http: reqwest::Client,
+    /// For the presigned transfers of a blob: no total timeout, so a slow link is not cut off.
+    /// A transfer fails when the connection stalls: each read of the answer has
+    /// [`STALL_TIMEOUT`], and an upload watches its own body (see `blob_transfer`).
+    pub(super) transfer: reqwest::Client,
 }
 
 impl RelayClient {
@@ -51,12 +57,18 @@ impl RelayClient {
             .timeout(REQUEST_TIMEOUT)
             .build()
             .map_err(|e| format!("relay http client: {e}"))?;
+        let transfer = reqwest::Client::builder()
+            .connect_timeout(CONNECT_TIMEOUT)
+            .read_timeout(STALL_TIMEOUT)
+            .build()
+            .map_err(|e| format!("relay http client: {e}"))?;
         Ok(Self {
             base: base.trim_end_matches('/').to_owned(),
             signing_key,
             node_key_hex,
             device_id: device_id.to_string(),
             http,
+            transfer,
         })
     }
 

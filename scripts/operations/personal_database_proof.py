@@ -37,6 +37,9 @@ as its own stream and applies the other streams through the store's last-writer 
     HTTP 429 `rate_limited` (`provider.dynamo.conflict`, as when two transactions collide): a running
     daemon and a restore still succeed, and each request signs again. A quota refusal (`quota.bytes`)
     is also a 429, and the restore fails at once with the relay's message.
+18. A transfer fails when the connection stalls, not when it is slow. A snapshot whose file reaches the
+    relay at about 32 KiB/s takes longer than the old allowance (30 s) and completes; an upload that the
+    relay stops reading fails after 30 s with a message that says how many of how many bytes were sent.
 10. Scale: tens of thousands of writes. The peak resident memory of the daemons does not grow with
     the number of entries, the spool returns to near empty, and an idle turn reads nothing.
 
@@ -62,6 +65,7 @@ from personal_proof_deployed import prove_deployed, render  # noqa: E402
 from personal_proof_nodes import DELTA, DeployedRelay, Device, Relay, converged, prove_hidden, require, wait  # noqa: E402
 from personal_proof_status import prove_none_yet, refused_snapshot, RELAY_LIMIT_BYTES  # noqa: E402
 from personal_proof_retries import prove_retries  # noqa: E402
+from personal_proof_uplink import prove_uplink  # noqa: E402
 from personal_proof_snapshot import (  # noqa: E402
     exchange_writes, kill_the_restore, scale_snapshot, second_snapshot, snapshot_restore_equals_replay)
 from personal_proof_steps import (  # noqa: E402
@@ -126,6 +130,7 @@ def prove(relay, relay2, relay3, relay4, a, b, c, d, e, f, g, h, j, k, m, n, p, 
     relay3.stop()
     report["retries"] = prove_retries(relay4, m, n, p)
     relay4.stop()
+    report["uplink"] = prove_uplink(args)
     # Only A and B again: the homes restored for the proof are done.
     for device in (e, f, h):
         device.stop()

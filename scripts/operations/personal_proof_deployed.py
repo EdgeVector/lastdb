@@ -37,6 +37,7 @@ SKIPPED = (
     ("a restore killed at several points", "kept to the reference relay run: it adds nothing about the relay"),
     ("a deleted record stays deleted when an older edit arrives after", "kept to the reference relay run"),
     ("a 429 that says try again is tried again", "the deployed relay cannot be told to refuse a request"),
+    ("a slow upload completes and a stalled one fails", "the deployed relay cannot be told to read slowly or to stop"),
     ("kill -9 under write load and the scale run", "kept to the reference relay run: too much data for a shared DEV relay"),
 )
 

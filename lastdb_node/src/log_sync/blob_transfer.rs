@@ -5,9 +5,15 @@
 //! hashing as the bytes pass, and renames it into place only when the size and
 //! the SHA-256 are the ones the bundle entry names. Memory use does not depend
 //! on the size of the blob.
+//!
+//! A transfer fails when the connection stalls, not when it is slow: a download when no byte arrives
+//! for `STALL_TIMEOUT`, an upload when the transport takes no byte of the body (or sends no answer
+//! after the last one) for that long. No minimum rate is assumed.
 
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use app_identity_crypto::hex_lower;
 use futures::StreamExt;
@@ -16,7 +22,7 @@ use sha2::{Digest, Sha256};
 use tokio::fs;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-use super::relay::{header_pairs, RelayClient, REQUEST_TIMEOUT};
+use super::relay::{header_pairs, RelayClient, STALL_TIMEOUT};
 
 /// Bytes read from the file per chunk of an upload.
 const CHUNK_BYTES: usize = 64 * 1024;
@@ -35,11 +41,39 @@ fn is_size_refusal(error: &str) -> bool {
         && body.is_some_and(|body| body["code"] == "invalid_request" && body["field"] == "bytes")
 }
 
-/// Time allowed for one transfer of `bytes`: the ordinary request timeout plus
-/// one second per MiB, so the allowance assumes at least 1 MiB/s. A hung peer
-/// still fails, and a multi-gigabyte file is not cut off at 30 seconds.
-fn transfer_timeout(bytes: u64) -> Duration {
-    REQUEST_TIMEOUT + Duration::from_secs(bytes >> 20)
+/// The error with its causes (`source` chain), since reqwest alone says "error sending request".
+fn describe(error: &reqwest::Error) -> String {
+    use std::error::Error as _;
+    let mut text = error.to_string();
+    let mut cause = error.source();
+    while let Some(next) = cause {
+        text.push_str(": ");
+        text.push_str(&next.to_string());
+        cause = next.source();
+    }
+    if error.is_timeout() {
+        text.push_str(" (timed out)");
+    }
+    text
+}
+
+/// Fails when `taken`, the bytes the transport has taken from an upload body, does not move for
+/// [`STALL_TIMEOUT`]. Once the whole body is taken it waits as long for the answer. A slow link
+/// that keeps moving never fails here: no minimum rate is assumed.
+async fn stalled(taken: &AtomicU64, size: u64) -> String {
+    let (mut last, mut moved) = (0, Instant::now());
+    loop {
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        let now = taken.load(Ordering::Relaxed);
+        if now != last {
+            (last, moved) = (now, Instant::now());
+        } else if moved.elapsed() >= STALL_TIMEOUT {
+            return format!(
+                "blob upload stalled for {} s with {last} of {size} bytes sent",
+                STALL_TIMEOUT.as_secs()
+            );
+        }
+    }
 }
 
 impl RelayClient {
@@ -101,12 +135,12 @@ impl RelayClient {
         let url = begin["upload"]["url"]
             .as_str()
             .ok_or("blob.put begin has no upload.url")?;
+        let taken = Arc::new(AtomicU64::new(0));
         let mut upload = self
-            .http
+            .transfer
             .put(url)
-            .timeout(transfer_timeout(size))
             .header("content-length", size)
-            .body(file_body(file));
+            .body(file_body(file, Arc::clone(&taken)));
         for (name, value) in header_pairs(&begin["upload"]["headers"]) {
             // The content-length is set above. The Exemem relay signs it and returns it among
             // the headers, and a second content-length header makes the object store answer 400.
@@ -115,10 +149,20 @@ impl RelayClient {
             }
             upload = upload.header(name, value);
         }
-        let status = upload
-            .send()
-            .await
-            .map_err(|e| format!("blob upload: {e}"))?
+        let started = Instant::now();
+        let sent = tokio::select! {
+            sent = upload.send() => sent,
+            message = stalled(&taken, size) => return Err(message),
+        };
+        let status = sent
+            .map_err(|e| {
+                format!(
+                    "blob upload: {} after {} s with {} of {size} bytes sent",
+                    describe(&e),
+                    started.elapsed().as_secs(),
+                    taken.load(Ordering::Relaxed)
+                )
+            })?
             .status();
         if !status.is_success() {
             return Err(format!("blob upload HTTP {status}"));
@@ -144,14 +188,14 @@ impl RelayClient {
         if meta["bytes"].as_u64().is_some_and(|n| n != expect_size) {
             return Err(format!("blob.get size differs from its entry for {sha256}"));
         }
-        let mut download = self.http.get(url).timeout(transfer_timeout(expect_size));
+        let mut download = self.transfer.get(url);
         for (name, value) in header_pairs(&meta["headers"]) {
             download = download.header(name, value);
         }
         let response = download
             .send()
             .await
-            .map_err(|e| format!("blob download: {e}"))?;
+            .map_err(|e| format!("blob download: {}", describe(&e)))?;
         if !response.status().is_success() {
             return Err(format!("blob download HTTP {}", response.status()));
         }
@@ -170,16 +214,20 @@ impl RelayClient {
 }
 
 /// An upload body that reads `file` in chunks.
-fn file_body(file: fs::File) -> reqwest::Body {
-    let chunks = futures::stream::unfold(file, |mut file| async move {
-        let mut buf = vec![0u8; CHUNK_BYTES];
-        match file.read(&mut buf).await {
-            Ok(0) => None,
-            Ok(n) => {
-                buf.truncate(n);
-                Some((Ok::<Vec<u8>, std::io::Error>(buf), file))
+fn file_body(file: fs::File, taken: Arc<AtomicU64>) -> reqwest::Body {
+    let chunks = futures::stream::unfold(file, move |mut file| {
+        let taken = Arc::clone(&taken);
+        async move {
+            let mut buf = vec![0u8; CHUNK_BYTES];
+            match file.read(&mut buf).await {
+                Ok(0) => None,
+                Ok(n) => {
+                    taken.fetch_add(n as u64, Ordering::Relaxed);
+                    buf.truncate(n);
+                    Some((Ok::<Vec<u8>, std::io::Error>(buf), file))
+                }
+                Err(error) => Some((Err(error), file)),
             }
-            Err(error) => Some((Err(error), file)),
         }
     });
     reqwest::Body::wrap_stream(chunks)
@@ -213,7 +261,12 @@ async fn write_verified(
     let mut count = 0u64;
     let mut chunks = response.bytes_stream();
     while let Some(chunk) = chunks.next().await {
-        let chunk = chunk.map_err(|e| format!("blob download body: {e}"))?;
+        let chunk = chunk.map_err(|e| {
+            format!(
+                "blob download body: {} after {count} of {expect_size} bytes",
+                describe(&e)
+            )
+        })?;
         count += chunk.len() as u64;
         if count > expect_size {
             return Err(format!(

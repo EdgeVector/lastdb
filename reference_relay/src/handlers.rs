@@ -30,6 +30,10 @@ pub(crate) struct AppState {
     pub(crate) grants: Mutex<GrantIndex>,
     /// The largest blob a `blob.put` begin may declare. `None` sets no limit.
     pub(crate) max_blob_bytes: Option<u64>,
+    /// Proof only: read an upload body at most this many bytes a second.
+    pub(crate) upload_bytes_per_second: Option<u64>,
+    /// Proof only: after this many bytes of an upload body, stop reading it.
+    pub(crate) upload_stall_after: Option<u64>,
 }
 
 impl AppState {
