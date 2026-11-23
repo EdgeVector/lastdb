@@ -80,9 +80,10 @@ sys.path[:0] = [str(_OPS), str(_OPS.parent)]
 from harness import append_step_summary  # noqa: E402
 from personal_proof_load import idle_turn_reads_nothing, kill_under_load, scale  # noqa: E402
 from personal_proof_deployed import prove_deployed, render  # noqa: E402
-from personal_proof_nodes import DELTA, DeployedRelay, Device, Relay, converged, prove_hidden, require, wait  # noqa: E402
+from personal_proof_nodes import DELTA, DeployedRelay, Relay, converged, prove_hidden, require, wait  # noqa: E402
 from personal_proof_reconcile import reconcile_reference, remember  # noqa: E402
 from personal_proof_trim import trimmed_relay_restores  # noqa: E402
+from personal_proof_usage import AccountedDevice as Device  # noqa: E402
 from personal_proof_status import prove_none_yet, refused_snapshot, RELAY_LIMIT_BYTES  # noqa: E402
 from personal_proof_retries import prove_retries  # noqa: E402
 from personal_proof_lane import prove_lane  # noqa: E402
