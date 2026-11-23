@@ -48,6 +48,9 @@ pub(super) struct Report {
 pub(super) struct Last {
     /// The sequence number of this device's own stream at the cut.
     pub(super) own_seq: u64,
+    /// Relay origin (`scheme://host[:port]`) where `manifest` was uploaded.
+    #[serde(default)]
+    pub(super) relay: Option<String>,
     pub(super) through: Vec<SnapshotThrough>,
     pub(super) manifest: Manifest,
     pub(super) report: Report,
@@ -61,6 +64,14 @@ pub(super) fn file_of(home: &Path, database_id: &str, name: &str) -> std::path::
     dir(home, database_id).join(name)
 }
 
+/// Read the pending request nonce, if any.
+pub(super) fn read_request(home: &Path, database_id: &str) -> Option<String> {
+    disk::read_limited(&file_of(home, database_id, "snapshot-request"), 64)
+        .ok()
+        .flatten()
+        .and_then(|bytes| String::from_utf8(bytes).ok())
+}
+
 /// Ask for a snapshot now. Returns the database id and the nonce that names the request.
 pub(crate) fn request(host: &Host, selector: Option<&str>) -> Result<(String, String), String> {
     let owner = host
@@ -69,6 +80,9 @@ pub(crate) fn request(host: &Host, selector: Option<&str>) -> Result<(String, St
         .map_err(|_| "the personal database is not registered".to_owned())?;
     if selector.is_some_and(|name| name != "personal" && name != owner.id) {
         return Err("database is not owned by this node".into());
+    }
+    if crate::cloud::relay_base_url(&host.home).is_none() {
+        return Err("no relay is configured for this home".into());
     }
     let nonce = uuid::Uuid::new_v4().simple().to_string();
     let _ = disk::remove_private(&file_of(&host.home, &owner.id, "snapshot-result"));
@@ -103,7 +117,13 @@ pub(crate) fn status(host: &Host, nonce: &str) -> Result<Value, String> {
             return Ok(json!({ "ready": true, "database_id": owner.id, "report": value }));
         }
     }
-    let error = read("snapshot-error").and_then(|bytes| String::from_utf8(bytes).ok());
+    let error =
+        read("snapshot-error").and_then(|bytes| match serde_json::from_slice::<Value>(&bytes) {
+            Ok(value) => (value["request"].as_str() == Some(nonce))
+                .then(|| value["error"].as_str().map(str::to_owned))
+                .flatten(),
+            Err(_) => String::from_utf8(bytes).ok(),
+        });
     Ok(match error {
         Some(error) => json!({ "ready": false, "error": error }),
         None => json!({ "ready": false }),
@@ -132,24 +152,28 @@ pub(super) fn finish_request(ctx: &Ctx<'_>, nonce: &str, report: &Report) -> Res
     let bytes = serde_json::to_vec(&answer).map_err(|_| "cannot encode the report")?;
     disk::write_private(&file_of(home, &ctx.database_id, "snapshot-result"), &bytes)
         .map_err(|_| "cannot record the snapshot result".to_owned())?;
-    retire_request(ctx, nonce).map_err(|_| "cannot retire the snapshot request".to_owned())
+    retire_request(home, &ctx.database_id, nonce)
+        .map_err(|_| "cannot retire the snapshot request".to_owned())
 }
 
 /// Record why the request `nonce` failed, and retire it. A newer request may have replaced it
 /// while the snapshot ran, and it keeps its file and its own answer.
 pub(super) fn fail_request(ctx: &Ctx<'_>, nonce: &str, error: &str) {
-    let path = file_of(&ctx.host.home, &ctx.database_id, "snapshot-request");
+    fail_request_in(&ctx.host.home, &ctx.database_id, nonce, error);
+}
+
+pub(super) fn fail_request_in(home: &Path, database_id: &str, nonce: &str, error: &str) {
+    let path = file_of(home, database_id, "snapshot-request");
     if disk::read_limited(&path, 64).ok().flatten().as_deref() == Some(nonce.as_bytes()) {
-        let _ = disk::write_private(
-            &file_of(&ctx.host.home, &ctx.database_id, "snapshot-error"),
-            error.as_bytes(),
-        );
-        let _ = retire_request(ctx, nonce);
+        if let Ok(bytes) = serde_json::to_vec(&json!({ "request": nonce, "error": error })) {
+            let _ = disk::write_private(&file_of(home, database_id, "snapshot-error"), &bytes);
+        }
+        let _ = retire_request(home, database_id, nonce);
     }
 }
 
-fn retire_request(ctx: &Ctx<'_>, nonce: &str) -> std::io::Result<()> {
-    let path = file_of(&ctx.host.home, &ctx.database_id, "snapshot-request");
+fn retire_request(home: &Path, database_id: &str, nonce: &str) -> std::io::Result<()> {
+    let path = file_of(home, database_id, "snapshot-request");
     let same = disk::read_limited(&path, 64).ok().flatten().as_deref() == Some(nonce.as_bytes());
     if same {
         disk::remove_private(&path)?;

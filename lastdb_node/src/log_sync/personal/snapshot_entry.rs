@@ -69,12 +69,40 @@ pub(super) fn through_of(
     Ok(through)
 }
 
-/// The head of the snapshot stream on the relay, with the order value of its entry.
+/// Refuse an initial (`through = []`) snapshot when the relay already holds device entries or a
+/// snapshot that covers any stream. A retry of this device's own initial snapshot (only `birth`
+/// and at most a `through = []` snapshot entry) is allowed.
+pub(super) async fn require_empty_for_first(
+    ctx: &Ctx<'_>,
+    client: &RelayClient,
+    streams: &[RelayStream],
+) -> Result<(), String> {
+    let has_data_stream = streams.iter().any(|stream| {
+        stream.head_seq > 0
+            && stream.device_id != ctx.birth_device_hex
+            && stream.device_id != ctx.snapshot_device_hex
+    });
+    if has_data_stream {
+        return Err(
+            "cannot publish an initial snapshot: the relay already holds device streams for this personal database".into(),
+        );
+    }
+    if let Some((_, prev_through)) = snapshot_head(ctx, client, streams).await? {
+        if !prev_through.is_empty() {
+            return Err(
+                "cannot publish an initial snapshot: the relay already holds a snapshot covering device streams".into(),
+            );
+        }
+    }
+    Ok(())
+}
+
+/// The head of the snapshot stream on the relay, with the order value and positions of its entry.
 async fn snapshot_head(
     ctx: &Ctx<'_>,
     client: &RelayClient,
     streams: &[RelayStream],
-) -> Result<Option<StreamHead>, String> {
+) -> Result<Option<(StreamHead, Vec<SnapshotThrough>)>, String> {
     let Some(listed) = streams
         .iter()
         .find(|stream| stream.device_id == ctx.snapshot_device_hex && stream.head_seq > 0)
@@ -95,14 +123,20 @@ async fn snapshot_head(
         .first()
         .ok_or("the relay lacks the head of the snapshot stream")?;
     let hash = entry_hash(entry).map_err(|error| error.to_string())?;
-    if entry.header().writer_seq != listed.head_seq || hash.to_hex() != listed.head_hash {
+    let SignedEntry::Snapshot { header, body, .. } = entry else {
+        return Err("the head of the snapshot stream is not a snapshot entry".into());
+    };
+    if header.writer_seq != listed.head_seq || hash.to_hex() != listed.head_hash {
         return Err("the head of the snapshot stream differs from the listing".into());
     }
-    Ok(Some(StreamHead {
-        entry_hash: hash,
-        writer_seq: listed.head_seq,
-        lamport: entry.header().lamport,
-    }))
+    Ok(Some((
+        StreamHead {
+            entry_hash: hash,
+            writer_seq: listed.head_seq,
+            lamport: header.lamport,
+        },
+        body.through.clone(),
+    )))
 }
 
 /// Sign the `snapshot` entry as the next entry of the snapshot stream.
@@ -114,7 +148,24 @@ pub(super) async fn sign(
     manifest_bytes: u64,
     through: &[SnapshotThrough],
 ) -> Result<SignedEntry, String> {
-    let head = snapshot_head(ctx, client, streams).await?;
+    let head = match snapshot_head(ctx, client, streams).await? {
+        Some((head, prev_through)) => {
+            for prev in &prev_through {
+                let covered = through
+                    .iter()
+                    .find(|pos| pos.device_id == prev.device_id)
+                    .is_some_and(|pos| pos.writer_seq >= prev.writer_seq);
+                if !covered {
+                    return Err(
+                        "another device published a newer snapshot; catch up before taking a snapshot"
+                            .into(),
+                    );
+                }
+            }
+            Some(head)
+        }
+        None => None,
+    };
     // The order value of the entry is above every position it covers, so it
     // follows the normal rule and a reader sees it as made after them.
     let floor = through

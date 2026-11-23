@@ -43,11 +43,13 @@ use fold_db::storage::disk_pack::snapshot::DatabaseSnapshot;
 use fold_db::storage::disk_pack::NativeCloudWorkGuard;
 use mutation_log::SnapshotThrough;
 
-use super::snapshot_entry::{sign, through_of, trim_covered};
+use super::snapshot_entry::{require_empty_for_first, sign, through_of, trim_covered};
 use super::snapshot_known::{self as known, Taken};
 use super::snapshot_lane as lane;
 use super::snapshot_manifest::{self as manifest, Manifest};
-use super::snapshot_state::{fail_request, file_of, finish_request, load_last, Last, Report};
+use super::snapshot_state::{
+    fail_request, fail_request_in, file_of, finish_request, load_last, read_request, Last, Report,
+};
 use super::snapshot_upload::{elapsed_ms, ensure_birth, put_manifest, upload_files, TOO_LARGE};
 use super::{list_streams, Ctx};
 use crate::host::cloud_sync::SnapshotState;
@@ -79,15 +81,12 @@ pub(super) async fn run(
     client: &RelayClient,
     host: &Arc<Host>,
 ) -> Result<(), String> {
-    if lane::busy() {
+    let home = &ctx.host.home;
+    if lane::busy_for(home) {
         return Ok(());
     }
-    let home = &ctx.host.home;
-    let request = disk::read_limited(&file_of(home, &ctx.database_id, "snapshot-request"), 64)
-        .ok()
-        .flatten()
-        .and_then(|bytes| String::from_utf8(bytes).ok());
-    if request.is_none() && (known::waiting().is_some() || !auto_due(ctx).await?) {
+    let request = read_request(home, &ctx.database_id);
+    if request.is_none() && (known::waiting(home).is_some() || !auto_due(ctx, client).await?) {
         return Ok(());
     }
     let frozen = match freeze(ctx, false).await {
@@ -100,7 +99,14 @@ pub(super) async fn run(
         .cloud_sync
         .mark_snapshot(SnapshotState::InProgress, Some("hashing the files".into()));
     let (host, base) = (Arc::clone(host), client.base.clone());
-    lane::start(async move { upload(host, base, frozen, request).await });
+    lane::start_for(home, move |lane_id| {
+        Box::pin(async move {
+            let home = host.home.clone();
+            upload(host, base, frozen, request).await;
+            lane::finish_for(&home, lane_id);
+            crate::log_sync::wake::request_wake(&home);
+        })
+    });
     Ok(())
 }
 
@@ -114,19 +120,19 @@ async fn upload(host: Arc<Host>, base: String, frozen: Frozen, request: Option<S
         Ok(opened) => opened,
         Err(error) => {
             host.cloud_sync.mark_snapshot(prior.0, prior.1);
+            if let (Ok(owner), Some(nonce)) = (host.owned.owner(), request.as_deref()) {
+                fail_request_in(&host.home, &owner.id, nonce, &error);
+            }
             tracing::warn!(target: "lastdbd::log_sync", %error, "snapshot upload could not start");
             return;
         }
     };
-    match publish_cut(&ctx, &client, frozen).await {
+    match publish_cut(&ctx, &client, frozen, false).await {
         Ok((report, fresh)) => {
             tracing::info!(target: "lastdbd::log_sync", seq = report.snapshot_seq, files = report.files, uploaded = report.uploaded_files, "snapshot published");
             if !fresh {
                 host.cloud_sync.mark_snapshot(prior.0, prior.1);
             }
-            // The trim comes before the answer, so a person who waits for the snapshot finds the
-            // relay already trimmed. A stop of the lane during the trim leaves the request in
-            // place, and the next start takes the snapshot again; one of unchanged files names nothing twice.
             if fresh {
                 trim_covered(&ctx, &client, report.snapshot_seq).await;
             }
@@ -160,41 +166,65 @@ fn failed(ctx: &Ctx<'_>, request: Option<&str>, error: String) -> Result<(), Str
     Err(error)
 }
 
-async fn auto_due(ctx: &Ctx<'_>) -> Result<bool, String> {
+async fn auto_due(ctx: &Ctx<'_>, client: &RelayClient) -> Result<bool, String> {
     let own = ctx.own_head().await?.map_or(0, |head| head.seq);
-    let last = load_last(&ctx.host.home, &ctx.database_id)?.map_or(0, |last| last.own_seq);
+    let last = load_last(&ctx.host.home, &ctx.database_id)?
+        .filter(|last| same_relay(ctx, client, last))
+        .map_or(0, |last| last.own_seq);
     Ok(own.saturating_sub(last) >= AUTO_SNAPSHOT_ENTRIES)
 }
 
-/// Publish the first snapshot of a home that held data before it began to capture writes.
-///
-/// The cut is the preserved copy of the files from before the first captured write (see
-/// `PackRuntime::begin_first_snapshot`), so it holds no stream position. Every write since is
-/// in the spool, and the spool is not read for upload until this snapshot is named on the
-/// relay, so each earlier write is in the snapshot and each later one is sent as an entry,
-/// never both and never neither. After the entry is on the relay the node records that the
-/// history is covered, which opens the spool, and removes the preserved copy. A kill at any
-/// point leaves the copy, and the next turn runs this again: the same cut gives the same
-/// files, so the next turn finds the saved record and names nothing twice.
-pub(super) async fn run_first(ctx: &Ctx<'_>, client: &RelayClient) -> Result<(), String> {
-    if let Some(message) = known::waiting() {
-        return Err(message);
+fn same_relay(ctx: &Ctx<'_>, client: &RelayClient, last: &Last) -> bool {
+    let want = known::origin(&client.base);
+    match &last.relay {
+        Some(saved) => saved == &want,
+        None => known::known(&ctx.host.home)
+            .and_then(|status| status.relay)
+            .is_some_and(|saved| saved == want),
     }
+}
+
+/// Publish the first snapshot of a home that held data before it began to capture writes.
+pub(super) async fn run_first(ctx: &Ctx<'_>, client: &RelayClient) -> Result<(), String> {
+    let request = read_request(&ctx.host.home, &ctx.database_id);
+    if request.is_none() {
+        if let Some(message) = known::waiting(&ctx.host.home) {
+            return Err(message);
+        }
+    }
+    let prior = ctx.host.cloud_sync.snapshot().snapshot;
     ctx.host
         .cloud_sync
         .mark_snapshot(SnapshotState::InProgress, None);
+    let outcome = run_first_inner(ctx, client).await;
+    match outcome {
+        Ok(report) => {
+            if let Some(nonce) = request.as_deref() {
+                let _ = finish_request(ctx, nonce, &report);
+            }
+            Ok(())
+        }
+        Err(error) => {
+            if let Some(nonce) = request.as_deref() {
+                fail_request(ctx, nonce, &error);
+            }
+            if error.starts_with(TOO_LARGE) {
+                known::refused(ctx, &error);
+            } else {
+                ctx.host
+                    .cloud_sync
+                    .mark_snapshot(prior.state, prior.message);
+            }
+            Err(error)
+        }
+    }
+}
+
+async fn run_first_inner(ctx: &Ctx<'_>, client: &RelayClient) -> Result<Report, String> {
     let Some(frozen) = freeze(ctx, true).await? else {
         return Err("the preserved files of the first snapshot are missing".into());
     };
-    let published = publish_cut(ctx, client, frozen).await;
-    if let Err(error) = &published {
-        if error.starts_with(TOO_LARGE) {
-            // Until the first snapshot is named, the spool stays unsent: this home holds
-            // earlier data that only the snapshot carries. The turn reports the refusal.
-            known::refused(ctx, error);
-        }
-    }
-    let (report, fresh) = published?;
+    let (report, fresh) = publish_cut(ctx, client, frozen, true).await?;
     if fresh {
         trim_covered(ctx, client, report.snapshot_seq).await;
     }
@@ -206,7 +236,7 @@ pub(super) async fn run_first(ctx: &Ctx<'_>, client: &RelayClient) -> Result<(),
         .release_initial_snapshot()
         .map_err(|error| format!("the preserved files could not be removed: {error}"))?;
     tracing::info!(target: "lastdbd::log_sync", seq = report.snapshot_seq, files = report.files, "first snapshot published");
-    Ok(())
+    Ok(report)
 }
 
 /// Freeze the files at one write boundary. `None` when a write is not yet on the relay or not
@@ -237,14 +267,11 @@ async fn freeze(ctx: &Ctx<'_>, first: bool) -> Result<Option<Frozen>, String> {
 
 /// Hash, upload and name a frozen snapshot. Returns its report, and whether it is a new
 /// snapshot (false when nothing changed since the last one, which still names the state).
-///
-/// Nothing here reads a position from the live store: the positions are those of the cut. After
-/// the append of the `snapshot` entry there is no await until the records are written, so a
-/// stop of the lane never falls between the relay naming the snapshot and the node knowing.
 async fn publish_cut(
     ctx: &Ctx<'_>,
     client: &RelayClient,
     frozen: Frozen,
+    first: bool,
 ) -> Result<(Report, bool), String> {
     let Frozen {
         cut,
@@ -259,16 +286,19 @@ async fn publish_cut(
     .await
     .map_err(|_| "the snapshot inventory stopped".to_owned())??;
     let capture_ms = elapsed_ms(started);
-    let previous = load_last(&ctx.host.home, &ctx.database_id)?;
+    let previous =
+        load_last(&ctx.host.home, &ctx.database_id)?.filter(|last| same_relay(ctx, client, last));
     if let Some(last) = previous
         .as_ref()
         .filter(|last| last.manifest.files == files && last.through == through)
     {
-        // Nothing changed since the last snapshot. It still names the state.
         return Ok((last.report.clone(), false));
     }
     let uploading = Instant::now();
     let streams = list_streams(ctx, client).await?.unwrap_or_default();
+    if first {
+        require_empty_for_first(ctx, client, &streams).await?;
+    }
     ensure_birth(ctx, client, &streams).await?;
     let (uploaded_files, uploaded_bytes) =
         upload_files(ctx, client, &cut, &files, previous.as_ref()).await?;
@@ -279,9 +309,10 @@ async fn publish_cut(
     };
     drop(cut);
     let (sha256, length) = put_manifest(ctx, client, &list).await?;
-    // The upload may have taken minutes. Another device of this owner signs the same stream, so
-    // the head of the snapshot stream is read again here, not taken from before the upload.
     let streams = list_streams(ctx, client).await?.unwrap_or_default();
+    if first {
+        require_empty_for_first(ctx, client, &streams).await?;
+    }
     let entry = sign(ctx, client, &streams, &sha256, length, &through).await?;
     let stored = client
         .append(&ctx.database_id, std::slice::from_ref(&entry))
@@ -306,6 +337,7 @@ async fn publish_cut(
     };
     let last = Last {
         own_seq,
+        relay: Some(known::origin(&client.base)),
         through,
         manifest: list,
         report: report.clone(),
