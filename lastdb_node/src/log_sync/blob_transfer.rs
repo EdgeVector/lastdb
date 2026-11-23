@@ -86,6 +86,11 @@ impl RelayClient {
             .header("content-length", size)
             .body(file_body(file));
         for (name, value) in header_pairs(&begin["upload"]["headers"]) {
+            // The content-length is set above. The Exemem relay signs it and returns it among
+            // the headers, and a second content-length header makes the object store answer 400.
+            if name.eq_ignore_ascii_case("content-length") {
+                continue;
+            }
             upload = upload.header(name, value);
         }
         let status = upload
