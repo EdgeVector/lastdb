@@ -19,7 +19,7 @@ pub(super) async fn submit_signed(
     };
     match crate::log_sync::submit_share_write(host, share, &id, &req.body).await {
         Ok(sequence) => accepted("submitted", &id, sequence),
-        Err(error) => contribution_failure(error, ctx),
+        Err(error) => contribution_failure(&error, ctx),
     }
 }
 
@@ -37,7 +37,7 @@ fn accepted(status: &str, id: &uuid::Uuid, sequence: u64) -> UdsResponse {
 }
 
 fn contribution_failure(
-    error: crate::log_sync::ContributionError,
+    error: &crate::log_sync::ContributionError,
     ctx: &AccessContext,
 ) -> UdsResponse {
     use crate::log_sync::ContributionError;
@@ -80,13 +80,13 @@ pub(super) async fn change_record(
         // A change this node already queued stays a proposal, whatever the lease says now.
         Some(share) => match crate::log_sync::share_write_submitted(host, share, &id) {
             Ok(queued) => queued || !super::app_api::direct_write_allowed(host, share),
-            Err(error) => return contribution_failure(error, ctx),
+            Err(error) => return contribution_failure(&error, ctx),
         },
     };
     if let (true, Some(share)) = (propose, share) {
         return match crate::log_sync::submit_share_write(host, share, &id, &req.body).await {
             Ok(sequence) => accepted("pending", &id, sequence),
-            Err(error) => contribution_failure(error, ctx),
+            Err(error) => contribution_failure(&error, ctx),
         };
     }
     match apply(host, selector, &req.body).await {

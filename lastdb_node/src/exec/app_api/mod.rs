@@ -10,6 +10,7 @@ use super::schema_routes::resolve_schema_name;
 use crate::host::Host;
 use crate::lastdb_uds::uds_http::UdsResponse;
 
+mod change;
 mod changes;
 mod database;
 mod databases;
@@ -23,13 +24,12 @@ mod write;
 mod write_file;
 mod write_signed;
 
+pub(in crate::exec) use change::{apply_change, parse_change, require_change_grant};
 pub(in crate::exec) use changes::changes_route;
 pub(in crate::exec) use database::direct_write_allowed;
 pub(in crate::exec) use databases::databases_route;
 pub(in crate::exec) use read::read_route;
-pub(in crate::exec) use write::{
-    apply_change, parse_change, require_change_grant, write_route, Change,
-};
+pub(in crate::exec) use write::write_route;
 
 fn bad(message: impl Into<String>) -> HostError {
     HostError::new(400, message)
