@@ -50,6 +50,23 @@ def change(node, key, note, *, mid=None, mutation_type="create", expected=None, 
     return status, (json.loads(raw) if raw else {}), mid
 
 
+def change_lapsed(a):
+    """9c, first half: A's lease has run out, so the change is queued. Returns its id."""
+    status, reply, mid = change(a, "c-lapsed", "a-lapsed")
+    require(status == 202 and reply.get("status") == "pending" and reply.get("mutation_id") == mid
+            and reply.get("submission_sequence", 0) > 0, f"a change after the lease ran out was HTTP {status} {reply!r}")
+    require(a.row("c-lapsed") is None, "A holds a change that the lapsed lease did not let it sign")
+    return mid
+
+
+def lapsed_published(a, mid, members, everywhere, outcomes):
+    """9c, second half: after the publisher returned, the queued change is published everywhere."""
+    wait("A's change from the lapsed lease to be published", lambda: a.status(mid) == "published")
+    everywhere(members, "c-lapsed", "a-lapsed", a.key)
+    outcomes["9c_write_member_lapsed_lease"] = "pending, published after the publisher returned"
+    print("9c. write member, lease lapsed: change answered pending, not in A's database until published", flush=True)
+
+
 def prove_change(pub, a, b, c, pb, members, everywhere, outcomes):
     """Steps 9a, 9b, 9d, 9e and 9f. `pb` is B's relay proxy."""
     wait("A to hold a lease that covers it", lambda: (x := a.lease()) and x["directWrites"] and x)
