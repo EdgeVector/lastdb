@@ -75,7 +75,7 @@ where
 /// the request, and LastDB keeps a reference in place of a copy.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct FileLink {
+pub(super) struct FileLink {
     path: String,
     #[serde(default)]
     name: Option<String>,

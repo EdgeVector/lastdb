@@ -95,11 +95,11 @@ def prove_change(pub, a, b, c, pb, members, everywhere, outcomes):
     print(f"9b. submit member: change answered pending (sequence {sequence}), absent from B until the publisher accepted it", flush=True)
     print("9e. repeat of the pending change: pending with the same sequence, one proposal signed", flush=True)
 
-    status, reply, _ = puchange(b, "c-p", "p-applied", owner=True)
+    status, reply, _ = change(pub, "c-p", "p-applied", owner=True)
     require(status == 200 and reply.get("status") == "applied", f"the publisher's change was HTTP {status} {reply!r}")
     require(pub.row("c-p"), "the publisher does not hold its own change")
     revision = pub.row("c-p")["revision"]
-    status, reply, _ = puchange(b, "c-p", "p-replaced", mutation_type="replace",
+    status, reply, _ = change(pub, "c-p", "p-replaced", mutation_type="replace",
                                   expected={"type": "revision", "revision": revision}, owner=True)
     require(status == 200 and reply.get("status") == "applied", f"the publisher's replace was HTTP {status} {reply!r}")
     for member in members:
