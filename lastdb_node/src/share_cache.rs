@@ -1,9 +1,9 @@
 //! Recipient-owned registration store for received Share databases.
 
-use crate::cloud_backup_client::ShareEnvironment;
 use crate::offline_home::Directory;
 use crate::registered_share::ManagedRegistration;
 use crate::share_invitation::ShareRecipient;
+use cloud_backup_protocol::v2::share_access::ShareEnvironment;
 use cloud_backup_protocol::{v2::Stream, Digest, Id};
 use fold_db::crypto::at_rest::{open_at_rest_bounded, seal_at_rest_raw};
 use serde::{Deserialize, Serialize};

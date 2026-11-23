@@ -12,12 +12,12 @@ name: Signed history DEV proofs
 # EXEMEM_RELAY_URL is set, the same binary also runs against that relay. No credentials.
 # The reference_relay run also sets LASTDB_RELAY_E2E_STREAMS=true (proves log/streams);
 # the Exemem run does not, until that relay implements the route.
-# Job `deployed_relay` runs the personal database proof (`personal_database_proof.py --relay-url`) and the
-# plain-home part of the old-home proof (`old_home_proof.py --relay-url`) against the Exemem DEV relay. Each run
+# Job `deployed_relay` runs the personal database proof (`personal_database_proof.py --relay-url`) against the
+# Exemem DEV relay. Each run
 # makes a fresh identity (a new seed, offline), so it writes to a personal database of its own. The relay bills the
 # account that the signing node key derives: no account, API key or secret is used. It runs on pushes to main, on the
 # daily run (cloud-backup-daily.yml) and on dispatch, and on a pull request only when the PR changes a file of the
-# two proofs, their nodes, the blob transfer or this workflow (job `deployed_scope`). The relay URL is the
+# proof, its nodes, the blob transfer or this workflow (job `deployed_scope`). The relay URL is the
 # `exemem_relay_url` input, else the variable EXEMEM_RELAY_URL, else environments.dev.exemem_api. Storage on the
 # relay cannot be deleted by a node, so each run adds to it for good: the job summary says how much.
 # Job `blob_stream` puts and gets a 512 MiB generated file through a reference_relay
@@ -43,8 +43,7 @@ on:
       - "scripts/operations/shared_database_proof.py"
       - "scripts/operations/personal_database_proof.py"
       - "scripts/operations/personal_proof_*.py"
-      - "scripts/operations/old_home_*.py"
-      - "scripts/operations/adopt_old_home.py"
+      - "scripts/operations/existing_home_proof.py"
       - "fold_db/crates/core/src/storage/format/metadata/**"
       - "lastdb_node/src/log_sync/**"
       - "lastdb_node/src/host.rs"
@@ -66,8 +65,7 @@ on:
       - "scripts/operations/shared_database_proof.py"
       - "scripts/operations/personal_database_proof.py"
       - "scripts/operations/personal_proof_*.py"
-      - "scripts/operations/old_home_*.py"
-      - "scripts/operations/adopt_old_home.py"
+      - "scripts/operations/existing_home_proof.py"
       - "fold_db/crates/core/src/storage/format/metadata/**"
       - "lastdb_node/src/log_sync/**"
       - "lastdb_node/src/host.rs"
@@ -448,18 +446,14 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
-  old_home:
-    name: an old home moves and publishes its first snapshot (reference_relay)
+  existing_home:
+    name: a home that holds data gets a relay and publishes its first snapshot (reference_relay)
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
       CARGO_BUILD_JOBS: "2"
       CARGO_PROFILE_DEV_DEBUG: "0"
       FOLDDB_BUILD_VERSION_OVERRIDE: bench-${{ github.sha }}
-      # The build that wrote the owner's home: release nightly-20261119-d06054159.
-      OLD_RELEASE: nightly-20261119-d06054159
-      OLD_TARBALL_SHA256: 6f49a1655ea5167f1813096b3945b47409cee1dad83b584521862635950fdeab
-      OLD_LASTDBD_SHA256: 955446be862f9e55d0f7415d3faec4697e5b67e962a5dce7c5f9bd608ce78a9b
     steps:
       - uses: actions/checkout@v7
         with:
@@ -473,54 +467,33 @@ jobs:
           set -euo pipefail
           cargo build --locked -p reference_relay --bin reference_relay
           cargo build --locked -p lastdb_node --bin lastdb --bin lastdbd
-      - name: Fetch the old build and check its digests
+      - name: A home with data and no relay, the first snapshot, later writes, and a restore
         run: |
           set -euo pipefail
-          OLD="${RUNNER_TEMP}/old-build"
-          mkdir -p "$OLD"
-          curl -fsSL -o "$OLD/lastdb.tar.gz" \
-            "https://github.com/EdgeVector/lastdb/releases/download/${OLD_RELEASE}/lastdb-x86_64-unknown-linux-gnu.tar.gz"
-          echo "${OLD_TARBALL_SHA256}  $OLD/lastdb.tar.gz" | sha256sum -c -
-          tar -xzf "$OLD/lastdb.tar.gz" -C "$OLD"
-          OLD_DAEMON="$(find "$OLD" -maxdepth 3 -name lastdbd -type f | head -n 1)"
-          test -n "$OLD_DAEMON"
-          echo "${OLD_LASTDBD_SHA256}  ${OLD_DAEMON}" | sha256sum -c -
-          chmod +x "$OLD_DAEMON"
-          echo "OLD_DAEMON=${OLD_DAEMON}" >> "$GITHUB_ENV"
-      - name: Old homes, the move, the first snapshot, a kill before it is named, and a restore
-        run: |
-          set -euo pipefail
-          OUT="${RUNNER_TEMP}/old-home"
+          OUT="${RUNNER_TEMP}/existing-home"
           mkdir -p "$OUT"
-          python3 scripts/operations/old_home_proof.py \
-            --old-daemon "$OLD_DAEMON" \
+          python3 scripts/operations/existing_home_proof.py \
             --daemon "$PWD/target/debug/lastdbd" --cli "$PWD/target/debug/lastdb" \
             --relay-bin "$PWD/target/debug/reference_relay" --revision "$GITHUB_SHA" \
             --output "$OUT/nodes" 2>&1 | tee "$OUT/proof.log"
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: signed-history-old-home-${{ github.sha }}
+          name: signed-history-existing-home-${{ github.sha }}
           path: |
-            ${{ runner.temp }}/old-home/proof.log
-            ${{ runner.temp }}/old-home/nodes/relay.stderr
-            ${{ runner.temp }}/old-home/nodes/summary.json
-            ${{ runner.temp }}/old-home/nodes/*/node.log
-            ${{ runner.temp }}/old-home/nodes/*/*/node.log
+            ${{ runner.temp }}/existing-home/proof.log
+            ${{ runner.temp }}/existing-home/nodes/relay.stderr
+            ${{ runner.temp }}/existing-home/nodes/*/node.log
+            ${{ runner.temp }}/existing-home/nodes/*/*/node.log
           retention-days: 7
           if-no-files-found: warn
       - name: Publish summary
         if: always()
         run: |
           {
-            echo "## An old home moves and publishes its first snapshot"
-            echo "Source: $GITHUB_SHA. Old build: ${OLD_RELEASE}."
-            echo "Homes written by the old build (no cloud; a variant with unacknowledged spool entries and pending markers; one with a large file) are adopted by adopt_old_home.py, started on the current build with the reference relay, and publish their files as a first snapshot before any later write goes up. A restore equals the moved home and reads only the tail, a second device equals it, a kill before the snapshot is named loses and repeats nothing, and the relay holds no marker."
-            if [[ -f "${RUNNER_TEMP}/old-home/nodes/summary.json" ]]; then
-              echo '```json'
-              cat "${RUNNER_TEMP}/old-home/nodes/summary.json"
-              echo '```'
-            fi
+            echo "## A home that holds data gets a relay and publishes its first snapshot"
+            echo "Source: $GITHUB_SHA."
+            echo "A home written with no relay (records in three schemas, an alternate key, a file) starts with the reference relay, publishes its files as a first snapshot before any later write goes up, sends each later write as one entry, and a restore from the recovery phrase equals it and replays only the later entries. The relay holds no marker."
           } >> "$GITHUB_STEP_SUMMARY"
 
   deployed_scope:
@@ -549,7 +522,7 @@ jobs:
           fi
           if [[ "$EVENT" == pull_request ]]; then
             changed="$(git diff --name-only "$BASE_SHA" HEAD)"
-            own='^(scripts/operations/(personal_database_proof|personal_proof_nodes|personal_proof_deployed|old_home_proof|old_home_steps|old_home_deployed)\.py|lastdb_node/src/log_sync/blob_transfer\.rs|\.github/workflows/signed-history-dev\.yml)$'
+            own='^(scripts/operations/(personal_database_proof|personal_proof_nodes|personal_proof_deployed)\.py|lastdb_node/src/log_sync/blob_transfer\.rs|\.github/workflows/signed-history-dev\.yml)$'
             if ! grep -Eq "$own" <<< "$changed"; then
               run=false
             fi
@@ -558,7 +531,7 @@ jobs:
           echo "deployed relay proofs run: $run (event $EVENT)" >> "$GITHUB_STEP_SUMMARY"
 
   deployed_relay:
-    name: personal database and an old home on the Exemem DEV relay
+    name: personal database on the Exemem DEV relay
     needs: deployed_scope
     if: ${{ needs.deployed_scope.outputs.run == 'true' }}
     runs-on: ubuntu-24.04
@@ -568,10 +541,6 @@ jobs:
       CARGO_PROFILE_DEV_DEBUG: "0"
       FOLDDB_BUILD_VERSION_OVERRIDE: bench-${{ github.sha }}
       EXEMEM_RELAY_INPUT: ${{ inputs.exemem_relay_url || vars.EXEMEM_RELAY_URL }}
-      # The build that wrote the owner's home: release nightly-20261119-d06054159.
-      OLD_RELEASE: nightly-20261119-d06054159
-      OLD_TARBALL_SHA256: 6f49a1655ea5167f1813096b3945b47409cee1dad83b584521862635950fdeab
-      OLD_LASTDBD_SHA256: 955446be862f9e55d0f7415d3faec4697e5b67e962a5dce7c5f9bd608ce78a9b
     steps:
       - uses: actions/checkout@v7
         with:
@@ -592,37 +561,12 @@ jobs:
             url="$(jq -er '.environments.dev.exemem_api' lastdb_node/environments.json)"
           fi
           echo "RELAY_URL=${url%/}" >> "$GITHUB_ENV"
-      - name: Fetch the old build and check its digests
-        run: |
-          set -euo pipefail
-          OLD="${RUNNER_TEMP}/old-build"
-          mkdir -p "$OLD"
-          curl -fsSL -o "$OLD/lastdb.tar.gz" \
-            "https://github.com/EdgeVector/lastdb/releases/download/${OLD_RELEASE}/lastdb-x86_64-unknown-linux-gnu.tar.gz"
-          echo "${OLD_TARBALL_SHA256}  $OLD/lastdb.tar.gz" | sha256sum -c -
-          tar -xzf "$OLD/lastdb.tar.gz" -C "$OLD"
-          OLD_DAEMON="$(find "$OLD" -maxdepth 3 -name lastdbd -type f | head -n 1)"
-          test -n "$OLD_DAEMON"
-          echo "${OLD_LASTDBD_SHA256}  ${OLD_DAEMON}" | sha256sum -c -
-          chmod +x "$OLD_DAEMON"
-          echo "OLD_DAEMON=${OLD_DAEMON}" >> "$GITHUB_ENV"
       - name: Personal database on the DEV relay, a fresh identity
         run: |
           set -euo pipefail
           OUT="${RUNNER_TEMP}/deployed-personal"
           mkdir -p "$OUT"
           python3 scripts/operations/personal_database_proof.py \
-            --daemon "$PWD/target/debug/lastdbd" --cli "$PWD/target/debug/lastdb" \
-            --relay-url "$RELAY_URL" --revision "$GITHUB_SHA" \
-            --output "$OUT/nodes" 2>&1 | tee "$OUT/proof.log"
-      - name: An old home moves on the DEV relay, a fresh identity
-        if: ${{ !cancelled() }}
-        run: |
-          set -euo pipefail
-          OUT="${RUNNER_TEMP}/deployed-old-home"
-          mkdir -p "$OUT"
-          python3 scripts/operations/old_home_proof.py \
-            --old-daemon "$OLD_DAEMON" \
             --daemon "$PWD/target/debug/lastdbd" --cli "$PWD/target/debug/lastdb" \
             --relay-url "$RELAY_URL" --revision "$GITHUB_SHA" \
             --output "$OUT/nodes" 2>&1 | tee "$OUT/proof.log"
@@ -635,10 +579,6 @@ jobs:
             ${{ runner.temp }}/deployed-personal/nodes/summary.json
             ${{ runner.temp }}/deployed-personal/nodes/summary.md
             ${{ runner.temp }}/deployed-personal/nodes/*/node.log
-            ${{ runner.temp }}/deployed-old-home/proof.log
-            ${{ runner.temp }}/deployed-old-home/nodes/summary.md
-            ${{ runner.temp }}/deployed-old-home/nodes/*/node.log
-            ${{ runner.temp }}/deployed-old-home/nodes/*/*/node.log
           retention-days: 7
           if-no-files-found: warn
 

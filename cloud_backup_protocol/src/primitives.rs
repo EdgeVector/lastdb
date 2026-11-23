@@ -104,13 +104,6 @@ string_primitive!(
     "invalid account identity",
     "32-character lowercase hex account identity."
 );
-string_primitive!(
-    RelativePath,
-    valid_path,
-    "invalid relative path",
-    "Relative path of at most 512 bytes and eight components. Empty parts, `.`, `..`, a backslash, a drive prefix, and control characters are rejected."
-);
-
 pub(crate) fn exact_lower_hex(value: &str, len: usize) -> bool {
     value.len() == len
         && value
@@ -132,22 +125,6 @@ fn valid_id(value: &str) -> bool {
 
 fn valid_text(value: &str, max_bytes: usize) -> bool {
     !value.is_empty() && value.len() <= max_bytes && !value.chars().any(char::is_control)
-}
-
-fn valid_path(value: &str) -> bool {
-    if !valid_text(value, 512) || value.contains('\\') {
-        return false;
-    }
-    let mut components = value.split('/');
-    let Some(first) = components.next() else {
-        return false;
-    };
-    let bytes = first.as_bytes();
-    if bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' {
-        return false;
-    }
-    let normal = |part: &str| !part.is_empty() && part != "." && part != "..";
-    normal(first) && value.split('/').count() <= 8 && components.all(normal)
 }
 
 /// Nonempty, control-free UTF-8 text, limited by its stored byte length.

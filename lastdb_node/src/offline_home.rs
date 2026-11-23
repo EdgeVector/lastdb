@@ -107,20 +107,6 @@ pub(crate) fn read_home_identity_seed(home: &Path) -> Result<Option<Zeroizing<[u
         .transpose()
 }
 
-/// The ids that the identity key of `home` derives: the personal database id and the node
-/// key, each 64 lowercase hex characters. It only reads `identity.key`.
-pub fn derived_identity(home: &Path) -> Result<(String, String), String> {
-    let seed =
-        read_home_identity_seed(home)?.ok_or_else(|| "the home has no identity.key".to_owned())?;
-    let node_key = app_identity_crypto::SigningKey::from_bytes(&seed)
-        .verifying_key()
-        .to_bytes();
-    Ok((
-        crate::personal_identity::database_id(&seed),
-        app_identity_crypto::hex_lower(&node_key),
-    ))
-}
-
 pub fn read_identity_seed_at(dir: &File) -> Result<Zeroizing<[u8; 32]>, String> {
     decode_seed(&Zeroizing::new(read_private_file(
         dir,

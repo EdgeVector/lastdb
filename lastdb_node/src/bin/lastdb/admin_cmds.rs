@@ -271,19 +271,6 @@ pub(super) fn run_admin(data_dir: Option<PathBuf>, action: AdminCommand) -> Resu
             db_cleanup(&socket, status, wait, timeout, json)
         }
         AdminCommand::Backup(b) => admin_backup_command(data_dir, b),
-        AdminCommand::Identity { json } => {
-            let home = lastdb_node::host::resolve_home(data_dir)?;
-            let (database_id, node_key) = lastdb_node::offline_home::derived_identity(&home)?;
-            if json {
-                println!(
-                    "{}",
-                    json!({ "database_id": database_id, "node_key": node_key })
-                );
-            } else {
-                println!("database_id {database_id}\nnode_key {node_key}");
-            }
-            Ok(())
-        }
     }
 }
 
