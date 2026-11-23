@@ -16,27 +16,33 @@ use std::sync::{LazyLock, Mutex};
 use tokio::task::JoinHandle;
 use tracing::Instrument;
 
+struct LaneEntry {
+    id: u64,
+    task: JoinHandle<()>,
+}
+
+type LaneMap = HashMap<PathBuf, LaneEntry>;
+
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
-static LANES: LazyLock<Mutex<HashMap<PathBuf, (u64, JoinHandle<()>)>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
+static LANES: LazyLock<Mutex<LaneMap>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// True while any snapshot upload lane is running.
 pub(super) fn busy() -> bool {
-    lock().values().any(|(_, task)| !task.is_finished())
+    lock().values().any(|entry| !entry.task.is_finished())
 }
 
 /// True while `home`'s snapshot upload lane is running.
 pub(super) fn busy_for(home: &Path) -> bool {
     lock()
         .get(home)
-        .is_some_and(|(_, task)| !task.is_finished())
+        .is_some_and(|entry| !entry.task.is_finished())
 }
 
 /// Start the lane for `home` with `work`. The caller checked [`busy_for`] first.
 pub(super) fn start_for(home: &Path, work: impl FnOnce(u64) -> PinBoxFuture) {
     let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
     let task = tokio::spawn(work(id).in_current_span());
-    lock().insert(home.to_path_buf(), (id, task));
+    lock().insert(home.to_path_buf(), LaneEntry { id, task });
 }
 
 pub(super) type PinBoxFuture = std::pin::Pin<Box<dyn Future<Output = ()> + Send + 'static>>;
@@ -45,21 +51,21 @@ pub(super) type PinBoxFuture = std::pin::Pin<Box<dyn Future<Output = ()> + Send 
 /// observes its own lane as still busy.
 pub(super) fn finish_for(home: &Path, id: u64) {
     let mut lanes = lock();
-    if lanes.get(home).is_some_and(|(held, _)| *held == id) {
+    if lanes.get(home).is_some_and(|held| held.id == id) {
         lanes.remove(home);
     }
 }
 
 /// End every active lane and wait until it is gone. The daemon calls this when it stops.
 pub(crate) async fn stop() {
-    let tasks: Vec<JoinHandle<()>> = lock().drain().map(|(_, (_, task))| task).collect();
+    let tasks: Vec<JoinHandle<()>> = lock().drain().map(|(_, entry)| entry.task).collect();
     for task in tasks {
         task.abort();
         let _ = task.await;
     }
 }
 
-fn lock() -> std::sync::MutexGuard<'static, HashMap<PathBuf, (u64, JoinHandle<()>)>> {
+fn lock() -> std::sync::MutexGuard<'static, LaneMap> {
     LANES
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)

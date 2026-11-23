@@ -26,8 +26,9 @@ const LIMIT: usize = 64 * 1024;
 /// How long a snapshot that a relay refused for size waits before the next automatic attempt.
 const RETRY: Duration = Duration::from_secs(10 * 60);
 
-static REFUSED: LazyLock<Mutex<HashMap<PathBuf, (Instant, String)>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
+type RefusedMap = HashMap<PathBuf, (Instant, String)>;
+
+static REFUSED: LazyLock<Mutex<RefusedMap>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// The facts of one snapshot, as the entry and its manifest name them.
 pub(super) struct Taken<'a> {
@@ -117,7 +118,7 @@ fn clear_refusal(home: &Path) {
     lock().remove(home);
 }
 
-fn lock() -> std::sync::MutexGuard<'static, HashMap<PathBuf, (Instant, String)>> {
+fn lock() -> std::sync::MutexGuard<'static, RefusedMap> {
     REFUSED
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
