@@ -97,7 +97,7 @@ def fetch_previous(work, excluded):
             skipped.append(f"{tag} (no {ASSET})")
             continue
         folder = work / tag
-        folder.mkdir(mode=0o700)
+        folder.mkdir(mode=0o700, parents=True)
         for name in ("nightly.json", "SHA256SUMS.txt"):
             gh("release", "download", tag, "-R", REPOSITORY, "-p", name, "-D", str(folder))
         sums = listed_sums(folder / "SHA256SUMS.txt")
