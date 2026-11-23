@@ -110,6 +110,7 @@ def refused_snapshot(relay, device):
     require(refusals(relay) == 0, "the refusing relay refused a blob before the snapshot")
     system_seed(device.node, definition(ALPHA, "Hash", RECORD_FIELDS, description_prefix="Personal proof "))
     device.write([create_big(i) for i in range(BIG_RECORDS)])
+    warned = len(device.warnings(all_lines=True))
     wait("the refusing home to upload its writes", device.synced_up)
     env = {k: v for k, v in os.environ.items() if not k.startswith("LASTDB")}
     env.update(LASTDB_SOCKET_PATH=str(device.node.socket), LASTDB_HOME=str(device.node.home))
@@ -126,14 +127,17 @@ def refused_snapshot(relay, device):
             and snapshot["message"] in message, f"blocked status object: {snapshot!r}")
     lines = snapshot_lines(device)
     require(lines == [NONE_YET, f"Snapshot blocked: {snapshot['message']}"], f"blocked status lines: {lines!r}")
-    require(any("snapshot cannot be published" in line for line in device.warnings(all_lines=True)),
-            "the daemon log has no warning for the refused snapshot")
+    # The daemon log holds severity and category only, never message text, so the evidence there is one
+    # new WARN event. The text is in the status and in the error of the request.
+    logged = len(device.warnings(all_lines=True))
+    require(logged > warned, "the daemon log holds no new WARN event for the refusal")
     # No loop: a few seconds of sync turns send no further refused request, and writes still go up.
     refused = refusals(relay)
     require(refused == 1, f"the relay refused {refused} blob.put requests for one snapshot request")
     time.sleep(QUIET_SECONDS)
     again = refusals(relay)
     require(again == refused, f"the node tried the refused snapshot again: {again} refusals, was {refused}")
+    require(len(device.warnings(all_lines=True)) == logged, "the daemon log kept warning while the snapshot waits")
     device.write([create_big(BIG_RECORDS)])
     wait("the entries to go up while the snapshot is refused", device.synced_up)
     require(snapshot_object(device)["state"] == "blocked", "the blocked state was lost")
