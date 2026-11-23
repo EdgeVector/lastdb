@@ -37,7 +37,9 @@ Before designing or planning anything against LastDB, read the brain records:
 - `concepts-lastdb-agent-access-model` — day-to-day do / don't rules.
 
 The docs folders were removed on 2026-11-02. `docs/app-api.md` is the app
-API contract. `docs/designs/` keeps designs for work in progress. Read a
+API contract. `docs/home-format.md` describes the format 15 home on disk as
+built: the files, the rows, and what travels in a snapshot. Update it in the
+same PR as a change to the home. `docs/designs/` keeps designs for work in progress. Read a
 removed page with `git show 13a2cf188:<path>`.
 
 ## Signed history and sharing (cloud API v3)

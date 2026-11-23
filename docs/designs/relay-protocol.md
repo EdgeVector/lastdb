@@ -1,7 +1,11 @@
 # LastDB relay protocol (open)
 
-Status: design for review (2026-11-19). Companion to
-`docs/designs/cloud-api.md`. Wire: `docs/designs/relay-protocol.openapi.json`.
+Status: built. The reference relay in this repository and the Exemem relay
+(DEV and PROD) serve it. First written as a design on 2026-11-19; `log.streams`,
+the `snapshot` entry and `log.trim` were added on 2026-11-22 and 2026-11-23.
+Companion to `docs/designs/cloud-api.md`. Wire:
+`docs/designs/relay-protocol.openapi.json`. What a node keeps on disk is in
+`docs/home-format.md`.
 
 **Goal:** smallest open protocol so anyone can stand up a relay if ExeMem
 goes down. Signed data is relay-independent. ExeMem = conforming relay +
@@ -26,7 +30,18 @@ is **derived** from publisher-signed birth/grant entries it has verified
 for gating — never a side channel. People carries signed heads for
 comparison only.
 
-**No snapshots.** File blobs may be dropped after a publisher
+**The relay makes no snapshot.** It holds entries and blobs, and never a
+record. A snapshot is the publisher's: the native files of its
+store as blobs, named by a publisher-signed `snapshot` entry (see "The
+`snapshot` entry"). The relay stores both like any entry and any blob, and
+reads the entry only when a `log.trim` names it.
+
+**What the relay can read.** In a personal database every payload is sealed,
+and the relay sees the count, sizes and times of entries. In a shared database
+the `data` entries are plain record key and field JSON today, so the relay can
+read them (`signed-history-sharing.md`, "What is not built").
+
+File blobs may be dropped after a publisher
 `blob_delete` chain entry that does not name a digest still referenced by
 an accepted log entry (including `bundle` blobs). Product erase: ExeMem
 `manage`/`delete` erases that database’s logs and blobs on the relay
@@ -113,9 +128,16 @@ for the signing `node_key`, or an active **`grant#any` / `read`**. Meaning of
 `grant#any`: **any caller with a valid request signature** may read — not
 unsigned/anonymous access. There is no unsigned public path.
 
-**What the relay verifies.** Publisher signatures on `birth`, `grant`
-(including revoke / role-reduction), only — enough to update the grant
-index. It does **not** decrypt record payloads or run full `AcceptEntry`.
+**What the relay verifies.** Two things, and no more:
+
+- For gating: the publisher signatures on `birth` and `grant` (including
+  revoke / role-reduction), enough to update the grant index.
+- For a `log.trim`: the publisher signature on the one `snapshot` entry the
+  request names, and that the entry it stores at each position of that
+  snapshot has the hash the snapshot names (see `log.trim`).
+
+It does **not** decrypt record payloads or run full `AcceptEntry`. Both checks
+decide what the relay stores or drops. Neither decides what counts.
 
 **Readable grant metadata.** Because the relay must gate on them, grant /
 revoke / role-reduction entries expose **grantee node key and role**
@@ -154,9 +176,11 @@ Request `{ "database_id", "writer_key" }`. Response
 `{ "streams": [ { "device_id", "head_seq", "head_hash" } ] }`, sorted by
 `device_id` (ascending, lowercase hex). `head_seq` is the **contiguous head**:
 the highest `writer_seq` such that every sequence number from 1 up to it is
-stored on that stream. The relay does not enforce gapless appends, so a stream
+stored on that stream. **No relay refuses an entry beyond a gap**: this is the
+one rule about gaps, for the reference relay and for Exemem. A stream
 can hold seq 1, 2 and 5; its head is 2, and seq 5 counts only once 3 and 4 are
-stored. `head_hash` is the entry hash (`mutation_log::entry_hash`, 64 lowercase
+stored. A stream is therefore gapless up to its head by the definition of the
+head, and an entry that continues the head advances it. `head_hash` is the entry hash (`mutation_log::entry_hash`, 64 lowercase
 hex) of the entry at `head_seq`. A stream whose seq 1 is not stored is not
 listed. A writer with no stream gets `{ "streams": [] }`, not an error.
 
@@ -198,9 +222,9 @@ the caller repeats. A repeat is safe at any point.
   up to the position. The snapshot entries before the named one. **Nothing else: a
   trim never drops a blob.** The manifests and files of a dropped snapshot entry stay
   on the relay (and stay billed); collecting them is a later step.
-- **What stays.** The per-stream head (so `log.streams` and the gapless append are
-  unchanged; the relay keeps the last dropped sequence number and its hash as a
-  floor), the `birth` entry, the named snapshot and the newer ones with their
+- **What stays.** The per-stream head (so `log.streams` is unchanged and the next
+  entry in order still advances the head; the relay keeps the last dropped
+  sequence number and its hash as a floor), the `birth` entry, the named snapshot and the newer ones with their
   files, and every entry after a position.
 - **Only a personal database.** An entry that would go and is not a sealed `data` or
   `schema` entry (or, on the snapshot stream, a `snapshot` entry) stops the call
@@ -374,7 +398,7 @@ Publisher-signed `relays` entry; People bootstraps first URL. Nodes may
 append and read across several relays; compare publisher-signed `heads`
 (and tip hashes); switch with no migration. A relay that withholds an
 entry cited by `seen_heads` or `heads` is detected when the dependency
-never arrives — no snapshot involvement. Equivocation freezes that stream;
+never arrives. The `snapshot` entry plays no part in that. Equivocation freezes that stream;
 recovery is a new `device_id`, not a relay feature. Failover relays rebuild
 the grant index from verified publisher birth/grant entries in the logs.
 

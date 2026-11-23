@@ -21,8 +21,10 @@ not authorize.
 |---|---|
 | Availability | Order, completeness, acceptance, integrity |
 
-**Logs are append-only in normal operation** (no GC trim). There are **no
-snapshots**. File blobs may be reclaimed after a publisher-signed
+**Logs are append-only in normal operation.** The one trim is `log.trim` of a
+personal database, which drops the entries that a publisher-signed `snapshot`
+entry covers (`relay-protocol.md`). The cloud makes no snapshot of its own.
+File blobs may be reclaimed after a publisher-signed
 `blob_delete` chain entry; readers treat a deleted blob as intentionally
 gone. Product erase is separate: `manage`/`delete` erases that database’s
 relay logs and blobs (the `database_id` stays tombstoned);
