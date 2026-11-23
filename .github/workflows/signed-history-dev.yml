@@ -62,8 +62,10 @@ permissions:
   contents: read
 
 concurrency:
-  group: signed-history-dev-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # A pull request supersedes its own older run. No other run is cancelled: every push to main starts this
+  # workflow, and a push that changes no proof file must not stop the proofs of the commit before it.
+  group: signed-history-dev-${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   scope:
