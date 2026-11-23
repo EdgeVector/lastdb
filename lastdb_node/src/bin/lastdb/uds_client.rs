@@ -190,6 +190,16 @@ pub(crate) fn parse_json_response(response: &str, label: &str) -> Result<Value, 
         .map_err(|e| format!("invalid {label} JSON: {e}"))
 }
 
+pub(crate) fn parse_json_or_error(response: &str, label: &str) -> Result<Value, String> {
+    parse_json_response(response, label).map_err(|fallback| {
+        response
+            .split_once("\r\n\r\n")
+            .and_then(|(_, body)| serde_json::from_str::<Value>(body.trim()).ok())
+            .and_then(|v| v.get("error").and_then(Value::as_str).map(str::to_owned))
+            .unwrap_or(fallback)
+    })
+}
+
 pub(crate) fn resolve_client_home_and_socket(
     data_dir: Option<PathBuf>,
 ) -> Result<(PathBuf, PathBuf), String> {

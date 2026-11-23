@@ -193,6 +193,31 @@ pub struct RelayUrl {
     pub url: String,
 }
 
+/// One stream position a snapshot covers.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SnapshotThrough {
+    /// Device id of the stream.
+    pub device_id: DeviceId,
+    /// Last `writer_seq` of that stream that the snapshot holds.
+    pub writer_seq: u64,
+    /// Hash of that entry.
+    pub entry_hash: EntryHash,
+    /// Order value (`lamport`) of that entry.
+    pub order: u64,
+}
+
+/// Snapshot body. The manifest and every file it lists are blobs on the relay.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SnapshotBody {
+    /// SHA-256 of the manifest blob.
+    pub manifest_sha256: Hex32,
+    /// Length of the manifest blob in bytes.
+    pub manifest_bytes: u64,
+    /// The stream positions the snapshot covers, ascending by device id. A
+    /// reader of the snapshot reads each stream after its position.
+    pub through: Vec<SnapshotThrough>,
+}
+
 /// Full signed entry (OpenAPI `SignedEntry` oneOf).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -282,6 +307,17 @@ pub enum SignedEntry {
         #[serde(flatten)]
         body: RelaysBody,
     },
+    /// Snapshot.
+    Snapshot {
+        /// Common signed header.
+        #[serde(flatten)]
+        header: EntryHeader,
+        /// Const namespace `"snapshot"`.
+        namespace: String,
+        /// Snapshot body fields.
+        #[serde(flatten)]
+        body: SnapshotBody,
+    },
 }
 
 impl SignedEntry {
@@ -296,7 +332,8 @@ impl SignedEntry {
             | Self::Schema { header, .. }
             | Self::BlobDelete { header, .. }
             | Self::Heads { header, .. }
-            | Self::Relays { header, .. } => header,
+            | Self::Relays { header, .. }
+            | Self::Snapshot { header, .. } => header,
         }
     }
 
@@ -310,7 +347,8 @@ impl SignedEntry {
             | Self::Schema { header, .. }
             | Self::BlobDelete { header, .. }
             | Self::Heads { header, .. }
-            | Self::Relays { header, .. } => header,
+            | Self::Relays { header, .. }
+            | Self::Snapshot { header, .. } => header,
         }
     }
 
@@ -326,6 +364,7 @@ impl SignedEntry {
             Self::BlobDelete { .. } => EntryKind::BlobDelete,
             Self::Heads { .. } => EntryKind::Heads,
             Self::Relays { .. } => EntryKind::Relays,
+            Self::Snapshot { .. } => EntryKind::Snapshot,
         }
     }
 }

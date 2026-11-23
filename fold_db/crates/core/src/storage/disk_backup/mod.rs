@@ -1,6 +1,8 @@
-//! Accepted mutation log and the native cloud work guard.
+//! Accepted mutation log, database snapshots, and the native cloud work guard.
 
 pub mod accepted;
+mod files;
+pub(in crate::storage) mod prearm;
 
 use crate::storage::error::{StorageError, StorageResult};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -32,6 +34,8 @@ impl Drop for NativeCloudWorkGuard {
         ACTIVE.store(false, Ordering::Release);
     }
 }
+
+pub mod snapshot;
 
 pub mod stopped_sync {
     //! Prove a stopped personal database still matches its prepared recovery state.
@@ -77,9 +81,13 @@ pub mod stopped_sync {
             cas_delete::require_clear(&self.physical)?;
             let roots = self.physical.current_root();
             let Status {
-                head, acked, gap, ..
+                head,
+                acked,
+                snapshot_required,
+                gap,
+                ..
             } = self.accepted_status();
-            if gap || head != acked {
+            if gap || snapshot_required || head != acked {
                 return Err(unready());
             }
             let confirmed = self
@@ -104,7 +112,12 @@ pub mod stopped_sync {
         ) -> StorageResult<()> {
             let _gate = self.enter_write().await;
             let current = self.accepted_status();
-            if self.requires_recovery() || current.gap || current.head != 0 || current.acked != 0 {
+            if self.requires_recovery()
+                || current.gap
+                || current.snapshot_required
+                || current.head != 0
+                || current.acked != 0
+            {
                 return Err(unready());
             }
             self.confirm_accepted_upload(

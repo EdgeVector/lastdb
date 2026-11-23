@@ -15,6 +15,7 @@ pub(crate) use replay::{record_key, ReplayTarget, SchemaReplayDrop};
 pub(crate) use replay_attach::{file_ref_key, index_key, inline_key, ReplayCapture};
 pub use replay_stream::ReplayStreamHead;
 
+use super::METADATA_NAMESPACE;
 use crate::schema::types::{MutationAuthorClockState, SchemaError};
 use crate::storage::disk_pack::{transaction, PackKvStore, PackRuntime};
 use crate::storage::{error::StorageResult, KvMutation, StorageError};
@@ -89,6 +90,23 @@ pub(crate) struct Metadata {
 impl Metadata {
     pub(in crate::storage) fn new(store: PackKvStore, runtime: Arc<PackRuntime>) -> Self {
         Self { store, runtime }
+    }
+
+    /// Give a restored store its own local author stream. The installed files
+    /// carry the stream of the device that took the snapshot, and two devices
+    /// must never sign one stream. The new stream starts with the old clock
+    /// floor, so the clock of this device never runs behind what it restored.
+    pub(in crate::storage) async fn fork_restored_author(
+        runtime: &Arc<PackRuntime>,
+    ) -> StorageResult<()> {
+        let store = runtime.open_store(METADATA_NAMESPACE).await?;
+        let prev = decode_author(store.get(LOCAL_AUTHOR_KEY.as_bytes()).await?.as_deref())?;
+        let mut next = decode_author(Some(&initial_local_author(uuid::Uuid::new_v4())?))?;
+        next.clock_floor_ms = prev.clock_floor_ms.max(prev.progress.applied_through_ms);
+        let value = serde_json::to_vec(&next).map_err(invalid_author)?;
+        Self::new(store, Arc::clone(runtime))
+            .stage(vec![(LOCAL_AUTHOR_KEY.to_owned(), Some(value))])
+            .await
     }
 
     pub(crate) async fn author_clock(

@@ -14,6 +14,12 @@ pub(crate) enum AdminCommand {
     Storage(AdminStorageCommand),
     #[command(subcommand)]
     Backup(AdminBackupCommand),
+    /// Print the personal database id and the node key that the identity key of the home
+    /// derives. It reads `identity.key` only: no node starts and nothing in the home changes.
+    Identity {
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -254,6 +260,15 @@ pub(crate) enum AppCommand {
 pub(crate) enum BackupCommand {
     Connect(BackupConnectArgs),
     Restore(BackupRestoreArgs),
+    /// Take a snapshot of the personal database now and name it on the relay.
+    Snapshot {
+        /// `personal` or its database id. Defaults to the personal database.
+        #[arg(long)]
+        database: Option<String>,
+        /// Return after the snapshot entry is on the relay.
+        #[arg(long)]
+        wait: bool,
+    },
 }
 
 #[derive(Subcommand, Debug)]

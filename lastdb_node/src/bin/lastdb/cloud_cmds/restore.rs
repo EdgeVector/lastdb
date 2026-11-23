@@ -54,10 +54,20 @@ pub(super) fn run(home: Option<&Path>, args: BackupRestoreArgs) -> Result<(), St
             "devices": restored.devices,
             "through": restored.through,
             "replayed": restored.replayed,
+            "snapshot": restored.snapshot,
+            "peak_memory_bytes": peak_memory_bytes(),
             "destination": destination,
         }),
         json,
     )
+}
+
+/// The peak resident memory of this process (`VmHWM`), where the system reports it.
+fn peak_memory_bytes() -> Option<u64> {
+    let status = std::fs::read_to_string("/proc/self/status").ok()?;
+    let line = status.lines().find(|line| line.starts_with("VmHWM:"))?;
+    let kib: u64 = line.split_whitespace().nth(1)?.parse().ok()?;
+    Some(kib * 1024)
 }
 
 struct SignedRestorePlan<'a> {
@@ -67,8 +77,9 @@ struct SignedRestorePlan<'a> {
     destination: &'a Path,
 }
 
-/// Make a home from the phrase, read every stream of the owner from the relay
-/// into it, and publish it. The recovery phrase is the only input: the node key,
+/// Make a home from the phrase, install the newest snapshot of the relay into it
+/// when there is one, read what the streams hold after the snapshot (every entry
+/// when there is none), and publish it. The recovery phrase is the only input: the node key,
 /// the personal database id and the read key come from it.
 async fn restore_into_staged(plan: SignedRestorePlan<'_>) -> Result<Restored, String> {
     let seed = Zeroizing::new(lastdb_node::cloud::seed_from_phrase(plan.phrase)?);
@@ -80,8 +91,18 @@ async fn restore_into_staged(plan: SignedRestorePlan<'_>) -> Result<Restored, St
     fresh.commit()?;
     drop(fresh);
     let staged = StagedHome::open(staged_path)?;
-    let host = Arc::new(Host::boot_for_signed_restore(&staged.path).await?);
-    let report = lastdb_node::log_sync::restore_personal_database(&host, plan.relay_url).await;
+    // The newest snapshot of the relay, if there is one, goes in before any store
+    // is open on the staged home. Without one the home starts empty.
+    let base =
+        lastdb_node::log_sync::install_newest_snapshot(&staged.path, &seed, plan.relay_url).await?;
+    let host = Arc::new(if base.is_some() {
+        Host::boot_for_snapshot_restore(&staged.path).await?
+    } else {
+        Host::boot_for_signed_restore(&staged.path).await?
+    });
+    let report =
+        lastdb_node::log_sync::restore_personal_database(&host, plan.relay_url, base.as_ref())
+            .await;
     let owned_closed = host.shutdown_owned_databases().await;
     let owner_closed = host.db.shutdown().await;
     drop(host);
@@ -93,6 +114,15 @@ async fn restore_into_staged(plan: SignedRestorePlan<'_>) -> Result<Restored, St
         devices: report.devices,
         through: report.through,
         replayed: report.replayed,
+        snapshot: base.as_ref().map(|base| {
+            serde_json::json!({
+                "snapshot_seq": base.snapshot_seq,
+                "files": base.files,
+                "bytes": base.bytes,
+                "streams": base.streams(),
+                "download_ms": base.download_ms,
+            })
+        }),
     };
     staged.publish(plan.destination).map(|()| out)
 }
@@ -102,6 +132,7 @@ struct Restored {
     devices: usize,
     through: u64,
     replayed: u64,
+    snapshot: Option<serde_json::Value>,
 }
 
 fn signed_restore_worker<T: Send, F>(make_future: impl FnOnce() -> F + Send) -> Result<T, String>
