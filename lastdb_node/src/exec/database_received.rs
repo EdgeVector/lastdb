@@ -84,16 +84,38 @@ pub(super) async fn change_record(
         },
     };
     if let (true, Some(share)) = (propose, share) {
-        return match crate::log_sync::submit_share_write(host, share, &id, &req.body).await {
-            Ok(sequence) => accepted("pending", &id, sequence),
-            Err(error) => contribution_failure(&error, ctx),
-        };
+        return queue(host, share, &id, &req.body, ctx).await;
     }
     match apply(host, selector, &req.body).await {
         Ok(()) => json_ok(&json!({
             "ok": true, "status": "applied", "mutation_id": id.to_string(),
         })),
+        // The lease margin can pass between the decision and the write. The
+        // call answers applied or pending, so the node queues the change once.
+        Err(error)
+            if error.status == 403
+                && share
+                    .is_some_and(|share| !super::app_api::direct_write_allowed(host, share)) =>
+        {
+            match share {
+                Some(share) => queue(host, share, &id, &req.body, ctx).await,
+                None => render(Err(error), ctx),
+            }
+        }
         Err(error) => render(Err(error), ctx),
+    }
+}
+
+async fn queue(
+    host: &Host,
+    share: &RegisteredShare,
+    id: &uuid::Uuid,
+    body: &[u8],
+    ctx: &AccessContext,
+) -> UdsResponse {
+    match crate::log_sync::submit_share_write(host, share, id, body).await {
+        Ok(sequence) => accepted("pending", id, sequence),
+        Err(error) => contribution_failure(&error, ctx),
     }
 }
 

@@ -306,7 +306,8 @@ node answers `applied` or `pending`.
    exists, or the revision has moved), never applied twice. It does not answer `applied` again.
    Building a store of applied ids is not part of this change.
 7. **Races.** The lease is read twice, once to decide and once inside the write. If the lease
-   ends between the two, the call answers `403 a received database is read only`. The app may
-   call again and the node then proposes.
+   ends between the two and the write answers 403, the node asks again. When it may no longer
+   sign a direct entry, it queues the change as a proposal and answers `pending`, once. A 403 for
+   any other reason stays 403.
 8. **App grants.** On the app socket the calling app needs a write grant for the schema on both
    paths. The `submit` action checks none.
