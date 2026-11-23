@@ -11,6 +11,7 @@ exclude = ["main.rs", "bin"]
 name = "foundation"
 doc = "Pure node types, endpoints, paths, private files, and identities."
 modules = [
+  "device_identity",
   "offline_home",
   "personal_identity",
   "profile",

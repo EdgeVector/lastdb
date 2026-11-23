@@ -134,9 +134,17 @@ impl Host {
         // from its first turn. A home with none of these captures nothing, so no
         // spool fills that no code drains.
         let syncs = !signed_restore && crate::cloud::relay_base_url(home).is_some();
+        let capture_accepted = signed_restore || has_spool || syncs;
+        // Each captured write is stamped, when it commits, with the device that will sign it.
+        let capture_device = if capture_accepted {
+            Some(crate::device_identity::device_id(home)?.to_hex())
+        } else {
+            None
+        };
         let opts = fold_db::fold_db_core::factory::FoldDbOptions {
             offline_maintenance: false,
-            capture_accepted: signed_restore || has_spool || syncs,
+            capture_accepted,
+            capture_device,
             record_log: None,
         };
         let db = fold_db::fold_db_core::factory::create_fold_db_with_options(

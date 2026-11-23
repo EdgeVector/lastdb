@@ -335,6 +335,8 @@ impl StoredRecord {
 }
 
 pub mod author_clock {
+    const NANOS_PER_MILLI: u64 = 1_000_000;
+
     #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
     pub struct MutationAuthorClockState {
         pub physical_nanos: u64,
@@ -354,6 +356,32 @@ pub mod author_clock {
             self.physical_nanos = last;
             self.logical_counter = counter;
             Some((first..=last, counter))
+        }
+
+        /// Reserve `count` times, one millisecond apart, the first in a later
+        /// millisecond than every time this clock gave before. Returns the first
+        /// time and the batch counter.
+        ///
+        /// A write that is captured for the signed log takes its order value from
+        /// the millisecond of its time. The order values of one device must rise
+        /// with every entry, so each captured write gets a millisecond of its own.
+        pub fn advance_local_batch_spaced(
+            &mut self,
+            now_nanos: u64,
+            count: usize,
+        ) -> Option<(u64, u64)> {
+            let add = u64::try_from(count.checked_sub(1)?)
+                .ok()?
+                .checked_mul(NANOS_PER_MILLI)?;
+            let counter = self.logical_counter.checked_add(1)?;
+            let after = (self.physical_nanos / NANOS_PER_MILLI)
+                .checked_add(1)?
+                .checked_mul(NANOS_PER_MILLI)?;
+            let first = after.max(now_nanos);
+            let last = first.checked_add(add)?;
+            self.physical_nanos = last;
+            self.logical_counter = counter;
+            Some((first, counter))
         }
 
         pub fn observe_remote(&mut self, physical_nanos: u64, logical_counter: u64) {

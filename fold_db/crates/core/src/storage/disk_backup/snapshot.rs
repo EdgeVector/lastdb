@@ -66,9 +66,8 @@ impl PackRuntime {
     /// first snapshot. Call it once at boot, before any write is accepted. It does nothing for
     /// a home that captured from its birth, for a restore, and once a write is in the spool.
     ///
-    /// Markers of an earlier upload path are cleared first, because no entry will ever settle
-    /// them. The cut is taken under the write gate with the spool empty, so every later write
-    /// is in the spool and none is in the cut twice.
+    /// The cut is taken under the write gate with the spool empty, so every later write is in
+    /// the spool and none is in the cut twice.
     pub async fn begin_first_snapshot(
         self: &Arc<Self>,
         key: zeroize::Zeroizing<[u8; 32]>,
@@ -85,8 +84,6 @@ impl PackRuntime {
         if !awaits_first_snapshot(status) || self.fresh_initialization_pending() {
             return Ok(());
         }
-        self.replay_accepted(async { Metadata::clear_unsettled_replay(self).await })
-            .await?;
         self.flush_native().await?;
         let _write = self.enter_write().await;
         let runtime = Arc::clone(self);
@@ -105,8 +102,7 @@ impl PackRuntime {
     }
 
     /// Pin both native publications after the local upload queue drains.
-    /// `None` means a local edit still needs to be published in the log, or a
-    /// local write still waits to be settled.
+    /// `None` means a local edit still needs to be published in the log.
     pub async fn capture_synced_snapshot(
         self: &Arc<Self>,
         key: zeroize::Zeroizing<[u8; 32]>,
@@ -132,9 +128,6 @@ impl PackRuntime {
             return Ok(None);
         }
         cas_delete::require_clear(&self.physical)?;
-        if !self.has_settled_replay().await? {
-            return Ok(None);
-        }
         let heads = self.stream_head_rows().await?;
         let runtime = Arc::clone(self);
         run_blocking(move || {
@@ -178,23 +171,6 @@ impl PackRuntime {
             return Err(StorageError::invalid("initial snapshot is still required"));
         }
         prearm::release(&self.physical)
-    }
-
-    /// True when no local write waits to be settled and no remote entry waits
-    /// behind one. A snapshot with such rows would carry a half-settled record.
-    async fn has_settled_replay(self: &Arc<Self>) -> StorageResult<bool> {
-        let store = self.open_store(METADATA_NAMESPACE).await?;
-        for prefix in ["signed-replay-pending:", "signed-replay-deferred:"] {
-            let (start, end) = exact_prefix_bounds(prefix);
-            if !store
-                .scan_range_paged(start.as_bytes(), end.as_bytes(), 1)
-                .await?
-                .is_empty()
-            {
-                return Ok(false);
-            }
-        }
-        Ok(true)
     }
 
     /// Every head row of the store, in key order.

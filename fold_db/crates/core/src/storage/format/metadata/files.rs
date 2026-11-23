@@ -129,14 +129,13 @@ pub(in crate::storage::format) fn encode_files(
     issuer: &FileWriteIssuer,
     content_key: &[u8; 32],
     changes: Vec<FileChange>,
-    keep: &BTreeSet<String>,
 ) -> Result<EncodedFilesOut, SchemaError> {
     if changes.is_empty() {
         return Ok((Vec::new(), Vec::new(), SidecarPlan::default()));
     }
     let mut staged = StagedFiles::default();
     for change in changes {
-        encode_file_change(change, issuer, content_key, keep, &mut staged)?;
+        encode_file_change(change, issuer, content_key, &mut staged)?;
     }
     let retired = staged.retired.into_iter().map(String::into_bytes).collect();
     Ok((staged.cas_puts, retired, staged.sidecar))
@@ -146,7 +145,6 @@ fn encode_file_change(
     change: FileChange,
     issuer: &FileWriteIssuer,
     content_key: &[u8; 32],
-    keep: &BTreeSet<String>,
     staged: &mut StagedFiles,
 ) -> Result<(), SchemaError> {
     let record_key = change.address.as_str();
@@ -160,12 +158,8 @@ fn encode_file_change(
     }
     if let Some(version) = prev {
         let path = record_file_path(record_key, version)?;
-        // A saved replay winner still names this version. A later local edit may
-        // retire its own file, but not the confirmed baseline or candidate.
-        if !keep.contains(&path) {
-            staged.retired.insert(path.clone());
-            staged.sidecar.removals.push(path);
-        }
+        staged.retired.insert(path.clone());
+        staged.sidecar.removals.push(path);
     }
     let Some(version) = next else { return Ok(()) };
     let path = record_file_path(record_key, version)?;

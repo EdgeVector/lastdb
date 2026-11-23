@@ -178,9 +178,7 @@ impl MutationManager {
             keys.push(key.clone());
         }
         let stored = read_write_preimages(records, &addrs, &mutations).await?;
-        let keep = self
-            .stage_local_replay_records(runtime, schema_name, &addrs, &mutations, &stored)
-            .await?;
+        self.stamp_local_records(&addrs, &mutations).await?;
         let (mut changes, mut changed) = (
             Vec::with_capacity(mutations.len()),
             Vec::with_capacity(mutations.len()),
@@ -190,6 +188,7 @@ impl MutationManager {
                 mutation,
                 key,
                 stamp,
+                ..
             },
             (addr, before),
         ) in mutations.iter_mut().zip(addrs.into_iter().zip(stored))
@@ -218,7 +217,7 @@ impl MutationManager {
                 })?;
             }
         }
-        self.stage_records_with_effects(&schema, &changed, changes, &keep)
+        self.stage_records_with_effects(&schema, &changed, changes)
             .await?;
         if schema.schema_type == DeclarativeSchemaType::HashRange {
             self.db_ops

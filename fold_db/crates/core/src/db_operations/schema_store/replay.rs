@@ -6,7 +6,7 @@ use crate::schema::types::catalog_types::SchemaState;
 use crate::schema::types::{Schema, SchemaError};
 use crate::storage::disk_backup::accepted;
 use crate::storage::disk_pack::transaction;
-use crate::storage::format::metadata::{ReplayTarget, SchemaReplayDrop};
+use crate::storage::format::metadata::SchemaReplayDrop;
 use crate::storage::format::schemas::*;
 use crate::storage::format::SCHEMA_RELEASE_ROWS;
 use lastdb_model::kind_partition::exact_prefix_bounds;
@@ -27,14 +27,6 @@ impl SchemaStore {
         transaction::scope(Arc::clone(&self.runtime), async {
             let state = self.get_schema_state(name).await?;
             let schema = self.get_schema(name).await?;
-            if let Some(replay) = replay {
-                if schema.is_none() && state.is_none() && self.pending_local_drop(name).await? {
-                    self.metadata
-                        .stage_replay_receipt(replay.id, replay.digest)
-                        .await?;
-                    return Ok(SchemaDrop::Done);
-                }
-            }
             if !self.metadata.guard_schema_drop(name, replay, true).await? {
                 return Ok(SchemaDrop::Done);
             }
@@ -45,17 +37,6 @@ impl SchemaStore {
             Ok(SchemaDrop::Ready(schema.map(Box::new)))
         })
         .await
-    }
-
-    pub(crate) async fn pending_local_drop(&self, name: &str) -> Result<bool, SchemaError> {
-        let Some(pending) = self
-            .metadata
-            .pending_replay(ReplayTarget::Schema(name))
-            .await?
-        else {
-            return Ok(false);
-        };
-        Ok(pending == accepted::schema_drop_id(name))
     }
 
     pub(crate) async fn drop_reserved_schema(
@@ -131,13 +112,16 @@ impl SchemaStore {
             if let Some(replay) = replay {
                 self.metadata.finish_schema_drop(name, replay).await?;
             } else if existed {
-                let mutation_id = accepted::stage_schema_drop(
+                let authored_at_ms = self.local_author_ms().await?;
+                let captured = accepted::stage_schema_drop(
                     &self.runtime,
                     &self.content_key,
                     name,
-                    self.local_author_ms().await?,
+                    authored_at_ms,
                 )?;
-                self.note_local_replay(name, mutation_id).await?;
+                if captured {
+                    self.stamp_local_change(name, authored_at_ms).await?;
+                }
             }
             publish()?;
             Ok(existed)

@@ -84,16 +84,4 @@ impl MutationManager {
             }))
             .await
     }
-
-    /// Run `replay` in one transaction that is not captured for upload. A local
-    /// write that has been signed settles its pending marker this way.
-    pub async fn write_replay<T>(
-        &self,
-        replay: impl Future<Output = Result<T, SchemaError>>,
-    ) -> Result<T, SchemaError> {
-        let runtime = self.db_ops.native_runtime();
-        runtime
-            .replay_accepted(transaction::scope(Arc::clone(&runtime), replay))
-            .await
-    }
 }

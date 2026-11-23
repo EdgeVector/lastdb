@@ -1,24 +1,24 @@
-//! Apply the change of an entry to the store, with the stamp of the entry.
+//! Apply the change of an entry of another device to the store, with the stamp of the entry.
 //!
-//! A record is written when the stamp of the entry is above the stamp of the
-//! last write that settled it, and never otherwise. That is the whole-record
-//! last-writer rule of the store, and it does not depend on the order in which
-//! entries arrive: an older write that arrives after a newer one, or after a
-//! delete, changes nothing.
+//! A record has three parts: the fields, the file and the inline file. The
+//! store keeps the stamp of the newest write of each part beside the record.
+//! An entry replaces the fields when its stamp is above the stamp of the fields,
+//! and a part it sets or clears when its stamp is above the stamp of that part.
+//! A delete is a write of all three. That rule does not depend on the order in
+//! which entries arrive: an older write that arrives after a newer one, or after
+//! a delete, changes nothing it is older than.
 //!
-//! The store keeps, for each record, the stamp of its winner (`winner` row),
-//! the version it showed before a local write that waits (`baseline` row), and
-//! a marker of that waiting write (`pending` row). A local write is pending from
-//! its commit until its entry is signed, and this module settles it there. The
-//! entry of another device is applied by [`remote`], and the head row of its
-//! stream is written in the same transaction as the record.
+//! A write made on this device gets its stamps in the transaction that commits
+//! it, so this module handles only the entries of other devices. Each is applied
+//! by [`remote`], and the head row of its stream is written in the same
+//! transaction as the record.
 
 use std::path::Path;
 
 use fold_db::fold_db_core::mutation_manager::{
     ReplayAttachmentSlots, ReplayStamp, ReplayStreamHead,
 };
-use fold_db::schema::types::{FileWrite, Mutation, MutationType, SchemaError};
+use fold_db::schema::types::{FileWrite, Mutation, SchemaError};
 use mutation_log::{EntryHash, EntryHeader, SealOpener};
 
 use super::body::{Change, RecordChange, RecordFile};
@@ -102,11 +102,7 @@ pub(super) async fn remote(
         Change::Record(mut record) => {
             prepare(ctx, &mut record, header, blob)?;
             manager
-                .write_replay_at_head(
-                    stream,
-                    next,
-                    apply_record(ctx, &stamp, record.mutation, false),
-                )
+                .write_replay_at_head(stream, next, apply_record(ctx, &stamp, record.mutation))
                 .await
                 .map(|_| ())
                 .map_err(|error| failed("a record of another device could not be applied", &error))
@@ -115,58 +111,6 @@ pub(super) async fn remote(
             apply_schema::remote_schema(ctx, stream, next, header, *schema).await
         }
     }
-}
-
-/// A local write whose entry is signed, ready to settle: its stamp and its
-/// change, with the bytes of a file already read.
-pub(super) struct Local {
-    stamp: ReplayStamp,
-    change: Change,
-}
-
-/// Prepare the change of a signed local write for [`settle_all`].
-pub(super) fn local(
-    ctx: &Ctx<'_>,
-    header: &EntryHeader,
-    mut change: Change,
-    blob: Option<&Path>,
-) -> Result<Local, String> {
-    if let Change::Record(record) = &mut change {
-        prepare(ctx, record, header, blob)?;
-    }
-    Ok(Local {
-        stamp: stamp_of(header),
-        change,
-    })
-}
-
-/// Settle the local writes of a signed batch in one transaction: the marker of
-/// each is cleared, and a write that lost to a newer one is replaced by the
-/// winner. It repeats safely, so a batch that is settled again after a crash
-/// changes nothing.
-pub(super) async fn settle_all(ctx: &Ctx<'_>, items: Vec<Local>) -> Result<(), String> {
-    let manager = ctx.host.db.mutation_manager();
-    let settled = manager.write_replay(async {
-        for item in items {
-            match item.change {
-                Change::Record(record) => {
-                    apply_record(ctx, &item.stamp, record.mutation, true).await?;
-                }
-                Change::Schema(schema) => {
-                    manager
-                        .accept_replay_schema(&schema.name, &item.stamp)
-                        .await?;
-                    manager
-                        .clear_pending_replay_schema(&schema.name, &schema.mutation_id)
-                        .await?;
-                }
-            }
-        }
-        Ok::<(), SchemaError>(())
-    });
-    settled
-        .await
-        .map_err(|error| failed("a local write could not be settled", &error))
 }
 
 /// Put the file bytes of a record write into the mutation. The bytes come from
@@ -205,76 +149,28 @@ fn prepare(
     Ok(())
 }
 
-/// The last-writer rule for one record. `local` is true for a write of this
-/// device that has just been signed.
+/// The last-writer rule for one record entry of another device.
 async fn apply_record(
     ctx: &Ctx<'_>,
     stamp: &ReplayStamp,
     mutation: Mutation,
-    local: bool,
 ) -> Result<(), SchemaError> {
     let manager = ctx.host.db.mutation_manager();
-    if !local {
-        // Raise the author clock past this entry, so a write made here after it
-        // is above it. Only an entry that is applied counts.
-        manager.observe_replay_time(stamp.ordering_ms).await?;
-    }
-    if !ensure_schema_or_dropped(ctx, stamp, &mutation, local).await? {
+    // Raise the author clock past this entry, so a write made here after it is
+    // above it.
+    manager.observe_replay_time(stamp.ordering_ms).await?;
+    if !schema_holds(ctx, stamp, &mutation).await? {
         return Ok(());
     }
-    let (schema, key, id) = (
-        mutation.schema_name.clone(),
-        mutation.key_value.clone(),
-        mutation.uuid.clone(),
-    );
-    let slots = mutation_slots(&mutation);
-    let pending = manager.pending_replay_record(&schema, &key).await?;
-    let winner = manager.replay_record_winner(&schema, &key).await?;
-    let settles = local && pending.as_deref() == Some(id.as_str());
-    let loses = winner.as_ref().is_some_and(|held| held >= stamp);
-    if settles && loses {
-        // A newer write won while this one waited. The winner is the record.
-        let held = winner.as_ref().ok_or_else(earlier_missing)?;
-        if !manager.apply_replay_baseline(&schema, &key, held).await? {
-            return Err(earlier_missing());
-        }
-    } else if !loses {
-        if pending.is_some() {
-            // A local write waits. Keep the winner as the version the record
-            // returns to if that write loses, and leave the visible record.
-            if !manager
-                .apply_replay_candidate(mutation, stamp, settles)
-                .await?
-            {
-                return Err(earlier_missing());
-            }
-        } else {
-            manager
-                .apply_replay_record(mutation, &stamp.writer_key)
-                .await?;
-        }
-        manager.accept_replay_record(&schema, &key, stamp).await?;
-        manager
-            .accept_replay_record_attachments(&schema, &key, stamp, slots)
-            .await?;
-        return clear_settled(manager, &schema, &key, &id, settles).await;
-    }
-    clear_settled(manager, &schema, &key, &id, settles).await?;
-    if loses && (pending.is_none() || settles) {
-        manager
-            .apply_losing_replay_attachments(mutation, stamp)
-            .await?;
-    }
-    Ok(())
+    manager.merge_replay_record(mutation, stamp).await
 }
 
-/// Returns `Ok(true)` when the schema is installed, `Ok(false)` when a newer
-/// schema drop already superseded this record entry.
-async fn ensure_schema_or_dropped(
+/// True when the schema of a record entry is installed. False when a newer
+/// schema drop removed it, so the entry changes nothing.
+async fn schema_holds(
     ctx: &Ctx<'_>,
     stamp: &ReplayStamp,
     mutation: &Mutation,
-    local: bool,
 ) -> Result<bool, SchemaError> {
     if ctx
         .host
@@ -286,50 +182,20 @@ async fn ensure_schema_or_dropped(
     {
         return Ok(true);
     }
-    let manager = ctx.host.db.mutation_manager();
-    let dropped = if local {
-        manager
-            .clear_replay_record_after_schema_drop(&mutation.schema_name, &mutation.uuid, stamp)
-            .await?
+    let dropped = ctx
+        .host
+        .db
+        .mutation_manager()
+        .replay_schema_dropped_after(&mutation.schema_name, stamp)
+        .await?;
+    if dropped {
+        Ok(false)
     } else {
-        manager
-            .replay_schema_dropped_after(&mutation.schema_name, stamp)
-            .await?
-    };
-    dropped.then_some(false).ok_or_else(|| {
-        SchemaError::InvalidData(format!("Schema '{}' not found", mutation.schema_name))
-    })
-}
-
-fn mutation_slots(mutation: &Mutation) -> ReplayAttachmentSlots {
-    let resets = matches!(
-        mutation.mutation_type,
-        MutationType::Create | MutationType::Delete | MutationType::Purge
-    );
-    ReplayAttachmentSlots {
-        file: resets || mutation.file_write.is_some(),
-        inline: resets || mutation.inline_write.is_some(),
+        Err(SchemaError::InvalidData(format!(
+            "Schema '{}' not found",
+            mutation.schema_name
+        )))
     }
-}
-
-async fn clear_settled(
-    manager: &fold_db::fold_db_core::mutation_manager::MutationManager,
-    schema: &str,
-    key: &fold_db::schema::types::KeyValue,
-    id: &str,
-    settles: bool,
-) -> Result<(), SchemaError> {
-    if settles {
-        manager
-            .stage_deferred_replay_record(schema, key, None)
-            .await?;
-        manager.clear_pending_replay_record(schema, key, id).await?;
-    }
-    Ok(())
-}
-
-fn earlier_missing() -> SchemaError {
-    SchemaError::Blocked("an earlier version of the record is missing".into())
 }
 
 /// The hash of an entry as the head row names it.

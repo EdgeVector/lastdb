@@ -63,15 +63,18 @@ pub(crate) async fn stage_records(
     transaction::stage_accepted(runtime, notes)
 }
 
+/// Stage the note of a schema put. True when the spool takes it as a new entry.
+/// False when the store captures nothing, and when the spool already holds an
+/// entry with the id of this put, which it then keeps as the only one.
 pub(crate) fn stage_schema_put(
     runtime: &PackRuntime,
     content_key: &[u8; 32],
     name: &str,
     schema: &Schema,
     authored_at_ms: u64,
-) -> StorageResult<Option<String>> {
+) -> StorageResult<bool> {
     if !capture_enabled(runtime) {
-        return Ok(None);
+        return Ok(false);
     }
     let wire = schema.to_wire();
     let tag = wire.identity_hash.as_deref().unwrap_or("none");
@@ -82,25 +85,32 @@ pub(crate) fn stage_schema_put(
     let body = body::schema_body(&mutation_id, name, "put", Some(&definition));
     let mut note = body::seal(content_key, &body)?;
     note.authored_at_ms = Some(authored_at_ms);
-    transaction::stage_accepted(runtime, vec![note])?;
-    Ok(Some(mutation_id))
+    stage_schema_note(runtime, &mutation_id, note)
 }
 
+/// Stage the note of a schema drop. The result is as for [`stage_schema_put`].
 pub(crate) fn stage_schema_drop(
     runtime: &PackRuntime,
     content_key: &[u8; 32],
     name: &str,
     authored_at_ms: u64,
-) -> StorageResult<Option<String>> {
+) -> StorageResult<bool> {
     if !capture_enabled(runtime) {
-        return Ok(None);
+        return Ok(false);
     }
-    let mutation_id = super::schema_drop_id(name);
+    let mutation_id = body::schema_id(name, "drop");
     let body = body::schema_body(&mutation_id, name, "drop", None);
     let mut note = body::seal(content_key, &body)?;
     note.authored_at_ms = Some(authored_at_ms);
+    stage_schema_note(runtime, &mutation_id, note)
+}
+
+fn stage_schema_note(runtime: &PackRuntime, mutation_id: &str, note: Note) -> StorageResult<bool> {
+    let seen = runtime
+        .accepted_mutation_seen(mutation_id)
+        .map_err(super::storage)?;
     transaction::stage_accepted(runtime, vec![note])?;
-    Ok(Some(mutation_id))
+    Ok(!seen)
 }
 
 async fn seal_mutation(

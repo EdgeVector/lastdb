@@ -3,7 +3,6 @@
 mod changes;
 mod files;
 mod replay;
-mod replay_attach;
 mod replay_stream;
 
 pub(crate) use changes::ChangedKey;
@@ -11,8 +10,7 @@ pub use changes::{Change, ChangePage, CHANGES_PAGE};
 pub(crate) use files::{decrypt_file_row, require_row, seal_row};
 pub(in crate::storage::format) use files::{encode_files, FileChange};
 pub use replay::ReplayStamp;
-pub(crate) use replay::{record_key, ReplayTarget, SchemaReplayDrop};
-pub(crate) use replay_attach::{file_ref_key, index_key, inline_key, ReplayCapture};
+pub(crate) use replay::{ReplayTarget, SchemaReplayDrop, FILE_SLOT, INLINE_SLOT};
 pub use replay_stream::ReplayStreamHead;
 
 use super::METADATA_NAMESPACE;
@@ -139,15 +137,16 @@ impl Metadata {
     }
 
     /// Take one author time from the clock that stamps record writes, as
-    /// milliseconds. A schema change uses it, so a schema put or drop sits
-    /// above everything this device has written or seen.
+    /// milliseconds. A captured schema change uses it as its order value, so a
+    /// schema put or drop sits above everything this device has written or
+    /// seen, in a millisecond of its own.
     pub(crate) async fn stage_local_author_ms(&self, writer: &str) -> Result<u64, SchemaError> {
         let mut state = self.author_clock(writer).await?.unwrap_or_default();
-        let (times, _) = state
-            .advance_local_batch(crate::platform::clock::unix_nanos(), 1)
+        let (first, _) = state
+            .advance_local_batch_spaced(crate::platform::clock::unix_nanos(), 1)
             .ok_or_else(|| schema_inv("mutation author-clock range exhausted"))?;
         self.stage_author_clock(writer, &state).await?;
-        Ok(*times.start() / 1_000_000)
+        Ok(first / 1_000_000)
     }
 
     async fn stage_receipt(

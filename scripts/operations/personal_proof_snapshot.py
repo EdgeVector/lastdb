@@ -158,18 +158,25 @@ def snapshot_restore_equals_replay(relay, relay2, devices, phrase, state):
 def kill_the_restore(g, phrase, a, state, folders, expected):
     """12. A restore killed at several points leaves no home or a complete one, and a rerun completes it."""
     outcomes = []
+    folders[g.name] = g.out / "file-dir"
+    folders[g.name].mkdir(mode=0o700, exist_ok=True)
     for delay in KILL_DELAYS:
         finished = g.restore_killed(phrase, delay)
         home = g.node.home
         if home.exists():
-            require(finished, f"a restore killed after {delay}s left a home behind")
-            require((home / "data" / "laststore-pack-node-v1").is_file(), "a finished restore left an incomplete home")
+            require((home / "data" / "laststore-pack-node-v1").is_file(),
+                    f"a restore killed after {delay}s left an incomplete home")
+            if not finished:
+                # The home appears in one rename, when it is complete. This kill came after the
+                # rename and before the command ended, so the home must be the complete one.
+                g.start()
+                wait(f"the home that a restore killed after {delay}s left to equal A",
+                     lambda: views((g,), state, folders, expected))
+                g.stop()
             shutil.rmtree(home)
         outcomes.append({"delay": delay, "finished_first": finished})
     g.restore(phrase)
     g.start()
-    folders[g.name] = g.out / "file-dir"
-    folders[g.name].mkdir(mode=0o700, exist_ok=True)
     wait("the rerun restore to equal A", lambda: views((g,), state, folders, expected))
     g.stop()
     print(f"12. restore killed after {KILL_DELAYS} seconds: no home or a complete one each time; the rerun "

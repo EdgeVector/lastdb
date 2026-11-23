@@ -2,6 +2,7 @@
 
 pub mod cloud;
 pub mod cloud_backup_client;
+pub(crate) mod device_identity;
 pub mod exec;
 pub mod host;
 pub mod jobs;

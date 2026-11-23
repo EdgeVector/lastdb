@@ -58,6 +58,9 @@ as its own stream and applies the other streams through the store's last-writer 
 20. Entries go on while a snapshot's files upload. With the relay reading a large upload at 24 KiB/s, the
     writes of A are acknowledged and read by B before the relay holds the snapshot entry. A kill -9 in the
     upload loses and repeats nothing, and the published snapshot names the positions of its cut.
+22. A record and its file written on several devices at once (`personal_proof_merge.py`). The newest
+    text wins, and the file is the one of the newest write that set a file or deleted the record, on
+    every device and whichever device syncs first.
 10. Scale: tens of thousands of writes. The peak resident memory of the daemons does not grow with
     the number of entries, the spool returns to near empty, and an idle turn reads nothing.
 
@@ -87,6 +90,7 @@ from personal_proof_usage import AccountedDevice as Device  # noqa: E402
 from personal_proof_status import prove_none_yet, refused_snapshot, RELAY_LIMIT_BYTES  # noqa: E402
 from personal_proof_retries import prove_retries  # noqa: E402
 from personal_proof_lane import prove_lane  # noqa: E402
+from personal_proof_merge import prove_merge  # noqa: E402
 from personal_proof_uplink import prove_uplink  # noqa: E402
 from personal_proof_upload_retry import prove_upload_retry  # noqa: E402
 from personal_proof_snapshot import (  # noqa: E402
@@ -137,6 +141,7 @@ def prove(relay, relay2, relay3, relay4, a, b, c, d, e, f, g, h, j, k, m, n, p, 
     print(f"5. no key, value or schema name in {report['relay']['relay_files']} relay files", flush=True)
 
     report["alternates_and_files"] = alternates_and_files(relay, a, b, c, d, phrase, out)
+    report["merge"] = prove_merge(relay, a, b, c, out)
     restart_a(relay, a, b, c, state)
     # Only A and B are needed from here on.
     c.stop()

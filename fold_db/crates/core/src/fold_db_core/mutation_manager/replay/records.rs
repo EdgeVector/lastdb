@@ -1,15 +1,26 @@
-//! Per-record replay winner, deferred candidate, baseline, and whole-record materialization.
+//! The last-writer rule for one record entry of another device.
+//!
+//! A record has three parts with a stamp each: the fields, the file and the
+//! inline file. An entry is the newest write of the fields when its stamp is
+//! above the record's winner row. It is the newest write of the file, or of the
+//! inline file, when it sets or clears that part (a delete clears both) and its
+//! stamp is above the row of that part. Each part takes the value of its newest
+//! write, so the result does not depend on the order in which entries arrive.
+//!
+//! A local write is not compared here: it gets its stamp rows when it commits.
 
-use super::{has_attachment, MutationManager};
-use crate::schema::types::{cas::CasExpectation, KeyValue, Mutation, MutationType};
+use super::{slots_of, MutationManager};
+use crate::schema::types::{
+    cas::CasExpectation, FileWrite, KeyValue, Mutation, MutationType, Schema,
+};
 use crate::schema::SchemaError;
 use crate::storage::disk_pack::transaction;
-use crate::storage::format::metadata::{ReplayStamp, ReplayTarget};
+use crate::storage::format::metadata::{ReplayStamp, ReplayTarget, FILE_SLOT, INLINE_SLOT};
 use lastdb_model::record_replacement::RecordTarget;
-use lastdb_model::record_value::StoredRecord;
+use lastdb_model::record_value::{InlineWrite, StoredRecord};
 use std::collections::{BTreeMap, HashMap};
 
-/// Which attachment slots a record entry explicitly sets or clears.
+/// The file and the inline file of a record: which of them a write sets or clears.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct ReplayAttachmentSlots {
     pub file: bool,
@@ -17,164 +28,7 @@ pub struct ReplayAttachmentSlots {
 }
 
 impl MutationManager {
-    /// The latest local mutation to this record that has not been read back from the cloud.
-    pub async fn pending_replay_record(
-        &self,
-        schema: &str,
-        key: &KeyValue,
-    ) -> Result<Option<String>, SchemaError> {
-        let address = self.replay_record_address(schema, key)?;
-        self.db_ops
-            .metadata()
-            .pending_replay(ReplayTarget::Record(&address))
-            .await
-    }
-
-    /// An own pending edit changes an attachment in this record's local preimage.
-    pub async fn pending_replay_attachment(
-        &self,
-        schema: &str,
-        key: &KeyValue,
-    ) -> Result<bool, SchemaError> {
-        let address = self.replay_record_address(schema, key)?;
-        self.db_ops
-            .metadata()
-            .pending_replay_attachment(&address)
-            .await
-    }
-
-    /// The native replay preimage contains an external or inline attachment.
-    pub async fn replay_record_has_attachment(
-        &self,
-        schema: &str,
-        key: &KeyValue,
-    ) -> Result<bool, SchemaError> {
-        self.db_ops.metadata().require_replay_scope()?;
-        let address = self.replay_record_address(schema, key)?;
-        let record = self.replay_preimage(address).await?;
-        Ok(record.as_deref().is_some_and(has_attachment))
-    }
-
-    /// Clear an observed local write when it is still the latest local intent.
-    pub async fn clear_pending_replay_record(
-        &self,
-        schema: &str,
-        key: &KeyValue,
-        mutation_id: &str,
-    ) -> Result<(), SchemaError> {
-        let address = self.replay_record_address(schema, key)?;
-        let metadata = self.db_ops.metadata();
-        if metadata
-            .pending_replay(ReplayTarget::Record(&address))
-            .await?
-            .as_deref()
-            == Some(mutation_id)
-        {
-            self.release_replay_baseline(schema, &address).await?;
-        }
-        metadata
-            .clear_pending_replay(ReplayTarget::Record(&address), mutation_id)
-            .await?;
-        metadata
-            .clear_pending_replay(ReplayTarget::SchemaRecords(schema), mutation_id)
-            .await
-    }
-
-    /// Stage a greater cloud stamp. Commit the winning value in the same replay scope.
-    pub async fn accept_replay_record(
-        &self,
-        schema: &str,
-        key: &KeyValue,
-        stamp: &ReplayStamp,
-    ) -> Result<bool, SchemaError> {
-        let address = self.replay_record_address(schema, key)?;
-        self.db_ops
-            .metadata()
-            .accept_replay(ReplayTarget::Record(&address), stamp)
-            .await
-    }
-
-    /// Advance the per-record external and inline attachment winner stamps.
-    pub async fn accept_replay_record_attachments(
-        &self,
-        schema: &str,
-        key: &KeyValue,
-        stamp: &ReplayStamp,
-        slots: ReplayAttachmentSlots,
-    ) -> Result<(), SchemaError> {
-        if !slots.file && !slots.inline {
-            return Ok(());
-        }
-        let address = self.replay_record_address(schema, key)?;
-        let target = ReplayTarget::Record(&address);
-        let metadata = self.db_ops.metadata();
-        if slots.file {
-            metadata
-                .accept_replay_slot(target, "file-winner", stamp)
-                .await?;
-        }
-        if slots.inline {
-            metadata
-                .accept_replay_slot(target, "inline-winner", stamp)
-                .await?;
-        }
-        Ok(())
-    }
-
-    /// Apply attachment slots that beat the slot winner onto a settled live record.
-    pub async fn apply_losing_replay_attachments(
-        &self,
-        mutation: Mutation,
-        stamp: &ReplayStamp,
-    ) -> Result<(), SchemaError> {
-        if mutation.file_write.is_none() && mutation.inline_write.is_none() {
-            return Ok(());
-        }
-        let metadata = self.db_ops.metadata();
-        metadata.require_replay_scope()?;
-        let address = self.replay_record_address(&mutation.schema_name, &mutation.key_value)?;
-        let target = ReplayTarget::Record(&address);
-        if metadata.pending_replay(target).await?.is_some() {
-            return Ok(());
-        }
-        let file = mutation.file_write.is_some()
-            && metadata
-                .replay_slot_winner(target, "file-winner")
-                .await?
-                .is_none_or(|held| stamp > &held);
-        let inline = mutation.inline_write.is_some()
-            && metadata
-                .replay_slot_winner(target, "inline-winner")
-                .await?
-                .is_none_or(|held| stamp > &held);
-        if !file && !inline {
-            return Ok(());
-        }
-        let before = self.replay_preimage(address).await?;
-        let Some(live) = before.as_deref().filter(|record| record.is_live()) else {
-            return Ok(());
-        };
-        let (schema, key) = (mutation.schema_name, mutation.key_value);
-        let mut patched = as_mutation(&schema, live.key.clone(), Some(live.clone()));
-        if file {
-            patched.file = mutation.file;
-            patched.file_write = mutation.file_write;
-        }
-        if inline {
-            patched.inline_write = mutation.inline_write;
-        }
-        let writer = live.updated_by.as_deref().unwrap_or(&stamp.writer_key);
-        self.apply_replay_record(patched, writer).await?;
-        self.accept_replay_record_attachments(
-            &schema,
-            &key,
-            stamp,
-            ReplayAttachmentSlots { file, inline },
-        )
-        .await
-    }
-
-    /// True when a remote record entry cannot change the record or either attachment slot.
+    /// True when a remote record entry cannot change the fields or the parts named in `slots`.
     pub async fn is_replay_record_superseded(
         &self,
         schema: &str,
@@ -189,31 +43,19 @@ impl MutationManager {
             }
             let address = self.replay_record_address(schema, key)?;
             let target = ReplayTarget::Record(&address);
-            let metadata = self.db_ops.metadata();
-            if metadata.pending_replay(target).await?.is_some() {
-                return Ok(false);
-            }
-            if metadata
+            if self
+                .db_ops
+                .metadata()
                 .replay_winner(target)
                 .await?
                 .is_none_or(|winner| &winner < stamp)
             {
                 return Ok(false);
             }
-            if slots.file
-                && metadata
-                    .replay_slot_winner(target, "file-winner")
-                    .await?
-                    .is_none_or(|held| stamp > &held)
-            {
+            if slots.file && self.beats_slot(target, FILE_SLOT, stamp).await? {
                 return Ok(false);
             }
-            if slots.inline
-                && metadata
-                    .replay_slot_winner(target, "inline-winner")
-                    .await?
-                    .is_none_or(|held| stamp > &held)
-            {
+            if slots.inline && self.beats_slot(target, INLINE_SLOT, stamp).await? {
                 return Ok(false);
             }
             Ok(true)
@@ -221,46 +63,147 @@ impl MutationManager {
         .await
     }
 
-    /// Read the greatest accepted cloud stamp for a record in this replay scope.
-    pub async fn replay_record_winner(
+    /// Apply the record write of an entry of another device, in the caller's replay scope.
+    pub async fn merge_replay_record(
         &self,
-        schema: &str,
-        key: &KeyValue,
-    ) -> Result<Option<ReplayStamp>, SchemaError> {
-        let address = self.replay_record_address(schema, key)?;
-        self.db_ops
-            .metadata()
-            .replay_winner(ReplayTarget::Record(&address))
-            .await
-    }
-
-    /// Read the encrypted candidate deferred while a local edit is pending.
-    pub async fn deferred_replay_record(
-        &self,
-        schema: &str,
-        key: &KeyValue,
-    ) -> Result<Option<Vec<u8>>, SchemaError> {
-        let address = self.replay_record_address(schema, key)?;
-        self.db_ops.metadata().deferred_replay(&address).await
-    }
-
-    /// Set or clear the authenticated candidate in the current native replay scope.
-    pub async fn stage_deferred_replay_record(
-        &self,
-        schema: &str,
-        key: &KeyValue,
-        envelope: Option<Vec<u8>>,
+        mutation: Mutation,
+        stamp: &ReplayStamp,
     ) -> Result<(), SchemaError> {
-        let address = self.replay_record_address(schema, key)?;
-        self.db_ops
-            .metadata()
-            .stage_deferred_replay(&address, envelope)
-            .await
+        let metadata = self.db_ops.metadata();
+        metadata.require_replay_scope()?;
+        let schema = self.load_schema_for_delta(&mutation.schema_name).await?;
+        let address = self.replay_record_address(&schema.name, &mutation.key_value)?;
+        let target = ReplayTarget::Record(&address);
+        let slots = slots_of(&mutation);
+        let newest = metadata
+            .replay_winner(target)
+            .await?
+            .is_none_or(|held| &held < stamp);
+        let parts = if newest {
+            self.apply_newest(&schema, address.clone(), mutation, stamp)
+                .await?;
+            metadata.accept_replay(target, stamp).await?;
+            slots
+        } else {
+            let parts = ReplayAttachmentSlots {
+                file: slots.file && self.beats_slot(target, FILE_SLOT, stamp).await?,
+                inline: slots.inline && self.beats_slot(target, INLINE_SLOT, stamp).await?,
+            };
+            if parts.file || parts.inline {
+                self.apply_older_parts(&schema, address.clone(), mutation, stamp, parts)
+                    .await?;
+            }
+            parts
+        };
+        if parts.file {
+            metadata
+                .accept_replay_slot(target, FILE_SLOT, stamp)
+                .await?;
+        }
+        if parts.inline {
+            metadata
+                .accept_replay_slot(target, INLINE_SLOT, stamp)
+                .await?;
+        }
+        Ok(())
     }
 
-    /// Materialize a winning whole-record change in the caller's native replay scope.
+    /// True when `stamp` is above the stamp of the newest write of one part.
+    async fn beats_slot(
+        &self,
+        target: ReplayTarget<'_>,
+        slot: &str,
+        stamp: &ReplayStamp,
+    ) -> Result<bool, SchemaError> {
+        Ok(self
+            .db_ops
+            .metadata()
+            .replay_slot_winner(target, slot)
+            .await?
+            .is_none_or(|held| stamp > &held))
+    }
+
+    /// The entry is the newest write of the fields: write the record it describes.
+    /// A part the entry does not set stays as the record holds it.
+    async fn apply_newest(
+        &self,
+        schema: &Schema,
+        address: String,
+        mutation: Mutation,
+        stamp: &ReplayStamp,
+    ) -> Result<(), SchemaError> {
+        let deletes = matches!(
+            mutation.mutation_type,
+            MutationType::Delete | MutationType::Purge
+        );
+        if schema.file_required && !deletes {
+            let before = self.replay_preimage(address).await?;
+            let live = before.as_deref().filter(|record| record.is_live());
+            if !has_file(mutation.file_write.as_ref(), live) {
+                // A record of this schema does not exist without its file.
+                let Some(live) = live else {
+                    return Ok(());
+                };
+                let removal = as_mutation(&schema.name, live.key.clone(), None);
+                return self.apply_replay_record(removal, &stamp.writer_key).await;
+            }
+        }
+        self.apply_replay_record(mutation, &stamp.writer_key).await
+    }
+
+    /// The entry lost the fields to a newer write, and is the newest write of
+    /// the file, the inline file, or both. Put those parts into the live record
+    /// and leave its fields. A delete clears them.
+    async fn apply_older_parts(
+        &self,
+        schema: &Schema,
+        address: String,
+        mutation: Mutation,
+        stamp: &ReplayStamp,
+        parts: ReplayAttachmentSlots,
+    ) -> Result<(), SchemaError> {
+        let before = self.replay_preimage(address).await?;
+        let Some(live) = before.as_deref().filter(|record| record.is_live()) else {
+            return Ok(());
+        };
+        let deletes = matches!(
+            mutation.mutation_type,
+            MutationType::Delete | MutationType::Purge
+        );
+        let nothing_to_clear = deletes
+            && !(parts.file && live.file.is_some())
+            && !(parts.inline && live.inline_file.is_some());
+        if nothing_to_clear {
+            return Ok(());
+        }
+        let mut patched = as_mutation(&schema.name, live.key.clone(), Some(live.clone()));
+        if parts.file {
+            if deletes {
+                patched.file_write = Some(FileWrite::Clear);
+            } else {
+                patched.file = mutation.file;
+                patched.file_write = mutation.file_write;
+            }
+        }
+        if parts.inline {
+            patched.inline_write = if deletes {
+                Some(InlineWrite::Clear)
+            } else {
+                mutation.inline_write
+            };
+        }
+        let writer = live.updated_by.as_deref().unwrap_or(&stamp.writer_key);
+        if schema.file_required && !has_file(patched.file_write.as_ref(), Some(live)) {
+            // A record of this schema does not exist without its file.
+            let removal = as_mutation(&schema.name, live.key.clone(), None);
+            return self.apply_replay_record(removal, writer).await;
+        }
+        self.apply_replay_record(patched, writer).await
+    }
+
+    /// Write one whole-record change in the caller's replay scope.
     /// `writer` is the log entry's writer key. A caller that already set one keeps it.
-    pub async fn apply_replay_record(
+    async fn apply_replay_record(
         &self,
         mut mutation: Mutation,
         writer: &str,
@@ -289,7 +232,18 @@ impl MutationManager {
     }
 }
 
-pub(crate) fn as_mutation(schema: &str, key: KeyValue, record: Option<StoredRecord>) -> Mutation {
+/// Whether the record holds a file after a write: the write sets one, or it
+/// leaves the file of a live record in place.
+fn has_file(write: Option<&FileWrite>, live: Option<&StoredRecord>) -> bool {
+    match write {
+        Some(FileWrite::Clear) => false,
+        Some(_) => true,
+        None => live.is_some_and(|record| record.file.is_some()),
+    }
+}
+
+/// The stored record as a write of the same content, or a delete when there is none.
+fn as_mutation(schema: &str, key: KeyValue, record: Option<StoredRecord>) -> Mutation {
     let mut target = RecordTarget {
         schema: schema.to_owned(),
         key,

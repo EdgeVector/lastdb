@@ -2,20 +2,23 @@
 //! stream, and send them to the relay.
 //!
 //! Every commit already lands in the spool, in order, before the caller is
-//! told. The sender takes the entries past the acknowledged position, opens each
-//! canonical body, seals it with the database read key for the position it will
-//! have, and signs it. The signed batch is saved before anything is sent, so a
-//! retry sends the same bytes. When the relay acknowledges, the spool retires
-//! the batch and the saved entries are deleted.
+//! told, and the commit gave the write its place: its sequence number is its
+//! number in the spool, its order value is the author time the spool recorded,
+//! and the store wrote its stamp rows in the same transaction. The sender only
+//! packages it. It takes the entries past the acknowledged position, opens each
+//! canonical body, seals it with the database read key for that position, and
+//! signs it. Nothing in the store changes when a write is sent. The signed
+//! batch is saved before anything is sent, so a retry sends the same bytes.
+//! When the relay acknowledges, the spool retires the batch and the saved
+//! entries are deleted.
 //!
 //! What a crash leaves, by window, and how the next turn repairs it:
 //!
 //! - Before the batch is saved: nothing. The next turn signs the same spool
 //!   entries again at the same sequence numbers, and nothing was sent.
 //! - After the batch is saved, before the relay acknowledges: the saved file
-//!   exists and the spool position is old. The next turn settles the entries
-//!   again (a no-op if done) and sends the saved bytes. The relay counts
-//!   identical entries as duplicates.
+//!   exists and the spool position is old. The next turn sends the saved
+//!   bytes. The relay counts identical entries as duplicates.
 //! - After the relay acknowledges, before the spool confirms: the same as the
 //!   window before, and the relay answers with duplicates.
 //! - After the spool confirms, before the own head row is written: the spool
@@ -212,6 +215,10 @@ fn sign_one(
 ) -> Result<SignedEntry, String> {
     let identity = &ctx.identity;
     let writer_seq = head.map_or(1, |held| held.writer_seq + 1);
+    // The store stamped this write at its commit with its number in the spool.
+    if writer_seq != item.sequence {
+        return Err("the spool and the stream of this device number a write differently".into());
+    }
     let seal = |bytes: &[u8]| {
         ctx.sealer
             .seal(identity.node_key, identity.device_id, writer_seq, bytes)
@@ -237,7 +244,9 @@ fn sign_one(
     };
     // The order value is the time of the commit, taken from the store's author
     // clock. It is set when the write is made, so a write made offline keeps
-    // the time it was made.
+    // the time it was made. The clock gives each captured write a millisecond of
+    // its own, so this is the order value the entry gets, and the one the store
+    // stamped the write with.
     let order = item
         .authored_at_ms
         .ok_or("an accepted write has no author time")?;
@@ -262,28 +271,13 @@ fn sign_one(
     author_data(&author, &identity.signing_key, data).map_err(|e| e.to_string())
 }
 
-/// Settle, send, confirm and forget one saved batch. File-carrying entries settle
-/// one at a time so multiple whole-file buffers are never held in memory together.
+/// Send, confirm and forget one saved batch.
 async fn finish(
     ctx: &Ctx<'_>,
     client: &RelayClient,
     saved: &Saved,
     birth_known: &mut bool,
 ) -> Result<(), String> {
-    let mut batch = Vec::new();
-    for entry in &saved.entries {
-        if has_file(entry) {
-            if !batch.is_empty() {
-                apply::settle_all(ctx, std::mem::take(&mut batch)).await?;
-            }
-            apply::settle_all(ctx, vec![local_write(ctx, entry)?]).await?;
-        } else {
-            batch.push(local_write(ctx, entry)?);
-        }
-    }
-    if !batch.is_empty() {
-        apply::settle_all(ctx, batch).await?;
-    }
     if position(ctx).await?.spool_through < saved.through {
         send::send(ctx, client, saved, birth_known).await?;
         let (after, through) = (saved.after, saved.through);
@@ -319,34 +313,6 @@ async fn finish(
         })
         .collect();
     saved::clear(&ctx.host.home, &ctx.database_id, &blobs)
-}
-
-fn has_file(entry: &SignedEntry) -> bool {
-    matches!(
-        entry,
-        SignedEntry::Data {
-            body: DataBody { file: Some(_), .. },
-            ..
-        }
-    )
-}
-
-/// The local write that a signed entry carries, ready to settle.
-fn local_write(ctx: &Ctx<'_>, entry: &SignedEntry) -> Result<apply::Local, String> {
-    let SignedEntry::Data {
-        header, body: data, ..
-    } = entry
-    else {
-        return Err("a saved entry is not a data entry".into());
-    };
-    let plain = mutation_log::SealOpener::open(&ctx.sealer, header, &data.payload)
-        .ok_or("a saved entry does not open")?;
-    let change = body::classify(&body::parse(&plain)?)?;
-    let blob = data
-        .file
-        .as_ref()
-        .map(|file| saved::blob_path(&ctx.host.home, &ctx.database_id, &file.sha256.to_hex()));
-    apply::local(ctx, header, change, blob.as_deref())
 }
 
 /// Move the own head row to the last entry of the batch. It repeats safely.

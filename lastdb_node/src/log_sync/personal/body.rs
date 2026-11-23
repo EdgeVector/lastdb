@@ -77,7 +77,6 @@ pub(super) enum Change {
 
 pub(super) struct SchemaChange {
     pub(super) name: String,
-    pub(super) mutation_id: String,
     /// The definition of a put, or `None` for a drop.
     pub(super) definition: Option<Schema>,
 }
@@ -147,7 +146,6 @@ fn schema_change(body: &AcceptedBody) -> Result<SchemaChange, String> {
     };
     Ok(SchemaChange {
         name: body.schema.clone(),
-        mutation_id: body.mutation_id.clone(),
         definition,
     })
 }
