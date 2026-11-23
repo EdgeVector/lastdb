@@ -5,6 +5,7 @@ import time
 
 from personal_proof_nodes import (
     BATCH, EPSILON, FIELDS, DELTA, IDS_BOUND, MEBIBYTE, MEMORY_BOUND_BYTES, MEMORY_GROWTH_BYTES, SCALE_WAIT_SECONDS, wait)
+from personal_proof_deployed_trim import head_of, node_hex
 from record_runs import definition, require, system_seed
 import v1_records as v1
 
@@ -86,11 +87,33 @@ def kill_under_load(relay, a, b, rounds):
             f"the relay holds {len(sequences)} entries of A after floor {floor} for {head} writes")
     require(a.checkpoint()["writer_seq"] == head, f"A confirmed {a.checkpoint()!r} for {head} writes")
     require(a.spool_bytes()[1] == 0, "the spool of A still holds entries after the relay confirmed them")
-    wait("B to hold every record of the load", lambda: set(b.keys(EPSILON)) == present if b.has_schema(EPSILON) else False)
+    # A kill can cut an append off after the relay stored an entry and before it counted it. The head the
+    # relay lists for A's stream must reach A's last entry, or no other device can read past the gap.
+    listed = head_of(relay, a, node_hex(a))
+    require(listed == head, f"the relay lists the head of A's stream at {listed}, and it holds {head} entries")
+    follow(b, present)
     require(b.records(EPSILON) == a.records(EPSILON), "B differs from A after the kills")
     print(f"9. {rounds} kills under load: {len(acknowledged)} acknowledged and {len(present - acknowledged)} "
           f"uncertain writes are on A, each once on the relay ({head} entries); B equals A and A's spool is empty", flush=True)
     return {"kills": rounds, "records": len(present), "acknowledged": len(acknowledged), "relay_entries": head}
+
+
+def follow(b, present, seconds=150):
+    """Wait for B to hold every record of the load. Print what B holds each 30 s, so a slow B shows its rate."""
+    started = time.monotonic()
+    printed = [started]
+
+    def held():
+        keys = set(b.keys(EPSILON)) if b.has_schema(EPSILON) else None
+        now = time.monotonic()
+        if now - printed[0] >= 30:
+            printed[0] = now
+            print(f"   B holds {'no schema yet' if keys is None else len(keys & present)} of {len(present)} records "
+                  f"after {now - started:.0f}s", flush=True)
+        return keys is not None and keys == present
+
+    wait("B to hold every record of the load", held, seconds=seconds)
+    print(f"   B held the {len(present)} records of the load {time.monotonic() - started:.1f}s after A finished", flush=True)
 
 
 # 10. Scale ---------------------------------------------------------------------------------

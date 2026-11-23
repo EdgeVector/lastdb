@@ -89,6 +89,17 @@ impl Store {
         if path.exists() {
             let existing = read_json(&path).await?;
             if &existing == entry {
+                // The file can be there with no head: a client that hangs up mid-append cancels
+                // this handler after the rename has begun and before the head is recorded. The
+                // client then sends the same bytes again, and this is the one place that sees
+                // the entry, so the head takes it here. It is a no-op when the head has it.
+                self.heads.record(
+                    &meta.database_id,
+                    &meta.node_key,
+                    &meta.device_id,
+                    meta.writer_seq,
+                    hash,
+                );
                 return Ok(AppendOutcome::Duplicate);
             }
             return Err(ApiError::conflict("entries.writer_seq"));
