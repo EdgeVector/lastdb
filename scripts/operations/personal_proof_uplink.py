@@ -30,7 +30,7 @@ from record_runs import RANGED, definition, system_seed
 
 SLOW_BYTES_PER_SECOND = 32 * 1024
 SLOW_FILE_BYTES = 1_500_000
-STALL_FILE_BYTES = 16_000_000
+STALL_FILE_BYTES = 40_000_000
 STALL_AFTER_BYTES = 256 * 1024
 OLD_ALLOWANCE_SECONDS = 30
 STALL_SECONDS = 30
@@ -69,10 +69,11 @@ def prove_uplink(args):
         require(uploads and max(uploads) > (OLD_ALLOWANCE_SECONDS + 2) * 1000,
                 f"no single upload took over {OLD_ALLOWANCE_SECONDS + 2} s; uploads took {uploads!r} ms")
         message = wait("the stalled upload to fail", lambda: re.search(
-            r"stalled for 3\d s with (\d+) of (\d+) bytes sent", json.dumps(stalled.sync_status())),
+            r"stalled for (\d+) s with (\d+) of (\d+) bytes sent", json.dumps(stalled.sync_status())),
             seconds=STALL_BOUND_SECONDS)
         stall_seconds = time.monotonic() - stall_started
-        require(int(message[1]) < int(message[2]), f"the stall message names {message[0]!r}")
+        require(30 <= int(message[1]) < 35 and int(message[2]) < int(message[3]),
+                f"the stall did not end in the middle of the body after 30 s: {message[0]!r}")
         require(not stalled.synced_up(), "the stalled home reports its writes as uploaded")
         require("?" not in json.dumps(stalled.sync_status()).split("stalled for")[1][:60], "the error holds a URL query")
         print(f"18. a file upload at {SLOW_BYTES_PER_SECOND // 1024} KiB/s took {max(uploads) / 1000:.0f} s as one upload "
