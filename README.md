@@ -210,6 +210,7 @@ and is applied on the other devices by the store's last-writer stamp, so the
 later edit wins. A snapshot of the store's own files, named by a signed
 `snapshot` entry, is the checkpoint: a restore installs the newest one and
 reads only the entries after it (`lastdb backup snapshot` takes one now). See the
+[home on disk](docs/home-format.md),
 [personal database design](docs/designs/personal-database-signed-log.md),
 [signed log on the local machinery](docs/designs/signed-log-on-local-machinery.md),
 [cloud API](docs/designs/cloud-api.md) and

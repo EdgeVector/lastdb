@@ -6,7 +6,7 @@ Related: `signed-history-single-log.md` (the log and cursor), `relay-protocol.md
 ## Principles
 
 1. **One owner per fact.** Each question has one system that answers it. Everyone else asks that system or derives from it.
-2. **The history is the truth, the store is a view.** A shared database's records are a function of the accepted entries and the publisher's grants.
+2. **In a shared database the history is the truth, and the store is a view.** A shared database's records are a function of the accepted entries and the publisher's grants. The node keeps that history whole, in memory and in the files below. **In the personal database it is the other way round: the store is the truth, and the log is how changes travel.** The node keeps no history of it, only the last-writer stamp of each record and one head row for each stream, and the relay drops the entries that a snapshot covers (`signed-log-on-local-machinery.md`, `../home-format.md`). The same entries, the same order rule and the same relay serve both. Shared databases are meant to move to the same rows later.
 3. **The relay is a mailbox, not a judge.** It decides who may deposit an entry. Nodes decide what counts.
 4. **A signed entry is never rewritten.** A mistake is answered by a later signed entry.
 
@@ -74,9 +74,10 @@ All under `<home>/log-sync/<database id>/`.
 | `uploaded.json` | One number: how many log entries the relay has acknowledged. |
 | `received.json` | The accepted entries of every other stream, in Lamport order, so a restart rebuilds the history without the relay. |
 | `proposals.json` | A member's ledger of its proposals, by idempotency key. |
-| `blobs/<digest>` | The sealed blobs of the personal database's `bundle` entries, kept so a restart rebuilds the history without the relay. |
 
 A restart replays `authored.json` and `received.json` together in Lamport order.
+
+These files belong to shared databases. The personal database uses none of them: its positions are rows in the store, and the entries that wait for the relay are in `outgoing.json` (`../home-format.md`).
 
 ## What is not built
 
