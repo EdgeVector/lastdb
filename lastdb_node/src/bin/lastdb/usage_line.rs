@@ -26,17 +26,28 @@ pub(crate) fn usage_lines(sync: &Value) -> Vec<String> {
                     size(field("unconfirmed_blob_bytes"))
                 )
             };
-            Some(format!(
-                "Cloud usage {}: this device put {} entries ({}) and {} files ({}); trims released {} entries ({}); \
-                 {} on the relay from this device (other devices are not counted){cut_off}",
-                id.get(..8).unwrap_or(id),
+            let label = id.get(..8).unwrap_or(id);
+            let put = format!(
+                "put {} entries ({}) and {} files ({}); trims released {} entries ({})",
                 field("entries"),
                 size(field("entry_bytes")),
                 field("blobs"),
                 size(field("blob_bytes")),
                 field("released_entries"),
                 size(field("released_bytes")),
-                size(held),
+            );
+            if usage["complete"].as_bool() == Some(true) {
+                return Some(format!(
+                    "Cloud usage {label}: this device {put}; {} on the relay from this device (other devices are not counted){cut_off}",
+                    size(held),
+                ));
+            }
+            let since = i64::try_from(field("since_ms"))
+                .ok()
+                .and_then(chrono::DateTime::from_timestamp_millis)
+                .map_or_else(|| "an unknown time".to_owned(), |when| when.format("%Y-%m-%d %H:%MZ").to_string());
+            Some(format!(
+                "Cloud usage {label} since {since} (this device uploaded before the account began; earlier uploads are not counted): {put}{cut_off}"
             ))
         })
         .collect()

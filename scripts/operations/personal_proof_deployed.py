@@ -317,7 +317,7 @@ def render(report):
               f"- Restore from snapshot 3 (D): {report['d_restore']['restore_seconds']}s.", "",
               "### Added to the relay (it keeps all of it; a node cannot delete)", "",
               f"- Blobs: about {report['blob_bytes_added']} bytes (the sealed file, the new snapshot files, three manifests).",
-              f"- Signed entries: {report['entries_signed']} data entries, plus a birth and three snapshot entries. "
+              f"- Signed entries: {report['entries_signed']} data entries, plus a birth and three snapshot entries.",
               "", "### What the nodes say they put on the relay (for Exemem's own audit)", "",
               f"- Database `{report['database_id']}`, publisher node key `{report['publisher_node_key']}`, billed account "
               f"`{report['account_id']}`.",

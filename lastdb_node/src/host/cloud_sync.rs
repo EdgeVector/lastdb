@@ -83,6 +83,13 @@ pub(crate) struct CloudUsage {
     pub(crate) unconfirmed_blobs: u64,
     /// The length of those blobs.
     pub(crate) unconfirmed_blob_bytes: u64,
+    /// Unix milliseconds at which the account began. Nothing this device put before is in it.
+    pub(crate) since_ms: u64,
+    /// True when the account began before this device's first entry on the relay: the first entry
+    /// it counted was entry 1 of its stream. False for a home that uploaded before the account
+    /// began (an earlier build, or a copy of such a home): its earlier entries and blobs are not
+    /// counted, and the totals are not what it has on the relay.
+    pub(crate) complete: bool,
 }
 
 /// Separate local upload and download progress for one owned database.

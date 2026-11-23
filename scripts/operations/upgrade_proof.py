@@ -130,6 +130,30 @@ def status_env(device):
     return {"LASTDB_SOCKET_PATH": str(device.node.socket), "LASTDB_HOME": str(device.node.home)}
 
 
+def check_account(device, had_account):
+    """The account of the build under test says whether it began before this home's first upload.
+
+    A home that the previous build had already uploaded from (no account then) starts the account at
+    its first entry on this build, so it must say it is not complete, since when, and `lastdb status`
+    must say that earlier uploads are not counted and must not claim what the home holds on the relay.
+    """
+    usage = wait(f"{device.name} to show its cloud usage", lambda: (device.sync_status().get("databases", {})
+                 .get(device.database, {}).get("usage")))
+    require(usage["since_ms"] > 0 and usage["entries"] >= 8, f"{device.name}: the account {usage!r}")
+    require(usage["complete"] is had_account, f"{device.name}: complete is {usage['complete']}, the previous build "
+            f"{'kept' if had_account else 'kept no'} account: {usage!r}")
+    text = subprocess.run([str(device.cli), "status"], capture_output=True, text=True, timeout=120, check=False,
+                          env={**device.cli_env(), **status_env(device)}).stdout
+    line = next((line for line in text.splitlines() if line.startswith("Cloud usage ")), "")
+    if had_account:
+        require("on the relay from this device" in line and "since" not in line, f"status line: {line!r}")
+    else:
+        require("since " in line and "earlier uploads are not counted" in line and "on the relay from this device" not in line,
+                f"status line: {line!r}")
+    print(f"   the account of the build under test: complete={usage['complete']}, {usage['entries']} entries put since "
+          f"{usage['since_ms']}; status says: {line}", flush=True)
+
+
 def settled_status(device):
     """The cloud sync status once this database's upload has run a turn: connected, no error, captures on."""
     def probe():
@@ -185,6 +209,8 @@ def prove(relay, previous, devices, out, summary):
 
     # 2. The build under test continues on the same home with the same environment.
     upgraded.node.home = old.node.home
+    # The previous build may or may not keep an account of what it put on the relay (`cloud-usage.json`).
+    had_account = (old.log_dir() / "cloud-usage.json").exists()
     upgraded.start()
     require(upgraded.database == old.database, "the build under test opened another database")
     sync = settled_status(upgraded)
@@ -209,6 +235,7 @@ def prove(relay, previous, devices, out, summary):
     require(relay.stream_entries(upgraded.database, upgraded.device_id()) == list(range(1, after + 1)),
             "the relay does not hold one entry for each write of the home across both builds")
     require(upgraded.snapshot() == state, "the upgraded home does not read its old and new records")
+    check_account(upgraded, had_account)
     print(f"2. the build under test started on the same home: cloud sync connected with no error ({sync['environment']}), "
           f"every record read by key and alternate key, 8 new writes took head {before} to {after}, all acknowledged",
           flush=True)

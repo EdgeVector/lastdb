@@ -9,6 +9,12 @@
 //!   and `released_bytes`). A trim also drops entries of the other devices of the owner, so the
 //!   released numbers are the relay's account of its own deletions, not a share of this device.
 //!
+//! The account has a start (`since_ms`). On a home that uploaded before this file existed (an earlier
+//! build), the first entry counted is not entry 1 of its stream, and `complete` is false: what it put
+//! before is not in the totals, and nothing here says what it holds on the relay. There is no backfill.
+//! `complete` is true when the first entry counted was entry 1, which is every home that began on a
+//! build with this file.
+//!
 //! The number is "what this device put and the relay accepted", minus what trims it requested
 //! released. It is not what the account is billed: the entries and blobs of another device are not in
 //! it, and a relay may measure stored bytes differently. A status that shows a device shows only that
@@ -49,6 +55,10 @@ struct Saved {
     /// The highest `writer_seq` counted on each device stream, by device id.
     #[serde(default)]
     streams: BTreeMap<String, u64>,
+    /// The sequence number before the first entry ever counted: 0 when the account began with entry
+    /// 1 of a stream. None until an entry is counted.
+    #[serde(default)]
+    started_after: Option<u64>,
     /// Blobs whose upload began and did not end, by digest, with their length.
     #[serde(default)]
     pending: BTreeMap<String, u64>,
@@ -77,6 +87,10 @@ fn load(home: &Path, database_id: &str) -> Result<Saved, String> {
 fn store(home: &Path, database_id: &str, saved: &mut Saved) -> Result<(), String> {
     saved.usage.unconfirmed_blobs = saved.pending.len() as u64;
     saved.usage.unconfirmed_blob_bytes = saved.pending.values().sum();
+    saved.usage.complete = saved.started_after == Some(0);
+    if saved.usage.since_ms == 0 {
+        saved.usage.since_ms = fold_db::clock::unix_secs().saturating_mul(1000);
+    }
     let bytes = serde_json::to_vec(saved).map_err(|_| "cannot encode the cloud usage record")?;
     disk::write_private(&path(home, database_id), &bytes)
         .map_err(|_| "cannot save the cloud usage record".to_owned())
@@ -111,6 +125,9 @@ impl Ledger {
                 .or_insert(0);
             if header.writer_seq <= *counted {
                 continue;
+            }
+            if saved.started_after.is_none() {
+                saved.started_after = Some(header.writer_seq - 1);
             }
             *counted = header.writer_seq;
             saved.usage.entries += 1;

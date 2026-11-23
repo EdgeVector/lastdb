@@ -98,6 +98,15 @@ def stable_usage(devices):
         time.sleep(1.5)
 
 
+def require_complete(devices):
+    """Every account began before its device's first entry (a home of this build), so its totals are the whole."""
+    for device in devices:
+        for account in device.all_usage():
+            if account["entries"]:
+                require(account["complete"] is True and account["since_ms"] > 0,
+                        f"{device.name}: the account says it began after earlier uploads: {account!r}")
+
+
 def hash_file(path):
     digest = hashlib.sha256()
     with path.open("rb") as stream:
@@ -246,6 +255,7 @@ def reconcile_reference(relay, a, devices, label):
     started = time.monotonic()
     database = a.database
     total, streams_through, pending = stable_usage(devices)
+    require_complete(devices)
     audit = run_audit(audit_binary(relay), "disk", str(relay.data))
     SEEN_FILES.update(audit["named_files"])
     count, size, seen = check_entries(relay, database, audit, streams_through)
@@ -328,6 +338,7 @@ def reconcile_deployed(relay, a, devices, binary):
     require(binary is not None, "the deployed relay run needs --entry-audit, the entry_audit binary")
     database, node = a.database, node_hex(a)
     total, streams_through, pending = stable_usage(devices)
+    require_complete(devices)
     status, answer = relay_post(relay, a, database, node, "/relay/v1/log/streams",
                                 {"database_id": database, "writer_key": node})
     require(status == 200, f"log/streams: {status} {answer!r}")
