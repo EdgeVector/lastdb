@@ -135,16 +135,21 @@ impl Host {
         // spool fills that no code drains.
         let syncs = !signed_restore && crate::cloud::relay_base_url(home).is_some();
         let capture_accepted = signed_restore || has_spool || syncs;
-        // Each captured write is stamped, when it commits, with the device that will sign it.
-        let capture_device = if capture_accepted {
-            Some(crate::device_identity::device_id(home)?.to_hex())
+        // Each captured write is signed, when it commits, as the next entry of this device's
+        // stream of the personal database. The store gets the author that seals and signs it.
+        let capture_author = if capture_accepted {
+            let author = crate::personal_author::PersonalAuthor::of_home(home, &seed)?;
+            Some(Arc::new(author)
+                as Arc<
+                    dyn fold_db::storage::disk_backup::accepted::CaptureAuthor,
+                >)
         } else {
             None
         };
         let opts = fold_db::fold_db_core::factory::FoldDbOptions {
             offline_maintenance: false,
             capture_accepted,
-            capture_device,
+            capture_author,
             record_log: None,
         };
         let db = fold_db::fold_db_core::factory::create_fold_db_with_options(

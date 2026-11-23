@@ -50,7 +50,7 @@ be sent are files outside the store.
       accepted-v1/               the spool. Not in a snapshot.
         state.json                 head, acknowledged position, flags
         cloud-upload.json          upload progress paired with the spool
-        entries/                   sealed bodies the relay has not acknowledged
+        entries/                   signed entries the relay has not acknowledged, with their sealed files
         ids/                       one file per recent mutation id
         staging/
     disk-cas/                [S] the file blob store, the same shape as disk-run
@@ -61,8 +61,6 @@ be sent are files outside the store.
     device-id                  the device id of this installation
     wake                       wakes the sync loop
     <database id>/
-      outgoing.json            the signed batch that waits for the relay
-      outgoing-blobs/          its sealed files
       snapshot-last.json       the last snapshot this device published
       snapshot-known.json      what `lastdb status` prints
       snapshot-request, -result, -error
@@ -115,7 +113,7 @@ relay are the ones named by content (the SHA-256 of the stored bytes).
 | `signed-replay-winner:record:<hash>` | `ordering_ms`, `writer_key`, `writer_device`, `writer_seq` | The stamp of the newest write of a record's fields. An incoming entry replaces the fields only if its stamp is higher. |
 | `signed-replay-file-winner:record:<hash>`, `-inline-winner:record:<hash>` | `ordering_ms`, `writer_key`, `writer_device`, `writer_seq` | The stamp of the newest write that set or cleared a record's file, or its inline file. A delete is a write of both. |
 | `signed-replay-winner:schema:<hash>` | `ordering_ms`, `writer_key`, `writer_device`, `writer_seq` | The stamp of the newest schema put or drop. |
-| `signed-replay-local:<device id>` | `seq` | The sequence number of the newest captured write of this device. It equals that write's number in the spool and in the device stream. |
+| `signed-replay-chain:<device id>` | `seq`, `hash`, `order` | The newest entry of this device's stream, written by the commit that signed it. The next commit signs the entry after it. It can be ahead of this device's `signed-replay-head` row by the entries the relay has not acknowledged. |
 | `signed-replay-head:<node key>:<device id>` | `seq`, `hash`, `order`, `frozen` | The last entry of one device stream that this node applied, and for its own stream the last entry the relay acknowledged. |
 | `signed-replay-receipt:` | The digest of an applied schema drop. | The store's paged removal needs it. |
 | `changes:<stream>:<seq>` | One changed key. The newest 250,000. | The local changes list for apps. It is not the cloud log. |
@@ -125,10 +123,13 @@ relay are the ones named by content (the SHA-256 of the stored bytes).
 The head row and the record are one store transaction. "Accepted" and
 "applied" are therefore one fact, and a restart replays nothing.
 
-A write made on this device gets its stamp rows in the transaction that commits
-it: its order value is the millisecond of its author time (the clock gives each
-captured write a millisecond of its own), and its sequence number is its number
-in the spool. Nothing about a write changes in the store when it is sent. An
+A write made on this device becomes the next entry of the device's stream in
+the transaction that commits it. Its order value is the millisecond of its
+author time (the clock gives each captured write a millisecond of its own), and
+its sequence number is the one after the `signed-replay-chain` row, which is
+also its number in the spool. The commit seals the body with the database read
+key, signs the entry, writes the stamp rows and moves the chain row. Nothing
+about a write changes when it is sent. An
 entry of another device is compared with the stamp rows when it arrives, part
 by part: the fields, the file and the inline file each take the value of their
 newest write, so the result does not depend on the order of arrival. A write
@@ -160,8 +161,18 @@ The schema definitions the database uses, and their retention (TTL) state.
 
 ## The spool
 
-- Every commit of a captured home puts one sealed entry in the spool before
-  the caller is told. One write is one entry. A schema put or drop is an entry.
+- Every commit of a captured home puts one entry in the spool before the
+  caller is told. One write is one entry. A schema put or drop is an entry.
+- A spool entry is the signed entry of the device stream, as the bytes the
+  relay stores (`body.bin`), and the sealed file that the entry names
+  (`file.bin`). The store makes both in the commit: the host gives it an author
+  that seals with the database read key and signs with the node key. The sender
+  reads the entries, sends the files and then the entries, and retires them
+  when the relay acknowledges. It signs nothing, and a retry sends the same
+  bytes.
+- A file that a write links by its path is read once, at the commit, and its
+  sealed copy stays in the spool until it is sent. It counts toward the size
+  limit of the spool (1 GiB).
 - A home captures exactly when something sends the spool: it has a relay, it
   already has a spool, or it is a restore.
 - `state.json` holds the head and the acknowledged position. An acknowledgement
@@ -172,8 +183,9 @@ The schema definitions the database uses, and their retention (TTL) state.
 - `ids/` keeps the newest 10,000 mutation ids with the hash of each body, and
   the id of every entry not yet acknowledged. A repeated write with the same id
   and body is not entered twice. The same id with another body is refused.
-- The sequence number of the signed entry is assigned at upload, not at
-  commit. The spool records the write time.
+- The sequence number of the signed entry is the number of the spool entry.
+  A schema change that the spool already holds under its id gets no second
+  entry and no place in the stream.
 
 ## What a snapshot is
 

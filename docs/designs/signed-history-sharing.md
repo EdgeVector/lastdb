@@ -77,7 +77,7 @@ All under `<home>/log-sync/<database id>/`.
 
 A restart replays `authored.json` and `received.json` together in Lamport order.
 
-These files belong to shared databases. The personal database uses none of them: its positions are rows in the store, and the entries that wait for the relay are in `outgoing.json` (`../home-format.md`).
+These files belong to shared databases. The personal database uses none of them: its positions are rows in the store, and the entries that wait for the relay are in the spool, already signed (`../home-format.md`).
 
 ## What is not built
 

@@ -11,6 +11,7 @@ use crate::schema::types::{
     field::FilterUtils, key_comparison::KeyComparisonContext, FileWrite, KeyValue, Mutation,
     Schema, SchemaError,
 };
+use crate::storage::disk_backup::accepted::LocalEntry;
 use crate::storage::disk_pack::{
     record_warm::WarmRecordRead, transaction, PackReadScope, PackRuntime,
 };
@@ -266,12 +267,15 @@ impl RecordStore {
         }
     }
 
+    /// Sign the mutations as the entries after `previous` and stage them for the
+    /// spool. Returns the last entry, or `None` when the store captures nothing.
     pub(crate) async fn stage_accepted_mutations(
         &self,
         mutations: &[Mutation],
-    ) -> Result<(), SchemaError> {
+        previous: Option<LocalEntry>,
+    ) -> Result<Option<LocalEntry>, SchemaError> {
         let format = &self.format;
-        crate::storage::disk_backup::accepted::stage_records(
+        let signed = crate::storage::disk_backup::accepted::stage_records(
             &self.runtime,
             format.content_key(),
             |reference| {
@@ -280,9 +284,10 @@ impl RecordStore {
                     .map(std::path::Path::to_path_buf)
             },
             mutations,
+            previous,
         )
         .await?;
-        Ok(())
+        Ok(signed)
     }
 
     pub fn seal_record_file(

@@ -27,7 +27,6 @@ mod body;
 mod files;
 mod incoming;
 mod outgoing;
-mod saved;
 mod send;
 mod snapshot;
 mod snapshot_entry;
@@ -50,17 +49,15 @@ use cloud_backup_protocol::{AccountId, CloudScope, DecimalU64};
 use fold_db::fold_db_core::mutation_manager::ReplayStreamHead;
 use fold_db::storage::disk_backup::accepted::UploadIdentity;
 use fold_db::storage::disk_pack::PackRuntime;
-use mutation_log::{
-    position_of, AcceptedMeta, AuthorCtx, DatabaseId, DeviceId, EntryHash, SignedEntry, StreamHead,
-};
+use mutation_log::{AcceptedMeta, DatabaseId, DeviceId, EntryHash, SignedEntry, StreamHead};
 use zeroize::Zeroizing;
 
-use super::birth;
 use super::chain_author::{self, AuthorIdentity};
 use super::relay::{RelayClient, StreamHead as RelayStream};
-use super::sealed::Sealer;
+pub(super) use crate::database_birth::personal as birth_of;
 use crate::host::Host;
 use crate::personal_identity;
+use crate::personal_seal::Sealer;
 
 /// Everything one turn of the personal database needs, derived from the node seed.
 pub(super) struct Ctx<'a> {
@@ -77,7 +74,6 @@ pub(super) struct Ctx<'a> {
     /// The name of this device's stream in the head rows.
     pub(super) own_stream: String,
     pub(super) sealer: Sealer,
-    pub(super) content_key: Zeroizing<[u8; 32]>,
     /// The birth entry. It is the same on every device. A device uploads it
     /// when the relay lacks it, and every personal entry cites it.
     pub(super) birth_entry: SignedEntry,
@@ -107,9 +103,6 @@ impl<'a> Ctx<'a> {
         let snapshot_device = DeviceId::from_bytes(personal_identity::snapshot_device(&seed));
         let node_hex = identity.node_key.to_hex();
         let device_hex = identity.device_id.to_hex();
-        let content_key = fold_db::crypto::E2eKeys::from_ed25519_seed(&seed)
-            .map_err(|_| "the content key cannot be derived".to_owned())?
-            .encryption_key();
         let account = AccountId::try_from(node_hex[..32].to_owned())
             .map_err(|_| "the writer key is not an account id".to_owned())?;
         // The upload position of the spool is bound to this identity. The relay
@@ -128,7 +121,6 @@ impl<'a> Ctx<'a> {
         Ok(Self {
             host,
             sealer: Sealer::for_node_seed(&seed)?,
-            content_key: Zeroizing::new(content_key),
             birth_device_hex: birth_device.to_hex(),
             snapshot_device,
             snapshot_device_hex: snapshot_device.to_hex(),
@@ -163,34 +155,6 @@ impl<'a> Ctx<'a> {
             .map_err(|error| format!("the own stream head could not be read: {error}"))?;
         Ok(rows.pop().flatten())
     }
-}
-
-/// The birth entry of the personal database of the node with this seed, as an
-/// accepted entry, and its hash. It is the same on every device.
-fn birth_of(
-    seed: &[u8; 32],
-    identity: &AuthorIdentity,
-) -> Result<(SignedEntry, AcceptedMeta, EntryHash), String> {
-    let database = DatabaseId::from_hex(&personal_identity::database_id(seed))
-        .map_err(|_| "database id is not hex")?;
-    let birth_ctx = AuthorCtx {
-        database_id: database,
-        node_key: identity.node_key,
-        device_id: DeviceId::from_bytes(personal_identity::birth_device(seed)),
-        stream_head: None,
-        seen_heads: Vec::new(),
-        seen_lamports: Vec::new(),
-        authored_at_ms: 0,
-    };
-    let entry = birth::entry(&birth::derived(seed), &birth_ctx, identity)?;
-    let hash = mutation_log::entry_hash(&entry).map_err(|e| e.to_string())?;
-    let meta = AcceptedMeta {
-        position: position_of(&entry),
-        is_publisher: true,
-        grant_body: None,
-        entry: entry.clone(),
-    };
-    Ok((entry, meta, hash))
 }
 
 /// The head row as the chain check reads it.
@@ -314,8 +278,8 @@ fn is_payment_403(error: &str) -> bool {
         || error.contains(crate::cloud::PAYMENT_REQUIRED_MESSAGE)
 }
 
-/// True while the spool or the saved batch holds something the relay has not
-/// acknowledged. The loop keeps waking while this is true.
+/// True while the spool holds something the relay has not acknowledged. The loop
+/// keeps waking while this is true.
 pub(super) fn pending(host: &Host) -> bool {
     let status = host.db.db_ops().native_runtime().accepted_status();
     let Ok(database_id) = host.owned.owner().map(|owner| owner.id) else {
@@ -323,7 +287,6 @@ pub(super) fn pending(host: &Host) -> bool {
     };
     status.head > status.acked
         || status.snapshot_required
-        || !matches!(saved::load(&host.home, &database_id), Ok(None))
         // A request that the running snapshot serves, or that waits behind it, does not wake the
         // loop: it would spin until the upload ends. The end of the lane is the next turn.
         || (snapshot_state::requested(&host.home, &database_id) && !snapshot_lane::busy())

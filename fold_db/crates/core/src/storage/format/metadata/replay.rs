@@ -12,6 +12,7 @@
 
 use super::{read_err, Metadata};
 use crate::schema::types::SchemaError;
+use crate::storage::disk_backup::accepted::LocalEntry;
 use lastdb_model::hex::{hex_lower, sha256_hex};
 use serde::{Deserialize, Serialize};
 
@@ -43,15 +44,6 @@ pub(crate) struct SchemaReplayDrop<'a> {
     pub(crate) digest: &'a [u8; 32],
 }
 
-/// The sequence number of the newest captured write of one device. The spool
-/// numbers its entries the same way, and the sender signs entry `n` of the
-/// spool as entry `n` of the device stream.
-#[derive(Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct LocalHead {
-    seq: u64,
-}
-
 impl ReplayTarget<'_> {
     fn key(self, ctx: &str) -> String {
         let (kind, addr) = match self {
@@ -60,6 +52,11 @@ impl ReplayTarget<'_> {
         };
         format!("signed-replay-{ctx}:{kind}:{}", sha256_hex(addr))
     }
+}
+
+/// The row that holds the newest entry of the stream one device signs.
+fn chain_key(device: &str) -> String {
+    format!("signed-replay-chain:{device}")
 }
 
 /// The node key of this store as the stamps name it: lowercase hex of the
@@ -127,47 +124,74 @@ impl Metadata {
             .map_err(read_err)
     }
 
-    /// The stamps of the next captured writes of this store, one for each order
-    /// value, in commit order. `writer` is the node key in base64.
-    ///
-    /// The sequence numbers continue the spool: a store that has not stamped a
-    /// write yet starts after the entries its spool already holds.
-    pub(crate) async fn stage_local_replay_stamps(
-        &self,
-        writer: &str,
-        orders: &[u64],
-    ) -> Res<Vec<ReplayStamp>> {
-        self.require_replay_scope()?;
-        let device = self.runtime.capture_device().ok_or_else(|| {
-            SchemaError::InvalidData("captured writes have no author device".into())
-        })?;
-        let writer_key = writer_hex(writer)?;
-        let key = format!("signed-replay-local:{device}");
-        let mut seq = match self.store.get(key.as_bytes()).await.map_err(read_err)? {
-            Some(bytes) => {
-                serde_json::from_slice::<LocalHead>(&bytes)
-                    .map_err(read_err)?
-                    .seq
-            }
-            None => self.runtime.accepted_status().head,
+    /// The device whose stream the captured writes of this store are signed into.
+    fn capture_device(&self) -> Res<&str> {
+        let Some(author) = self.runtime.capture_author() else {
+            return Err(SchemaError::InvalidData(
+                "captured writes have no author".into(),
+            ));
         };
-        let mut stamps = Vec::with_capacity(orders.len());
-        for &ordering_ms in orders {
-            seq = seq.checked_add(1).ok_or_else(|| {
-                SchemaError::InvalidData("the local stream sequence is exhausted".into())
-            })?;
-            stamps.push(ReplayStamp {
-                ordering_ms,
-                writer_key: writer_key.clone(),
-                writer_device: device.to_owned(),
-                writer_seq: seq,
-            });
-        }
-        let bytes = serde_json::to_vec(&LocalHead { seq }).map_err(read_err)?;
-        self.stage(vec![(key, Some(bytes))])
+        Ok(author.device())
+    }
+
+    /// The entry of this device's stream that the next captured write follows.
+    /// `None` at the start of the stream. `writer` is the node key in base64.
+    ///
+    /// The row is written by every captured commit. A home whose writes were
+    /// signed when they were sent has none yet: its stream then continues after
+    /// the last entry the relay acknowledged, which must be the last of the spool.
+    pub(crate) async fn local_replay_head(&self, writer: &str) -> Res<Option<LocalEntry>> {
+        self.require_replay_scope()?;
+        let device = self.capture_device()?;
+        let held = self
+            .store
+            .get(chain_key(device).as_bytes())
             .await
             .map_err(read_err)?;
-        Ok(stamps)
+        if let Some(bytes) = held {
+            return serde_json::from_slice(&bytes).map(Some).map_err(read_err);
+        }
+        let spool = self.runtime.accepted_status();
+        let stream = format!("{}:{device}", writer_hex(writer)?);
+        match self.replay_stream_head(&stream).await? {
+            Some(sent) if sent.seq == spool.head && spool.acked == spool.head => {
+                Ok(Some(LocalEntry {
+                    seq: sent.seq,
+                    hash: sent.hash,
+                    order: sent.order,
+                }))
+            }
+            None if spool.head == 0 => Ok(None),
+            _ => Err(SchemaError::Blocked(
+                "the spool holds writes that were not signed when they were made; \
+                 the build that made them must send them first"
+                    .into(),
+            )),
+        }
+    }
+
+    /// Record the newest entry of this device's stream, in the commit that made it.
+    pub(crate) async fn stage_local_replay_head(&self, head: &LocalEntry) -> Res {
+        let device = self.capture_device()?;
+        let bytes = serde_json::to_vec(head).map_err(read_err)?;
+        self.stage(vec![(chain_key(device), Some(bytes))])
+            .await
+            .map_err(read_err)
+    }
+
+    /// The stamp of the captured write that is entry `seq` of this device's stream.
+    pub(crate) fn local_replay_stamp(
+        &self,
+        writer: &str,
+        seq: u64,
+        order: u64,
+    ) -> Res<ReplayStamp> {
+        Ok(ReplayStamp {
+            ordering_ms: order,
+            writer_key: writer_hex(writer)?,
+            writer_device: self.capture_device()?.to_owned(),
+            writer_seq: seq,
+        })
     }
 
     /// Write stamp rows without reading them first. `rows` holds a target, the

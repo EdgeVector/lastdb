@@ -136,7 +136,7 @@ pub(super) async fn open(
             // An owned sibling is signed from its history (`log_sync::mirror`),
             // and nothing sends a spool for it, so it captures nothing.
             capture_accepted: false,
-            capture_device: None,
+            capture_author: None,
             record_log: entry
                 .whole_database()
                 .then(|| crate::host::share_identity::record_log(home, id)),

@@ -9,6 +9,7 @@ use super::{AuthoredMutation, MutationManager};
 use crate::platform::clock;
 use crate::schema::types::{KeyValue, Mutation, MutationType};
 use crate::schema::SchemaError;
+use crate::storage::disk_backup::accepted::LocalEntry;
 use crate::storage::disk_pack::transaction;
 use crate::storage::format::metadata::{ReplayStamp, ReplayTarget, FILE_SLOT, INLINE_SLOT};
 use crate::storage::format::records::RecordAddress;
@@ -76,33 +77,36 @@ impl MutationManager {
         Ok(counter)
     }
 
-    /// The stamp each write has in the signed log, in commit order. The spool
-    /// takes one entry for each mutation in the same order, so the sequence
-    /// numbers here are the ones the sender signs.
-    pub(super) async fn local_replay_stamps(
+    /// The stamp each write has in the signed log, in commit order. The writes
+    /// become the entries after `previous`, one each, so these are the sequence
+    /// numbers and order values of the entries that the commit signs.
+    pub(super) fn local_replay_stamps(
         &self,
         mutations: &[Mutation],
+        previous: Option<&LocalEntry>,
         captured: bool,
     ) -> Result<Vec<Option<ReplayStamp>>, SchemaError> {
         if !captured {
             return Ok(vec![None; mutations.len()]);
         }
-        let orders = mutations
-            .iter()
-            .map(|m| {
-                m.imported_written_at
-                    .map(|nanos| nanos / NANOS_PER_MILLI)
-                    .ok_or_else(|| {
-                        SchemaError::InvalidData("a captured write has no author time".into())
-                    })
-            })
-            .collect::<Result<Vec<u64>, _>>()?;
-        let stamps = self
-            .db_ops
-            .metadata()
-            .stage_local_replay_stamps(&self.writer_id, &orders)
-            .await?;
-        Ok(stamps.into_iter().map(Some).collect())
+        let metadata = self.db_ops.metadata();
+        let mut seq = previous.map_or(0, |held| held.seq);
+        let mut stamps = Vec::with_capacity(mutations.len());
+        for mutation in mutations {
+            let order = mutation
+                .imported_written_at
+                .map(|nanos| nanos / NANOS_PER_MILLI)
+                .ok_or_else(|| {
+                    SchemaError::InvalidData("a captured write has no author time".into())
+                })?;
+            seq += 1;
+            stamps.push(Some(metadata.local_replay_stamp(
+                &self.writer_id,
+                seq,
+                order,
+            )?));
+        }
+        Ok(stamps)
     }
 
     /// Write the stamp rows of each captured write of a commit, in the

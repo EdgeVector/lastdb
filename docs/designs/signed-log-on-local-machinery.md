@@ -167,7 +167,7 @@ This section is the record of the code. It replaces the plan where the two diffe
 
 ### A write
 
-Every commit lands in the spool, in order, before the caller is told. The sender takes the entries past the confirmed position (at most 90 per append and about 8 MiB of payload), opens each canonical body with the content key, seals it with the database read key bound to the position it will have, and signs it as a `data` entry that cites the birth. One write is one entry. A schema put or drop is an entry of the same kind. A file a record names goes up through `blob.put`, sealed, before the entry that names it.
+**Replaced on 23 November 2026.** The store now signs a write, as the next entry of the device stream, in the transaction that commits it. The spool holds the signed entry and its sealed file, the sender only sends, and `outgoing.json` and `outgoing-blobs/` are gone. [The home on disk](../home-format.md) describes it as built. What follows is the earlier design. Every commit lands in the spool, in order, before the caller is told. The sender takes the entries past the confirmed position (at most 90 per append and about 8 MiB of payload), opens each canonical body with the content key, seals it with the database read key bound to the position it will have, and signs it as a `data` entry that cites the birth. One write is one entry. A schema put or drop is an entry of the same kind. A file a record names goes up through `blob.put`, sealed, before the entry that names it.
 
 ### Rows added
 

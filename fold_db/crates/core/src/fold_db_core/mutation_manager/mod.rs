@@ -182,7 +182,15 @@ impl MutationManager {
                 let revision = self
                     .prepare_mutation_author_clocks(&mut mutations, captured)
                     .await?;
-                let replay = self.local_replay_stamps(&mutations, captured).await?;
+                let previous = if captured {
+                    self.db_ops
+                        .metadata()
+                        .local_replay_head(&self.writer_id)
+                        .await?
+                } else {
+                    None
+                };
+                let replay = self.local_replay_stamps(&mutations, previous.as_ref(), captured)?;
                 let ops = count_commit_ops(&mutations);
                 let listed: Vec<_> = mutations
                     .iter()
@@ -199,10 +207,16 @@ impl MutationManager {
                     .zip(&stamps)
                     .map(|(m, s)| (m.uuid.clone(), s.revision()))
                     .collect();
-                self.db_ops
+                // A captured write is signed here, as the next entry of the device
+                // stream, and the entry it left is recorded for the commit after it.
+                let signed = self
+                    .db_ops
                     .records()
-                    .stage_accepted_mutations(&mutations)
+                    .stage_accepted_mutations(&mutations, previous)
                     .await?;
+                if let Some(head) = &signed {
+                    self.db_ops.metadata().stage_local_replay_head(head).await?;
+                }
                 let ids = mutations.iter().map(|m| m.uuid.clone()).collect();
                 let authored = mutations
                     .into_iter()

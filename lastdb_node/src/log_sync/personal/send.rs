@@ -1,8 +1,8 @@
 //! Send a signed personal batch to the relay in bounded JSON chunks.
 
-use mutation_log::{DataBody, SignedEntry};
+use mutation_log::SignedEntry;
 
-use super::saved::{self, Saved};
+use super::outgoing::Batch;
 use super::Ctx;
 use crate::log_sync::relay::RelayClient;
 
@@ -13,11 +13,11 @@ const APPEND_MAX_BYTES: usize = 3 * 1024 * 1024;
 /// Envelope overhead for `{"database_id":"...","entries":[...]}`.
 const APPEND_WRAPPER_BYTES: usize = 128;
 
-/// Send a batch: the birth when the relay lacks it, the file blobs, then the entries in chunks.
+/// Send a batch: the birth when the relay lacks it, the files, then the entries in chunks.
 pub(super) async fn send(
     ctx: &Ctx<'_>,
     client: &RelayClient,
-    saved: &Saved,
+    batch: &Batch,
     birth_known: &mut bool,
 ) -> Result<(), String> {
     if !*birth_known {
@@ -27,20 +27,13 @@ pub(super) async fn send(
         expect_all(stored, 1)?;
         *birth_known = true;
     }
-    for chunk in entry_chunks(&saved.entries)? {
-        for entry in chunk {
-            if let SignedEntry::Data {
-                body: DataBody {
-                    file: Some(file), ..
-                },
-                ..
-            } = entry
-            {
-                let sha256 = file.sha256.to_hex();
-                let path = saved::blob_path(&ctx.host.home, &ctx.database_id, &sha256);
-                client.blob_put(&ctx.database_id, &sha256, &path).await?;
-            }
-        }
+    // A file is on the relay before the entry that names it. The bytes go from the spool.
+    for file in &batch.files {
+        client
+            .blob_put(&ctx.database_id, &file.sha256, &file.path)
+            .await?;
+    }
+    for chunk in entry_chunks(&batch.entries)? {
         let stored = client.append(&ctx.database_id, chunk).await?;
         expect_all(stored, chunk.len())?;
     }

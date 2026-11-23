@@ -25,7 +25,6 @@ pub struct SchemaStore {
     pub(super) schema_states_store: ReadStore,
     pub(super) format: SchemaFormat,
     pub(super) runtime: Arc<crate::storage::disk_pack::PackRuntime>,
-    pub(super) content_key: [u8; 32],
     pub(super) metadata: Metadata,
     /// The writer of the author clock that stamps record writes. A schema
     /// change takes its author time from the same clock.
@@ -34,12 +33,7 @@ pub struct SchemaStore {
 }
 
 impl SchemaStore {
-    pub(crate) fn new(
-        format: SchemaFormat,
-        content_key: [u8; 32],
-        metadata: Metadata,
-        writer_id: String,
-    ) -> Self {
+    pub(crate) fn new(format: SchemaFormat, metadata: Metadata, writer_id: String) -> Self {
         let (schemas_store, schema_states_store) = format.readers();
         let runtime = format.runtime();
         Self {
@@ -47,7 +41,6 @@ impl SchemaStore {
             schema_states_store,
             format,
             runtime,
-            content_key,
             metadata,
             writer_id,
             retention_floors: Arc::default(),
@@ -169,18 +162,7 @@ impl SchemaStore {
                     }
                 }
                 self.format.put_schema(input).await?;
-                let authored_at_ms = self.local_author_ms().await?;
-                let captured = accepted::stage_schema_put(
-                    &self.runtime,
-                    &self.content_key,
-                    schema_name,
-                    schema,
-                    authored_at_ms,
-                )?;
-                if captured {
-                    self.stamp_local_change(schema_name, authored_at_ms).await?;
-                }
-                Ok(())
+                self.capture_local_change(schema_name, Some(schema)).await
             }),
         )
         .await
@@ -214,34 +196,42 @@ impl SchemaStore {
         .await
     }
 
-    /// The author time of a schema change, from the clock that stamps record
-    /// writes. A store that does not capture its writes has no use for one.
-    pub(super) async fn local_author_ms(&self) -> Result<u64, SchemaError> {
-        if !accepted::capture_enabled(&self.runtime) {
-            return Ok(0);
-        }
-        self.metadata.stage_local_author_ms(&self.writer_id).await
-    }
-
-    /// Write the stamp row of a captured schema put or drop in the transaction
-    /// that commits it. A put or drop of another device is compared with it
-    /// when it arrives.
-    pub(super) async fn stamp_local_change(
+    /// Sign a schema put (`definition` given) or drop as the next entry of the
+    /// device stream, in the transaction that commits it, and write its stamp
+    /// row. A put or drop of another device is compared with that row when it
+    /// arrives. A store that does not capture its writes does nothing here.
+    pub(super) async fn capture_local_change(
         &self,
         schema: &str,
-        authored_at_ms: u64,
+        definition: Option<&Schema>,
     ) -> Result<(), SchemaError> {
-        let stamps = self
+        if !accepted::capture_enabled(&self.runtime) {
+            return Ok(());
+        }
+        // The author time comes from the clock that stamps record writes, so the
+        // change sits above everything this device has written or seen.
+        let order = self.metadata.stage_local_author_ms(&self.writer_id).await?;
+        let previous = self.metadata.local_replay_head(&self.writer_id).await?;
+        let staged = match definition {
+            Some(definition) => accepted::stage_schema_put(
+                &self.runtime,
+                schema,
+                definition,
+                order,
+                previous.as_ref(),
+            )?,
+            None => accepted::stage_schema_drop(&self.runtime, schema, order, previous.as_ref())?,
+        };
+        let Some(head) = staged else {
+            return Ok(());
+        };
+        let stamp = self
             .metadata
-            .stage_local_replay_stamps(&self.writer_id, &[authored_at_ms])
-            .await?;
+            .local_replay_stamp(&self.writer_id, head.seq, head.order)?;
         self.metadata
-            .stage_replay_stamps(
-                stamps
-                    .iter()
-                    .map(|stamp| (ReplayTarget::Schema(schema), None, stamp)),
-            )
-            .await
+            .stage_replay_stamps([(ReplayTarget::Schema(schema), None, &stamp)])
+            .await?;
+        self.metadata.stage_local_replay_head(&head).await
     }
 }
 

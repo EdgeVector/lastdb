@@ -53,7 +53,7 @@ async fn open_receiver(host: &Host, id: &Id, whole_database: bool) -> Result<Arc
             // A member proposes from its history (`log_sync::proposal`), and
             // nothing sends a spool for a received database, so it captures nothing.
             capture_accepted: false,
-            capture_device: None,
+            capture_author: None,
             record_log: whole_database
                 .then(|| crate::host::share_identity::record_log(&host.home, id.as_str())),
         },

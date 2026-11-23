@@ -257,10 +257,9 @@ class Device:
         return total, pending
 
     def synced_up(self):
-        """Every write the spool holds is on the relay, and nothing is saved for a retry."""
+        """Every write the spool holds is on the relay."""
         state = self.spool_state()
-        return (state is not None and state["head"] > 0 and state["head"] == state["acked"]
-                and not (self.log_dir() / "outgoing.json").exists())
+        return state is not None and state["head"] > 0 and state["head"] == state["acked"]
 
     def peak_memory_bytes(self):
         """The peak resident memory of the daemon process since it started (VmHWM)."""
