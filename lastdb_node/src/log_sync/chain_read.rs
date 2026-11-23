@@ -23,7 +23,7 @@ pub(super) fn owned_database(host: &Host, selector: &str) -> Result<Entry, Chain
 }
 
 /// Run `view` on the history of an owned database, or a received one held in memory.
-fn with_history<R>(
+pub(super) fn with_history<R>(
     host: &Host,
     selector: &str,
     view: impl FnOnce(&str, &VerifiedHistory) -> Result<R, ChainError>,

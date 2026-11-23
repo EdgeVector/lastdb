@@ -8,6 +8,8 @@
 
 use std::path::Path;
 
+use mutation_log::{SignedEntry, StreamKind};
+
 use crate::host::Host;
 use crate::registered_share;
 
@@ -18,11 +20,21 @@ use super::relay::RelayClient;
 const BATCH: usize = 32;
 
 /// Upload one database's pending entries and record its upload position.
+///
+/// `member` is true for a received database. When the relay refuses a
+/// member's entries (HTTP 403), the refusal is final for now: the database's
+/// sync status names it, the uploads wait (see [`publish_state::uploads_held`])
+/// and the turn does not fail, so the other databases keep their pace.
 pub(super) async fn upload_log(
     client: &RelayClient,
     host: &Host,
     database_id: &str,
+    member: bool,
 ) -> Option<String> {
+    let tip = member.then(|| grant_and_lease_tip(host, database_id));
+    if member && publish_state::uploads_held(database_id, tip.as_deref()) {
+        return None;
+    }
     let result = drain_log(client, &host.home, database_id).await;
     let (head, confirmed) = history_store::pending(&host.home, database_id, 0)
         .map_or((0, 0), |found| {
@@ -35,6 +47,20 @@ pub(super) async fn upload_log(
             if uploaded {
                 publish_state::note_confirmed(database_id, head - confirmed);
             }
+            None
+        }
+        Err(err) if member && err.contains("HTTP 403") => {
+            let message = refusal_message(host, database_id, &err);
+            tracing::warn!(
+                target: "lastdbd::log_sync",
+                id = %database_id,
+                %message,
+                "the relay refused this member's entries; uploads wait"
+            );
+            host.cloud_sync
+                .record_upload(database_id, head, confirmed, Some(message));
+            publish_state::note_failure(database_id, &err);
+            publish_state::hold_uploads(database_id, tip);
             None
         }
         Err(err) => {
@@ -63,7 +89,7 @@ pub(super) async fn upload_received_logs(host: &Host, client: &RelayClient) -> O
         if mutation_log::DatabaseId::from_hex(share.id.as_str()).is_err() {
             continue;
         }
-        if let Some(err) = upload_log(client, host, share.id.as_str()).await {
+        if let Some(err) = upload_log(client, host, share.id.as_str(), true).await {
             turn_error = Some(err);
         }
     }
@@ -87,12 +113,64 @@ pub(super) fn uploads_pending(host: &Host) -> bool {
     }
     if let Ok(shares) = registered_share::list(&host.home) {
         for share in shares {
-            if share.signed_log && database_pending(&host.home, share.id.as_str()) {
+            if share.signed_log
+                && database_pending(&host.home, share.id.as_str())
+                && !publish_state::uploads_held(
+                    share.id.as_str(),
+                    Some(grant_and_lease_tip(host, share.id.as_str()).as_str()),
+                )
+            {
                 return true;
             }
         }
     }
     false
+}
+
+/// The newest grant and lease the history holds, as one text. A change in
+/// either lets a refused member try its uploads again at once.
+fn grant_and_lease_tip(host: &Host, database_id: &str) -> String {
+    super::histories_for(host)
+        .peek_with(database_id, |history| {
+            format!(
+                "{:?}/{:?}",
+                history.latest_grant().map(|tip| tip.entry_hash.to_hex()),
+                history
+                    .latest_lease()
+                    .map(|lease| lease.entry_hash.to_hex())
+            )
+        })
+        .unwrap_or_default()
+}
+
+/// What the sync status says when the relay refuses a member's entries. A
+/// refused entry blocks the entries after it on the same device stream,
+/// because a stream is appended without gaps.
+fn refusal_message(host: &Host, database_id: &str, err: &str) -> String {
+    let first = history_store::pending(&host.home, database_id, 1)
+        .ok()
+        .and_then(|found| found.batch.into_iter().next());
+    let Some(first) = first else {
+        return format!("the relay refused this database's entries; uploads wait ({err})");
+    };
+    let seq = first.header().writer_seq;
+    let direct =
+        matches!(&first, SignedEntry::Data { body, .. } if body.stream == StreamKind::Direct);
+    if direct {
+        format!(
+            "the relay refused entry {seq} of this device stream, a direct write signed under \
+             a write lease: it takes entries only from a member whose role is write or \
+             submit now, and this node's role is read or removed. Entries after it wait \
+             behind it. Pulling and other databases are not affected. Uploads are tried again when the grants or leases \
+             change, and every 30 seconds. ({err})"
+        )
+    } else {
+        format!(
+            "the relay refused entry {seq} of this device stream; entries after it wait behind \
+             it. Uploads are tried again when the grants or leases change, and every 30 \
+             seconds. ({err})"
+        )
+    }
 }
 
 fn database_pending(home: &Path, database_id: &str) -> bool {

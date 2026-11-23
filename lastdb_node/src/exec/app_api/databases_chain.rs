@@ -14,15 +14,17 @@ use crate::exec::reply::{envelope, HostError};
 use crate::host::Host;
 use crate::lastdb_uds::uds_http::UdsResponse;
 use crate::log_sync::chain_error::ChainError;
-use crate::log_sync::{chain_grant, chain_read};
+use crate::log_sync::{chain_grant, chain_read, lease_status};
 
-const ACTIONS: [&str; 6] = [
+const ACTIONS: [&str; 8] = [
     "grant",
     "revoke",
     "grants",
     "heads",
     "relays",
     "bootstrap_relay",
+    "lease",
+    "lease_length",
 ];
 
 pub(super) fn handles(action: &str) -> bool {
@@ -44,6 +46,8 @@ pub(super) fn run(
         "grants" => read(body, host, chain_read::grants),
         "heads" => read(body, host, chain_read::heads),
         "relays" => read(body, host, chain_read::relays),
+        "lease" => read(body, host, lease_status::status),
+        "lease_length" => lease_length(body, host),
         _ => read(body, host, chain_read::bootstrap_relay),
     }?;
     Ok(ok(&envelope(&reply, &ctx.user_id)))
@@ -66,6 +70,23 @@ fn revoke(body: &Map<String, Value>, host: &Host) -> Result<Value, HostError> {
     allow(body, &["database", "grantee"])?;
     let selector = database_id(body, host)?;
     chain_grant::revoke(host, &selector, grantee(body)?).map_err(|error| refuse(&error))
+}
+
+/// Set the lease length of an owned database (`length_ms` a number), or clear it
+/// (`length_ms` null).
+fn lease_length(body: &Map<String, Value>, host: &Host) -> Result<Value, HostError> {
+    allow(body, &["database", "length_ms"])?;
+    let selector = database_id(body, host)?;
+    let length = match body.get("length_ms") {
+        Some(Value::Null) => None,
+        Some(Value::Number(number)) => Some(
+            number
+                .as_u64()
+                .ok_or_else(|| bad("length_ms must be a whole number"))?,
+        ),
+        _ => return Err(bad("length_ms must be a whole number or null")),
+    };
+    lease_status::set_length(host, &selector, length).map_err(|error| refuse(&error))
 }
 
 fn read(

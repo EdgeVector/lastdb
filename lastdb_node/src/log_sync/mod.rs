@@ -24,6 +24,10 @@ pub(crate) mod chain_read;
 mod device;
 mod history_store;
 mod incorporate;
+mod lease_member;
+mod lease_publish;
+mod lease_resign;
+pub(crate) mod lease_status;
 mod materialize;
 mod mirror;
 mod personal;
@@ -44,6 +48,7 @@ use fold_db::schema::types::Schema;
 
 pub use crate::cloud::{explicit_relay_url, relay_base_url};
 pub(crate) use history_store::histories_for;
+pub(crate) use lease_member::{may_write_direct, mirror_received as mirror_received_write};
 pub(crate) use materialize::{revert_unsigned, store_for as owned_store};
 pub(crate) use mirror::{mirror_owned_write, OwnedMutation};
 pub use personal::{

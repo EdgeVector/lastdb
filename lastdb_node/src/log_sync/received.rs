@@ -11,9 +11,17 @@ pub(crate) fn view(host: &Host, database_id: &str) -> Option<Value> {
     let node = NodeKey::from_bytes(host.keypair.public_key_bytes());
     let histories = super::histories_for(host);
     histories
-        .peek_with(database_id, |history| role_of(history, node))
+        .peek_with(database_id, |history| {
+            let role = role_of(history, node)?;
+            let mut view = json!({ "role": role });
+            if let Some(lease) =
+                super::lease_status::held(history, node, fold_db::clock::unix_millis())
+            {
+                view["lease"] = lease;
+            }
+            Some(view)
+        })
         .flatten()
-        .map(|role| json!({ "role": role }))
 }
 
 /// Folded role for `node` in `history`: owner is Write; else the grant window;

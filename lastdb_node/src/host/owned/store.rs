@@ -53,12 +53,15 @@ impl Tables {
             name: Some(args.name.to_owned()),
             kind: args.kind,
             spec: args.spec,
+            lease_length_ms: None,
         };
         if args.requested_id.is_some() {
             let state = self.read()?;
             if let Some(existing) = state.owned.iter().find(|row| row.id == entry.id) {
-                return if existing == &entry {
-                    Ok(entry)
+                let mut same = entry.clone();
+                same.lease_length_ms = existing.lease_length_ms;
+                return if existing == &same {
+                    Ok(same)
                 } else {
                     Err(OwnedError::AlreadyRegistered)
                 };

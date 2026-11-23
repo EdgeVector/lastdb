@@ -52,13 +52,13 @@ impl std::fmt::Display for ContributionError {
 }
 
 #[derive(Serialize, Deserialize)]
-struct Submitted {
-    writer_seq: u64,
-    entry_hash: EntryHash,
-    body_sha256: String,
+pub(super) struct Submitted {
+    pub(super) writer_seq: u64,
+    pub(super) entry_hash: EntryHash,
+    pub(super) body_sha256: String,
 }
 
-type Ledger = BTreeMap<String, Submitted>;
+pub(super) type Ledger = BTreeMap<String, Submitted>;
 
 fn ledger_path(home: &Path, database_id: &str) -> PathBuf {
     home.join("log-sync")
@@ -66,7 +66,7 @@ fn ledger_path(home: &Path, database_id: &str) -> PathBuf {
         .join("proposals.json")
 }
 
-fn load_ledger(home: &Path, database_id: &str) -> Result<Ledger, ContributionError> {
+pub(super) fn load_ledger(home: &Path, database_id: &str) -> Result<Ledger, ContributionError> {
     let path = ledger_path(home, database_id);
     match disk::read_limited(&path, LEDGER_LIMIT) {
         Ok(Some(bytes)) => {
@@ -77,7 +77,11 @@ fn load_ledger(home: &Path, database_id: &str) -> Result<Ledger, ContributionErr
     }
 }
 
-fn store_ledger(home: &Path, database_id: &str, ledger: &Ledger) -> Result<(), ContributionError> {
+pub(super) fn store_ledger(
+    home: &Path,
+    database_id: &str,
+    ledger: &Ledger,
+) -> Result<(), ContributionError> {
     let bytes = serde_json::to_vec(ledger).map_err(|_| ContributionError::Unavailable)?;
     disk::write_private(&ledger_path(home, database_id), &bytes)
         .map_err(|_| ContributionError::Unavailable)
@@ -251,7 +255,7 @@ pub(crate) async fn submit(
 }
 
 /// Sign `value` as a proposal on this node's member stream.
-fn author_proposal(
+pub(super) fn author_proposal(
     host: &Host,
     database_id: &str,
     namespace: String,
@@ -296,7 +300,7 @@ fn contribution_error(error: &ChainError) -> ContributionError {
     }
 }
 
-fn hex_digest(bytes: &[u8]) -> String {
+pub(super) fn hex_digest(bytes: &[u8]) -> String {
     app_identity_crypto::hex_lower(&Sha256::digest(bytes))
 }
 

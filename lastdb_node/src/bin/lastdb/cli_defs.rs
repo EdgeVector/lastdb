@@ -293,4 +293,16 @@ pub(crate) enum ShareCommand {
         /// Database id or name.
         database: String,
     },
+    /// Show the write lease of a database, or set or clear the lease length of
+    /// one you publish. With no option it shows the lease this node holds.
+    Lease {
+        /// Database id or name.
+        database: String,
+        /// Lease length to set, from 10s to 90d: a number and s, m, h or d (`24h`).
+        #[arg(long, conflicts_with = "clear")]
+        length: Option<String>,
+        /// Stop signing new leases. A lease already signed runs to its end.
+        #[arg(long)]
+        clear: bool,
+    },
 }

@@ -175,7 +175,7 @@ fn schema_definition_matches(prior: &[u8], current: &fold_db::schema::types::Sch
 }
 
 /// The value of a record in an entry: its fields as JSON, or nothing for a delete.
-fn encode_value(item: &OwnedMutation) -> Result<Vec<u8>, String> {
+pub(super) fn encode_value(item: &OwnedMutation) -> Result<Vec<u8>, String> {
     if item.op == MutationType::Delete {
         return Ok(Vec::new());
     }

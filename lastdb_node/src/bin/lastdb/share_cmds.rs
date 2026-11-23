@@ -27,6 +27,11 @@ pub(super) fn run(
             post_accept(data_dir, &json!({ "link": link, "name": name }))
         }
         ShareCommand::Link { database } => mint_link(data_dir, &database),
+        ShareCommand::Lease {
+            database,
+            length,
+            clear,
+        } => lease(data_dir, &database, length.as_deref(), clear),
         action => run_offline(data_dir, action),
     }
 }
@@ -51,6 +56,41 @@ fn mint_link(data_dir: Option<PathBuf>, database: &str) -> Result<(), String> {
     )?;
     println!("{}", owner_json(&raw, "open read link")?);
     Ok(())
+}
+
+/// Read or set the lease of one database on the owner socket.
+fn lease(
+    data_dir: Option<PathBuf>,
+    database: &str,
+    length: Option<&str>,
+    clear: bool,
+) -> Result<(), String> {
+    let body = match (length, clear) {
+        (Some(text), _) => json!({ "length_ms": parse_length(text)? }),
+        (None, true) => json!({ "length_ms": null }),
+        (None, false) => json!({}),
+    };
+    let target = DatabaseTarget::open(data_dir, Some(database))?;
+    require_reachable(&target.socket)?;
+    let path = target.path("/api/lease");
+    let raw = post_json_with_timeout(&target.socket, path.as_ref(), &body, handler_timeout())?;
+    println!("{}", owner_json(&raw, "lease")?);
+    Ok(())
+}
+
+/// `30s`, `5m`, `24h` or `7d` in milliseconds.
+fn parse_length(text: &str) -> Result<u64, String> {
+    let invalid = || format!("invalid lease length {text:?}; use a number and s, m, h or d");
+    let unit = text.chars().last().ok_or_else(invalid)?;
+    let scale: u64 = match unit {
+        's' => 1_000,
+        'm' => 60_000,
+        'h' => 3_600_000,
+        'd' => 86_400_000,
+        _ => return Err(invalid()),
+    };
+    let count: u64 = text[..text.len() - 1].parse().map_err(|_| invalid())?;
+    count.checked_mul(scale).ok_or_else(invalid)
 }
 
 fn run_offline(data_dir: Option<PathBuf>, action: ShareCommand) -> Result<(), String> {

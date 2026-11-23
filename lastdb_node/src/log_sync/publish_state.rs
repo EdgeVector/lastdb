@@ -32,8 +32,20 @@ struct Attempt {
     status: StatusKind,
 }
 
+/// How long a member waits after the relay refused its uploads, unless the
+/// grants or leases change first.
+const HOLD_MS: u64 = 30_000;
+
+/// Uploads of one database that the relay refused, and when to try again.
+struct Hold {
+    until_ms: u64,
+    /// The grant and lease tips when the relay refused. A change retries at once.
+    tip: Option<String>,
+}
+
 #[derive(Default)]
 struct Slot {
+    hold: Option<Hold>,
     attempt: Option<Attempt>,
     /// `None` until [`note_pending`] has run in this process.
     pending: Option<u64>,
@@ -46,8 +58,27 @@ pub(crate) fn note_pending(database_id: &str, pending: u64) {
 
 /// A relay append that stored the full batch.
 pub(crate) fn note_confirmed(database_id: &str, pending: u64) {
+    slots().entry(database_id.to_owned()).or_default().hold = None;
     note_pending(database_id, pending);
     note(database_id, Outcome::Confirmed, StatusKind::Http(200));
+}
+
+/// The relay refused this database's uploads. None are tried again for
+/// [`HOLD_MS`], or until `tip` changes.
+pub(crate) fn hold_uploads(database_id: &str, tip: Option<String>) {
+    slots().entry(database_id.to_owned()).or_default().hold = Some(Hold {
+        until_ms: fold_db::clock::unix_millis().saturating_add(HOLD_MS),
+        tip,
+    });
+}
+
+/// True while uploads of the database wait after a refusal.
+pub(crate) fn uploads_held(database_id: &str, tip: Option<&str>) -> bool {
+    slots().get(database_id).is_some_and(|slot| {
+        slot.hold.as_ref().is_some_and(|hold| {
+            fold_db::clock::unix_millis() < hold.until_ms && hold.tip.as_deref() == tip
+        })
+    })
 }
 
 /// A relay append that stopped. Prefer an HTTP status when the error names one.

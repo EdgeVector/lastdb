@@ -46,8 +46,34 @@ fn keys_of(signed: &[OwnedMutation]) -> Vec<(String, String)> {
         .collect()
 }
 
-/// Author the signed entries of an owned shareable write; no-op for a received
-/// database, which a write never reaches. The personal database is not signed
+/// A write to a received database reaches here only while a write lease covers
+/// this node (see `app_api::database`). Its entries are signed as direct
+/// entries that name the lease. A selector that names no received database
+/// signs nothing.
+async fn mirror_received(
+    host: &Host,
+    selector: Option<&str>,
+    signed: &[OwnedMutation],
+) -> Result<(), HostError> {
+    let Some(selector) = selector else {
+        return Ok(());
+    };
+    match crate::log_sync::mirror_received_write(host, selector, signed).await {
+        Ok(_) => Ok(()),
+        Err(error) => {
+            let reply = error.reply();
+            let refusal = HostError::new(reply.status, reply.message);
+            Err(if reply.retry {
+                refusal.with_retry_after(crate::exec::database_share::RETRY_AFTER_SECS)
+            } else {
+                refusal
+            })
+        }
+    }
+}
+
+/// Author the signed entries of an owned shareable write; a received database
+/// is signed by `mirror_received`. The personal database is not signed
 /// here: its write is already in the spool, and this wakes the sync loop.
 ///
 /// The store validated and committed the write first. When its entries cannot
@@ -59,7 +85,7 @@ pub(super) async fn mirror_committed(
     signed: Vec<OwnedMutation>,
 ) -> Result<(), HostError> {
     let Some(target) = write_target(host, selector) else {
-        return Ok(());
+        return mirror_received(host, selector, &signed).await;
     };
     if target.personal {
         // The commit already put the write in the spool of accepted writes, which
