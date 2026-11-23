@@ -8,10 +8,9 @@ sharing leg fails. It uses the same `secrets.GH_PAT` cross-repo pattern as
 `notify-schema-infra.yml`.
 
 Correlation is the People `run-name` only: exact
-`DEV sharing (<40-hex SHA>)` on `head_branch=main`. There is no
-“newest dispatch” fallback and no adoption of a concurrent run for a
-different LastDB SHA or ref (same class of failure as exemem deploy
-prove watching People 45068459500 / 6f9dbbeb5 after a cancel redispatch).
+`DEV sharing (<40-hex SHA>)` on `head_branch=main` (case-insensitive on the
+title/`name` fields). There is no “newest dispatch” fallback and no adoption
+of a concurrent run for a different LastDB SHA or ref.
 """
 
 from __future__ import annotations
@@ -28,6 +27,10 @@ from datetime import datetime, timedelta, timezone
 PEOPLE = "EdgeVector/people"
 WORKFLOW = "dev-sharing.yml"
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+# Find must fail well before the 120-minute job timeout (ci-required.yml).
+DEFAULT_FIND_SECONDS = 20 * 60
+# Total budget for find + People legs; leave margin under timeout-minutes: 120.
+DEFAULT_WAIT_SECONDS = 100 * 60
 SHARING_LEGS = (
     "people-share in DEV",
     "people-circles in DEV",
@@ -96,7 +99,7 @@ def dispatch(sha: str, mode: str) -> None:
 def list_runs() -> list[dict]:
     result = gh_api(
         f"repos/{PEOPLE}/actions/workflows/{WORKFLOW}/runs"
-        "?event=workflow_dispatch&per_page=30"
+        "?event=workflow_dispatch&per_page=100"
     )
     if result.returncode != 0:
         print(
@@ -119,12 +122,22 @@ def expected_run_name(sha: str) -> str:
     return f"DEV sharing ({sha.lower()})"
 
 
+def run_title(run: dict) -> str:
+    """People run-name lives in `name`; `display_title` usually mirrors it."""
+    for key in ("name", "display_title"):
+        value = (run.get(key) or "").strip()
+        if value:
+            return value
+    return ""
+
+
 def run_identity_matches(run: dict, sha: str) -> bool:
     """True only for people main workflow_dispatch of this exact LastDB SHA."""
     if (run.get("head_branch") or "") != "main":
         return False
-    title = (run.get("display_title") or "").strip().lower()
-    return title == expected_run_name(sha)
+    # Compare case-insensitively: GitHub may normalize display casing.
+    title = run_title(run).lower()
+    return title == expected_run_name(sha).lower()
 
 
 def find_run(sha: str, not_before: datetime) -> dict | None:
@@ -164,10 +177,38 @@ def print_legs(run_id: int, html_url: str) -> None:
         )
 
 
-def wait_for_run(sha: str, not_before: datetime, wait_seconds: int) -> dict:
-    deadline = time.monotonic() + wait_seconds
+def print_recent_dispatch_titles(sha: str) -> None:
+    """Diagnostics when find misses: show recent main dispatch titles."""
+    want = expected_run_name(sha).lower()
+    print(
+        "people-dev-sharing-gate: recent workflow_dispatch on people "
+        f"(looking for {want!r} on main):",
+        flush=True,
+    )
+    shown = 0
+    for run in list_runs()[:15]:
+        title = run_title(run)
+        branch = run.get("head_branch") or ""
+        print(
+            f"  - id={run.get('id')} branch={branch!r} "
+            f"title={title!r} created={run.get('created_at')}",
+            flush=True,
+        )
+        shown += 1
+    if shown == 0:
+        print("  - (none listed)", flush=True)
+
+
+def wait_for_run(
+    sha: str,
+    not_before: datetime,
+    find_seconds: int,
+    wait_seconds: int,
+) -> dict:
+    find_deadline = time.monotonic() + find_seconds
+    total_deadline = time.monotonic() + wait_seconds
     run = None
-    while time.monotonic() < deadline:
+    while time.monotonic() < find_deadline:
         run = find_run(sha, not_before)
         if run is not None:
             break
@@ -178,9 +219,10 @@ def wait_for_run(sha: str, not_before: datetime, wait_seconds: int) -> dict:
         )
         time.sleep(15)
     if run is None:
+        print_recent_dispatch_titles(sha)
         print(
             f"people-dev-sharing-gate: FAIL no People DEV sharing run named "
-            f"{expected_run_name(sha)!r} on main appeared within {wait_seconds}s. "
+            f"{expected_run_name(sha)!r} on main appeared within {find_seconds}s. "
             "People main must embed lastdb_source_sha in run-name (people #37). "
             "There is no newest-dispatch fallback.",
             file=sys.stderr,
@@ -188,12 +230,12 @@ def wait_for_run(sha: str, not_before: datetime, wait_seconds: int) -> dict:
         sys.exit(1)
     run_id = run["id"]
     html_url = run.get("html_url", "")
-    title = run.get("display_title", "")
+    title = run_title(run)
     print(
         f"people-dev-sharing-gate: watching run {run_id} ({title}) {html_url}",
         flush=True,
     )
-    while time.monotonic() < deadline:
+    while time.monotonic() < total_deadline:
         result = gh_api(f"repos/{PEOPLE}/actions/runs/{run_id}")
         if result.returncode != 0:
             print(
@@ -208,7 +250,7 @@ def wait_for_run(sha: str, not_before: datetime, wait_seconds: int) -> dict:
         if not run_identity_matches(run, sha):
             print(
                 f"people-dev-sharing-gate: FAIL watched run {run_id} identity "
-                f"title={run.get('display_title')!r} head_branch={run.get('head_branch')!r} "
+                f"title={run_title(run)!r} head_branch={run.get('head_branch')!r} "
                 f"does not match {expected_run_name(sha)!r} on main",
                 file=sys.stderr,
             )
@@ -231,7 +273,18 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--sha", required=True, help="40-hex LastDB commit to prove")
     parser.add_argument("--mode", default="all", help="People sharing mode (default all)")
-    parser.add_argument("--wait-seconds", type=int, default=7200)
+    parser.add_argument(
+        "--find-seconds",
+        type=int,
+        default=DEFAULT_FIND_SECONDS,
+        help="Fail if the exact-SHA run-name does not appear (default 1200)",
+    )
+    parser.add_argument(
+        "--wait-seconds",
+        type=int,
+        default=DEFAULT_WAIT_SECONDS,
+        help="Total find+complete budget (default 6000, under the 120m job)",
+    )
     args = parser.parse_args()
     sha = args.sha.strip().lower()
     if not SHA_RE.match(sha):
@@ -240,14 +293,21 @@ def main() -> int:
             file=sys.stderr,
         )
         return 2
+    if args.find_seconds < 60 or args.wait_seconds < args.find_seconds:
+        print(
+            "people-dev-sharing-gate: FAIL need find-seconds >= 60 and "
+            "wait-seconds >= find-seconds",
+            file=sys.stderr,
+        )
+        return 2
     require_token()
     not_before = datetime.now(timezone.utc)
     dispatch(sha, args.mode)
-    run = wait_for_run(sha, not_before, args.wait_seconds)
+    run = wait_for_run(sha, not_before, args.find_seconds, args.wait_seconds)
     if not run_identity_matches(run, sha):
         print(
             f"people-dev-sharing-gate: FAIL completed run {run.get('id')} identity "
-            f"title={run.get('display_title')!r} head_branch={run.get('head_branch')!r} "
+            f"title={run_title(run)!r} head_branch={run.get('head_branch')!r} "
             f"does not match {expected_run_name(sha)!r} on main",
             file=sys.stderr,
         )
