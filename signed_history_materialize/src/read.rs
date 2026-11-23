@@ -32,6 +32,17 @@ pub async fn read_revision(
         .map(|stored| stored.revision))
 }
 
+/// Live alternate keys at `record_key`, or `None` when absent.
+pub async fn read_alternates(
+    store: &FoldDB,
+    namespace: &str,
+    record_key: &str,
+) -> Result<Option<crate::apply::Alternates>, String> {
+    Ok(read_stored(store, namespace, record_key)
+        .await?
+        .map(|stored| stored.alternates))
+}
+
 pub(crate) async fn read_stored(
     store: &FoldDB,
     namespace: &str,
@@ -66,6 +77,7 @@ pub(crate) async fn read_at(
         created_by: record.created_by,
         updated_by: record.updated_by,
         fields: record.fields,
+        alternates: record.alternates,
     });
     if rows.next().is_some() {
         return Err(format!(

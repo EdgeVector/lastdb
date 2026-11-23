@@ -9,8 +9,7 @@
 use mutation_log::{SignedEntry, StreamKind};
 
 use super::fixture::{Fixture, KEY, NAMESPACE};
-use crate::device::{random_device_id, DataWrite, Device};
-use crate::proposal::author_member_entry;
+use crate::device::{must_accept, random_device_id, stream_head_of, Device};
 use crate::relay::{RelayClient, RelayHandle};
 
 const DIRECT: &str = "must cite exactly one lease";
@@ -69,30 +68,64 @@ async fn reject_after_revoke(
     db: &str,
     relay: &RelayHandle,
 ) -> Result<(), String> {
+    fx.clock += 1;
+    let citing_all = author_citing_window(
+        &fx.member_hist,
+        &fx.member,
+        fx.birth.database_id,
+        fx.clock,
+        KEY,
+        b"honest-late",
+    )?;
+    fx.expect_unauthorized(citing_all, "proposal requires")?;
+
     let late = fx.author(StreamKind::Proposal, true, KEY, b"late")?;
-    fx.expect_unauthorized(late.clone(), "proposal requires")?;
     let client = RelayClient::new(&relay.base_url, &fx.member);
     expect_forbidden(&client, db, &late).await?;
+    must_accept(&mut fx.member_hist, late.clone())?;
+    must_accept(&mut fx.owner_hist, late.clone())?;
+    fx.expect_record(Some(b"ok"))?;
+    if fx
+        .owner_hist
+        .grants()
+        .role_of(&fx.member.node_key)
+        .is_some()
+    {
+        return Err("revoked member still holds a current role".into());
+    }
+    fx.decline(&late)?;
+    fx.expect_decision(&late, false, true)?;
 
     let new_device = Device {
         signing_key: fx.member.signing_key.clone(),
         node_key: fx.member.node_key,
         device_id: random_device_id(),
     };
-    let other = author_member_entry(
+    fx.clock += 1;
+    let other = author_citing_window(
         &fx.member_hist,
         &new_device,
-        StreamKind::Proposal,
-        Some(&fx.grant),
-        &DataWrite {
-            database_id: fx.birth.database_id,
-            namespace: NAMESPACE,
-            record_key: KEY,
-            value: b"new-device",
-            authored_at_ms: fx.clock + 1,
-        },
+        fx.birth.database_id,
+        fx.clock,
+        KEY,
+        b"new-device",
     )?;
     fx.expect_unauthorized(other, "proposal requires")
+}
+
+fn author_citing_window(
+    history: &mutation_log::VerifiedHistory,
+    member: &Device,
+    database_id: mutation_log::DatabaseId,
+    authored_at_ms: u64,
+    key: &str,
+    value: &[u8],
+) -> Result<SignedEntry, String> {
+    let (seen, lamports): (Vec<_>, Vec<_>) = history.publisher_grants().into_iter().unzip();
+    let head = stream_head_of(history, member);
+    let ctx = member.author_ctx(database_id, head, seen, lamports, authored_at_ms);
+    let body = mutation_log::data_record(StreamKind::Proposal, NAMESPACE, key, value);
+    mutation_log::author_data(&ctx, &member.signing_key, body).map_err(|e| e.to_string())
 }
 
 pub(crate) async fn expect_forbidden(

@@ -17,6 +17,11 @@ pub(super) fn random_device_id() -> DeviceId {
 }
 
 pub(super) fn device_id(home: &Path) -> Result<DeviceId, String> {
+    static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+    let _guard = LOCK
+        .get_or_init(|| std::sync::Mutex::new(()))
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let path = home.join("log-sync").join("device-id");
     if let Some(bytes) = disk::read_limited(&path, LIMIT).map_err(|_| "cannot read device id")? {
         let text = std::str::from_utf8(&bytes)

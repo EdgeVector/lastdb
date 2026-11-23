@@ -36,7 +36,6 @@ pub fn authorize_data<'s>(
     entry: &SignedEntry,
     body: &DataBody,
     owner: Option<NodeKey>,
-    grants: &GrantState,
     lookup: &dyn Fn(&EntryHash) -> Option<&'s AcceptedMeta>,
     leases_held: bool,
 ) -> Option<RejectReason> {
@@ -46,7 +45,7 @@ pub fn authorize_data<'s>(
     }
     match body.stream {
         StreamKind::Direct => authorize_member_direct(h, body, lookup, leases_held),
-        StreamKind::Proposal => authorize_proposal(h, body, grants, lookup),
+        StreamKind::Proposal => authorize_proposal(h, body, lookup),
     }
 }
 
@@ -90,7 +89,6 @@ fn authorize_member_direct<'s>(
 fn authorize_proposal<'s>(
     h: &EntryHeader,
     body: &DataBody,
-    grants: &GrantState,
     lookup: &dyn Fn(&EntryHash) -> Option<&'s AcceptedMeta>,
 ) -> Option<RejectReason> {
     if body.grant_at_device.is_some() || body.grant_at_seq.is_some() {
@@ -101,23 +99,29 @@ fn authorize_proposal<'s>(
             "non-publisher proposal must not carry incorporated_from",
         ));
     }
+    // Acceptance into the member's stream depends only on the grants cited in
+    // `seen_heads`, keeping `AcceptEntry` causal and order-independent. Whether
+    // a proposal changes a record is decided by the publisher against current
+    // folded grants.
     let window = GrantState::fold_window_from_seen(&h.seen_heads, |h| lookup(h));
     match window.role_of(&h.node_key) {
-        Some(Role::Submit | Role::Write) => {}
-        _ => {
-            return Some(RejectReason::Unauthorized(
-                "proposal requires submit or write grant",
-            ))
-        }
-    }
-    // `seen_heads` can cite an older grant that the member no longer holds, so
-    // the member's current role decides too.
-    match grants.role_of(&h.node_key) {
         Some(Role::Submit | Role::Write) => None,
         _ => Some(RejectReason::Unauthorized(
-            "proposal requires a current submit or write grant",
+            "proposal requires submit or write grant",
         )),
     }
+}
+
+/// Public (`any`) grants may carry `read` or `revoked` only.
+pub fn check_grant(body: &crate::entry::GrantBody) -> Option<RejectReason> {
+    if body.grantee == crate::kinds::Grantee::Any
+        && !matches!(body.role, Role::Read | Role::Revoked)
+    {
+        return Some(RejectReason::Malformed(
+            "any grant role must be read or revoked",
+        ));
+    }
+    None
 }
 
 /// A lease must close later than it expires.

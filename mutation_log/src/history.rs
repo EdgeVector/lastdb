@@ -24,6 +24,7 @@ pub use lease::LeaseView;
 pub use view::GrantTip;
 
 use lease::{LeaseMeta, PosKey, Under};
+use recompute::WriteMeta;
 
 /// Equivocation evidence kept when a stream freezes.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -68,16 +69,22 @@ pub struct VerifiedHistory {
     grants: GrantState,
     /// Whole-record LWW state: `(namespace, record_key)`.
     records: BTreeMap<(String, String), MaterializedRecord>,
-    /// Declared schema definitions by namespace (last accepted wins).
+    /// Declared schema definitions by namespace (highest position wins).
     schemas: BTreeMap<String, Vec<u8>>,
+    /// Winning position of each declared schema definition.
+    schema_positions: BTreeMap<String, crate::payload::RecordPosition>,
     /// Blob hashes marked deleted.
     deleted_blobs: BTreeSet<EntryHash>,
     /// Digests referenced by accepted bundle entries (blocks invalid `blob_delete`).
     live_bundle_blobs: BTreeSet<crate::ids::Hex32>,
     /// Latest publisher relay URLs.
     relays: Vec<String>,
+    /// Winning position of `relays`.
+    relays_position: Option<crate::payload::RecordPosition>,
     /// Latest publisher heads tips.
     publisher_heads: Vec<crate::entry::DeviceHead>,
+    /// Winning position of `publisher_heads`.
+    publisher_heads_position: Option<crate::payload::RecordPosition>,
     /// Pending entries waiting on deps.
     pending: VecDeque<SignedEntry>,
     /// Reject evidence.
@@ -99,6 +106,8 @@ pub struct VerifiedHistory {
     /// Per record key, the best bundle write that a non-bundle write shadowed
     /// or displaced. A recompute after a lease closing needs it.
     bundle_floor: BTreeMap<(String, String), MaterializedRecord>,
+    /// Ordered metadata of every direct and bundle write per record key.
+    write_meta: BTreeMap<(String, String), BTreeMap<PosKey, WriteMeta>>,
 }
 
 impl VerifiedHistory {
@@ -115,10 +124,13 @@ impl VerifiedHistory {
             grants: GrantState::empty(),
             records: BTreeMap::new(),
             schemas: BTreeMap::new(),
+            schema_positions: BTreeMap::new(),
             deleted_blobs: BTreeSet::new(),
             live_bundle_blobs: BTreeSet::new(),
             relays: Vec::new(),
+            relays_position: None,
             publisher_heads: Vec::new(),
+            publisher_heads_position: None,
             pending: VecDeque::new(),
             rejects: Vec::new(),
             equivocations: Vec::new(),
@@ -129,6 +141,7 @@ impl VerifiedHistory {
             under_lease: BTreeMap::new(),
             excluded: BTreeSet::new(),
             bundle_floor: BTreeMap::new(),
+            write_meta: BTreeMap::new(),
         }
     }
 
@@ -294,9 +307,7 @@ impl VerifiedHistory {
         }
         self.apply_effects(&entry, hash, position, is_publisher);
         let rebuild = is_publisher && grant_body.is_some();
-        if rebuild {
-            self.note_member_role(&entry);
-        }
+        let grant_ref = rebuild.then(|| entry.clone());
         let meta = AcceptedMeta {
             position,
             is_publisher,
@@ -313,7 +324,8 @@ impl VerifiedHistory {
             },
         );
         self.accepted.insert(hash, meta);
-        if rebuild {
+        if let Some(grant_entry) = grant_ref {
+            self.note_member_role(&grant_entry);
             self.rebuild_grants();
         }
     }

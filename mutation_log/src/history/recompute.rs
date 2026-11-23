@@ -1,15 +1,65 @@
-//! The recompute after a lease closing changes which entries count.
+//! The recompute after a lease closing or out-of-order grant changes which entries count.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 use crate::entry::SignedEntry;
 use crate::ids::{EntryHash, NodeKey};
 use crate::payload::{decode_record_payload, MaterializedRecord, RecordPosition};
 
-use super::lease::{pos_key, PosKey};
+use super::lease::pos_key;
 use super::VerifiedHistory;
 
+/// Lightweight metadata of one write to a record key (no value bytes).
+#[derive(Clone, Copy, Debug)]
+pub(super) struct WriteMeta {
+    pub(super) position: RecordPosition,
+    pub(super) author: NodeKey,
+    pub(super) entry: EntryHash,
+    pub(super) tombstone: bool,
+    pub(super) from_bundle: bool,
+}
+
 impl VerifiedHistory {
+    pub(super) fn record_write_meta(&mut self, key: &(String, String), meta: WriteMeta) {
+        self.write_meta
+            .entry(key.clone())
+            .or_default()
+            .insert(pos_key(meta.position), meta);
+    }
+
+    pub(super) fn is_bundle_write(&self, key: &(String, String), position: RecordPosition) -> bool {
+        self.write_meta
+            .get(key)
+            .and_then(|map| map.get(&pos_key(position)))
+            .is_some_and(|meta| meta.from_bundle)
+    }
+
+    /// Creator of the current live creation epoch for `key`: the earliest
+    /// non-excluded live write after the latest non-excluded tombstone before
+    /// the winner.
+    pub(super) fn active_creator(
+        &self,
+        key: &(String, String),
+    ) -> Option<(NodeKey, RecordPosition)> {
+        let map = self.write_meta.get(key)?;
+        let mut active = map
+            .values()
+            .rev()
+            .filter(|meta| !self.excluded.contains(&meta.entry));
+        let winner = active.next()?;
+        if winner.tombstone {
+            return Some((winner.author, winner.position));
+        }
+        let mut earliest = (winner.author, winner.position);
+        for meta in active {
+            if meta.tombstone {
+                break;
+            }
+            earliest = (meta.author, meta.position);
+        }
+        Some(earliest)
+    }
+
     /// Recompute the records that the entries in `changed` wrote. Each such
     /// record becomes the winner among the counting data entries that wrote it
     /// and the bundle writes that a non-bundle write shadowed or displaced.
@@ -28,72 +78,9 @@ impl VerifiedHistory {
                 keys.insert((namespace, decoded.record_key));
             }
         }
-        let excluded_at: BTreeSet<PosKey> = self
-            .excluded
-            .iter()
-            .filter_map(|hash| self.accepted.get(hash))
-            .map(|meta| pos_key(meta.position))
-            .collect();
-        let mut written: BTreeMap<(String, String), Vec<MaterializedRecord>> = BTreeMap::new();
-        for (hash, meta) in &self.accepted {
-            let SignedEntry::Data { header, body } = &meta.entry else {
-                continue;
-            };
-            let Some((author, namespace, decoded)) =
-                self.contribution(header, body, hash, meta.is_publisher)
-            else {
-                continue;
-            };
-            let key = (namespace, decoded.record_key);
-            if !keys.contains(&key) {
-                continue;
-            }
-            written.entry(key).or_default().push(MaterializedRecord {
-                position: meta.position,
-                author,
-                entry: *hash,
-                creator: author,
-                creator_position: meta.position,
-                value: decoded.value,
-            });
-        }
         let mut outcome: Vec<((String, String), Option<MaterializedRecord>)> = Vec::new();
         for key in keys {
-            let mut candidates = written.remove(&key).unwrap_or_default();
-            if let Some(floor) = self.bundle_floor.get(&key) {
-                candidates.push(floor.clone());
-            }
-            if let Some(held) = self.records.get(&key) {
-                if self.is_bundle(&held.entry) {
-                    candidates.push(held.clone());
-                }
-            }
-            let mut winner: Option<&MaterializedRecord> = None;
-            for candidate in &candidates {
-                if winner.is_none_or(|w| candidate.position.beats(w.position)) {
-                    winner = Some(candidate);
-                }
-            }
-            let mut creator: Option<(NodeKey, RecordPosition)> = None;
-            for candidate in &candidates {
-                let (who, at) = if excluded_at.contains(&pos_key(candidate.creator_position)) {
-                    (candidate.author, candidate.position)
-                } else {
-                    (candidate.creator, candidate.creator_position)
-                };
-                if creator.is_none_or(|(_, held)| pos_key(at) < pos_key(held)) {
-                    creator = Some((who, at));
-                }
-            }
-            let rebuilt = match (winner, creator) {
-                (Some(win), Some((who, at))) => {
-                    let mut record = win.clone();
-                    record.creator = who;
-                    record.creator_position = at;
-                    Some(record)
-                }
-                _ => None,
-            };
+            let rebuilt = self.rebuild_key(&key);
             outcome.push((key, rebuilt));
         }
         for (key, record) in outcome {
@@ -106,5 +93,37 @@ impl VerifiedHistory {
                 }
             }
         }
+    }
+
+    fn rebuild_key(&self, key: &(String, String)) -> Option<MaterializedRecord> {
+        let win = self
+            .write_meta
+            .get(key)?
+            .values()
+            .rev()
+            .find(|meta| !self.excluded.contains(&meta.entry))
+            .copied()?;
+        let (creator, creator_position) = self.active_creator(key)?;
+        let value = if win.from_bundle {
+            self.records
+                .get(key)
+                .filter(|r| r.entry == win.entry)
+                .or_else(|| self.bundle_floor.get(key).filter(|r| r.entry == win.entry))
+                .map(|r| r.value.clone())?
+        } else {
+            let SignedEntry::Data { header, body } = &self.accepted.get(&win.entry)?.entry else {
+                return None;
+            };
+            let (_, payload) = self.data_write(header, body)?;
+            decode_record_payload(&payload).ok()?.value
+        };
+        Some(MaterializedRecord {
+            position: win.position,
+            author: win.author,
+            entry: win.entry,
+            creator,
+            creator_position,
+            value,
+        })
     }
 }

@@ -6,7 +6,7 @@
 //! `owner(32) ‖ db_salt(32)`, signed by that key (`birth_signature` on the
 //! wire). See [`birth_proof_bytes`] and [`verify_birth_signature`].
 
-use crate::auth::{authorize_bundle, authorize_data, check_lease};
+use crate::auth::{authorize_bundle, authorize_data, check_grant, check_lease};
 use crate::bundle::validate_bundle_body;
 use crate::entry::SignedEntry;
 use crate::grants::{AcceptedMeta, GrantState};
@@ -288,27 +288,27 @@ fn check_auth(
     ctx: &AcceptContext<'_>,
     leases_held: bool,
 ) -> Option<RejectReason> {
+    let _ = ctx.grants;
     let h = entry.header();
-    match entry.kind() {
+    let kind = entry.kind();
+    if kind != EntryKind::Birth && kind.is_publisher_kind() && ctx.owner != Some(h.node_key) {
+        return Some(RejectReason::Unauthorized(
+            "publisher kind requires birth owner",
+        ));
+    }
+    match kind {
         EntryKind::Birth => check_birth(entry, ctx),
-        EntryKind::Lease => match (entry, ctx.owner) {
-            (SignedEntry::Lease { body, .. }, Some(owner)) if h.node_key == owner => {
-                check_lease(body)
-            }
-            (SignedEntry::Lease { .. }, _) => Some(RejectReason::Unauthorized(
-                "publisher kind requires birth owner",
-            )),
-            _ => Some(RejectReason::Malformed("lease kind mismatch")),
+        EntryKind::Grant => match entry {
+            SignedEntry::Grant { body, .. } => check_grant(body),
+            _ => Some(RejectReason::Malformed("grant kind mismatch")),
         },
-        k if k.is_publisher_kind() => match ctx.owner {
-            Some(owner) if h.node_key == owner => None,
-            _ => Some(RejectReason::Unauthorized(
-                "publisher kind requires birth owner",
-            )),
+        EntryKind::Lease => match entry {
+            SignedEntry::Lease { body, .. } => check_lease(body),
+            _ => Some(RejectReason::Malformed("lease kind mismatch")),
         },
         EntryKind::Data => match entry {
             SignedEntry::Data { body, .. } => {
-                authorize_data(entry, body, ctx.owner, ctx.grants, ctx.lookup, leases_held)
+                authorize_data(entry, body, ctx.owner, ctx.lookup, leases_held)
             }
             _ => Some(RejectReason::Malformed("data kind mismatch")),
         },

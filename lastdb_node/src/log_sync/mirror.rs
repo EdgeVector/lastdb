@@ -10,13 +10,11 @@
 //! personal database is not mirrored here: its writes reach the signed log from
 //! the spool of accepted writes (see `personal`).
 
-use std::path::Path;
-
 use fold_db::fold_db_core::FoldDB;
 use fold_db::schema::types::MutationType;
 use mutation_log::{
-    author_data, author_schema, data_record, AcceptOutcome, AuthorCtx, DatabaseId, SchemaBody,
-    StreamKind, VerifiedHistory,
+    author_data, author_schema, data_record, stream_id_of, AcceptOutcome, AuthorCtx, DatabaseId,
+    SchemaBody, SignedEntry, StreamKind, VerifiedHistory,
 };
 use serde_json::Value;
 
@@ -35,10 +33,10 @@ pub struct OwnedMutation {
     pub record_key: String,
     pub op: MutationType,
     pub fields: Option<Value>,
+    pub alternates: signed_history_materialize::Alternates,
 }
 
 pub(super) struct MirrorCtx<'a> {
-    pub(super) home: &'a Path,
     pub(super) database: DatabaseId,
     pub(super) identity: &'a AuthorIdentity,
     pub(super) store: &'a FoldDB,
@@ -66,45 +64,42 @@ pub fn mirror_owned_write(
     let _ = device::device_id(&host.home)?;
     let database = DatabaseId::from_hex(database_id).map_err(|_| "database_id is not hex32")?;
     let ctx = MirrorCtx {
-        home: &host.home,
         database,
         identity: &identity,
         store: &store,
         material: &material,
     };
-    histories.with_mut(database_id, |history| -> Result<(), String> {
-        ensure_birth(history, &ctx)?;
-        for item in mutations {
-            ensure_schema(history, &ctx, &item.schema)?;
-            author_one(history, &ctx, item)?;
-        }
-        Ok(())
+    histories.with_mut(database_id, |history| {
+        history_store::commit_authored_batch(&host.home, history, |next| {
+            let mut batch = Vec::with_capacity(mutations.len() + 2);
+            ensure_birth(next, &ctx, &mut batch)?;
+            for item in mutations {
+                ensure_schema(next, &ctx, &item.schema, &mut batch)?;
+                author_one(next, &ctx, item, &mut batch)?;
+            }
+            Ok(batch)
+        })
     })??;
     wake::request_wake(&host.home);
     Ok(())
 }
 
 /// Sign the birth when the history has none.
-fn ensure_birth(history: &mut VerifiedHistory, ctx: &MirrorCtx<'_>) -> Result<(), String> {
+fn ensure_birth(
+    history: &mut VerifiedHistory,
+    ctx: &MirrorCtx<'_>,
+    batch: &mut Vec<SignedEntry>,
+) -> Result<(), String> {
     if history.owner().is_some() {
         return Ok(());
     }
     let author = author_ctx(history, ctx, 0);
     let entry = birth::entry(ctx.material, &author, ctx.identity)?;
-    sign(history, ctx, &entry)
+    stage(history, batch, entry)
 }
 
 /// Publish every schema this publisher's store declares and its history does
 /// not carry yet, or carries with an older definition.
-///
-/// A receiver's store holds only the schemas the signed history declares. A
-/// schema with no record yet would otherwise never reach a receiver, and a
-/// read of it there would name an unknown schema. A write still publishes its
-/// own schema first (see [`mirror_owned_write`]), so a schema entry always
-/// precedes the data that needs it.
-///
-/// No-op without birth material, and until the birth is in the history: the
-/// first write or grant authors the birth.
 pub(super) fn publish_declared_schemas(host: &Host, database_id: &str) -> Result<(), String> {
     let Some(material) = birth::load(&host.home, database_id)? else {
         return Ok(());
@@ -122,7 +117,6 @@ pub(super) fn publish_declared_schemas(host: &Host, database_id: &str) -> Result
     let identity = chain_author::identity_of(host).map_err(|e| e.reply().message.to_owned())?;
     let database = DatabaseId::from_hex(database_id).map_err(|_| "database_id is not hex32")?;
     let ctx = MirrorCtx {
-        home: &host.home,
         database,
         identity: &identity,
         store: &store,
@@ -132,10 +126,13 @@ pub(super) fn publish_declared_schemas(host: &Host, database_id: &str) -> Result
         if history.owner().is_none() {
             return Ok(());
         }
-        for name in &names {
-            ensure_schema(history, &ctx, name)?;
-        }
-        Ok::<(), String>(())
+        history_store::commit_authored_batch(&host.home, history, |next| {
+            let mut batch = Vec::new();
+            for name in &names {
+                ensure_schema(next, &ctx, name, &mut batch)?;
+            }
+            Ok(batch)
+        })
     })?
 }
 
@@ -143,6 +140,7 @@ fn ensure_schema(
     history: &mut VerifiedHistory,
     ctx: &MirrorCtx<'_>,
     name: &str,
+    batch: &mut Vec<SignedEntry>,
 ) -> Result<(), String> {
     let schema = ctx
         .store
@@ -164,7 +162,7 @@ fn ensure_schema(
     };
     let entry =
         author_schema(&author, &ctx.identity.signing_key, body).map_err(|e| e.to_string())?;
-    sign(history, ctx, &entry)
+    stage(history, batch, entry)
 }
 
 fn schema_definition_matches(prior: &[u8], current: &fold_db::schema::types::Schema) -> bool {
@@ -174,7 +172,8 @@ fn schema_definition_matches(prior: &[u8], current: &fold_db::schema::types::Sch
     }
 }
 
-/// The value of a record in an entry: its fields as JSON, or nothing for a delete.
+/// The value of a record in an entry: its fields (and alternates, when present)
+/// as JSON, or nothing for a delete.
 pub(super) fn encode_value(item: &OwnedMutation) -> Result<Vec<u8>, String> {
     if item.op == MutationType::Delete {
         return Ok(Vec::new());
@@ -183,13 +182,14 @@ pub(super) fn encode_value(item: &OwnedMutation) -> Result<Vec<u8>, String> {
         .fields
         .as_ref()
         .ok_or_else(|| "owned write is missing record fields".to_owned())?;
-    serde_json::to_vec(fields).map_err(|_| "cannot encode record fields".to_owned())
+    signed_history_materialize::encode_record_value(fields, &item.alternates)
 }
 
 fn author_one(
     history: &mut VerifiedHistory,
     ctx: &MirrorCtx<'_>,
     item: &OwnedMutation,
+    batch: &mut Vec<SignedEntry>,
 ) -> Result<(), String> {
     let author = author_ctx(history, ctx, fold_db::clock::unix_millis());
     let value = encode_value(item)?;
@@ -200,7 +200,7 @@ fn author_one(
         &value,
     );
     let entry = author_data(&author, &ctx.identity.signing_key, body).map_err(|e| e.to_string())?;
-    sign(history, ctx, &entry)
+    stage(history, batch, entry)
 }
 
 /// The context of the next entry on this device's stream.
@@ -220,14 +220,17 @@ fn author_ctx(history: &VerifiedHistory, ctx: &MirrorCtx<'_>, authored_at_ms: u6
     }
 }
 
-/// Accept `entry` into the history and append it to the log. A rejected or
-/// pending entry is an error, and the log is unchanged.
-pub(super) fn sign(
+fn stage(
     history: &mut VerifiedHistory,
-    ctx: &MirrorCtx<'_>,
-    entry: &mutation_log::SignedEntry,
+    batch: &mut Vec<SignedEntry>,
+    entry: SignedEntry,
 ) -> Result<(), String> {
-    accepted(history_store::commit_authored(ctx.home, history, entry)?)
+    if history.pending_on(&stream_id_of(&entry)) {
+        return Err("this stream has entries that wait for a dependency; sync first".into());
+    }
+    accepted(history.accept_entry(entry.clone()))?;
+    batch.push(entry);
+    Ok(())
 }
 
 fn accepted(outcome: AcceptOutcome) -> Result<(), String> {
