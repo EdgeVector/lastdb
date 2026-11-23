@@ -83,8 +83,9 @@ class Relay:
 
     deployed = False
 
-    def __init__(self, binary, root):
+    def __init__(self, binary, root, max_blob_bytes=None):
         self.binary, self.data, self.port = binary, root / "relay-data", free_port()
+        self.max_blob_bytes = max_blob_bytes
         self.stderr = root / "relay.stderr"
         self.url = f"http://127.0.0.1:{self.port}"
         self.process = None
@@ -93,7 +94,8 @@ class Relay:
         require(self.process is None, "the relay is already running")
         log = self.stderr.open("a")
         self.process = subprocess.Popen(
-            [str(self.binary), "--listen", f"127.0.0.1:{self.port}", "--data-dir", str(self.data)],
+            [str(self.binary), "--listen", f"127.0.0.1:{self.port}", "--data-dir", str(self.data),
+             *(["--max-blob-bytes", str(self.max_blob_bytes)] if self.max_blob_bytes else [])],
             stdout=subprocess.PIPE, stderr=log, text=True)
         require(self.process.stdout.readline().strip(), "the relay printed no address")
 

@@ -28,6 +28,11 @@ as its own stream and applies the other streams through the store's last-writer 
 13. A second snapshot uploads only the files that changed, the newest is the one restored, and no
     byte the relay stored holds a marker written into a record or a file.
 14. A restored device writes and A receives it; A writes and the restored device receives it.
+15. The status names the snapshot. A fresh home says `Snapshot: none yet`. After a snapshot the line
+    and the `cloud_sync.snapshot` object of `/api/status` match the snapshot just taken; a restored
+    home reports the snapshot it installed. A relay that refuses a file over its limit (as Exemem
+    does, HTTP 400 `invalid_request` on `bytes`) gets one try, a report that names the file and its
+    size, and no loop; entries still upload.
 10. Scale: tens of thousands of writes. The peak resident memory of the daemons does not grow with
     the number of entries, the spool returns to near empty, and an idle turn reads nothing.
 
@@ -51,6 +56,7 @@ from harness import append_step_summary  # noqa: E402
 from personal_proof_load import idle_turn_reads_nothing, kill_under_load, scale  # noqa: E402
 from personal_proof_deployed import prove_deployed, render  # noqa: E402
 from personal_proof_nodes import DELTA, DeployedRelay, Device, Relay, converged, prove_hidden, require, wait  # noqa: E402
+from personal_proof_status import prove_none_yet, refused_snapshot, RELAY_LIMIT_BYTES  # noqa: E402
 from personal_proof_snapshot import (  # noqa: E402
     exchange_writes, kill_the_restore, scale_snapshot, second_snapshot, snapshot_restore_equals_replay)
 from personal_proof_steps import (  # noqa: E402
@@ -59,10 +65,11 @@ from personal_proof_steps import (  # noqa: E402
 
 # Run ---------------------------------------------------------------------------------------
 
-def prove(relay, relay2, a, b, c, d, e, f, g, h, j, out, args):
+def prove(relay, relay2, relay3, a, b, c, d, e, f, g, h, j, k, out, args):
     report = {}
     phrase = a.init()
     a.start()
+    prove_none_yet(a)
     # The relay answers 403 to a list of the streams of a database whose birth it does not hold.
     # For an owner who has not written anywhere that is an empty relay, not a failed turn.
     time.sleep(6)
@@ -106,6 +113,12 @@ def prove(relay, relay2, a, b, c, d, e, f, g, h, j, out, args):
     report["restore_killed"] = kill_the_restore(g, phrase, a, state, folders, expected)
     report["second_snapshot"] = second_snapshot(relay, a, b, f, h, phrase, state, folders, expected)
     exchange_writes(relay, a, f, state, folders, expected)
+    # The relay that refuses a large blob, with a home of its own.
+    k.init()
+    k.start()
+    report["refused_snapshot"] = refused_snapshot(relay3, k)
+    k.stop()
+    relay3.stop()
     # Only A and B again: the homes restored for the proof are done.
     for device in (e, f, h):
         device.stop()
@@ -173,12 +186,18 @@ def main():
     relay2_root = args.output / "relay2"
     relay2_root.mkdir()
     relay2 = Relay(Path(args.relay_bin), relay2_root)
+    # The relay that refuses a blob over a limit, as Exemem does, for the oversized snapshot file.
+    relay3_root = args.output / "relay3"
+    relay3_root.mkdir()
+    relay3 = Relay(Path(args.relay_bin), relay3_root, max_blob_bytes=RELAY_LIMIT_BYTES)
+    relay3.start()
     devices = [Device(name, args, args.output, relay) for name in ("device-a", "device-b", "device-c", "device-d")]
     devices.append(Device("device-e", args, args.output, relay2))
     devices += [Device(name, args, args.output, relay) for name in ("device-f", "device-g", "device-h", "device-j")]
+    devices.append(Device("device-k", args, args.output, relay3))
     failure = None
     try:
-        prove(relay, relay2, *devices, args.output, args)
+        prove(relay, relay2, relay3, *devices, args.output, args)
     except Exception as error:  # noqa: BLE001 the failure is printed with its evidence, then raised
         failure = error
         print(f"FAILED: {error}", file=sys.stderr)
@@ -191,6 +210,7 @@ def main():
                 print(f"{device.name}: cleanup failed: {error}", file=sys.stderr)
         relay.stop()
         relay2.stop()
+        relay3.stop()
     if failure is not None:
         raise SystemExit(1)
     print("Personal database proof passed", flush=True)

@@ -24,8 +24,10 @@ use mutation_log::{
     SnapshotThrough, LAMPORT_LIMIT,
 };
 
+use super::snapshot_known::{self as known, Taken};
 use super::snapshot_manifest::{self as manifest, Manifest, MANIFEST_LIMIT};
 use super::{birth_of, Ctx};
+use crate::host::cloud_sync::SnapshotState;
 use crate::log_sync::chain_author::AuthorIdentity;
 use crate::log_sync::device;
 use crate::log_sync::relay::RelayClient;
@@ -42,6 +44,10 @@ pub struct SnapshotBase {
     /// Milliseconds spent fetching and installing the files.
     pub download_ms: u64,
     through: Vec<SnapshotThrough>,
+    /// When the snapshot entry was signed, the digest of its manifest, and the relay it came from.
+    taken_at_ms: u64,
+    manifest_sha256: String,
+    relay: String,
 }
 
 impl SnapshotBase {
@@ -134,6 +140,9 @@ pub async fn install_newest_snapshot(
         bytes: list.bytes(),
         download_ms: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
         through,
+        taken_at_ms: entry.header().authored_at_ms,
+        manifest_sha256,
+        relay: relay_url.to_owned(),
     }))
 }
 
@@ -246,5 +255,19 @@ pub(super) async fn adopt(ctx: &Ctx<'_>, base: &SnapshotBase) -> Result<(), Stri
             );
         }
     }
+    known::record(
+        ctx,
+        &Taken {
+            state: SnapshotState::Installed,
+            relay_base: &base.relay,
+            taken_at_ms: base.taken_at_ms,
+            files: base.files,
+            bytes: base.bytes,
+            manifest_sha256: &base.manifest_sha256,
+            snapshot_seq: base.snapshot_seq,
+            through: &base.through,
+            device: ctx.identity.device_id,
+        },
+    );
     Ok(())
 }

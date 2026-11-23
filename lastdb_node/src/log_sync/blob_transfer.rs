@@ -21,6 +21,20 @@ use super::relay::{header_pairs, RelayClient, REQUEST_TIMEOUT};
 /// Bytes read from the file per chunk of an upload.
 const CHUNK_BYTES: usize = 64 * 1024;
 
+/// Starts the error of a `blob.put` begin that the relay refused for the size of the blob.
+/// The relay answered HTTP 400 with code `invalid_request` and field `bytes`: it holds a limit
+/// on one blob, and this blob is over it. The relay does not say what the limit is.
+pub(super) const SIZE_REFUSED: &str = "the relay refused the blob size";
+
+/// True when `error` is the answer of a relay to a blob that is larger than it accepts.
+fn is_size_refusal(error: &str) -> bool {
+    let body = error
+        .find('{')
+        .and_then(|at| serde_json::from_str::<serde_json::Value>(&error[at..]).ok());
+    error.contains("HTTP 400")
+        && body.is_some_and(|body| body["code"] == "invalid_request" && body["field"] == "bytes")
+}
+
 /// Time allowed for one transfer of `bytes`: the ordinary request timeout plus
 /// one second per MiB, so the allowance assumes at least 1 MiB/s. A hung peer
 /// still fails, and a multi-gigabyte file is not cut off at 30 seconds.
@@ -69,7 +83,14 @@ impl RelayClient {
         };
         let begin = self
             .post("/relay/v1/blob/put", database_id, &stage("begin"))
-            .await?;
+            .await
+            .map_err(|error| {
+                if size > 0 && is_size_refusal(&error) {
+                    format!("{SIZE_REFUSED}: {size} bytes")
+                } else {
+                    error
+                }
+            })?;
         // A relay that already holds this digest answers `begin` with the digest and no
         // `upload`: a committed blob is immutable, so there is nothing to send and nothing to
         // commit. A retried bundle and a snapshot that uploads files again both come here.

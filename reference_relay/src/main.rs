@@ -50,6 +50,10 @@ struct Cli {
     /// Durable store root for logs, blobs, and the presign secret.
     #[arg(long)]
     data_dir: PathBuf,
+    /// Refuse a `blob.put` begin for a blob larger than this many bytes, the way the Exemem
+    /// relay does (HTTP 400, `invalid_request`, field `bytes`). No limit when absent.
+    #[arg(long)]
+    max_blob_bytes: Option<u64>,
 }
 
 #[tokio::main]
@@ -79,6 +83,7 @@ async fn run() -> Result<(), String> {
         public_base: format!("http://{addr}"),
         secret,
         grants: Mutex::new(grants),
+        max_blob_bytes: cli.max_blob_bytes,
     });
     let app = Router::new()
         .route("/relay/v1/log/append", post(log_append))

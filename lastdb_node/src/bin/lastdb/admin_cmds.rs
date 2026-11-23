@@ -201,6 +201,12 @@ pub(super) fn status(
         if let Some(line) = cloud_sync.as_ref().and_then(format_cloud_sync_line) {
             println!("{line}");
         }
+        for line in cloud_sync
+            .iter()
+            .flat_map(super::snapshot_line::snapshot_lines)
+        {
+            println!("{line}");
+        }
         if std::fs::read(home.join("data").join(NODE_MARKER))
             .ok()
             .as_deref()

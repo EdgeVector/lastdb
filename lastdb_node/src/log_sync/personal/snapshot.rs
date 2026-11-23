@@ -25,20 +25,20 @@
 //! automatically once [`AUTO_SNAPSHOT_ENTRIES`] entries have been signed on this
 //! device's stream since the last snapshot it took.
 
-use std::io::Seek;
-use std::path::Path;
 use std::time::Instant;
 
-use fold_db::storage::disk_pack::{snapshot::DatabaseSnapshot, NativeCloudWorkGuard};
+use fold_db::storage::disk_pack::NativeCloudWorkGuard;
 use mutation_log::{
     author_snapshot, entry_hash, AuthorCtx, DeviceId, EntryHash, Hex32, SignedEntry, SnapshotBody,
     SnapshotThrough, StreamHead,
 };
-use sha2::{Digest, Sha256};
 
-use super::snapshot_manifest::{self as manifest, FileEntry, Manifest};
+use super::snapshot_known::{self as known, Taken};
+use super::snapshot_manifest::{self as manifest, Manifest};
 use super::snapshot_state::{file_of, finish_request, load_last, Last, Report};
+use super::snapshot_upload::{elapsed_ms, ensure_birth, put_manifest, upload_files, TOO_LARGE};
 use super::{list_streams, Ctx};
+use crate::host::cloud_sync::SnapshotState;
 use crate::log_sync::relay::{RelayClient, StreamHead as RelayStream};
 use crate::profile::private_fs as disk;
 
@@ -59,7 +59,7 @@ pub(super) async fn run(ctx: &Ctx<'_>, client: &RelayClient) -> Result<(), Strin
         .ok()
         .flatten()
         .and_then(|bytes| String::from_utf8(bytes).ok());
-    if request.is_none() && !auto_due(ctx).await? {
+    if request.is_none() && (known::waiting().is_some() || !auto_due(ctx).await?) {
         return Ok(());
     }
     match publish(ctx, client, false).await {
@@ -78,6 +78,12 @@ pub(super) async fn run(ctx: &Ctx<'_>, client: &RelayClient) -> Result<(), Strin
                     error.as_bytes(),
                 );
                 let _ = disk::remove_private(&file_of(home, &ctx.database_id, "snapshot-request"));
+            }
+            if error.starts_with(TOO_LARGE) {
+                // A relay limit is not a failed turn: entries and writes go on, and the
+                // status names the problem. No new automatic attempt starts for a while.
+                known::refused(ctx, &error);
+                return Ok(());
             }
             Err(error)
         }
@@ -101,7 +107,21 @@ async fn auto_due(ctx: &Ctx<'_>) -> Result<bool, String> {
 /// point leaves the copy, and the next turn runs this again: the same cut gives the same
 /// files, so the next turn finds the saved record and names nothing twice.
 pub(super) async fn run_first(ctx: &Ctx<'_>, client: &RelayClient) -> Result<(), String> {
-    let Outcome::Done(report) = publish(ctx, client, true).await? else {
+    if let Some(message) = known::waiting() {
+        return Err(message);
+    }
+    ctx.host
+        .cloud_sync
+        .mark_snapshot(SnapshotState::InProgress, None);
+    let published = publish(ctx, client, true).await;
+    if let Err(error) = &published {
+        if error.starts_with(TOO_LARGE) {
+            // Until the first snapshot is named, the spool stays unsent: this home holds
+            // earlier data that only the snapshot carries. The turn reports the refusal.
+            known::refused(ctx, error);
+        }
+    }
+    let Outcome::Done(report) = published? else {
         return Err("the preserved files of the first snapshot are missing".into());
     };
     let opened = ctx.runtime.accepted_status().opened_frontier;
@@ -187,49 +207,21 @@ async fn publish(ctx: &Ctx<'_>, client: &RelayClient, first: bool) -> Result<Out
         &bytes,
     )
     .map_err(|_| "cannot save the snapshot record".to_owned())?;
+    known::record(
+        ctx,
+        &Taken {
+            state: SnapshotState::Published,
+            relay_base: &client.base,
+            taken_at_ms: entry.header().authored_at_ms,
+            files: last.manifest.files.len(),
+            bytes: last.manifest.bytes(),
+            manifest_sha256: &sha256,
+            snapshot_seq: report.snapshot_seq,
+            through: &last.through,
+            device: ctx.identity.device_id,
+        },
+    );
     Ok(Outcome::Done(report))
-}
-
-/// Upload each file of the cut that the previous snapshot of this device did not hold, as a
-/// blob named by its digest. Returns how many files and bytes went up.
-async fn upload_files(
-    ctx: &Ctx<'_>,
-    client: &RelayClient,
-    cut: &DatabaseSnapshot,
-    files: &[FileEntry],
-    previous: Option<&Last>,
-) -> Result<(usize, u64), String> {
-    let known: Vec<(&str, &str)> = previous.map_or_else(Vec::new, |last| {
-        last.manifest
-            .files
-            .iter()
-            .map(|file| (file.path.as_str(), file.sha256.as_str()))
-            .collect()
-    });
-    let (mut uploaded_files, mut uploaded_bytes) = (0, 0);
-    for entry in files {
-        if known.contains(&(entry.path.as_str(), entry.sha256.as_str())) {
-            continue;
-        }
-        let mut file = cut
-            .open_file(Path::new(&entry.path))
-            .map_err(|error| error.to_string())?;
-        file.rewind().map_err(|error| error.to_string())?;
-        client
-            .blob_put_file(
-                &ctx.database_id,
-                &entry.sha256,
-                tokio::fs::File::from_std(file),
-            )
-            .await?;
-        uploaded_files += 1;
-        uploaded_bytes += entry.bytes;
-    }
-    Ok((uploaded_files, uploaded_bytes))
-}
-
-fn elapsed_ms(since: Instant) -> u64 {
-    u64::try_from(since.elapsed().as_millis()).unwrap_or(u64::MAX)
 }
 
 /// The stream positions of a cut, ascending by device id.
@@ -260,44 +252,6 @@ fn through_of(
     }
     through.sort_by_key(|position| position.device_id.to_bytes());
     Ok(through)
-}
-
-/// The relay takes a blob only for a database whose birth it holds.
-async fn ensure_birth(
-    ctx: &Ctx<'_>,
-    client: &RelayClient,
-    streams: &[RelayStream],
-) -> Result<(), String> {
-    if streams
-        .iter()
-        .any(|stream| stream.device_id == ctx.birth_device_hex)
-    {
-        return Ok(());
-    }
-    let (stored, duplicate) = client
-        .append(&ctx.database_id, std::slice::from_ref(&ctx.birth_entry))
-        .await?;
-    if stored + duplicate == 1 {
-        Ok(())
-    } else {
-        Err("the relay did not take the birth entry".into())
-    }
-}
-
-/// Upload the manifest as a blob. Returns its digest and length.
-async fn put_manifest(
-    ctx: &Ctx<'_>,
-    client: &RelayClient,
-    list: &Manifest,
-) -> Result<(String, u64), String> {
-    let bytes = serde_json::to_vec(list).map_err(|_| "cannot encode the manifest")?;
-    let sha256 = app_identity_crypto::hex_lower(&Sha256::digest(&bytes));
-    let path = file_of(&ctx.host.home, &ctx.database_id, "snapshot-manifest");
-    disk::write_private(&path, &bytes).map_err(|_| "cannot save the manifest".to_owned())?;
-    let result = client.blob_put(&ctx.database_id, &sha256, &path).await;
-    let _ = disk::remove_private(&path);
-    result?;
-    Ok((sha256, bytes.len() as u64))
 }
 
 /// The head of the snapshot stream on the relay, with the order value of its entry.

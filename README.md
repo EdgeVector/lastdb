@@ -122,6 +122,13 @@ brew services start lastdb   # runs lastdbd
 lastdb status
 ```
 
+`lastdb status` prints the daemon, the home and, when a cloud connection is saved, a `Cloud sync:` line.
+A `Snapshot:` line (after the `Cloud sync:` line when there is one) says where the newest snapshot of the personal database is: when it
+was taken (local time), its files and size, the relay, and how far it covers this device
+(`Snapshot: none yet` before the first). If a relay refuses a snapshot file for its size, a
+`Snapshot blocked:` line says which file and why. The same facts are in `/api/status` as
+`cloud_sync.snapshot`.
+
 Use `lastdb --help` to see the commands in the installed release.
 
 | Command | Use |
