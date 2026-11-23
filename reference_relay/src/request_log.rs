@@ -24,7 +24,7 @@ pub(crate) async fn log_request(request: Request, next: Next) -> Response {
 }
 
 /// The first two segments after `/relay/v1/`, so a token or digest is not logged.
-fn route_of(path: &str) -> String {
+pub(crate) fn route_of(path: &str) -> String {
     let rest = path.strip_prefix("/relay/v1/").unwrap_or(path);
     rest.split('/').take(2).collect::<Vec<_>>().join("/")
 }

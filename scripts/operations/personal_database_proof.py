@@ -33,6 +33,10 @@ as its own stream and applies the other streams through the store's last-writer 
     home reports the snapshot it installed. A relay that refuses a file over its limit (as Exemem
     does, HTTP 400 `invalid_request` on `bytes`) gets one try, a report that names the file and its
     size, and no loop; entries still upload.
+17. A relay answer that says try again is tried again. The first `log/streams` request of a relay gets
+    HTTP 429 `rate_limited` (`provider.dynamo.conflict`, as when two transactions collide): a running
+    daemon and a restore still succeed, and each request signs again. A quota refusal (`quota.bytes`)
+    is also a 429, and the restore fails at once with the relay's message.
 10. Scale: tens of thousands of writes. The peak resident memory of the daemons does not grow with
     the number of entries, the spool returns to near empty, and an idle turn reads nothing.
 
@@ -57,6 +61,7 @@ from personal_proof_load import idle_turn_reads_nothing, kill_under_load, scale 
 from personal_proof_deployed import prove_deployed, render  # noqa: E402
 from personal_proof_nodes import DELTA, DeployedRelay, Device, Relay, converged, prove_hidden, require, wait  # noqa: E402
 from personal_proof_status import prove_none_yet, refused_snapshot, RELAY_LIMIT_BYTES  # noqa: E402
+from personal_proof_retries import prove_retries  # noqa: E402
 from personal_proof_snapshot import (  # noqa: E402
     exchange_writes, kill_the_restore, scale_snapshot, second_snapshot, snapshot_restore_equals_replay)
 from personal_proof_steps import (  # noqa: E402
@@ -65,7 +70,7 @@ from personal_proof_steps import (  # noqa: E402
 
 # Run ---------------------------------------------------------------------------------------
 
-def prove(relay, relay2, relay3, a, b, c, d, e, f, g, h, j, k, out, args):
+def prove(relay, relay2, relay3, relay4, a, b, c, d, e, f, g, h, j, k, m, n, p, out, args):
     report = {}
     phrase = a.init()
     a.start()
@@ -119,6 +124,8 @@ def prove(relay, relay2, relay3, a, b, c, d, e, f, g, h, j, k, out, args):
     report["refused_snapshot"] = refused_snapshot(relay3, k)
     k.stop()
     relay3.stop()
+    report["retries"] = prove_retries(relay4, m, n, p)
+    relay4.stop()
     # Only A and B again: the homes restored for the proof are done.
     for device in (e, f, h):
         device.stop()
@@ -191,13 +198,18 @@ def main():
     relay3_root.mkdir()
     relay3 = Relay(Path(args.relay_bin), relay3_root, max_blob_bytes=RELAY_LIMIT_BYTES)
     relay3.start()
+    # The relay that answers a first request with a 429 that says try again, for step 17.
+    relay4_root = args.output / "relay4"
+    relay4_root.mkdir()
+    relay4 = Relay(Path(args.relay_bin), relay4_root)
     devices = [Device(name, args, args.output, relay) for name in ("device-a", "device-b", "device-c", "device-d")]
     devices.append(Device("device-e", args, args.output, relay2))
     devices += [Device(name, args, args.output, relay) for name in ("device-f", "device-g", "device-h", "device-j")]
     devices.append(Device("device-k", args, args.output, relay3))
+    devices += [Device(name, args, args.output, relay4) for name in ("device-m", "device-n", "device-p")]
     failure = None
     try:
-        prove(relay, relay2, relay3, *devices, args.output, args)
+        prove(relay, relay2, relay3, relay4, *devices, args.output, args)
     except Exception as error:  # noqa: BLE001 the failure is printed with its evidence, then raised
         failure = error
         print(f"FAILED: {error}", file=sys.stderr)
@@ -211,6 +223,7 @@ def main():
         relay.stop()
         relay2.stop()
         relay3.stop()
+        relay4.stop()
     if failure is not None:
         raise SystemExit(1)
     print("Personal database proof passed", flush=True)

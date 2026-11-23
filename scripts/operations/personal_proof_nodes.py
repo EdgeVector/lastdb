@@ -86,6 +86,8 @@ class Relay:
     def __init__(self, binary, root, max_blob_bytes=None):
         self.binary, self.data, self.port = binary, root / "relay-data", free_port()
         self.max_blob_bytes = max_blob_bytes
+        # `ROUTE=FIELD` for each route whose first request after the next start gets a 429.
+        self.refuse_first = []
         self.stderr = root / "relay.stderr"
         self.url = f"http://127.0.0.1:{self.port}"
         self.process = None
@@ -95,7 +97,8 @@ class Relay:
         log = self.stderr.open("a")
         self.process = subprocess.Popen(
             [str(self.binary), "--listen", f"127.0.0.1:{self.port}", "--data-dir", str(self.data),
-             *(["--max-blob-bytes", str(self.max_blob_bytes)] if self.max_blob_bytes else [])],
+             *(["--max-blob-bytes", str(self.max_blob_bytes)] if self.max_blob_bytes else []),
+             *(arg for spec in self.refuse_first for arg in ("--refuse-first", spec))],
             stdout=subprocess.PIPE, stderr=log, text=True)
         require(self.process.stdout.readline().strip(), "the relay printed no address")
 

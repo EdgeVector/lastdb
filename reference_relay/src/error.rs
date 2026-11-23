@@ -35,6 +35,10 @@ impl ApiError {
         Self::new(StatusCode::CONFLICT, "conflict", field)
     }
 
+    pub(crate) fn rate_limited(field: impl Into<String>) -> Self {
+        Self::new(StatusCode::TOO_MANY_REQUESTS, "rate_limited", field)
+    }
+
     pub(crate) fn batch_too_large(field: impl Into<String>) -> Self {
         Self::new(StatusCode::BAD_REQUEST, "batch_too_large", field)
     }
