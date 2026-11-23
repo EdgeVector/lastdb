@@ -17,9 +17,12 @@ name: Signed history DEV proofs
 # makes a fresh identity (a new seed, offline), so it writes to a personal database of its own. The relay bills the
 # account that the signing node key derives: no account, API key or secret is used. It runs on pushes to main, on the
 # daily run (cloud-backup-daily.yml) and on dispatch, and on a pull request only when the PR changes a file of the
-# proof, its nodes, the blob transfer or this workflow (job `deployed_scope`). The relay URL is the
+# proof, its nodes, the log sync, replay and spool code that the personal sync uses, the relays or this workflow
+# (job `deployed_scope`; a docs-only pull request does not run it). The relay URL is the
 # `exemem_relay_url` input, else the variable EXEMEM_RELAY_URL, else environments.dev.exemem_api. Storage on the
 # relay cannot be deleted by a node, so each run adds to it for good: the job summary says how much.
+# Job `upgrade` takes the newest published nightly build that is not the commit under test, makes a connected home with it
+# (records, a snapshot, a tail), and continues that same home on the build under test (`upgrade_proof.py`).
 # Job `blob_stream` puts and gets a 512 MiB generated file through a reference_relay
 # process, compares digests, and fails if that process's peak memory (VmHWM) is over 128 MiB.
 #
@@ -44,6 +47,8 @@ on:
       - "scripts/operations/personal_database_proof.py"
       - "scripts/operations/personal_proof_*.py"
       - "scripts/operations/existing_home_proof.py"
+      - "scripts/operations/upgrade_proof.py"
+      - "scripts/benchmarks/node.py"
       - "fold_db/crates/core/src/storage/format/metadata/**"
       - "lastdb_node/src/log_sync/**"
       - "lastdb_node/src/host.rs"
@@ -66,6 +71,8 @@ on:
       - "scripts/operations/personal_database_proof.py"
       - "scripts/operations/personal_proof_*.py"
       - "scripts/operations/existing_home_proof.py"
+      - "scripts/operations/upgrade_proof.py"
+      - "scripts/benchmarks/node.py"
       - "fold_db/crates/core/src/storage/format/metadata/**"
       - "lastdb_node/src/log_sync/**"
       - "lastdb_node/src/host.rs"
@@ -496,6 +503,51 @@ jobs:
             echo "A home written with no relay (records in three schemas, an alternate key, a file) starts with the reference relay, publishes its files as a first snapshot before any later write goes up, sends each later write as one entry, and a restore from the recovery phrase equals it and replays only the later entries. The relay holds no marker."
           } >> "$GITHUB_STEP_SUMMARY"
 
+  upgrade:
+    name: a home of the previous nightly continues on the build under test (reference_relay)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      CARGO_BUILD_JOBS: "2"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      FOLDDB_BUILD_VERSION_OVERRIDE: bench-${{ github.sha }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: signed-history-shared-nodes
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Build reference_relay, lastdbd and lastdb
+        run: |
+          set -euo pipefail
+          cargo build --locked -p reference_relay --bin reference_relay
+          cargo build --locked -p lastdb_node --bin lastdb --bin lastdbd
+      - name: The previous nightly makes a home, the build under test continues it, and a restore equals it
+        env:
+          PULL_REQUEST_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          OUT="${RUNNER_TEMP}/upgrade"
+          mkdir -p "$OUT"
+          python3 scripts/operations/upgrade_proof.py \
+            --daemon "$PWD/target/debug/lastdbd" --cli "$PWD/target/debug/lastdb" \
+            --relay-bin "$PWD/target/debug/reference_relay" --revision "$GITHUB_SHA" \
+            --exclude-oid "${PULL_REQUEST_HEAD:-$GITHUB_SHA}" \
+            --output "$OUT/nodes" 2>&1 | tee "$OUT/proof.log"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: signed-history-upgrade-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/upgrade/proof.log
+            ${{ runner.temp }}/upgrade/nodes/relay.stderr
+            ${{ runner.temp }}/upgrade/nodes/*/node.log
+          retention-days: 7
+          if-no-files-found: warn
+
   deployed_scope:
     name: scope of the deployed relay proofs
     runs-on: ubuntu-24.04
@@ -522,7 +574,8 @@ jobs:
           fi
           if [[ "$EVENT" == pull_request ]]; then
             changed="$(git diff --name-only "$BASE_SHA" HEAD)"
-            own='^(scripts/operations/(personal_database_proof|personal_proof_nodes|personal_proof_deployed)\.py|lastdb_node/src/log_sync/blob_transfer\.rs|\.github/workflows/signed-history-dev\.yml)$'
+            # The personal sync: its proofs, the log sync, the replay and spool code it imports, both relays.
+            own='^(scripts/operations/personal_[^/]*|lastdb_node/src/log_sync/.*|mutation_log/.*|reference_relay/.*|signed_history_relay_e2e/.*|fold_db/crates/model/.*|fold_db/crates/core/src/(fold_db_core/mutation_manager|storage/disk_pack|storage/disk_backup)/.*|fold_db/crates/core/src/crypto\.rs|\.github/workflows/signed-history-dev\.yml)$'
             if ! grep -Eq "$own" <<< "$changed"; then
               run=false
             fi
