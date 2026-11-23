@@ -165,6 +165,9 @@ impl RelayClient {
         let begin = self
             .post("/relay/v1/blob/put", &stage_body("begin"))
             .await?;
+        if begin["upload"].is_null() && begin["sha256"].as_str() == Some(sha256) {
+            return Ok(());
+        }
         let url = begin["upload"]["url"]
             .as_str()
             .ok_or("blob.put begin has no upload.url")?
@@ -272,6 +275,9 @@ impl RelayClient {
             }
             let mut req = self.http.put(url).body(body.clone());
             for (name, value) in headers {
+                if name.eq_ignore_ascii_case("content-length") {
+                    continue;
+                }
                 req = req.header(name.as_str(), value.as_str());
             }
             match req.send().await {

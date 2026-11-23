@@ -1,4 +1,4 @@
-//! HMAC-signed download URLs served by this same process.
+//! HMAC-signed upload and download URLs served by this same process, scoped by `database_id`.
 
 use app_identity_crypto::hex_lower;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -10,32 +10,110 @@ use crate::error::{ApiError, ApiResult};
 
 type HmacSha256 = Hmac<Sha256>;
 
-const TTL_MS: u64 = 300_000;
+const TTL_MS: u64 = 900_000;
 
-/// Build a short-lived download URL for `sha256` under `public_base`.
+#[derive(Clone, Copy)]
+struct SignedTarget<'a> {
+    method: &'a str,
+    database_id: &'a str,
+    resource: &'a str,
+}
+
+/// Build a short-lived download URL for `(database_id, sha256)` under `public_base`.
 pub(crate) fn make_get_url(
     public_base: &str,
     secret: &[u8],
+    database_id: &str,
     sha256: &str,
     now_ms: u64,
 ) -> (String, u64) {
     let expires_at_ms = now_ms.saturating_add(TTL_MS);
-    let sig = sign(secret, sha256, expires_at_ms);
-    let url = format!("{public_base}/relay/v1/blob/bytes/{sha256}?e={expires_at_ms}&s={sig}");
+    let sig = sign(
+        secret,
+        SignedTarget {
+            method: "get",
+            database_id,
+            resource: sha256,
+        },
+        expires_at_ms,
+    );
+    let url = format!(
+        "{public_base}/relay/v1/blob/bytes/{database_id}/{sha256}?e={expires_at_ms}&s={sig}"
+    );
     (url, expires_at_ms)
 }
 
-/// Build a one-shot upload URL for a staging token.
-pub(crate) fn make_put_url(public_base: &str, token: &str, now_ms: u64) -> (String, u64) {
+/// Build a signed upload URL for a `(database_id, token)` staging claim.
+pub(crate) fn make_put_url(
+    public_base: &str,
+    secret: &[u8],
+    database_id: &str,
+    token: &str,
+    now_ms: u64,
+) -> (String, u64) {
     let expires_at_ms = now_ms.saturating_add(TTL_MS);
-    let url = format!("{public_base}/relay/v1/blob/upload/{token}");
+    let sig = sign(
+        secret,
+        SignedTarget {
+            method: "put",
+            database_id,
+            resource: token,
+        },
+        expires_at_ms,
+    );
+    let url = format!(
+        "{public_base}/relay/v1/blob/upload/{database_id}/{token}?e={expires_at_ms}&s={sig}"
+    );
     (url, expires_at_ms)
 }
 
 /// Reject an expired or forged download signature.
 pub(crate) fn check_get(
     secret: &[u8],
+    database_id: &str,
     sha256: &str,
+    expires_at_ms: u64,
+    sig: &str,
+    now_ms: u64,
+) -> ApiResult<()> {
+    verify_target(
+        secret,
+        SignedTarget {
+            method: "get",
+            database_id,
+            resource: sha256,
+        },
+        expires_at_ms,
+        sig,
+        now_ms,
+    )
+}
+
+/// Reject an expired or forged upload signature.
+pub(crate) fn check_put(
+    secret: &[u8],
+    database_id: &str,
+    token: &str,
+    expires_at_ms: u64,
+    sig: &str,
+    now_ms: u64,
+) -> ApiResult<()> {
+    verify_target(
+        secret,
+        SignedTarget {
+            method: "put",
+            database_id,
+            resource: token,
+        },
+        expires_at_ms,
+        sig,
+        now_ms,
+    )
+}
+
+fn verify_target(
+    secret: &[u8],
+    target: SignedTarget<'_>,
     expires_at_ms: u64,
     sig: &str,
     now_ms: u64,
@@ -43,25 +121,34 @@ pub(crate) fn check_get(
     if now_ms > expires_at_ms {
         return Err(ApiError::unauthorized("expires_at_ms"));
     }
-    let expected = sign(secret, sha256, expires_at_ms);
-    if expected != sig {
-        return Err(ApiError::unauthorized("signature"));
-    }
-    Ok(())
+    let raw = URL_SAFE_NO_PAD
+        .decode(sig.as_bytes())
+        .map_err(|_| ApiError::unauthorized("signature"))?;
+    let mac = build_mac(secret, target, expires_at_ms);
+    mac.verify_slice(&raw)
+        .map_err(|_| ApiError::unauthorized("signature"))
 }
 
-fn sign(secret: &[u8], sha256: &str, expires_at_ms: u64) -> String {
+fn sign(secret: &[u8], target: SignedTarget<'_>, expires_at_ms: u64) -> String {
+    let mac = build_mac(secret, target, expires_at_ms);
+    URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes())
+}
+
+fn build_mac(secret: &[u8], target: SignedTarget<'_>, expires_at_ms: u64) -> HmacSha256 {
     let mut mac = HmacSha256::new_from_slice(secret).expect("HMAC key length");
-    mac.update(sha256.as_bytes());
+    mac.update(target.method.as_bytes());
+    mac.update(b"|");
+    mac.update(target.database_id.as_bytes());
+    mac.update(b"|");
+    mac.update(target.resource.as_bytes());
     mac.update(b"|");
     mac.update(expires_at_ms.to_string().as_bytes());
-    URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes())
+    mac
 }
 
 /// Random 32-byte secret as lowercase hex for durable storage.
 pub(crate) fn new_secret_hex() -> String {
     let mut bytes = [0u8; 32];
-    // Prefer OS randomness; fall back to time mix for CI-only relay.
     if fill_os(&mut bytes).is_err() {
         let t = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

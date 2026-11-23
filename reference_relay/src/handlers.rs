@@ -1,7 +1,6 @@
 //! Relay HTTP handlers. Each authenticated call is gated by the grant index in `gate.rs`.
 
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use axum::body::Bytes;
 use axum::extract::State;
@@ -20,7 +19,8 @@ use crate::gate;
 use crate::grant_index::GrantIndex;
 use crate::presign;
 use crate::request_log::EntriesReturned;
-use crate::store::{self, Store};
+use crate::store::{now_ms, require_hex64, Store};
+use crate::store_read::{read_position, LogReadBody, ReadPosition};
 
 /// Shared process state.
 pub(crate) struct AppState {
@@ -71,6 +71,7 @@ pub(crate) async fn log_append(
     let verified = auth::verify_request(&headers, "/relay/v1/log/append", &body)?;
     let req: LogAppendBody = parse_body(&body, crate::MAX_JSON_BODY_BYTES)?;
     verified.check_database(&req.database_id)?;
+    require_hex64(&req.database_id, "database_id")?;
     let caller = verified.node_key;
     let db = gate::parse_id(&req.database_id, "database_id")?;
     let signed = gate::parse_entries(&req.entries)?;
@@ -92,6 +93,7 @@ pub(crate) async fn log_read(
     let verified = auth::verify_request(&headers, "/relay/v1/log/read", &body)?;
     let req: LogReadBody = parse_body(&body, SMALL_BODY_BYTES)?;
     verified.check_database(&req.database_id)?;
+    require_hex64(&req.database_id, "database_id")?;
     let caller = verified.node_key;
     let db = gate::parse_id(&req.database_id, "database_id")?;
     let position = read_position(&req)?;
@@ -154,6 +156,7 @@ pub(crate) async fn log_streams(
     let verified = auth::verify_request(&headers, "/relay/v1/log/streams", &body)?;
     let req: LogStreamsBody = parse_body(&body, SMALL_BODY_BYTES)?;
     verified.check_database(&req.database_id)?;
+    require_hex64(&req.database_id, "database_id")?;
     let caller = verified.node_key;
     let db = gate::parse_id(&req.database_id, "database_id")?;
     require_hex64(&req.writer_key, "writer_key")?;
@@ -183,6 +186,7 @@ pub(crate) async fn blob_put(
     let verified = auth::verify_request(&headers, "/relay/v1/blob/put", &body)?;
     let req: BlobPutBody = parse_body(&body, SMALL_BODY_BYTES)?;
     verified.check_database(&req.database_id)?;
+    require_hex64(&req.database_id, "database_id")?;
     let caller = verified.node_key;
     let db = gate::parse_id(&req.database_id, "database_id")?;
     state.check_blob_put(&db, &caller).await?;
@@ -193,7 +197,10 @@ pub(crate) async fn blob_put(
     match req.stage.as_str() {
         "begin" => blob_begin(&state, &req).await,
         "commit" => {
-            state.store.stage_commit(&req.sha256, req.bytes).await?;
+            state
+                .store
+                .stage_commit(&req.database_id, &req.sha256, req.bytes)
+                .await?;
             Ok(Json(json!({ "stage": "commit", "sha256": req.sha256 })))
         }
         _ => Err(ApiError::invalid("stage")),
@@ -204,8 +211,27 @@ async fn blob_begin(state: &AppState, req: &BlobPutBody) -> ApiResult<Json<Value
     if state.max_blob_bytes.is_some_and(|limit| req.bytes > limit) {
         return Err(ApiError::invalid("bytes"));
     }
-    let token = state.store.stage_begin(&req.sha256, req.bytes).await?;
-    let (url, expires_at_ms) = presign::make_put_url(&state.public_base, &token, now_ms());
+    if state
+        .store
+        .has_blob(&req.database_id, &req.sha256, req.bytes)
+        .await?
+    {
+        return Ok(Json(json!({
+            "stage": "begin",
+            "sha256": req.sha256,
+        })));
+    }
+    let token = state
+        .store
+        .stage_begin(&req.database_id, &req.sha256, req.bytes)
+        .await?;
+    let (url, expires_at_ms) = presign::make_put_url(
+        &state.public_base,
+        &state.secret,
+        &req.database_id,
+        &token,
+        now_ms(),
+    );
     Ok(Json(json!({
         "stage": "begin",
         "sha256": req.sha256,
@@ -228,16 +254,22 @@ pub(crate) async fn blob_get(
     let verified = auth::verify_request(&headers, "/relay/v1/blob/get", &body)?;
     let req: BlobGetBody = parse_body(&body, SMALL_BODY_BYTES)?;
     verified.check_database(&req.database_id)?;
+    require_hex64(&req.database_id, "database_id")?;
     let caller = verified.node_key;
     let db = gate::parse_id(&req.database_id, "database_id")?;
     state.check_read(&db, &caller).await?;
     require_hex64(&req.sha256, "sha256")?;
-    let (bytes, _) = state.store.blob_meta(&req.sha256).await?;
+    let (bytes, _) = state.store.blob_meta(&req.database_id, &req.sha256).await?;
     if bytes == 0 {
-        return Err(ApiError::not_found("sha256"));
+        return Err(ApiError::not_found("blob.sha256"));
     }
-    let (url, expires_at_ms) =
-        presign::make_get_url(&state.public_base, &state.secret, &req.sha256, now_ms());
+    let (url, expires_at_ms) = presign::make_get_url(
+        &state.public_base,
+        &state.secret,
+        &req.database_id,
+        &req.sha256,
+        now_ms(),
+    );
     Ok(Json(json!({
         "url": url,
         "headers": {},
@@ -247,72 +279,12 @@ pub(crate) async fn blob_get(
     })))
 }
 
-enum ReadPosition {
-    /// One device chain.
-    Device {
-        writer_key: String,
-        device_id: String,
-        from_seq: u64,
-    },
-    /// Every device under `writer_key`; cursor carries the device.
-    Writer {
-        writer_key: String,
-        from_device: Option<String>,
-        from_seq: u64,
-    },
-}
-
-fn read_position(req: &LogReadBody) -> ApiResult<ReadPosition> {
-    if let Some(cursor) = req.cursor.as_deref() {
-        let (writer_key, device_id, from_seq) = store::parse_cursor(cursor)?;
-        // `device_id` in the body keeps a single-device page; omit it to walk
-        // every device under the writer (cursor still names the resume point).
-        return if req.device_id.is_some() {
-            Ok(ReadPosition::Device {
-                writer_key,
-                device_id,
-                from_seq,
-            })
-        } else {
-            Ok(ReadPosition::Writer {
-                writer_key,
-                from_device: Some(device_id),
-                from_seq,
-            })
-        };
-    }
-    let writer_key = req
-        .writer_key
-        .clone()
-        .ok_or_else(|| ApiError::invalid("writer_key"))?;
-    require_hex64(&writer_key, "writer_key")?;
-    let from_seq = req.from_seq.unwrap_or(1).max(1);
-    match req.device_id.as_deref() {
-        Some(device_id) => {
-            require_hex64(device_id, "device_id")?;
-            Ok(ReadPosition::Device {
-                writer_key,
-                device_id: device_id.to_owned(),
-                from_seq,
-            })
-        }
-        None => Ok(ReadPosition::Writer {
-            writer_key,
-            from_device: None,
-            from_seq,
-        }),
-    }
-}
-
 /// The most bytes a request body may have when it carries no entries: a database id, a key,
 /// a sequence number or a digest. `log/append` carries up to 90 entries and is bound by
 /// the limit of the server instead.
 pub(crate) const SMALL_BODY_BYTES: usize = 64 * 1024;
 
-/// Decode a request body whose signature was already verified. Every handler
-/// decodes through here, so there is one place that turns request bytes into a
-/// typed body. The length is checked first, so a body larger than the route can
-/// carry is refused before it is parsed.
+/// Decode a request body whose signature was already verified.
 pub(crate) fn parse_body<T: serde::de::DeserializeOwned>(
     body: &[u8],
     limit: usize,
@@ -321,20 +293,6 @@ pub(crate) fn parse_body<T: serde::de::DeserializeOwned>(
         return Err(ApiError::invalid("body"));
     }
     serde_json::from_slice(body).map_err(|_| ApiError::invalid("body"))
-}
-
-fn require_hex64(s: &str, field: &str) -> ApiResult<()> {
-    if s.len() == 64 && s.bytes().all(|b| b.is_ascii_hexdigit()) {
-        Ok(())
-    } else {
-        Err(ApiError::invalid(field))
-    }
-}
-
-pub(crate) fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_millis() as u64)
 }
 
 #[derive(Deserialize)]
@@ -347,16 +305,6 @@ struct LogAppendBody {
 struct LogStreamsBody {
     database_id: String,
     writer_key: String,
-}
-
-#[derive(Deserialize)]
-struct LogReadBody {
-    database_id: String,
-    writer_key: Option<String>,
-    device_id: Option<String>,
-    from_seq: Option<u64>,
-    cursor: Option<String>,
-    limit: Option<u64>,
 }
 
 #[derive(Deserialize)]

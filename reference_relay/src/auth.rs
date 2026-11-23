@@ -43,10 +43,11 @@ pub(crate) fn verify_request(headers: &HeaderMap, path: &str, body: &[u8]) -> Ap
     }
     let node_key = header(headers, "x-lastdb-node-key")?;
     let database_id = header(headers, "x-lastdb-database-id")?;
+    let device_id = header(headers, "x-lastdb-device-id")?;
     let issued_at = header(headers, "x-lastdb-issued-at")?;
     let nonce = header(headers, "x-lastdb-nonce")?;
     let signature = header(headers, "x-lastdb-signature")?;
-    validate_formats(&node_key, &database_id, &issued_at, &nonce)?;
+    validate_formats(&node_key, &database_id, &device_id, &issued_at, &nonce)?;
     check_skew(&issued_at)?;
     let body_hash = hex_lower(&Sha256::digest(body));
     let message = format!(
@@ -68,12 +69,15 @@ fn header(headers: &HeaderMap, name: &str) -> ApiResult<String> {
         .get(name)
         .and_then(|v| v.to_str().ok())
         .map(str::to_owned)
-        .ok_or_else(|| ApiError::unauthorized(name.trim_start_matches("x-lastdb-")))
+        .ok_or_else(|| {
+            ApiError::unauthorized(name.trim_start_matches("x-lastdb-").replace('-', "_"))
+        })
 }
 
 fn validate_formats(
     node_key: &str,
     database_id: &str,
+    device_id: &str,
     issued_at: &str,
     nonce: &str,
 ) -> ApiResult<()> {
@@ -82,6 +86,9 @@ fn validate_formats(
     }
     if !is_hex64(database_id) {
         return Err(ApiError::unauthorized("database_id"));
+    }
+    if !is_hex64(device_id) {
+        return Err(ApiError::unauthorized("device_id"));
     }
     if issued_at.is_empty()
         || issued_at.len() > 20
@@ -125,7 +132,7 @@ fn decode_signature(sig: &str) -> ApiResult<[u8; 64]> {
 }
 
 fn is_hex64(s: &str) -> bool {
-    s.len() == 64 && s.bytes().all(|b| b.is_ascii_hexdigit())
+    crate::store::is_hex64(s)
 }
 
 fn decode_hex32(s: &str) -> Option<[u8; 32]> {
@@ -145,7 +152,6 @@ fn from_hex(b: u8) -> Option<u8> {
     match b {
         b'0'..=b'9' => Some(b - b'0'),
         b'a'..=b'f' => Some(b - b'a' + 10),
-        b'A'..=b'F' => Some(b - b'A' + 10),
         _ => None,
     }
 }

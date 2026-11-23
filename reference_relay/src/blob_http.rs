@@ -13,8 +13,9 @@ use serde::Deserialize;
 use tokio::io::AsyncReadExt;
 
 use crate::error::ApiResult;
-use crate::handlers::{now_ms, AppState};
+use crate::handlers::AppState;
 use crate::presign;
+use crate::store::now_ms;
 
 /// Bytes read from disk per chunk of a download.
 const CHUNK_BYTES: usize = 64 * 1024;
@@ -22,19 +23,25 @@ const CHUNK_BYTES: usize = 64 * 1024;
 /// The smallest upload that `--upload-bytes-per-second` and `--upload-stall-after` apply to.
 const PROOF_MIN_BYTES: u64 = 256 * 1024;
 
-/// `PUT /relay/v1/blob/upload/{token}`: the body is streamed to staging. The request must carry
-/// `x-amz-checksum-sha256` with the base64 SHA-256 that `blob.put` begin returned.
+#[derive(Deserialize)]
+pub(crate) struct SignedQuery {
+    e: u64,
+    s: String,
+}
+
+/// `PUT /relay/v1/blob/upload/{database_id}/{token}`: the body is streamed to staging.
+/// Requires a valid presigned query (`e`, `s`) and `x-amz-checksum-sha256`.
 pub(crate) async fn blob_upload(
     State(state): State<Arc<AppState>>,
-    Path(token): Path<String>,
+    Path((database_id, token)): Path<(String, String)>,
+    Query(q): Query<SignedQuery>,
     headers: HeaderMap,
     body: Body,
 ) -> ApiResult<StatusCode> {
+    presign::check_put(&state.secret, &database_id, &token, q.e, &q.s, now_ms())?;
     let checksum = headers
         .get("x-amz-checksum-sha256")
         .and_then(|value| value.to_str().ok());
-    // Proof options apply to an upload of at least this declared size, so the small files of a
-    // snapshot and the manifest pass at once and only the large file is slow or stalls.
     let large = headers
         .get(header::CONTENT_LENGTH)
         .and_then(|value| value.to_str().ok())
@@ -45,7 +52,6 @@ pub(crate) async fn blob_upload(
     let mut close_after = None;
     match state.upload_fault.as_deref() {
         Some("400") if large => {
-            // Read the whole body first, so the answer is not lost to a reset.
             let mut body = body.into_data_stream();
             while body.next().await.is_some() {}
             return Err(crate::error::ApiError::invalid("sha256"));
@@ -56,57 +62,46 @@ pub(crate) async fn blob_upload(
         _ => {}
     }
     let mut seen = 0u64;
-    // Proof options: a slow or a stalled reader. Without them the body passes untouched.
     let chunks = body.into_data_stream().then(move |chunk| {
         let len = chunk.as_ref().map_or(0, |bytes| bytes.len() as u64);
         if close_after.is_some_and(|after| seen >= after) {
-            // A panic ends the task of this connection, so the socket closes with no answer.
             eprintln!("relay upload_closed");
             panic!("reference_relay: --upload-fault close-once closes this connection");
         }
         let stalled = stall_after.is_some_and(|after| seen >= after);
         seen += len;
-        async move {
-            if stalled {
-                tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
-            } else if let Some(rate) = rate.filter(|rate| *rate > 0) {
-                tokio::time::sleep(std::time::Duration::from_millis(len * 1000 / rate)).await;
-            }
-            chunk
-        }
+        pace_chunk(chunk, len, stalled, rate)
     });
     state
         .store
-        .stage_put(&token, checksum, Box::pin(chunks))
+        .stage_put(&database_id, &token, checksum, Box::pin(chunks))
         .await?;
     Ok(StatusCode::OK)
 }
 
-#[derive(Deserialize)]
-pub(crate) struct BytesQuery {
-    e: u64,
-    s: String,
+async fn pace_chunk(
+    chunk: Result<Bytes, axum::Error>,
+    len: u64,
+    stalled: bool,
+    rate: Option<u64>,
+) -> Result<Bytes, axum::Error> {
+    if stalled {
+        tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
+    } else if let Some(rate) = rate.filter(|rate| *rate > 0) {
+        tokio::time::sleep(std::time::Duration::from_millis(len * 1000 / rate)).await;
+    }
+    chunk
 }
 
-/// `GET /relay/v1/blob/bytes/{sha256}`: the file is streamed from disk.
+/// `GET /relay/v1/blob/bytes/{database_id}/{sha256}`: the file is streamed from disk.
 pub(crate) async fn blob_bytes(
     State(state): State<Arc<AppState>>,
-    Path(sha256): Path<String>,
-    Query(q): Query<BytesQuery>,
+    Path((database_id, sha256)): Path<(String, String)>,
+    Query(q): Query<SignedQuery>,
 ) -> ApiResult<Response> {
-    presign::check_get(&state.secret, &sha256, q.e, &q.s, now_ms())?;
-    let (file, len) = state.store.open_blob(&sha256).await?;
-    let chunks = futures::stream::unfold(file, |mut file| async move {
-        let mut buf = vec![0u8; CHUNK_BYTES];
-        match file.read(&mut buf).await {
-            Ok(0) => None,
-            Ok(n) => {
-                buf.truncate(n);
-                Some((Ok::<Bytes, std::io::Error>(Bytes::from(buf)), file))
-            }
-            Err(error) => Some((Err(error), file)),
-        }
-    });
+    presign::check_get(&state.secret, &database_id, &sha256, q.e, &q.s, now_ms())?;
+    let (file, len) = state.store.open_blob(&database_id, &sha256).await?;
+    let chunks = futures::stream::unfold(file, read_chunk);
     Ok((
         StatusCode::OK,
         [
@@ -116,4 +111,18 @@ pub(crate) async fn blob_bytes(
         Body::from_stream(chunks),
     )
         .into_response())
+}
+
+async fn read_chunk(
+    mut file: tokio::fs::File,
+) -> Option<(Result<Bytes, std::io::Error>, tokio::fs::File)> {
+    let mut buf = vec![0u8; CHUNK_BYTES];
+    match file.read(&mut buf).await {
+        Ok(0) => None,
+        Ok(n) => {
+            buf.truncate(n);
+            Some((Ok(Bytes::from(buf)), file))
+        }
+        Err(error) => Some((Err(error), file)),
+    }
 }

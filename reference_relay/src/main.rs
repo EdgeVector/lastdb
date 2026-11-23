@@ -20,6 +20,7 @@ mod presign;
 mod refusal;
 mod request_log;
 mod store;
+mod store_read;
 mod trim;
 
 use std::net::SocketAddr;
@@ -111,20 +112,25 @@ async fn run() -> Result<(), String> {
         upload_fault: cli.upload_fault,
         upload_fault_done: std::sync::atomic::AtomicBool::new(false),
     });
-    let app = Router::new()
+    let mut app = Router::new()
         .route("/relay/v1/log/append", post(log_append))
         .route("/relay/v1/log/read", post(log_read))
         .route("/relay/v1/log/streams", post(log_streams))
         .route("/relay/v1/log/trim", post(log_trim))
         .route("/relay/v1/blob/put", post(blob_put))
         .route("/relay/v1/blob/get", post(blob_get))
-        .route("/relay/v1/blob/upload/{token}", put(blob_upload))
-        .route("/relay/v1/blob/bytes/{sha256}", get(blob_bytes))
+        .route(
+            "/relay/v1/blob/upload/{database_id}/{token}",
+            put(blob_upload),
+        )
+        .route(
+            "/relay/v1/blob/bytes/{database_id}/{sha256}",
+            get(blob_bytes),
+        )
         .layer(DefaultBodyLimit::max(MAX_JSON_BODY_BYTES));
-    let app = match refusal::Refusals::parse(&cli.refuse_first)? {
-        Some(refusals) => app.layer(middleware::from_fn_with_state(refusals, refusal::refuse)),
-        None => app,
-    };
+    if let Some(refusals) = refusal::Refusals::parse(&cli.refuse_first)? {
+        app = app.layer(middleware::from_fn_with_state(refusals, refusal::refuse));
+    }
     let app = app
         .layer(middleware::from_fn(request_log::log_request))
         .with_state(state);
