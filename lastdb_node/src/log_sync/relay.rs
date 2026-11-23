@@ -57,6 +57,7 @@ impl RelayClient {
             .timeout(REQUEST_TIMEOUT)
             .build()
             .map_err(|e| format!("relay http client: {e}"))?;
+        // trace-egress: public — presigned blob URLs; the signed headers go only to the relay.
         let transfer = reqwest::Client::builder()
             .connect_timeout(CONNECT_TIMEOUT)
             .read_timeout(STALL_TIMEOUT)
