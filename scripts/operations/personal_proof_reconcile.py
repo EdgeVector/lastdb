@@ -69,12 +69,18 @@ def sum_usage(devices):
     return total, streams, pending
 
 
+def uploaded(device):
+    """Everything the device accepted is on the relay. A restored device that wrote nothing has nothing to send."""
+    state = device.spool_state()
+    return state is None or state["head"] == 0 or device.synced_up()
+
+
 def stable_usage(devices):
     """The sum of the accounts once every running device has uploaded all and the accounts stopped moving."""
     from personal_proof_nodes import wait  # noqa: PLC0415 imported here to keep the module graph a line
 
     running = [device for device in devices if device.node.process is not None]
-    wait("every running device to upload", lambda: all(device.synced_up() for device in running), seconds=600)
+    wait("every running device to upload", lambda: all(uploaded(device) for device in running), seconds=600)
 
     def settled():
         snapshots = [device.sync_status() for device in running]

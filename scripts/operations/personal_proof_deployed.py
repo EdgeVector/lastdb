@@ -275,7 +275,6 @@ def prove_deployed(relay, devices, out, entry_audit):
     second, third, report["d_restore"] = step("snapshot again, D restores", snapshot_again, relay, a, d, phrase, state,
                                               expected, folders)
     report["second_snapshot"], report["third_snapshot"] = second, third
-    wait("every device to upload", lambda: all(device.synced_up() for device in (a, b, c, d)), seconds=SYNC_SECONDS)
     reconciled = step("reconcile the relay with the accounts", reconcile_deployed, relay, a, [a, b, c, d], entry_audit)
     report["reconcile"] = reconciled
     # What the Exemem audit reads (exemem-infra): the database, who publishes it, the account the relay bills,
