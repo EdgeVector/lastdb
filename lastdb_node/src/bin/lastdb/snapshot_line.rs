@@ -47,7 +47,7 @@ fn facts(snapshot: &Value) -> Option<String> {
 }
 
 /// A length with one decimal in the largest binary unit that fits.
-fn size(bytes: u64) -> String {
+pub(crate) fn size(bytes: u64) -> String {
     for (name, unit) in [("GiB", 1u64 << 30), ("MiB", 1 << 20), ("KiB", 1 << 10)] {
         if bytes >= unit {
             let tenths = u128::from(bytes) * 10 / u128::from(unit);

@@ -114,7 +114,9 @@ pub(crate) async fn log_trim(
             return Err(ApiError::invalid("kind"));
         }
         ensure_personal_logs(&scope, &req.device_id, snap_floor, &BTreeMap::new()).await?;
-        return Ok(Json(json!({ "done": true, "entries_deleted": 0 })));
+        return Ok(Json(
+            json!({ "done": true, "entries_deleted": 0, "released_bytes": 0 }),
+        ));
     }
     let snapshot = snapshot_entry(scope.store, &req, &writer).await?;
     verify_manifest_blob(scope.store, &req.database_id, &snapshot).await?;
@@ -129,11 +131,15 @@ pub(crate) async fn log_trim(
     }
     plans.push(plan(&scope, &req.device_id, older, None, true).await?);
 
-    let mut deleted = 0;
+    let (mut deleted, mut released) = (0, 0);
     for each in &plans {
-        deleted += apply(&scope, each).await?;
+        let (count, bytes) = apply(&scope, each).await?;
+        deleted += count;
+        released += bytes;
     }
-    Ok(Json(json!({ "done": true, "entries_deleted": deleted })))
+    Ok(Json(
+        json!({ "done": true, "entries_deleted": deleted, "released_bytes": released }),
+    ))
 }
 
 async fn verify_manifest_blob(
@@ -312,7 +318,8 @@ async fn plan(
     })
 }
 
-async fn apply(scope: &TrimScope<'_>, plan: &Plan) -> ApiResult<u64> {
+/// Drop what a plan names. Returns how many entries went and the length of their files.
+async fn apply(scope: &TrimScope<'_>, plan: &Plan) -> ApiResult<(u64, u64)> {
     if let Some((seq, hash)) = &plan.floor {
         let rec = FloorFile {
             seq: *seq,
@@ -334,15 +341,20 @@ async fn apply(scope: &TrimScope<'_>, plan: &Plan) -> ApiResult<u64> {
     } else {
         plan.covered.clone()
     };
-    let mut dropped = 0;
+    let (mut dropped, mut released) = (0, 0);
     for seq in &covered {
-        match fs::remove_file(plan.dir.join(format!("{seq}.json"))).await {
-            Ok(()) => dropped += 1,
+        let file = plan.dir.join(format!("{seq}.json"));
+        let length = fs::metadata(&file).await.map_or(0, |meta| meta.len());
+        match fs::remove_file(&file).await {
+            Ok(()) => {
+                dropped += 1;
+                released += length;
+            }
             Err(e) if e.kind() == ErrorKind::NotFound => {}
             Err(_) => return Err(ApiError::invalid("data_dir")),
         }
     }
-    Ok(dropped)
+    Ok((dropped, released))
 }
 
 async fn subdirs(dir: &Path) -> Vec<(String, PathBuf)> {

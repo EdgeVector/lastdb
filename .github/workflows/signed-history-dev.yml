@@ -485,7 +485,7 @@ jobs:
       - name: Build reference_relay, lastdbd and lastdb
         run: |
           set -euo pipefail
-          cargo build --locked -p reference_relay --bin reference_relay
+          cargo build --locked -p reference_relay --bin reference_relay --bin entry_audit
           cargo build --locked -p lastdb_node --bin lastdb --bin lastdbd
       - name: Devices A to D, the relay, order by edit time, kill -9 under load, and scale
         run: |
@@ -674,6 +674,7 @@ jobs:
         run: |
           set -euo pipefail
           cargo build --locked -p lastdb_node --bin lastdb --bin lastdbd
+          cargo build --locked -p reference_relay --bin entry_audit
       - name: Choose the relay
         run: |
           set -euo pipefail
@@ -689,7 +690,7 @@ jobs:
           mkdir -p "$OUT"
           python3 scripts/operations/personal_database_proof.py \
             --daemon "$PWD/target/debug/lastdbd" --cli "$PWD/target/debug/lastdb" \
-            --relay-url "$RELAY_URL" --revision "$GITHUB_SHA" \
+            --relay-url "$RELAY_URL" --entry-audit "$PWD/target/debug/entry_audit" --revision "$GITHUB_SHA" \
             --output "$OUT/nodes" 2>&1 | tee "$OUT/proof.log"
       - uses: actions/upload-artifact@v7
         if: always()

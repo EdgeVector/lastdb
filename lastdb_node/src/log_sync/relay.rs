@@ -41,6 +41,9 @@ pub(super) struct RelayClient {
     pub(super) transfer: reqwest::Client,
     /// Presigned download client: [`STALL_TIMEOUT`] per read, no idle pool.
     pub(super) download: reqwest::Client,
+    /// The account of what this device put, for a client that syncs a home. A client that only
+    /// reads has none.
+    pub(super) usage: Option<super::usage::Ledger>,
 }
 
 impl RelayClient {
@@ -81,6 +84,7 @@ impl RelayClient {
             http,
             transfer,
             download,
+            usage: None,
         })
     }
 
@@ -90,7 +94,9 @@ impl RelayClient {
         let node_key_hex =
             mutation_log::NodeKey::from_bytes(host.keypair.public_key_bytes()).to_hex();
         let device_id = super::device::device_id(&host.home)?;
-        Self::new(base, signing_key, node_key_hex, &device_id)
+        let mut client = Self::new(base, signing_key, node_key_hex, &device_id)?;
+        client.usage = Some(super::usage::Ledger::new(&host.home));
+        Ok(client)
     }
 
     pub(super) async fn append(
@@ -105,7 +111,16 @@ impl RelayClient {
         let value = self
             .post("/relay/v1/log/append", database_id, &body)
             .await?;
-        Ok(parse_append_counts(&value, entries.len() as u64))
+        let (stored, duplicate) = parse_append_counts(&value, entries.len() as u64);
+        // Every entry the relay holds now counts once in the account of this device.
+        if let Some(usage) = self
+            .usage
+            .as_ref()
+            .filter(|_| stored + duplicate == entries.len() as u64)
+        {
+            usage.entries_accepted(database_id, entries)?;
+        }
+        Ok((stored, duplicate))
     }
 
     /// Read one writer's entries. Omit `device_id` to receive that writer's
@@ -165,6 +180,13 @@ impl RelayClient {
             "writer_seq": writer_seq,
         });
         let value = self.post("/relay/v1/log/trim", database_id, &body).await?;
+        if let Some(usage) = &self.usage {
+            usage.released(
+                database_id,
+                value["entries_deleted"].as_u64().unwrap_or(0),
+                value["released_bytes"].as_u64().unwrap_or(0),
+            )?;
+        }
         Ok(value["done"].as_bool().unwrap_or(false))
     }
 

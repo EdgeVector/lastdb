@@ -208,7 +208,7 @@ covers, so the relay does not keep a history that a snapshot already holds.
 
 Request `{ "database_id", "device_id", "writer_seq" }`: the snapshot stream and the
 sequence number of one `snapshot` entry on it. Response
-`{ "done", "entries_deleted" }` (Exemem adds `released_bytes`).
+`{ "done", "entries_deleted", "released_bytes" }`: how many entries this call dropped and the length of their stored copies. The node keeps both in its account of the relay (`log-sync/<database>/cloud-usage.json`); a trim also drops the entries of the owner's other devices, so the sum is the relay's own account of what it released.
 A call does a bounded amount of work and answers `done: false` when more is left;
 the caller repeats. A repeat is safe at any point.
 

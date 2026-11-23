@@ -22,6 +22,7 @@ from personal_proof_nodes import (
     ALPHA, BETA, ENVELOPE_OVERHEAD, FIELDS, FILE_MARK, GAMMA, NAME_MARK, SCHEMAS, DeployedRelay, converged,
     create, delete, expect, replace, wait)
 from personal_proof_deployed_trim import after_trim, before_trim
+from personal_proof_reconcile import reconcile_deployed
 from personal_proof_snapshot import last_record, views, write_after
 from personal_proof_steps import gamma_create, gamma_replace, gamma_view
 from record_runs import RANGED, definition, require, system_seed
@@ -243,7 +244,7 @@ def snapshot_again(relay, a, d, phrase, state, expected, folders):
 
 # Run --------------------------------------------------------------------------------------
 
-def prove_deployed(relay, devices, out):
+def prove_deployed(relay, devices, out, entry_audit):
     """Run every step against `relay`. Returns the report that `render` turns into the job summary."""
     a, b, c, d = devices
     require(isinstance(relay, DeployedRelay), "this proof runs against a deployed relay")
@@ -274,6 +275,19 @@ def prove_deployed(relay, devices, out):
     second, third, report["d_restore"] = step("snapshot again, D restores", snapshot_again, relay, a, d, phrase, state,
                                               expected, folders)
     report["second_snapshot"], report["third_snapshot"] = second, third
+    wait("every device to upload", lambda: all(device.synced_up() for device in (a, b, c, d)), seconds=SYNC_SECONDS)
+    reconciled = step("reconcile the relay with the accounts", reconcile_deployed, relay, a, [a, b, c, d], entry_audit)
+    report["reconcile"] = reconciled
+    # What the Exemem audit reads (exemem-infra): the database, who publishes it, the account the relay bills,
+    # the streams as the nodes hold them, and what the nodes say they put there.
+    report["database_id"] = reconciled["database_id"]
+    report["publisher_node_key"] = reconciled["publisher_node_key"]
+    report["account_id"] = reconciled["account_id"]
+    report["streams"] = [{"device_id": device_id, "head_seq": item["head"], "head_hash": item["head_hash"]}
+                         for device_id, item in sorted(reconciled["streams"].items())]
+    accounts = reconciled["accounts"]
+    report["usage"] = {field: accounts[field] for field in
+                       ("entries", "entry_bytes", "blobs", "blob_bytes", "released_entries", "released_bytes")}
     report["entries_signed"] = sum(device.spool_state()["head"] for device in (a, b, c))
     # Bytes the relay was given that it had not held: the new blobs. Entries are counted, not measured.
     report["blob_bytes_added"] = (report["a_writes"]["file_blob_bytes"] + first["uploaded_bytes"]
@@ -285,7 +299,7 @@ def prove_deployed(relay, devices, out):
 
 def render(report):
     """The job summary, in Markdown: what ran, what was skipped and why, timings and bytes."""
-    snap, a, c = report["snapshot"], report["a_writes"], report["c_restore"]
+    snap, a, c, usage = report["snapshot"], report["a_writes"], report["c_restore"], report["usage"]
     lines = ["## Personal database on the deployed Exemem DEV relay", "",
              "A fresh identity for this run (seed made offline, no account or secret). Relay origin: the DEV relay of "
              "`lastdb_node/environments.json`.", "", "### Ran", "", "The relay cannot be stopped, so the edit-apart step cuts a device off by restarting it with an "
@@ -305,5 +319,17 @@ def render(report):
               "### Added to the relay (it keeps all of it; a node cannot delete)", "",
               f"- Blobs: about {report['blob_bytes_added']} bytes (the sealed file, the new snapshot files, three manifests).",
               f"- Signed entries: {report['entries_signed']} data entries, plus a birth and three snapshot entries. "
-              "The size of an entry is not visible to the client.", ""]
+              "", "### What the nodes say they put on the relay (for Exemem's own audit)", "",
+              f"- Database `{report['database_id']}`, publisher node key `{report['publisher_node_key']}`, billed account "
+              f"`{report['account_id']}`.",
+              f"- Entries put: {usage['entries']} ({usage['entry_bytes']} bytes, the JSON of each entry as sent); released by trims: "
+              f"{usage['released_entries']} entries ({usage['released_bytes']} bytes).",
+              f"- Blobs put: {usage['blobs']} ({usage['blob_bytes']} bytes), counted when committed; a node cannot delete one.",
+              f"- Streams: " + ", ".join(f"`{item['device_id'][:8]}` head {item['head_seq']}" for item in report["streams"]) + ".",
+              "- This is what these four devices put and the relay accepted, not what the account is billed: the entries of "
+              "a device that is not in this run are not in it.",
+              f"- Read back from the relay: {report['reconcile']['entries_on_the_relay']} entries, "
+              f"{report['reconcile']['entry_bytes_read_back']} bytes in our JSON form (equal to the account: "
+              f"{report['reconcile']['entry_bytes_match']}); the files of snapshot {report['reconcile']['newest_snapshot_seq']} "
+              f"and of retained entries downloaded and hashed ({report['reconcile']['downloaded_bytes']} bytes).", ""]
     return "\n".join(lines)

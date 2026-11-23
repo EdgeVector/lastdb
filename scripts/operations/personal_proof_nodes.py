@@ -149,6 +149,8 @@ class Device:
         self.cli = Path(args.cli)
         self.node.home.rmdir()
         self.database = None
+        # `cloud-usage.json` of a home that the proof wipes and restores is kept here (see `all_usage`).
+        self.retired, self.last_usage = [], None
 
     def cli_env(self):
         return {k: v for k, v in os.environ.items() if not k.startswith("LASTDB")}
@@ -168,6 +170,9 @@ class Device:
 
     def restore(self, phrase):
         """A fresh home from the recovery phrase and the relay alone."""
+        if self.last_usage is not None:
+            self.retired.append(self.last_usage)
+            self.last_usage = None
         report = self.run(self.restore_arguments(), text=phrase)
         require(report.get("ok") is True and len(report.get("database_id", "")) == 64, f"{self.name}: restore reported {report!r}")
         return report
@@ -202,6 +207,19 @@ class Device:
 
     def stop(self):
         self.node.stop()
+        self.last_usage = self.usage() or self.last_usage
+
+    def usage(self):
+        """The account of what this home put on the relay (`log-sync/<db>/cloud-usage.json`), or None."""
+        try:
+            return json.loads((self.log_dir() / "cloud-usage.json").read_text())
+        except (OSError, ValueError):
+            return None
+
+    def all_usage(self):
+        """The accounts of every home this device had, oldest first, the current one last."""
+        current = self.usage() or self.last_usage
+        return [*self.retired, *([current] if current else [])]
 
     def point_at(self, url):
         """Restart the daemon with another relay address. Its home and its spool stay as they are."""

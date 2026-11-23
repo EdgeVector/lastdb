@@ -39,6 +39,7 @@ mod relay;
 mod sealed;
 mod spawn;
 mod upload;
+pub(crate) mod usage;
 mod wake;
 
 use std::path::Path;

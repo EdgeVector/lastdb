@@ -68,6 +68,9 @@ pub(crate) struct SnapshotStatus {
 pub(crate) struct DatabaseSyncStatus {
     pub(crate) upload: UploadSyncStatus,
     pub(crate) download: DownloadSyncStatus,
+    /// What this device put on the relay and the relay accepted (see `log_sync::usage`). None
+    /// until it put anything.
+    pub(crate) usage: Option<crate::log_sync::usage::CloudUsage>,
 }
 
 /// Positions in this device's durable upload queue.

@@ -158,6 +158,15 @@ impl RelayClient {
                 "stage": stage,
             })
         };
+        // The account of this device counts a blob once, when this device put it (see `usage`).
+        let cut_off = self.usage.as_ref().map_or(Ok(false), |usage| {
+            usage.blob_begins(database_id, sha256, size)
+        })?;
+        let ended = |counted: bool| {
+            self.usage.as_ref().map_or(Ok(()), |usage| {
+                usage.blob_ends(database_id, sha256, size, counted)
+            })
+        };
         let begin = self
             .post("/relay/v1/blob/put", database_id, &stage("begin"))
             .await
@@ -169,7 +178,7 @@ impl RelayClient {
                 }
             })?;
         if begin["upload"].is_null() && begin["sha256"].as_str() == Some(sha256) {
-            return Ok(());
+            return ended(cut_off);
         }
         let url = begin["upload"]["url"]
             .as_str()
@@ -209,7 +218,7 @@ impl RelayClient {
         }
         self.post("/relay/v1/blob/put", database_id, &stage("commit"))
             .await?;
-        Ok(())
+        ended(true)
     }
 
     async fn put_once(

@@ -21,6 +21,10 @@ as its own stream and applies the other streams through the store's last-writer 
    from the relay and write nothing to the store. An idle turn reads no entry.
 9. Kill -9 under write load: the relay holds each write once, a second device equals the first,
    and the spool is empty.
+21. The relay holds what the nodes say they put there, and weighs what they say (`personal_proof_reconcile.py`,
+    after the trim step and at the end). Every stream holds exactly its floor to its acknowledged head with an intact
+    hash chain, every blob is accounted for, and the stored bytes equal the accounts the nodes keep. A deployed relay
+    gets the same questions through `log/streams`, `log/read` and `blob.get`.
 11. The snapshot is the checkpoint. A takes a snapshot, then writes more. A home restored from the
     phrase installs the snapshot and reads only the entries after it, and equals a home restored by
     full replay from a relay with no snapshot, key by key, alternate keys and file bytes included.
@@ -77,6 +81,7 @@ from harness import append_step_summary  # noqa: E402
 from personal_proof_load import idle_turn_reads_nothing, kill_under_load, scale  # noqa: E402
 from personal_proof_deployed import prove_deployed, render  # noqa: E402
 from personal_proof_nodes import DELTA, DeployedRelay, Device, Relay, converged, prove_hidden, require, wait  # noqa: E402
+from personal_proof_reconcile import reconcile_reference, remember  # noqa: E402
 from personal_proof_trim import trimmed_relay_restores  # noqa: E402
 from personal_proof_status import prove_none_yet, refused_snapshot, RELAY_LIMIT_BYTES  # noqa: E402
 from personal_proof_retries import prove_retries  # noqa: E402
@@ -137,9 +142,13 @@ def prove(relay, relay2, relay3, relay4, a, b, c, d, e, f, g, h, j, k, m, n, p, 
     d.stop()
     report["snapshot"], folders, expected = snapshot_restore_equals_replay(relay, relay2, (a, b, e, f, g, h, j), phrase, state)
     report["restore_killed"] = kill_the_restore(g, phrase, a, state, folders, expected)
+    # A trim drops entries and keeps the blobs they name: note the files they name first.
+    remember(relay, a.database)
     report["second_snapshot"] = second_snapshot(relay, a, b, f, h, phrase, state, folders, expected)
     exchange_writes(relay, a, f, state, folders, expected)
     report["trim"] = trimmed_relay_restores(relay, relay2, a, b, c, f, g, phrase, state, folders, expected)
+    on_relay = [a, b, c, d, f, g, h, j]
+    report["reconcile_after_trim"] = reconcile_reference(relay, a, on_relay, "21. after the trim")
     # The relay that refuses a large blob, with a home of its own.
     k.init()
     k.start()
@@ -159,6 +168,7 @@ def prove(relay, relay2, relay3, relay4, a, b, c, d, e, f, g, h, j, k, m, n, p, 
     report["kill"] = kill_under_load(relay, a, b, args.kills)
     report["scale"] = scale(relay, a, b, args.scale_writes)
     report["scale_snapshot"] = scale_snapshot(relay, a, j, phrase, DELTA)
+    report["reconcile"] = reconcile_reference(relay, a, on_relay, "21. at the end")
     (out / "summary.json").write_text(json.dumps(report, indent=2))
 
 
@@ -176,7 +186,7 @@ def run_deployed(args):
     devices = [Device(name, args, args.output, relay) for name in ("device-a", "device-b", "device-c", "device-d")]
     failure = None
     try:
-        report = prove_deployed(relay, devices, args.output)
+        report = prove_deployed(relay, devices, args.output, args.entry_audit)
         text = render(report)
         (args.output / "summary.md").write_text(text)
         append_step_summary(text)
@@ -203,6 +213,7 @@ def main():
     where = parser.add_mutually_exclusive_group(required=True)
     where.add_argument("--relay-bin", help="run the scenarios against a reference_relay process of this binary")
     where.add_argument("--relay-url", help="run the deployed-relay scenarios against this relay origin")
+    parser.add_argument("--entry-audit", type=Path, help="the entry_audit binary (deployed relay run; the relay run finds it beside --relay-bin)")
     parser.add_argument("--revision", required=True)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--scale-writes", type=int, default=int(os.environ.get("PROOF_SCALE_WRITES", "20000")),
