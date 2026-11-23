@@ -64,9 +64,7 @@ struct PutBundle {
 pub async fn bootstrap(http: &reqwest::Client, plan: &UploadPlan) -> Result<UploadReport, String> {
     let started = Instant::now();
     let owner = Actor::generate();
-    let member_actor = Actor::generate();
-    let submit_actor = Actor::generate();
-    let read_actor = Actor::generate();
+    let [member_actor, submit_actor, read_actor] = [(); 3].map(|()| Actor::generate());
     let birth = DbBirth::generate(owner.node_key);
     let publisher = Publisher {
         actor: owner,
