@@ -22,6 +22,8 @@ pub mod domain {
     pub const BUNDLE: &str = "lastdb-bundle-v1";
     /// Snapshot domain.
     pub const SNAPSHOT: &str = "lastdb-snapshot-v1";
+    /// Write lease domain.
+    pub const LEASE: &str = "lastdb-lease-v1";
 }
 
 /// Wire kind discriminant (OpenAPI `kind` field).
@@ -46,6 +48,8 @@ pub enum EntryKind {
     Relays,
     /// Publisher-signed name of a database snapshot and the stream positions it covers.
     Snapshot,
+    /// Publisher-signed write lease: until a time, every `write` member may sign direct entries.
+    Lease,
 }
 
 impl EntryKind {
@@ -62,6 +66,7 @@ impl EntryKind {
             Self::Heads => domain::HEADS,
             Self::Relays => domain::RELAYS,
             Self::Snapshot => domain::SNAPSHOT,
+            Self::Lease => domain::LEASE,
         }
     }
 
@@ -77,6 +82,7 @@ impl EntryKind {
                 | Self::Heads
                 | Self::Relays
                 | Self::Snapshot
+                | Self::Lease
         )
     }
 }

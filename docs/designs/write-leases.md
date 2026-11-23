@@ -1,6 +1,6 @@
 # Design: write leases, one per database
 
-Date: 2026-11-22. Author: Claude, for Tom. Status: approved in direction by Tom on 2026-11-22. Not built. The build waits for his word.
+Date: 2026-11-22. Author: Claude, for Tom. Status: approved in direction by Tom on 2026-11-22. Tom said to build it on 2026-11-23. The entry kind and the counting rule are built (section 13); the node is built after them.
 
 What he approved: timed leases with no emergency revoke, a length the publisher chooses, one lease for the whole database (membership stays as grant entries), and a node that keeps the lease on disk and decides each write locally, without asking the relay, until the lease is close to its end.
 
@@ -186,3 +186,45 @@ Proposed by Claude and shown to Tom with the design, not separately confirmed:
 2. One "change this record" app call that answers applied or pending.
 
 No longer needed: signing existing write grants again.
+
+## 13. Build choices (2026-11-23)
+
+Where this document left a detail open, the build chose the simplest thing.
+
+1. **Naming the lease.** A member's direct entry names its lease by citing exactly
+   one `lease` entry in `seen_heads`. No new field and no change to the data entry
+   format. Citing it also makes the order value rule hold and keeps the entry pending
+   until the node holds the lease. `grant_at_device` and `grant_at_seq` stay absent.
+2. **"Before it on the publisher's chain."** The grants before a lease are the
+   publisher's grant entries with a lower position `(lamport, node_key, device_id)`.
+   A member's role as of a lease is the last such grant that names the member.
+   The check is made when the member's entry is accepted. A grant of a second
+   publisher device that arrives later with a lower position does not change an
+   entry that was already accepted.
+3. **Accepted versus counting.** A direct entry of a member joins its stream when the
+   named lease is accepted and the member was `write` as of it. Whether it counts is a
+   separate fact, recomputed whenever a lease entry is accepted. An excluded entry stays
+   in its stream (the chain stays gapless) and writes nothing.
+4. **Closing.** A lease L is closed by the earliest later lease entry, in position
+   order, whose `authored_at_ms` is at or after L's `closes_at_ms`. That entry's `closed`
+   list gives one point per stream, and it applies to every lease the entry closes. A
+   stream it does not list has point 0. The publisher fills `closed` with
+   `VerifiedHistory::closing_streams(authored_at_ms)`: for each lease with no closing entry
+   whose `closes_at_ms` has passed, each stream that wrote under it, at the head the
+   publisher holds for that stream.
+5. **The recompute.** When a lease entry changes which entries count, each record that
+   those entries wrote is recomputed as the winner among the counting data entries that
+   wrote it, and the bundle writes that a non-bundle write shadowed or displaced. The
+   record's creator is the earliest remaining write. A record with no remaining write is
+   removed.
+6. **Bundles.** A bundle is the publisher's, as before. A relay admits a `write` member's
+   bundle (the protocol says so), and a node ignores it.
+7. **`closed` size.** At most 65535 streams, strictly ascending by node key and device id.
+8. **Expiry is not checked by nodes.** Expiry binds honest signers; a node never reads a
+   clock to decide whether an entry counts.
+9. **The relay and a reduced writer.** The relay gates a `write` member's direct entries
+   on its current role, as for every deposit. A writer whose role was reduced cannot
+   deposit direct entries after the reduction, so an entry it signed under the earlier
+   lease and did not upload before the reduction never reaches the relay. This is stricter
+   than section 7 ("Nothing is taken back"). Whether the relay should admit it until the
+   lease is closed needs Tom's word; the relay would then have to read leases.

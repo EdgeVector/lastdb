@@ -15,7 +15,7 @@
 //! bundle=`lastdb-bundle-v1`, grant=`lastdb-grant-v1`,
 //! schema=`lastdb-schema-v1`, blob_delete=`lastdb-blob-delete-v1`,
 //! heads=`lastdb-heads-v1`, relays=`lastdb-relays-v1`,
-//! snapshot=`lastdb-snapshot-v1`.
+//! snapshot=`lastdb-snapshot-v1`, lease=`lastdb-lease-v1`.
 //!
 //! Bundle entries stay **pending** until [`VerifiedHistory::accept_bundle_with_changes`]
 //! (or metadata-only via [`accept_entry`]) after the encrypted blob is verified off-crate.
@@ -25,10 +25,13 @@
 //!
 //! # Who signs what
 //!
-//! Only the publisher signs direct data and bundles. A member with a `submit`
-//! or `write` grant signs proposals (`stream = proposal`), which change
-//! nothing until the publisher signs a direct entry that cites one in
+//! The publisher signs direct data, bundles and `lease` entries. A member with
+//! a `submit` or `write` grant signs proposals (`stream = proposal`), which
+//! change nothing until the publisher signs a direct entry that cites one in
 //! `incorporated_from`, or a `heads` entry that records it as not accepted.
+//! A member that held `write` as of a `lease` entry also signs direct entries
+//! that cite that lease in `seen_heads`; see [`VerifiedHistory::latest_lease`]
+//! and `docs/designs/write-leases.md` for when such an entry counts.
 //! A grant entry still carries a `cutoffs` field because the wire format
 //! requires it; nothing reads it.
 //!
@@ -67,8 +70,8 @@ pub use accept::{
 };
 pub use author::{
     author_birth, author_blob_delete, author_bundle, author_data, author_grant, author_heads,
-    author_relays, author_schema, author_snapshot, data_record, grant_raise, grant_reduce, hash_of,
-    sign_entry, AuthorCtx,
+    author_lease, author_relays, author_schema, author_snapshot, data_record, grant_raise,
+    grant_reduce, hash_of, sign_entry, AuthorCtx,
 };
 pub use bootstrap::{
     bootstrap_from_records, BootstrapError, BootstrapGrant, BootstrapParams, BootstrapRecord,
@@ -81,12 +84,12 @@ pub use bundle::{
 pub use decode::{decode_bundle_body, decode_bundle_signed_bytes, DecodeError};
 pub use encode::signed_bytes;
 pub use entry::{
-    BirthBody, BlobDeleteBody, BundleBody, DataBody, DeviceHead, EntryHeader, GrantBody, HeadsBody,
-    IncorporatedFrom, MutationFileRef, RelayUrl, RelaysBody, RevocationCutoff, SchemaBody,
-    SignedEntry, SnapshotBody, SnapshotThrough,
+    BirthBody, BlobDeleteBody, BundleBody, ClosedStream, DataBody, DeviceHead, EntryHeader,
+    GrantBody, HeadsBody, IncorporatedFrom, LeaseBody, MutationFileRef, RelayUrl, RelaysBody,
+    RevocationCutoff, SchemaBody, SignedEntry, SnapshotBody, SnapshotThrough,
 };
 pub use grants::{AcceptedMeta, GrantState};
-pub use history::{EquivocationEvidence, GrantTip, RejectEvidence, VerifiedHistory};
+pub use history::{EquivocationEvidence, GrantTip, LeaseView, RejectEvidence, VerifiedHistory};
 pub use history_util::{grant_body_of, next_lamport};
 pub use ids::{DatabaseId, DeviceId, EntryHash, Hex32, IdError, NodeKey, StreamId};
 pub use kinds::{domain, EntryKind, Grantee, Role, StreamKind};

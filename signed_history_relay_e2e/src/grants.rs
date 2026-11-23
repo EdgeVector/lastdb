@@ -1,16 +1,17 @@
-//! Grant and revoke against the relay: a `write` member proposes, the publisher
-//! incorporates the proposal, then revokes the member, and the relay refuses the
-//! member's next `log.append` and `blob.put` with HTTP 403. Only the publisher
-//! signs direct entries, so the relay also refuses a member's direct entry
-//! while the grant is live. The member's proposal stays stored and the
+//! Grant and revoke against the relay: a `write` member signs a direct entry
+//! under the publisher's lease and proposes, the publisher incorporates the
+//! proposal, then revokes the member, and the relay refuses the member's next
+//! `log.append` and `blob.put` with HTTP 403. The relay stores the publisher's
+//! `lease` entry and reads it back. It refuses a `lease` entry from a member and
+//! a direct entry from a `submit` member. The member's proposal stays stored and the
 //! publisher's incorporation is what puts its record in the history. A
 //! never-granted node key gets 403 on signed `log.append` and on `log.read` of a
 //! non-public database.
 
 use bytes::Bytes;
 use mutation_log::{
-    author_data, data_record, entry_hash, AcceptOutcome, AuthorCtx, DatabaseId, DeviceId, Grantee,
-    Hex32, NodeKey, Role, SignedEntry, StreamKind, VerifiedHistory,
+    author_data, author_lease, data_record, entry_hash, AcceptOutcome, AuthorCtx, DatabaseId,
+    DeviceId, Grantee, Hex32, LeaseBody, NodeKey, Role, SignedEntry, StreamKind, VerifiedHistory,
 };
 use sha2::{Digest, Sha256};
 use signed_history_materialize::encode_string_field;
@@ -88,9 +89,15 @@ impl Member {
 }
 
 /// The member reads the publisher's root stream, verifies it with AcceptEntry,
-/// finds its own `write` grant, appends one proposal, and checks that the relay
-/// refuses a direct entry from the same grant.
-pub async fn propose_as_member(scene: &Scene<'_>, actor: Actor) -> Result<Member, String> {
+/// finds its own `write` grant and the publisher's lease (the relay read the
+/// lease entry back), signs one direct entry under the lease and appends it,
+/// and appends one proposal. The relay refuses a `lease` entry from the member
+/// and a direct entry from a `submit` member.
+pub async fn propose_as_member(
+    scene: &Scene<'_>,
+    actor: Actor,
+    submit: &Actor,
+) -> Result<Member, String> {
     let device = new_device_id();
     let client = scene.client(&actor, device);
     let page = client
@@ -105,6 +112,16 @@ pub async fn propose_as_member(scene: &Scene<'_>, actor: Actor) -> Result<Member
     if view.grants().role_of(&actor.node_key) != Some(Role::Write) {
         return Err("member holds no write grant in the publisher history".into());
     }
+    let lease = page
+        .entries
+        .iter()
+        .find(|entry| matches!(entry, SignedEntry::Lease { .. }))
+        .cloned()
+        .ok_or("the relay did not read back the publisher's lease entry")?;
+    let lease_hash = entry_hash(&lease).map_err(|e| e.to_string())?;
+    if !view.lease_covers(&lease_hash, &actor.node_key) {
+        return Err("the publisher's lease does not cover the write member".into());
+    }
     let grant = page
         .entries
         .into_iter()
@@ -116,17 +133,30 @@ pub async fn propose_as_member(scene: &Scene<'_>, actor: Actor) -> Result<Member
         grant,
         proposal: None,
     };
-    let direct = member.author(
+    let submit_device = new_device_id();
+    let sneaked = direct_under(
+        submit,
+        &Chain::new(submit_device),
         scene.database_id,
-        StreamKind::Direct,
-        "direct",
-        "sneaked in",
+        &lease,
     )?;
     refused(
-        "write member",
+        "submit member",
         "log.append of a direct entry",
-        client.append(std::slice::from_ref(&direct)).await,
+        scene
+            .client(submit, submit_device)
+            .append(std::slice::from_ref(&sneaked))
+            .await,
     )?;
+    let forged = lease_by(&member.actor, &member.chain, scene.database_id)?;
+    refused(
+        "write member",
+        "log.append of a lease entry",
+        client.append(std::slice::from_ref(&forged)).await,
+    )?;
+    let direct = direct_under(&member.actor, &member.chain, scene.database_id, &lease)?;
+    client.append(std::slice::from_ref(&direct)).await?;
+    member.chain.advance(&direct)?;
     let first = member.author(
         scene.database_id,
         StreamKind::Proposal,
@@ -137,6 +167,47 @@ pub async fn propose_as_member(scene: &Scene<'_>, actor: Actor) -> Result<Member
     member.chain.advance(&first)?;
     member.proposal = Some(first);
     Ok(member)
+}
+
+/// A direct entry that writes the member's record and cites `lease`.
+fn direct_under(
+    actor: &Actor,
+    chain: &Chain,
+    database_id: DatabaseId,
+    lease: &SignedEntry,
+) -> Result<SignedEntry, String> {
+    let ctx = AuthorCtx {
+        database_id,
+        node_key: actor.node_key,
+        device_id: chain.device_id,
+        stream_head: chain.head(),
+        seen_heads: vec![entry_hash(lease).map_err(|e| e.to_string())?],
+        seen_lamports: vec![lease.header().lamport],
+        authored_at_ms: now_ms(),
+    };
+    let value = encode_string_field(MEMBER_TEXT);
+    let body = data_record(StreamKind::Direct, MEMBER_NAMESPACE, MEMBER_KEY, &value);
+    author_data(&ctx, &actor.signing_key, body).map_err(|e| e.to_string())
+}
+
+/// A lease entry signed by a member, which the relay must refuse.
+fn lease_by(actor: &Actor, chain: &Chain, database_id: DatabaseId) -> Result<SignedEntry, String> {
+    let now = now_ms();
+    let ctx = AuthorCtx {
+        database_id,
+        node_key: actor.node_key,
+        device_id: chain.device_id,
+        stream_head: chain.head(),
+        seen_heads: Vec::new(),
+        seen_lamports: Vec::new(),
+        authored_at_ms: now,
+    };
+    let body = LeaseBody {
+        expires_at_ms: now + 1_000,
+        closes_at_ms: now + 2_000,
+        closed: Vec::new(),
+    };
+    author_lease(&ctx, &actor.signing_key, body).map_err(|e| e.to_string())
 }
 
 fn names_member(entry: &SignedEntry, member: NodeKey) -> bool {

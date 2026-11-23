@@ -172,7 +172,7 @@
             "nodeSignature": []
           }
         ],
-        "description": "Requires nodeSignature. Accepted for the publisher, or for a current submit or write grant when the entries are proposal data on the caller's own stream; direct data, bundle and publisher kinds are the publisher's alone. Revoke cuts off new appends immediately (403). Spam/cost gate only \u2014 not AcceptEntry."
+        "description": "Requires nodeSignature. Accepted for the publisher, or for a current submit or write grant when the entries are proposal data on the caller's own stream, and for a current write grant when the entries are direct data or bundles on the caller's own stream (the nodes decide whether a lease covers them); the publisher kinds, lease among them, are the publisher's alone. Revoke cuts off new appends immediately (403). Spam/cost gate only \u2014 not AcceptEntry."
       }
     },
     "/relay/v1/log/read": {
@@ -1186,7 +1186,7 @@
       },
       "SignedEntry": {
         "type": "object",
-        "description": "Opaque signed entry; store key (database_id,node_key,device_id,writer_seq). seen_heads may cite any stream by hash. A snapshot entry (kind snapshot, namespace snapshot) is signed by the publisher and carries manifest_sha256, manifest_bytes and through[] of {device_id,writer_seq,entry_hash,order}; the relay stores it like any publisher entry.",
+        "description": "Opaque signed entry; store key (database_id,node_key,device_id,writer_seq). seen_heads may cite any stream by hash. A snapshot entry (kind snapshot, namespace snapshot) is signed by the publisher and carries manifest_sha256, manifest_bytes and through[] of {device_id,writer_seq,entry_hash,order}; the relay stores it like any publisher entry. A lease entry (kind lease, namespace lease) is signed by the publisher and carries expires_at_ms, closes_at_ms (later than expires_at_ms) and closed[] of {node_key,device_id,writer_seq}, ascending by node_key then device_id; the relay stores it unread, and only the publisher may append it.",
         "required": [
           "kind",
           "database_id",
@@ -1209,7 +1209,8 @@
               "blob_delete",
               "heads",
               "relays",
-              "snapshot"
+              "snapshot",
+              "lease"
             ]
           },
           "database_id": {

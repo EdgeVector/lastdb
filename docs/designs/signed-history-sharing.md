@@ -80,6 +80,6 @@ A restart replays `authored.json` and `received.json` together in Lamport order.
 
 ## What is not built
 
-- Member direct writes and leases. A grant entry still carries a `cutoffs` field because the signed bytes include it; nothing reads it.
+- Member direct writes and leases in the node (the `lease` entry kind and its counting rule are in `mutation_log`; see `write-leases.md`). A grant entry still carries a `cutoffs` field because the signed bytes include it; nothing reads it.
 - Files in shared databases. A proposal that carries a file is refused.
 - Payload encryption of `data` entries in a shared database. They are plain record key and field JSON, base64 on the wire, until the read key delivery for members is designed. Only bundle blobs are encrypted, and bundles are the publisher's alone. The personal database seals every payload: see [personal-database-signed-log.md](personal-database-signed-log.md).

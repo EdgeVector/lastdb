@@ -24,7 +24,14 @@ impl VerifiedHistory {
             .map_err(|_| RejectReason::Malformed("cannot hash bundle entry"))?;
         for ch in changes {
             let payload = crate::payload::encode_record_payload(&ch.record_key, &ch.value);
-            self.merge_data(&ch.namespace, &payload, position, position.node_key, hash);
+            self.merge_data(
+                &ch.namespace,
+                &payload,
+                position,
+                position.node_key,
+                hash,
+                true,
+            );
         }
         Ok(())
     }

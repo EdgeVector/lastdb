@@ -21,13 +21,16 @@
 //! - **heads:** tips (`u16` + `device_id`(32)·`writer_seq`(u64)·`entry_hash`(32)×)
 //! - **snapshot:** `manifest_sha256`(32) · `manifest_bytes`(u64) · through (`u16` count ≤ 1024,
 //!   strictly ascending by `device_id`, each `device_id`(32)·`writer_seq`(u64)·`entry_hash`(32)·`order`(u64))
+//! - **lease:** `expires_at_ms`(u64) · `closes_at_ms`(u64) · closed (`u16` count,
+//!   strictly ascending by `node_key` then `device_id`, each
+//!   `node_key`(32)·`device_id`(32)·`writer_seq`(u64))
 //! - **relays:** urls (`u16` + per url `u16` len + utf8)
 //! - **bundle:** `blob_sha256`(32) · `blob_size`(u64) · `change_count`(u32) ·
 //!   `flags` u8 (bit2=`grant_at`) · grant optionals
 
 use crate::entry::{
-    BundleBody, DataBody, DeviceHead, GrantBody, HeadsBody, IncorporatedFrom, MutationFileRef,
-    RelaysBody, RevocationCutoff, SchemaBody, SignedEntry, SnapshotBody,
+    BundleBody, DataBody, DeviceHead, GrantBody, HeadsBody, IncorporatedFrom, LeaseBody,
+    MutationFileRef, RelaysBody, RevocationCutoff, SchemaBody, SignedEntry, SnapshotBody,
 };
 use crate::ids::Hex32;
 use crate::kinds::Grantee;
@@ -60,6 +63,7 @@ pub fn signed_bytes(entry: &SignedEntry) -> Result<Vec<u8>, EncodeError> {
         SignedEntry::Heads { body, .. } => encode_heads(&mut buf, body)?,
         SignedEntry::Relays { body, .. } => encode_relays(&mut buf, body)?,
         SignedEntry::Snapshot { body, .. } => encode_snapshot(&mut buf, body)?,
+        SignedEntry::Lease { body, .. } => encode_lease(&mut buf, body)?,
     }
     Ok(buf)
 }
@@ -209,6 +213,25 @@ fn encode_snapshot(buf: &mut Vec<u8>, body: &SnapshotBody) -> Result<(), EncodeE
         put_u64(buf, position.writer_seq);
         buf.extend_from_slice(position.entry_hash.as_bytes());
         put_u64(buf, position.order);
+    }
+    Ok(())
+}
+
+fn encode_lease(buf: &mut Vec<u8>, body: &LeaseBody) -> Result<(), EncodeError> {
+    let closed = &body.closed;
+    let ascending = closed
+        .windows(2)
+        .all(|pair| (pair[0].node_key, pair[0].device_id) < (pair[1].node_key, pair[1].device_id));
+    if closed.len() > u16::MAX as usize || !ascending {
+        return Err(EncodeError::BadLeaseClosed);
+    }
+    put_u64(buf, body.expires_at_ms);
+    put_u64(buf, body.closes_at_ms);
+    put_u16(buf, closed.len() as u16);
+    for stream in closed {
+        buf.extend_from_slice(stream.node_key.as_bytes());
+        buf.extend_from_slice(&stream.device_id.to_bytes());
+        put_u64(buf, stream.writer_seq);
     }
     Ok(())
 }
