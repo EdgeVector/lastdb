@@ -23,6 +23,10 @@ const IDLE: Duration = Duration::from_secs(5);
 const ACTIVE: Duration = Duration::from_secs(2);
 
 pub fn spawn(host: Arc<Host>, shutdown: Arc<AtomicBool>) -> tokio::task::JoinHandle<()> {
+    // The status names the snapshot this node kept, before the first turn runs.
+    if let Some(snapshot) = super::known_snapshot(&host.home) {
+        host.cloud_sync.record_snapshot(snapshot);
+    }
     tokio::spawn(
         async move {
             let histories = super::histories_for(&host);

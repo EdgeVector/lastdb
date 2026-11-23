@@ -26,11 +26,14 @@ mod incoming;
 mod outgoing;
 mod saved;
 mod snapshot;
+mod snapshot_known;
 mod snapshot_manifest;
 mod snapshot_restore;
 mod snapshot_state;
+mod snapshot_upload;
 mod verify;
 
+pub(crate) use snapshot_known::known as known_snapshot;
 pub use snapshot_restore::{install_newest_snapshot, SnapshotBase};
 pub(crate) use snapshot_state::{request as request_snapshot, status as snapshot_status};
 
@@ -199,6 +202,12 @@ pub(super) fn chain_head(head: &ReplayStreamHead) -> Result<StreamHead, String> 
 pub(super) async fn turn(host: &Host, client: &RelayClient) -> Option<String> {
     match run_turn(host, client).await {
         Ok(()) => None,
+        Err(error) if error.starts_with(snapshot_upload::TOO_LARGE) => {
+            // The refusal was logged when the relay gave it. The first snapshot of a home
+            // repeats it each turn while the spool waits, which is not logged again.
+            tracing::debug!(target: "lastdbd::log_sync", %error, "personal database sync is waiting for its first snapshot");
+            Some(error)
+        }
         Err(error) => {
             tracing::warn!(target: "lastdbd::log_sync", %error, "personal database sync failed");
             Some(error)

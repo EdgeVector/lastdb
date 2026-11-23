@@ -20,6 +20,8 @@ mod ops_cmds;
 mod record_get_cmds;
 #[path = "lastdb/share_cmds.rs"]
 mod share_cmds;
+#[path = "lastdb/snapshot_line.rs"]
+mod snapshot_line;
 #[path = "lastdb/uds_client.rs"]
 mod uds_client;
 #[path = "lastdb/v1_records.rs"]

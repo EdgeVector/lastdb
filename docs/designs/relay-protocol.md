@@ -232,6 +232,15 @@ reference relay does the same on its side (it hashes the upload as it writes
 the staging file, and `blob.put` commit is a rename). Timeouts for such
 transfers must scale with the size, not use the 30-second request timeout.
 
+**A relay's limit on one blob.** A relay may refuse a blob that is larger than it accepts. It
+answers the `blob.put` begin (before any upload) with HTTP 400, code `invalid_request`, field
+`bytes`. The Exemem relay does this for a blob over 64 MiB. A relay that sets a limit does not
+have to name it. The reference relay has no limit by default; `reference_relay --max-blob-bytes N`
+sets one and gives the same answer, so a client can be proved against it. A client that meets
+this answer for a file with a length above zero must not retry in a tight loop, and must say
+which file and how large it is. The node does this for snapshot files (see
+`signed-log-on-local-machinery.md`, section 12) and does not split a file.
+
 **Dedupe:** encryption with the db key plus a per-blob nonce means
 identical plaintext yields different digests — no cross-entry digest
 dedupe and no refcount. A `blob_delete` for a digest still referenced by
