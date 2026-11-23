@@ -113,6 +113,8 @@ relay are the ones named by content (the SHA-256 of the stored bytes).
 | Key | Value | Purpose |
 |---|---|---|
 | `signed-replay-winner:record:<hash>` | `ordering_ms`, `writer_key`, `writer_device`, `writer_seq` | The stamp of the write that wins for a record now. An incoming entry replaces the record only if its stamp is higher. |
+| `signed-replay-file-winner:record:<hash>`, `-inline-winner:record:<hash>` | `ordering_ms`, `writer_key`, `writer_device`, `writer_seq` | The stamp of the write that wins for a record's external or inline attachment slot. |
+| `signed-replay-winner:schema:<hash>` | `ordering_ms`, `writer_key`, `writer_device`, `writer_seq` | The stamp of the latest applied schema put or drop. |
 | `signed-replay-head:<node key>:<device id>` | `seq`, `hash`, `order`, `frozen` | The last entry of one device stream that this node applied, and for its own stream the last entry the relay acknowledged. |
 | `signed-replay-pending:`, `-pending-attachment:` | A local write whose entry is not signed yet. | A remote entry does not replace an edit the user just made. |
 | `signed-replay-baseline:` (and `-inline:`, `-file-ref:`, `-index:`) | The remote value held under a pending local write. | Becomes the record if the local write loses when it is signed. |
@@ -175,7 +177,8 @@ The schema definitions the database uses, and their retention (TTL) state.
   they were at the same instant.
 - A file that a record holds by path is sealed into a private copy of the file
   store for the snapshot. One such value holds at most 32 MiB
-  (`MAX_RUN_VALUE_BYTES`), so a larger referenced file blocks the snapshot.
+  (`MAX_RUN_VALUE_BYTES`), and `/v1/write` refuses a file whose sealed row
+  would exceed that limit.
 - A restore installs the files with no store open, checks that the head rows
   equal the positions in the entry, and reads each stream after its position.
 

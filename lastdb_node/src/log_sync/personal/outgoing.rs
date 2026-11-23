@@ -27,6 +27,7 @@
 use std::sync::Arc;
 
 use fold_db::fold_db_core::mutation_manager::ReplayStreamHead;
+use fold_db::record_value::FileMarker;
 use fold_db::storage::disk_backup::accepted::{
     Entry, Error as SpoolError, Page, UploadIdentity, UploadPosition,
 };
@@ -38,13 +39,13 @@ use mutation_log::{
 
 use super::body::{self, AcceptedBody, Change, RecordFile};
 use super::saved::{self, Saved};
-use super::{apply, files, Ctx};
+use super::{apply, files, send, Ctx};
 use crate::log_sync::relay::{RelayClient, StreamHead as RelayStream};
 
 /// The relay takes at most this many entries in one append.
 const PAGE: u32 = 90;
-/// A batch stops at this much payload, so the saved file and the request stay small.
-const BATCH_BYTES: usize = 8 * 1024 * 1024;
+/// A batch stops at 2 MiB of plaintext + file payload so saved batches and HTTP requests stay small.
+const BATCH_BYTES: usize = 2 * 1024 * 1024;
 
 /// Sign and send everything the spool holds. Reports the spool position to the
 /// status of the node.
@@ -158,17 +159,22 @@ fn sign_batch(
     let mut head = head.map(super::chain_head).transpose()?;
     let (mut entries, mut bytes, mut through) = (Vec::new(), 0usize, after);
     for item in &page.items {
-        if !entries.is_empty() && bytes > BATCH_BYTES {
+        let (plain, marker) = open_item(ctx, item)?;
+        let file_bytes = marker.as_ref().map_or(0usize, |m| {
+            usize::try_from(m.size_bytes).unwrap_or(usize::MAX)
+        });
+        let next_bytes = item.envelope.len().saturating_add(file_bytes);
+        if !entries.is_empty() && bytes.saturating_add(next_bytes) > BATCH_BYTES {
             break;
         }
-        let entry = sign_one(ctx, item, head)?;
+        let entry = sign_one(ctx, item, &plain, marker.as_ref(), head)?;
         let header = entry.header();
         head = Some(StreamHead {
             entry_hash: entry_hash(&entry).map_err(|e| e.to_string())?,
             writer_seq: header.writer_seq,
             lamport: header.lamport,
         });
-        bytes += item.envelope.len();
+        bytes = bytes.saturating_add(next_bytes);
         through = item.sequence;
         entries.push(entry);
     }
@@ -179,16 +185,13 @@ fn sign_batch(
     })
 }
 
-/// The signed entry of one spool entry, after `head`.
-fn sign_one(ctx: &Ctx<'_>, item: &Entry, head: Option<StreamHead>) -> Result<SignedEntry, String> {
-    let identity = &ctx.identity;
+fn open_item(ctx: &Ctx<'_>, item: &Entry) -> Result<(Vec<u8>, Option<FileMarker>), String> {
     let plain = fold_db::crypto::decrypt_envelope(&ctx.content_key, &item.envelope)
         .map_err(|_| "an accepted write cannot be opened".to_owned())?;
     let accepted: AcceptedBody = body::parse(&plain)?;
     if accepted.mutation_id != item.mutation_id {
         return Err("an accepted write names another mutation than its spool entry".into());
     }
-    let writer_seq = head.map_or(1, |held| held.writer_seq + 1);
     let marker = match body::classify(&accepted)? {
         Change::Record(record) => match record.file {
             RecordFile::Put(marker) => Some(marker),
@@ -196,15 +199,28 @@ fn sign_one(ctx: &Ctx<'_>, item: &Entry, head: Option<StreamHead>) -> Result<Sig
         },
         Change::Schema(_) => None,
     };
-    let seal = |plain: &[u8]| {
+    Ok((plain, marker))
+}
+
+/// The signed entry of one spool entry, after `head`.
+fn sign_one(
+    ctx: &Ctx<'_>,
+    item: &Entry,
+    plain: &[u8],
+    marker: Option<&FileMarker>,
+    head: Option<StreamHead>,
+) -> Result<SignedEntry, String> {
+    let identity = &ctx.identity;
+    let writer_seq = head.map_or(1, |held| held.writer_seq + 1);
+    let seal = |bytes: &[u8]| {
         ctx.sealer
-            .seal(identity.node_key, identity.device_id, writer_seq, plain)
+            .seal(identity.node_key, identity.device_id, writer_seq, bytes)
     };
     let file = match marker {
         Some(marker) => {
             let plain_file = files::plain_of(
                 &ctx.content_key,
-                &marker,
+                marker,
                 item.file_ciphertext.as_deref(),
                 item.file_reference.as_deref(),
             )?;
@@ -237,7 +253,7 @@ fn sign_one(ctx: &Ctx<'_>, item: &Entry, head: Option<StreamHead>) -> Result<Sig
     let data = DataBody {
         stream: StreamKind::Direct,
         namespace: SEALED_NAMESPACE.to_owned(),
-        payload: seal(&plain)?,
+        payload: seal(plain)?,
         file,
         incorporated_from: None,
         grant_at_device: None,
@@ -246,20 +262,30 @@ fn sign_one(ctx: &Ctx<'_>, item: &Entry, head: Option<StreamHead>) -> Result<Sig
     author_data(&author, &identity.signing_key, data).map_err(|e| e.to_string())
 }
 
-/// Settle (in one transaction), send, confirm and forget one saved batch.
+/// Settle, send, confirm and forget one saved batch. File-carrying entries settle
+/// one at a time so multiple whole-file buffers are never held in memory together.
 async fn finish(
     ctx: &Ctx<'_>,
     client: &RelayClient,
     saved: &Saved,
     birth_known: &mut bool,
 ) -> Result<(), String> {
-    let mut local = Vec::with_capacity(saved.entries.len());
+    let mut batch = Vec::new();
     for entry in &saved.entries {
-        local.push(local_write(ctx, entry)?);
+        if has_file(entry) {
+            if !batch.is_empty() {
+                apply::settle_all(ctx, std::mem::take(&mut batch)).await?;
+            }
+            apply::settle_all(ctx, vec![local_write(ctx, entry)?]).await?;
+        } else {
+            batch.push(local_write(ctx, entry)?);
+        }
     }
-    apply::settle_all(ctx, &local).await?;
+    if !batch.is_empty() {
+        apply::settle_all(ctx, batch).await?;
+    }
     if position(ctx).await?.spool_through < saved.through {
-        send(ctx, client, saved, birth_known).await?;
+        send::send(ctx, client, saved, birth_known).await?;
         let (after, through) = (saved.after, saved.through);
         let writer_seq = saved
             .entries
@@ -295,6 +321,16 @@ async fn finish(
     saved::clear(&ctx.host.home, &ctx.database_id, &blobs)
 }
 
+fn has_file(entry: &SignedEntry) -> bool {
+    matches!(
+        entry,
+        SignedEntry::Data {
+            body: DataBody { file: Some(_), .. },
+            ..
+        }
+    )
+}
+
 /// The local write that a signed entry carries, ready to settle.
 fn local_write(ctx: &Ctx<'_>, entry: &SignedEntry) -> Result<apply::Local, String> {
     let SignedEntry::Data {
@@ -311,47 +347,6 @@ fn local_write(ctx: &Ctx<'_>, entry: &SignedEntry) -> Result<apply::Local, Strin
         .as_ref()
         .map(|file| saved::blob_path(&ctx.host.home, &ctx.database_id, &file.sha256.to_hex()));
     apply::local(ctx, header, change, blob.as_deref())
-}
-
-/// Send a batch: the birth when the relay lacks it, the file blobs, then the entries.
-async fn send(
-    ctx: &Ctx<'_>,
-    client: &RelayClient,
-    saved: &Saved,
-    birth_known: &mut bool,
-) -> Result<(), String> {
-    if !*birth_known {
-        let stored = client
-            .append(&ctx.database_id, std::slice::from_ref(&ctx.birth_entry))
-            .await?;
-        expect_all(stored, 1)?;
-        *birth_known = true;
-    }
-    for entry in &saved.entries {
-        if let SignedEntry::Data {
-            body: DataBody {
-                file: Some(file), ..
-            },
-            ..
-        } = entry
-        {
-            let sha256 = file.sha256.to_hex();
-            let path = saved::blob_path(&ctx.host.home, &ctx.database_id, &sha256);
-            client.blob_put(&ctx.database_id, &sha256, &path).await?;
-        }
-    }
-    let stored = client.append(&ctx.database_id, &saved.entries).await?;
-    expect_all(stored, saved.entries.len())
-}
-
-fn expect_all((stored, duplicate): (u64, u64), sent: usize) -> Result<(), String> {
-    if stored + duplicate == sent as u64 {
-        Ok(())
-    } else {
-        Err(format!(
-            "the relay stored {stored} and knew {duplicate} of {sent} entries"
-        ))
-    }
 }
 
 /// Move the own head row to the last entry of the batch. It repeats safely.

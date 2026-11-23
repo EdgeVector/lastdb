@@ -25,6 +25,15 @@ impl MutationManager {
         .await
     }
 
+    /// True when the store holds at least one stream head row.
+    pub async fn has_any_replay_stream_head(&self) -> Result<bool, SchemaError> {
+        let metadata = self.db_ops.metadata();
+        transaction::scope(self.db_ops.native_runtime(), async {
+            metadata.has_any_replay_stream_head().await
+        })
+        .await
+    }
+
     /// Write the head row of a stream with no entry applied: the own stream
     /// after an acknowledgement, or a stream that failed verification.
     pub async fn set_replay_stream_head(

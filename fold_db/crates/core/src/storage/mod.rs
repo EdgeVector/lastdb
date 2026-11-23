@@ -10,6 +10,7 @@ pub(crate) mod local_file_ref;
 pub(crate) use disk_pack::transaction::traits::KvMutation;
 pub use error::{config, StorageError};
 pub(crate) use format::{content_key_proof, current_keys};
+pub use local_file_ref::MAX_RECORD_FILE_BYTES;
 
 pub(crate) mod bind {
     use super::disk_pack::{transaction, PackNamespacedStore, PackRuntime};

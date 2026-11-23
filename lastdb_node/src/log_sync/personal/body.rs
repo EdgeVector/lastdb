@@ -221,9 +221,7 @@ fn record_file(body: &AcceptedBody) -> Result<RecordFile, String> {
         size_bytes: section.size.ok_or(BAD)?,
         sha256: section.content_sha256.clone().ok_or(BAD)?,
     };
-    if marker.has_valid_hash()
-        && marker.size_bytes <= fold_db::storage_policy::native_write::LOCAL_FILE_INPUT_MEMORY_BYTES
-    {
+    if marker.has_valid_hash() && marker.size_bytes <= fold_db::storage::MAX_RECORD_FILE_BYTES {
         Ok(RecordFile::Put(marker))
     } else {
         Err(BAD.into())

@@ -22,11 +22,13 @@
 //! and it is not an error for a device that has never uploaded.
 
 mod apply;
+mod apply_schema;
 mod body;
 mod files;
 mod incoming;
 mod outgoing;
 mod saved;
+mod send;
 mod snapshot;
 mod snapshot_entry;
 mod snapshot_known;
@@ -222,7 +224,21 @@ pub(super) async fn turn(host: &Arc<Host>, client: &RelayClient) -> Option<Strin
 
 async fn run_turn(host: &Arc<Host>, client: &RelayClient) -> Result<(), String> {
     let ctx = Ctx::open(host)?;
-    let streams = list_streams(&ctx, client).await?.unwrap_or_default();
+    let streams = match list_streams(&ctx, client).await {
+        Ok(streams) => streams.unwrap_or_default(),
+        Err(error) => {
+            if is_payment_403(&error) {
+                ctx.host
+                    .cloud_sync
+                    .record_error(crate::cloud::PAYMENT_REQUIRED_MESSAGE);
+            } else {
+                ctx.host
+                    .cloud_sync
+                    .record_download(&ctx.database_id, Some(error.clone()));
+            }
+            return Err(error);
+        }
+    };
     // A home that held data before it began to capture its writes names its first snapshot
     // before anything else goes up: until it does, the spool is not read for upload.
     if ctx.runtime.accepted_status().snapshot_required {
@@ -237,14 +253,15 @@ async fn run_turn(host: &Arc<Host>, client: &RelayClient) -> Result<(), String> 
             return Err(error);
         }
     }
-    // A failure of the sender must not stop the incoming side, or the reverse.
-    let sent = outgoing::run(&ctx, client, &streams).await;
+    // Apply remote streams before signing and settling local writes, so remote attachments fold
+    // into the baseline before local Keep edits settle. Neither side's error stops the other.
     let read = incoming::run(&ctx, client, &streams).await;
     // What the read failed with is in the status, so a device that is behind history the relay
     // dropped after a snapshot says so there and not only in a log that carries no text.
     ctx.host
         .cloud_sync
         .record_download(&ctx.database_id, read.as_ref().err().cloned());
+    let sent = outgoing::run(&ctx, client, &streams).await;
     // A snapshot is frozen only after a clean turn: the spool is on the relay and the streams
     // are applied, so the cut holds exactly what the relay holds. Its upload then goes on in
     // the snapshot lane, and the next turns send and read as usual.
@@ -253,12 +270,13 @@ async fn run_turn(host: &Arc<Host>, client: &RelayClient) -> Result<(), String> 
     } else {
         Ok(())
     };
-    sent.and(read.map(|_| ())).and(snapped)
+    read.map(|_| ()).and(sent).and(snapped)
 }
 
 /// The device streams of the owner on the relay. `None` when the relay does not
 /// know the database yet, which is the state of an owner who has not written
-/// anywhere. A device that has uploaded before must not see that answer.
+/// anywhere. A payment refusal or a home that already holds stream heads must not
+/// treat `HTTP 403` as an empty relay.
 async fn list_streams(
     ctx: &Ctx<'_>,
     client: &RelayClient,
@@ -266,13 +284,34 @@ async fn list_streams(
     match client.streams(&ctx.database_id, &ctx.node_hex).await {
         Ok(streams) => Ok(Some(streams)),
         Err(error) => {
-            if error.contains("HTTP 403") && ctx.own_head().await?.is_none() {
+            if error.contains("HTTP 403")
+                && !is_payment_403(&error)
+                && !has_any_stream_head(ctx).await?
+            {
                 Ok(None)
             } else {
                 Err(error)
             }
         }
     }
+}
+
+async fn has_any_stream_head(ctx: &Ctx<'_>) -> Result<bool, String> {
+    ctx.host
+        .db
+        .mutation_manager()
+        .has_any_replay_stream_head()
+        .await
+        .map_err(|error| format!("the stream heads could not be checked: {error}"))
+}
+
+fn is_payment_403(error: &str) -> bool {
+    let body = error
+        .split_once(": ")
+        .map_or(error.as_bytes(), |(_, text)| text.as_bytes());
+    crate::cloud::is_payment_subscription_error(403, body)
+        || error.contains("payment.subscription")
+        || error.contains(crate::cloud::PAYMENT_REQUIRED_MESSAGE)
 }
 
 /// True while the spool or the saved batch holds something the relay has not

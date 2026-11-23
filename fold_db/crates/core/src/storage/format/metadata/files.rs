@@ -13,10 +13,16 @@ use aes_gcm::{Aes256Gcm, Nonce};
 use hkdf::Hkdf;
 use lastdb_model::hex::{hex_decode_array, sha256_hex};
 use lastdb_model::record_value::{FileMarker, StoredRecord};
-use lastdb_model::storage_policy::native_write::LOCAL_FILE_INPUT_MEMORY_BYTES;
 use sha2::Sha256;
 use std::collections::BTreeSet;
 use std::sync::Arc;
+
+use crate::storage::{StorageError, MAX_RECORD_FILE_BYTES};
+
+const _: () = assert!(
+    MAX_RECORD_FILE_BYTES as usize + 1 + NONCE_SIZE + TAG_SIZE
+        == laststore::disk_run::MAX_RUN_VALUE_BYTES
+);
 
 pub(in crate::storage::format) struct FileChange {
     pub(in crate::storage::format) address: RecordAddress,
@@ -58,11 +64,11 @@ pub(crate) fn seal_row(
     content_key: &[u8; 32],
     plain: &[u8],
 ) -> Result<(String, Vec<u8>), FoldDbError> {
-    if plain.len() as u64 > LOCAL_FILE_INPUT_MEMORY_BYTES {
-        let detail = "local file input exceeds native pending memory allowance".into();
-        return Err(FoldDbError::Schema(SchemaError::WriteResourceLimit {
-            detail,
-        }));
+    if plain.len() as u64 > MAX_RECORD_FILE_BYTES {
+        return Err(StorageError::InvalidOperation(format!(
+            "record file exceeds the {MAX_RECORD_FILE_BYTES}-byte limit"
+        ))
+        .into());
     }
     let sha256 = sha256_hex(plain);
     let (key, nonce) = file_key(content_key, &sha256)?;
@@ -86,7 +92,7 @@ fn verify_row_key(
         .size_bytes
         .checked_add((1 + NONCE_SIZE + TAG_SIZE) as u64);
     if !marker.has_valid_hash()
-        || marker.size_bytes > LOCAL_FILE_INPUT_MEMORY_BYTES
+        || marker.size_bytes > MAX_RECORD_FILE_BYTES
         || expected != Some(row.len() as u64)
         || row.first() != Some(&ENVELOPE_VERSION)
     {
