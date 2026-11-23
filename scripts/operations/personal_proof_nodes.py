@@ -127,8 +127,7 @@ class Relay:
 
     def stream_entries(self, database, device_id):
         """The entries the relay holds of one device stream: logs/<db>/<node>/<device>/<seq>.json."""
-        found = (self.data / "logs").glob(f"{database}/*/{device_id}/*.json")
-        return sorted(int(path.stem) for path in found if path.stem.isdigit())
+        return sorted(int(p.stem) for p in (self.data / "logs").glob(f"{database}/*/{device_id}/*.json") if p.stem.isdigit())
 
 
     def stream_floor(self, database, device_id):
