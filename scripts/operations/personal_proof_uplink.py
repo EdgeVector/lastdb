@@ -30,7 +30,7 @@ from record_runs import RANGED, definition, system_seed
 
 SLOW_BYTES_PER_SECOND = 32 * 1024
 SLOW_FILE_BYTES = 1_500_000
-STALL_FILE_BYTES = 12_000_000
+STALL_FILE_BYTES = 16_000_000
 STALL_AFTER_BYTES = 256 * 1024
 OLD_ALLOWANCE_SECONDS = 30
 STALL_SECONDS = 30
@@ -69,7 +69,7 @@ def prove_uplink(args):
         require(uploads and max(uploads) > (OLD_ALLOWANCE_SECONDS + 2) * 1000,
                 f"no single upload took over {OLD_ALLOWANCE_SECONDS + 2} s; uploads took {uploads!r} ms")
         message = wait("the stalled upload to fail", lambda: re.search(
-            rf"stalled for {STALL_SECONDS} s with (\d+) of (\d+) bytes sent", json.dumps(stalled.sync_status())),
+            r"stalled for 3\d s with (\d+) of (\d+) bytes sent", json.dumps(stalled.sync_status())),
             seconds=STALL_BOUND_SECONDS)
         stall_seconds = time.monotonic() - stall_started
         require(int(message[1]) < int(message[2]), f"the stall message names {message[0]!r}")

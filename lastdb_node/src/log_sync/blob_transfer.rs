@@ -70,20 +70,35 @@ fn place(url: &str) -> String {
     }
 }
 
+/// What the kernel may still hold unsent when the transport has taken the last byte of a body, and
+/// the rate at which that tail is assumed to drain. The transport takes bytes from the body as the
+/// socket buffer accepts them, so the last byte is taken while up to a send buffer of bytes is
+/// still on its way, and no byte is taken meanwhile. This is the one place a floor rate is assumed,
+/// and only for that tail: 4 MiB at 64 KiB/s is 64 s at most.
+const TAIL_BYTES: u64 = 4 << 20;
+const TAIL_FLOOR_BYTES_PER_SECOND: u64 = 64 << 10;
+
 /// Fails when `taken`, the bytes the transport has taken from an upload body, does not move for
-/// [`STALL_TIMEOUT`]. Once the whole body is taken it waits as long for the answer. A slow link
-/// that keeps moving never fails here: no minimum rate is assumed.
+/// [`STALL_TIMEOUT`]. Once the whole body is taken it waits for the answer that long, plus the
+/// time the tail in the send buffer needs at the floor rate. A slow link that keeps moving never
+/// fails here: no minimum rate is assumed for the body.
 async fn stalled(taken: &AtomicU64, size: u64) -> String {
+    let tail = Duration::from_secs(size.min(TAIL_BYTES) / TAIL_FLOOR_BYTES_PER_SECOND);
     let (mut last, mut moved) = (0, Instant::now());
     loop {
         tokio::time::sleep(Duration::from_secs(1)).await;
         let now = taken.load(Ordering::Relaxed);
+        let allowed = if now >= size {
+            STALL_TIMEOUT + tail
+        } else {
+            STALL_TIMEOUT
+        };
         if now != last {
             (last, moved) = (now, Instant::now());
-        } else if moved.elapsed() >= STALL_TIMEOUT {
+        } else if moved.elapsed() >= allowed {
             return format!(
                 "blob upload stalled for {} s with {last} of {size} bytes sent",
-                STALL_TIMEOUT.as_secs()
+                moved.elapsed().as_secs()
             );
         }
     }
