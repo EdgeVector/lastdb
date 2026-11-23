@@ -59,6 +59,11 @@ pub(in crate::exec) fn parse_change(body: &[u8], database: &str) -> Result<Chang
     };
     // A delete names no alternates: the node reads the live record's addresses.
     let alternates = if op == Op::Delete {
+        // The proposal path refuses alternates on a delete, so the direct path does too.
+        let named = doc.get("alternates");
+        if named.is_some_and(|v| !v.is_null() && v.as_object().is_none_or(|m| !m.is_empty())) {
+            return Err(bad("a delete names no alternates"));
+        }
         Alternates::new()
     } else {
         serde_json::from_value(doc.remove("alternates").unwrap_or(json!({})))
