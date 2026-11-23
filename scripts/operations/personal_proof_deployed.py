@@ -29,8 +29,7 @@ SYNC_SECONDS = 300
 SKIPPED = (
     ("relay request log: idle turns read no entry, a restore reads only the tail by count of relay reads",
      "the deployed relay has no request log we can read; the tail is checked by the restore report"),
-    ("relay stopped: later edit wins when the earlier edit syncs last, reads with the relay away",
-     "the relay cannot be stopped; a device is restarted pointing at an unreachable address instead (this step runs)"),
+    ("reads of a restored home with the relay stopped", "the relay cannot be stopped"),
     ("the relay holds one signed entry for each write, by listing its files",
      "the relay's storage cannot be listed; the spool, the confirmed position and a restore are checked instead"),
     ("no key, value, schema name or marker in any byte the relay stored", "the relay's stored bytes cannot be read"),
@@ -279,7 +278,8 @@ def render(report):
     snap, a, c = report["snapshot"], report["a_writes"], report["c_restore"]
     lines = ["## Personal database on the deployed Exemem DEV relay", "",
              "A fresh identity for this run (seed made offline, no account or secret). Relay origin: the DEV relay of "
-             "`lastdb_node/environments.json`.", "", "### Ran", "", "| Step | Seconds |", "|---|---|"]
+             "`lastdb_node/environments.json`.", "", "### Ran", "", "The relay cannot be stopped, so the edit-apart step cuts a device off by restarting it with an "
+             "unreachable relay address.", "", "| Step | Seconds |", "|---|---|"]
     lines += [f"| {item['step']} | {item['seconds']} |" for item in report["steps"]]
     lines += ["", "### Skipped (each needs the relay process or its disk)", "", "| Step | Reason |", "|---|---|"]
     lines += [f"| {item['step']} | {item['reason']} |" for item in report["skipped"]]
