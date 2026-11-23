@@ -7,7 +7,7 @@
 //! on the size of the blob.
 //!
 //! A transfer fails when the connection stalls, not when it is slow: a download when no byte arrives
-//! for `STALL_TIMEOUT`, an upload when the transport takes no byte of the body (or sends no answer
+//! for `STALL_TIMEOUT` (the client's read timeout; an upload client has none, because that timeout runs until the answer starts), an upload when the transport takes no byte of the body (or sends no answer
 //! after the last one) for that long. No minimum rate is assumed.
 
 use std::path::{Path, PathBuf};
@@ -41,9 +41,12 @@ fn is_size_refusal(error: &str) -> bool {
         && body.is_some_and(|body| body["code"] == "invalid_request" && body["field"] == "bytes")
 }
 
-/// The error with its causes (`source` chain), since reqwest alone says "error sending request".
-fn describe(error: &reqwest::Error) -> String {
+/// The error with its causes (`source` chain), since reqwest alone says "error sending request",
+/// and the place: scheme, host and path of the URL. A presigned URL carries its signature and
+/// credential in the query, so the query is never printed.
+fn describe(error: reqwest::Error, url: &str) -> String {
     use std::error::Error as _;
+    let error = error.without_url();
     let mut text = error.to_string();
     let mut cause = error.source();
     while let Some(next) = cause {
@@ -51,23 +54,52 @@ fn describe(error: &reqwest::Error) -> String {
         text.push_str(&next.to_string());
         cause = next.source();
     }
-    text
+    format!("{text} (for {})", place(url))
 }
 
+/// `scheme://host[:port]/path` of a URL, without the query or the fragment.
+fn place(url: &str) -> String {
+    match reqwest::Url::parse(url) {
+        Ok(url) => format!(
+            "{}://{}{}{}",
+            url.scheme(),
+            url.host_str().unwrap_or("?"),
+            url.port().map_or(String::new(), |port| format!(":{port}")),
+            url.path()
+        ),
+        Err(_) => "an unreadable URL".to_owned(),
+    }
+}
+
+/// What the kernel may still hold unsent when the transport has taken the last byte of a body, and
+/// the rate at which that tail is assumed to drain. The transport takes bytes from the body as the
+/// socket buffer accepts them, so the last byte is taken while up to a send buffer of bytes is
+/// still on its way, and no byte is taken meanwhile. This is the one place a floor rate is assumed,
+/// and only for that tail: 4 MiB at 64 KiB/s is 64 s at most.
+const TAIL_BYTES: u64 = 4 << 20;
+const TAIL_FLOOR_BYTES_PER_SECOND: u64 = 64 << 10;
+
 /// Fails when `taken`, the bytes the transport has taken from an upload body, does not move for
-/// [`STALL_TIMEOUT`]. Once the whole body is taken it waits as long for the answer. A slow link
-/// that keeps moving never fails here: no minimum rate is assumed.
+/// [`STALL_TIMEOUT`]. Once the whole body is taken it waits for the answer that long, plus the
+/// time the tail in the send buffer needs at the floor rate. A slow link that keeps moving never
+/// fails here: no minimum rate is assumed for the body.
 async fn stalled(taken: &AtomicU64, size: u64) -> String {
+    let tail = Duration::from_secs(size.min(TAIL_BYTES) / TAIL_FLOOR_BYTES_PER_SECOND);
     let (mut last, mut moved) = (0, Instant::now());
     loop {
         tokio::time::sleep(Duration::from_secs(1)).await;
         let now = taken.load(Ordering::Relaxed);
+        let allowed = if now >= size {
+            STALL_TIMEOUT + tail
+        } else {
+            STALL_TIMEOUT
+        };
         if now != last {
             (last, moved) = (now, Instant::now());
-        } else if moved.elapsed() >= STALL_TIMEOUT {
+        } else if moved.elapsed() >= allowed {
             return format!(
                 "blob upload stalled for {} s with {last} of {size} bytes sent",
-                STALL_TIMEOUT.as_secs()
+                moved.elapsed().as_secs()
             );
         }
     }
@@ -155,7 +187,7 @@ impl RelayClient {
             .map_err(|e| {
                 format!(
                     "blob upload: {} after {} s with {} of {size} bytes sent",
-                    describe(&e),
+                    describe(e, url),
                     started.elapsed().as_secs(),
                     taken.load(Ordering::Relaxed)
                 )
@@ -185,19 +217,19 @@ impl RelayClient {
         if meta["bytes"].as_u64().is_some_and(|n| n != expect_size) {
             return Err(format!("blob.get size differs from its entry for {sha256}"));
         }
-        let mut download = self.transfer.get(url);
+        let mut download = self.download.get(url);
         for (name, value) in header_pairs(&meta["headers"]) {
             download = download.header(name, value);
         }
         let response = download
             .send()
             .await
-            .map_err(|e| format!("blob download: {}", describe(&e)))?;
+            .map_err(|e| format!("blob download: {}", describe(e, url)))?;
         if !response.status().is_success() {
             return Err(format!("blob download HTTP {}", response.status()));
         }
         let part = part_path(dest, sha256);
-        let written = write_verified(response, &part, sha256, expect_size).await;
+        let written = write_verified(response, &part, sha256, expect_size, url).await;
         match written {
             Ok(()) => fs::rename(&part, dest)
                 .await
@@ -240,6 +272,7 @@ async fn write_verified(
     part: &Path,
     sha256: &str,
     expect_size: u64,
+    url: &str,
 ) -> Result<(), String> {
     if let Some(parent) = part.parent() {
         fs::create_dir_all(parent)
@@ -261,7 +294,7 @@ async fn write_verified(
         let chunk = chunk.map_err(|e| {
             format!(
                 "blob download body: {} after {count} of {expect_size} bytes",
-                describe(&e)
+                describe(e, url)
             )
         })?;
         count += chunk.len() as u64;
