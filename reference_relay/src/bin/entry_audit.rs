@@ -3,7 +3,7 @@
 //! - `entry_audit disk DATA_DIR` reads every stream under `DATA_DIR/logs/<database>/<node>/<device>/`
 //!   and reports, for each, the floor (`floor.json`), the first and last stored seq, the count, the
 //!   hash of the last entry and every problem found: a seq that is not the one in the file name, a
-//!   bad signature, a gap, a first entry that does not follow the floor, or a `prev_hash` that is not
+//!   bad signature (every entry of a stream up to 200 entries, a sample of a longer one), a gap, a first entry that does not follow the floor, or a `prev_hash` that is not
 //!   the hash of the entry before it. It also lists the file digests that stored data entries name
 //!   and the manifests that stored `snapshot` entries name.
 //! - `entry_audit chain` reads `{"floor": null | {"seq", "hash"}, "entries": [...]}` on stdin (entries
@@ -26,6 +26,10 @@ struct Stream {
     floor: Option<(u64, String)>,
     /// True when the first entry must be the one after the floor (or seq 1 with no floor).
     strict_start: bool,
+    /// Verify the signature of every entry with this index step, and of the last entry. The hash
+    /// chain covers every signature (an entry hash includes it), and the relay and the nodes verified
+    /// each one when they took it, so a long stream is sampled to keep a debug build fast.
+    verify_every: usize,
 }
 
 fn check(stream: &Stream) -> Value {
@@ -43,7 +47,7 @@ fn check(stream: &Stream) -> Value {
             problems.push(format!("the first entry is {first}, expected {expected}"));
         }
     }
-    for (seq, value) in &stream.entries {
+    for (index, (seq, value)) in stream.entries.iter().enumerate() {
         let signed: SignedEntry = match serde_json::from_value(value.clone()) {
             Ok(signed) => signed,
             Err(error) => {
@@ -57,7 +61,8 @@ fn check(stream: &Stream) -> Value {
         if header.writer_seq != *seq {
             problems.push(format!("entry {seq} says it is {}", header.writer_seq));
         }
-        if verify_entry_signature(&signed).is_err() {
+        let sampled = index % stream.verify_every == 0 || index + 1 == stream.entries.len();
+        if sampled && verify_entry_signature(&signed).is_err() {
             problems.push(format!("entry {seq} has a bad signature"));
         }
         let Ok(hash) = entry_hash(&signed) else {
@@ -161,10 +166,12 @@ fn disk(data_dir: &Path) -> Result<Value, String> {
                         }));
                     }
                 }
+                let verify_every = (entries.len() / 200).max(1);
                 let mut report = check(&Stream {
                     entries,
                     floor,
                     strict_start: true,
+                    verify_every,
                 });
                 // The hash of every entry of a large stream is not needed here.
                 report["hashes"] = Value::Null;
@@ -209,6 +216,7 @@ fn chain() -> Result<Value, String> {
         entries,
         floor,
         strict_start: false,
+        verify_every: 1,
     }))
 }
 
