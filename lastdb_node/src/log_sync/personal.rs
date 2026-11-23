@@ -2,11 +2,13 @@
 //!
 //! Every device of one owner signs its own stream under the one node key, and
 //! the relay holds one stream for each device. A device does two things each
-//! turn, and both use the machinery of the store:
+//! turn, and these use the machinery of the store:
 //!
 //! - [`outgoing`] signs the writes of the spool of accepted writes as the next
 //!   entries of its own stream and sends them. The spool is the upload queue. It
 //!   trims when the relay acknowledges.
+//! - [`snapshot`] freezes a snapshot when one is due, and the snapshot lane uploads it while
+//!   the turns above go on.
 //! - [`incoming`] reads the other devices' streams from the head row of each,
 //!   and applies every entry with the stamp that the store keeps beside each
 //!   record. The head rows live in the store, so a snapshot carries them, and a
@@ -26,7 +28,9 @@ mod incoming;
 mod outgoing;
 mod saved;
 mod snapshot;
+mod snapshot_entry;
 mod snapshot_known;
+mod snapshot_lane;
 mod snapshot_manifest;
 mod snapshot_restore;
 mod snapshot_state;
@@ -34,6 +38,7 @@ mod snapshot_upload;
 mod verify;
 
 pub(crate) use snapshot_known::known as known_snapshot;
+pub(super) use snapshot_lane::stop as stop_snapshot_lane;
 pub use snapshot_restore::{install_newest_snapshot, SnapshotBase};
 pub(crate) use snapshot_state::{request as request_snapshot, status as snapshot_status};
 
@@ -199,7 +204,7 @@ pub(super) fn chain_head(head: &ReplayStreamHead) -> Result<StreamHead, String> 
 /// One sync turn of the personal database: list the streams, send what is in
 /// the spool, apply what the other devices wrote. The result is the error of
 /// the turn, if any.
-pub(super) async fn turn(host: &Host, client: &RelayClient) -> Option<String> {
+pub(super) async fn turn(host: &Arc<Host>, client: &RelayClient) -> Option<String> {
     match run_turn(host, client).await {
         Ok(()) => None,
         Err(error) if error.starts_with(snapshot_upload::TOO_LARGE) => {
@@ -215,7 +220,7 @@ pub(super) async fn turn(host: &Host, client: &RelayClient) -> Option<String> {
     }
 }
 
-async fn run_turn(host: &Host, client: &RelayClient) -> Result<(), String> {
+async fn run_turn(host: &Arc<Host>, client: &RelayClient) -> Result<(), String> {
     let ctx = Ctx::open(host)?;
     let streams = list_streams(&ctx, client).await?.unwrap_or_default();
     // A home that held data before it began to capture its writes names its first snapshot
@@ -240,10 +245,11 @@ async fn run_turn(host: &Host, client: &RelayClient) -> Result<(), String> {
     ctx.host
         .cloud_sync
         .record_download(&ctx.database_id, read.as_ref().err().cloned());
-    // A snapshot is taken only after a clean turn: the spool is on the relay and
-    // the streams are applied, so the cut holds exactly what the relay holds.
+    // A snapshot is frozen only after a clean turn: the spool is on the relay and the streams
+    // are applied, so the cut holds exactly what the relay holds. Its upload then goes on in
+    // the snapshot lane, and the next turns send and read as usual.
     let snapped = if sent.is_ok() && read.is_ok() {
-        snapshot::run(&ctx, client).await
+        snapshot::run(&ctx, client, host).await
     } else {
         Ok(())
     };
@@ -279,7 +285,9 @@ pub(super) fn pending(host: &Host) -> bool {
     status.head > status.acked
         || status.snapshot_required
         || !matches!(saved::load(&host.home, &database_id), Ok(None))
-        || snapshot_state::requested(&host.home, &database_id)
+        // A request that the running snapshot serves, or that waits behind it, does not wake the
+        // loop: it would spin until the upload ends. The end of the lane is the next turn.
+        || (snapshot_state::requested(&host.home, &database_id) && !snapshot_lane::busy())
 }
 
 /// What a restore found.

@@ -51,6 +51,9 @@ as its own stream and applies the other streams through the store's last-writer 
     relay stops reading fails after 30 s with a message that says how many of how many bytes were sent.
 19. An upload that fails before an answer (the store closed the connection) is sent again from its start to
     the same URL, at most 3 tries in all; an HTTP status from the store (400) is final and is not sent again.
+20. Entries go on while a snapshot's files upload. With the relay reading a large upload at 24 KiB/s, the
+    writes of A are acknowledged and read by B before the relay holds the snapshot entry. A kill -9 in the
+    upload loses and repeats nothing, and the published snapshot names the positions of its cut.
 10. Scale: tens of thousands of writes. The peak resident memory of the daemons does not grow with
     the number of entries, the spool returns to near empty, and an idle turn reads nothing.
 
@@ -77,6 +80,7 @@ from personal_proof_nodes import DELTA, DeployedRelay, Device, Relay, converged,
 from personal_proof_trim import trimmed_relay_restores  # noqa: E402
 from personal_proof_status import prove_none_yet, refused_snapshot, RELAY_LIMIT_BYTES  # noqa: E402
 from personal_proof_retries import prove_retries  # noqa: E402
+from personal_proof_lane import prove_lane  # noqa: E402
 from personal_proof_uplink import prove_uplink  # noqa: E402
 from personal_proof_upload_retry import prove_upload_retry  # noqa: E402
 from personal_proof_snapshot import (  # noqa: E402
@@ -146,6 +150,7 @@ def prove(relay, relay2, relay3, relay4, a, b, c, d, e, f, g, h, j, k, m, n, p, 
     relay4.stop()
     report["uplink"] = prove_uplink(args)
     report["upload_retry"] = prove_upload_retry(args)
+    report["lane"] = prove_lane(args)
     # Only A and B again: the homes restored for the proof are done.
     for device in (e, f, h):
         device.stop()

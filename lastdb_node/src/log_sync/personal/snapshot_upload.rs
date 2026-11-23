@@ -10,6 +10,7 @@ use sha2::{Digest, Sha256};
 use super::snapshot_manifest::{FileEntry, Manifest};
 use super::snapshot_state::{file_of, Last};
 use super::Ctx;
+use crate::host::cloud_sync::SnapshotState;
 use crate::log_sync::blob_transfer::SIZE_REFUSED;
 use crate::log_sync::relay::{RelayClient, StreamHead as RelayStream};
 use crate::profile::private_fs as disk;
@@ -71,11 +72,23 @@ pub(super) async fn upload_files(
             .map(|file| (file.path.as_str(), file.sha256.as_str()))
             .collect()
     });
+    let todo: Vec<&FileEntry> = files
+        .iter()
+        .filter(|entry| !known.contains(&(entry.path.as_str(), entry.sha256.as_str())))
+        .collect();
+    let total_bytes: u64 = todo.iter().map(|entry| entry.bytes).sum();
     let (mut uploaded_files, mut uploaded_bytes) = (0, 0);
-    for entry in files {
-        if known.contains(&(entry.path.as_str(), entry.sha256.as_str())) {
-            continue;
-        }
+    let progress = |files: usize, bytes: u64| {
+        ctx.host.cloud_sync.mark_snapshot(
+            SnapshotState::InProgress,
+            Some(format!(
+                "uploaded {files} of {} files, {bytes} of {total_bytes} bytes",
+                todo.len()
+            )),
+        );
+    };
+    progress(0, 0);
+    for entry in &todo {
         let mut file = cut
             .open_file(Path::new(&entry.path))
             .map_err(|error| error.to_string())?;
@@ -96,6 +109,7 @@ pub(super) async fn upload_files(
             })?;
         uploaded_files += 1;
         uploaded_bytes += entry.bytes;
+        progress(uploaded_files, uploaded_bytes);
     }
     Ok((uploaded_files, uploaded_bytes))
 }

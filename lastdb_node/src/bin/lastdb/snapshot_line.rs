@@ -17,6 +17,11 @@ pub(crate) fn snapshot_lines(sync: &Value) -> Vec<String> {
         }
         None => "Snapshot: none yet".to_owned(),
     }];
+    if state == "in_progress" {
+        if let Some(message) = snapshot["message"].as_str() {
+            lines.push(format!("Snapshot uploading: {message}"));
+        }
+    }
     if state == "blocked" {
         let message = snapshot["message"]
             .as_str()

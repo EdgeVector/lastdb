@@ -426,3 +426,32 @@ The restore of either retained snapshot reads each stream after its position, an
 ### Proof
 
 `personal_database_proof.py` step 16 runs after the snapshots of steps 11 to 14, against the reference relay: the relay holds no entry at or before the positions of the retained older snapshot, on any stream, and keeps the birth, the two newest snapshots and their files; a device that stopped before those positions gets the error above and applies nothing; a restore from the phrase installs the newest snapshot, replays only the entries after it, and equals the source key by key, alternate keys and file included, with the relay restarted in between (the floor survives a restart); a repeat of an append at and below the floor (signed as A, replayed from a pre-trim copy of the relay) is answered as a duplicate, is not stored, and a read there is 410; a third snapshot drops the first snapshot entry but **not its manifest or any of its files**, and a restore from snapshot 2 and from snapshot 3 each equal the source; B and F, which were past the positions, hold their state and never report that they are behind. Against the Exemem DEV relay the same snapshots call the route; the run proves the restores, and not the bytes the relay holds or the counter, which a node cannot read.
+
+## 15. The snapshot upload does not hold the sync turn
+
+A snapshot of a large home uploads tens of megabytes. Inside the turn, no entry was sent or acknowledged and no other device was read until the last file was up, which on a home uplink took minutes. Now the turn only freezes the snapshot. The slow part runs in one lane beside the turns.
+
+**In the turn** (`snapshot::run`): after a clean turn, when a snapshot is requested or due and no lane runs, the store freezes the files (`capture_synced_snapshot`). It still needs the spool acknowledged and the replay settled at that one instant, so it stays in the turn, and it takes the head rows in the same hold of the write gate. The turn then marks the status `in_progress` and starts the lane. Nothing else changes in the turn.
+
+**In the lane** (`snapshot::upload`, a task in `snapshot_lane.rs`): hash the pinned files, upload what the previous snapshot did not hold, upload the manifest, read the head of the snapshot stream again, sign and append the `snapshot` entry, write `snapshot-last.json` and `snapshot-known.json`, ask the relay to trim, answer the request. The lane starts from a turn and ends by itself. It has no timer and no queue.
+
+**What the entry claims does not change.** `through` is read from the head rows at the freeze, and `own_seq` is taken from it. Neither reads the live store later, so entries that the turns send, and entries that they apply from other devices, after the freeze are not claimed. Those are the tail a restore replays. The pinned files do not change however many writes follow.
+
+**One snapshot at a time.** The lane slot is empty or full. A request that arrives while the lane runs is not joined to it: its cut is older than the request, so a person who waited for "a snapshot after my writes" would get one that lacks them. The request file stays. The turn after the lane ends freezes a fresh cut for it (an unchanged cut names nothing twice). While the lane runs, `pending` does not count the request, so the loop does not spin.
+
+**Shared state, and how each piece is protected:**
+
+| State | Written by | Protection |
+|---|---|---|
+| The spool, `outgoing.json`, the own head row | the turn only (`outgoing`) | The lane never touches them. |
+| The snapshot stream (the `snapshot` entry) | the lane, or the first snapshot inside the turn | The first snapshot runs only while `snapshot_required` is true, and the freeze of a regular snapshot refuses in that case, so the two never overlap. The lane reads the stream head again right before it signs. |
+| `snapshot-last.json`, `snapshot-known.json`, the cloud sync status of the snapshot | the lane (the turn only reads) | One lane. The files are written with a rename. The turn reads `snapshot-last.json` only when no lane runs. |
+| `snapshot-request`, `-result`, `-error` | `request` (the CLI), then the lane | The lane retires or fails a request only when the file still holds its nonce, so a newer request keeps its file and gets its own answer. |
+| The native cloud work guard | taken in the turn at the freeze, held by the lane | A second freeze fails while it is held. |
+| The refusal memory (`REFUSED`) | the lane | One mutex. |
+
+**Stop.** When the daemon stops, the sync task aborts the lane and waits for it (`stop_snapshot_lane`). The lane has no await between the append of the `snapshot` entry and the writes of its records, so a stop never falls between the relay naming the snapshot and the node knowing it. Files already committed on the relay are skipped the next time. The request file stays, so the next start takes the snapshot again. **Kill -9** has the same effect on disk: the spool, the saved entries and the stream are untouched, nothing is signed twice, and the same window as before remains between the relay taking the entry and the node writing its record (a retake then signs one more `snapshot` entry; it adds no data entry).
+
+**Status.** While the lane runs, `cloud_sync.snapshot.state` is `in_progress`, and `message` says `uploaded N of M files, X of Y bytes` (before the first file: `hashing the files`). `lastdb status` prints `Snapshot uploading: <message>` below the line of the newest snapshot. A failure puts the earlier state back, and a relay limit sets `blocked` as before. `lastdb backup snapshot --wait` keeps its meaning: it returns when the request is answered, after the entry and the trim. The first snapshot of a home that held data before it began to capture still runs inside the turn, because the spool is not sent until it is named.
+
+**Proof.** `personal_database_proof.py` step 20 (`personal_proof_lane.py`): the reference relay reads a large upload at 24 KiB/s, so a snapshot with a 500 KB file uploads for about 20 s. During it W's writes are acknowledged and read by X before the relay holds a snapshot entry; W is killed with -9 in the first upload and loses and repeats nothing; the second upload takes writes the same way; the published entry names W through the last entry acknowledged at the freeze, and W signed more after it; a home restored from it replays exactly the entries after that position and equals W and X.
