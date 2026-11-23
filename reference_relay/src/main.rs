@@ -69,6 +69,11 @@ struct Cli {
     /// uplink). Only the proof uses it.
     #[arg(long)]
     upload_stall_after: Option<u64>,
+    /// `close-once`: drop the connection of the first large upload after part of its body (the
+    /// object store closed it). `400`: answer every large upload with HTTP 400 (BadDigest). Only
+    /// the proof uses it.
+    #[arg(long, value_parser = ["close-once", "400"])]
+    upload_fault: Option<String>,
 }
 
 #[tokio::main]
@@ -101,6 +106,8 @@ async fn run() -> Result<(), String> {
         max_blob_bytes: cli.max_blob_bytes,
         upload_bytes_per_second: cli.upload_bytes_per_second,
         upload_stall_after: cli.upload_stall_after,
+        upload_fault: cli.upload_fault,
+        upload_fault_done: std::sync::atomic::AtomicBool::new(false),
     });
     let app = Router::new()
         .route("/relay/v1/log/append", post(log_append))

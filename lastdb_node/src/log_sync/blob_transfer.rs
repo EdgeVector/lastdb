@@ -10,6 +10,7 @@
 //! for `STALL_TIMEOUT` (the client's read timeout; an upload client has none, because that timeout runs until the answer starts), an upload when the transport takes no byte of the body (or sends no answer
 //! after the last one) for that long. No minimum rate is assumed.
 
+use std::io::SeekFrom;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -20,7 +21,7 @@ use futures::StreamExt;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use tokio::fs;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 
 use super::relay::{header_pairs, RelayClient, STALL_TIMEOUT};
 
@@ -69,6 +70,18 @@ fn place(url: &str) -> String {
         ),
         Err(_) => "an unreadable URL".to_owned(),
     }
+}
+
+/// An upload is tried at most this many times in all, after waits of 0.5 s and 1 s, each cut to a
+/// random value between half and all of it. The added time of the two retries is at most 1.5 s of
+/// waiting plus the time of the failed tries, each at most the stall allowance of
+/// `stalled` (30 s without a byte, or 30 s plus the tail after the last byte).
+const UPLOAD_TRIES: u32 = 3;
+
+fn upload_backoff(tried: u32) -> Duration {
+    use rand::Rng;
+    let full = Duration::from_millis(500) * tried;
+    rand::thread_rng().gen_range(full / 2..=full)
 }
 
 /// What the kernel may still hold unsent when the transport has taken the last byte of a body, and
@@ -130,7 +143,7 @@ impl RelayClient {
         &self,
         database_id: &str,
         sha256: &str,
-        file: fs::File,
+        mut file: fs::File,
     ) -> Result<(), String> {
         let size = file
             .metadata()
@@ -164,13 +177,62 @@ impl RelayClient {
         let url = begin["upload"]["url"]
             .as_str()
             .ok_or("blob.put begin has no upload.url")?;
+        // A transport failure before any answer (the connection closed or reset, or the watch)
+        // sends the file again from its start to the same URL: the file is on disk, the URL signs
+        // the length and the digest and holds for about 15 minutes, and a second `begin` is not
+        // needed (the Exemem relay would answer it with a new URL and make that the pending one).
+        // An HTTP status from the store is an answer and is final.
+        let start = file
+            .stream_position()
+            .await
+            .map_err(|e| format!("blob file: {e}"))?;
+        let mut tried = 0;
+        let status = loop {
+            tried += 1;
+            let mut attempt = file
+                .try_clone()
+                .await
+                .map_err(|e| format!("blob file: {e}"))?;
+            attempt
+                .seek(SeekFrom::Start(start))
+                .await
+                .map_err(|e| format!("blob file: {e}"))?;
+            match self
+                .put_once(url, &begin["upload"]["headers"], attempt, size)
+                .await
+            {
+                Ok(status) => break status,
+                Err(error) if tried < UPLOAD_TRIES => {
+                    tracing::warn!(target: "lastdbd::log_sync", %error, tried, "blob upload failed before an answer; sending the file again");
+                    tokio::time::sleep(upload_backoff(tried)).await;
+                }
+                Err(error) => return Err(error),
+            }
+        };
+        if !status.is_success() {
+            return Err(format!("blob upload HTTP {status}"));
+        }
+        self.post("/relay/v1/blob/put", database_id, &stage("commit"))
+            .await?;
+        Ok(())
+    }
+
+    /// One try of the presigned upload of `file` (read to its end): the status the store answered,
+    /// or the error of a transport failure or of the stall watch.
+    async fn put_once(
+        &self,
+        url: &str,
+        headers: &serde_json::Value,
+        file: fs::File,
+        size: u64,
+    ) -> Result<reqwest::StatusCode, String> {
         let taken = Arc::new(AtomicU64::new(0));
         let mut upload = self
             .transfer
             .put(url)
             .header("content-length", size)
             .body(file_body(file, Arc::clone(&taken)));
-        for (name, value) in header_pairs(&begin["upload"]["headers"]) {
+        for (name, value) in header_pairs(headers) {
             // The content-length is set above. The Exemem relay signs it and returns it among
             // the headers, and a second content-length header makes the object store answer 400.
             if name.eq_ignore_ascii_case("content-length") {
@@ -183,22 +245,14 @@ impl RelayClient {
             sent = upload.send() => sent,
             message = stalled(&taken, size) => return Err(message),
         };
-        let status = sent
-            .map_err(|e| {
-                format!(
-                    "blob upload: {} after {} s with {} of {size} bytes sent",
-                    describe(e, url),
-                    started.elapsed().as_secs(),
-                    taken.load(Ordering::Relaxed)
-                )
-            })?
-            .status();
-        if !status.is_success() {
-            return Err(format!("blob upload HTTP {status}"));
-        }
-        self.post("/relay/v1/blob/put", database_id, &stage("commit"))
-            .await?;
-        Ok(())
+        sent.map(|response| response.status()).map_err(|e| {
+            format!(
+                "blob upload: {} after {} s with {} of {size} bytes sent",
+                describe(e, url),
+                started.elapsed().as_secs(),
+                taken.load(Ordering::Relaxed)
+            )
+        })
     }
 
     /// Fetch a blob into the file `dest`: `blob.get`, then the presigned

@@ -34,6 +34,10 @@ pub(crate) struct AppState {
     pub(crate) upload_bytes_per_second: Option<u64>,
     /// Proof only: after this many bytes of an upload body, stop reading it.
     pub(crate) upload_stall_after: Option<u64>,
+    /// Proof only: `close-once` drops the connection of the first large upload after part of its
+    /// body; `400` answers every large upload with HTTP 400.
+    pub(crate) upload_fault: Option<String>,
+    pub(crate) upload_fault_done: std::sync::atomic::AtomicBool,
 }
 
 impl AppState {

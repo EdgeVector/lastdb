@@ -1,6 +1,7 @@
 //! The presigned transfer routes of `blob.put` and `blob.get`. Bodies move in
 //! chunks, so the relay's memory does not grow with the size of the blob.
 
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use axum::body::{Body, Bytes};
@@ -41,10 +42,28 @@ pub(crate) async fn blob_upload(
         .is_some_and(|length| length >= PROOF_MIN_BYTES);
     let rate = state.upload_bytes_per_second.filter(|_| large);
     let stall_after = state.upload_stall_after.filter(|_| large);
+    let mut close_after = None;
+    match state.upload_fault.as_deref() {
+        Some("400") if large => {
+            // Read the whole body first, so the answer is not lost to a reset.
+            let mut body = body.into_data_stream();
+            while body.next().await.is_some() {}
+            return Err(crate::error::ApiError::invalid("sha256"));
+        }
+        Some("close-once") if large && !state.upload_fault_done.swap(true, Ordering::SeqCst) => {
+            close_after = Some(PROOF_MIN_BYTES / 2);
+        }
+        _ => {}
+    }
     let mut seen = 0u64;
     // Proof options: a slow or a stalled reader. Without them the body passes untouched.
     let chunks = body.into_data_stream().then(move |chunk| {
         let len = chunk.as_ref().map_or(0, |bytes| bytes.len() as u64);
+        if close_after.is_some_and(|after| seen >= after) {
+            // A panic ends the task of this connection, so the socket closes with no answer.
+            eprintln!("relay upload_closed");
+            panic!("reference_relay: --upload-fault close-once closes this connection");
+        }
         let stalled = stall_after.is_some_and(|after| seen >= after);
         seen += len;
         async move {
