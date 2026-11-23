@@ -15,7 +15,14 @@ snapshot file uses. Two homes attach a file:
               buffers of a loopback connection, so the body cannot be buffered away. The sync turn fails
               after 30 s with "stalled for 30 s with <n> of <size> bytes sent" and no URL query.
 
-Both run at the same time. Not proven here: a download that stalls (the download client has the 30 s read
+Both run at the same time.
+
+A record file has a ceiling (`MAX_RECORD_FILE_BYTES`, a little under 32 MiB, LastDB #1870): the node
+holds a file as one sealed value. The stalled home first tries to attach a file above the ceiling. The
+write is refused with 400 at once and the record does not exist, so nothing oversized waits in the
+spool. The file that stalls is under the ceiling.
+
+Not proven here: a download that stalls (the download client has the 30 s read
 timeout), the redaction of a query on a failing upload (the reference relay URL has none), a real network.
 """
 import json
@@ -26,11 +33,15 @@ import time
 
 from personal_proof_nodes import FIELDS, GAMMA, Device, Relay, require, wait
 from personal_proof_steps import gamma_create
+import v1_records as v1
 from record_runs import RANGED, definition, system_seed
 
 SLOW_BYTES_PER_SECOND = 32 * 1024
 SLOW_FILE_BYTES = 1_500_000
-STALL_FILE_BYTES = 40_000_000
+# Under the record file ceiling, and far above the kernel buffers of a loopback connection.
+STALL_FILE_BYTES = 24_000_000
+# Above the record file ceiling: the size this step used before the ceiling was checked at the write.
+OVER_CEILING_FILE_BYTES = 40_000_000
 STALL_AFTER_BYTES = 256 * 1024
 OLD_ALLOWANCE_SECONDS = 30
 STALL_SECONDS = 30
@@ -49,6 +60,23 @@ def home_with_file(device, size):
     return time.monotonic()
 
 
+def refuses_file_over_ceiling(device):
+    """A write that attaches a file above the ceiling is refused with 400, and the record is absent."""
+    source = device.out / "oversized.bin"
+    source.write_bytes(os.urandom(OVER_CEILING_FILE_BYTES))
+    attached = {"path": str(source), "name": "oversized.bin", "media_type": "application/x-proof"}
+    try:
+        device.write([gamma_create("f2", "grp-f", "oversized", file=attached)])
+    except RuntimeError as error:
+        require("HTTP 400" in str(error), f"a file above the ceiling was not refused with 400: {error}")
+    else:
+        raise RuntimeError(f"a write accepted a file of {OVER_CEILING_FILE_BYTES} bytes, above the record file ceiling")
+    finally:
+        source.unlink()
+    held = v1.read_items(device.node, [v1.point(GAMMA, {"hash": "f2"})])[0]["records"]
+    require(not held, f"the refused write left a record: {held!r}")
+
+
 def prove_uplink(args):
     out = args.output
     slow_root, stall_root = out / "relay5", out / "relay6"
@@ -62,6 +90,7 @@ def prove_uplink(args):
         stall_relay.start()
         slow_started = home_with_file(slow, SLOW_FILE_BYTES)
         stall_started = home_with_file(stalled, STALL_FILE_BYTES)
+        refuses_file_over_ceiling(stalled)
         wait("the slow upload to complete", slow.synced_up, seconds=180)
         slow_seconds = time.monotonic() - slow_started
         # One upload, not several short ones, took longer than the old allowance.
@@ -79,9 +108,11 @@ def prove_uplink(args):
         require(place and "?" not in place[1] and "X-Amz" not in place[1], f"the error names no URL or one with a query: {place}")
         print(f"18. a file upload at {SLOW_BYTES_PER_SECOND // 1024} KiB/s took {max(uploads) / 1000:.0f} s as one upload "
               f"(old allowance {OLD_ALLOWANCE_SECONDS} s) and completed after {slow_seconds:.0f} s; an upload the relay "
-              f"stopped reading failed after {stall_seconds:.0f} s: {message[0]}", flush=True)
+              f"stopped reading failed after {stall_seconds:.0f} s: {message[0]}; a file of {OVER_CEILING_FILE_BYTES} bytes, "
+              f"above the record file ceiling, was refused at the write with 400", flush=True)
         return {"longest_upload_ms": max(uploads), "slow_seconds": round(slow_seconds),
-                "stall_seconds": round(stall_seconds), "stall_message": message[0]}
+                "stall_seconds": round(stall_seconds), "stall_message": message[0],
+                "stall_file_bytes": STALL_FILE_BYTES, "refused_file_bytes": OVER_CEILING_FILE_BYTES}
     except Exception:
         for device in (slow, stalled):
             print(f"{device.name} sync status: {device.sync_status()}", flush=True)
