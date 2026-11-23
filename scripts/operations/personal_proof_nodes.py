@@ -127,7 +127,15 @@ class Relay:
 
     def stream_entries(self, database, device_id):
         """The entries the relay holds of one device stream: logs/<db>/<node>/<device>/<seq>.json."""
-        return sorted(int(path.stem) for path in (self.data / "logs").glob(f"{database}/*/{device_id}/*.json"))
+        found = (self.data / "logs").glob(f"{database}/*/{device_id}/*.json")
+        return sorted(int(path.stem) for path in found if path.stem.isdigit())
+
+
+    def stream_floor(self, database, device_id):
+        """The last entry of a stream that a trim dropped, from its `floor.json`. 0 when none was."""
+        for path in (self.data / "logs").glob(f"{database}/*/{device_id}/floor.json"):
+            return json.loads(path.read_text())["seq"]
+        return 0
 
 
 class Device:

@@ -140,6 +140,18 @@ impl CloudSyncTracker {
         upload.last_error = error;
     }
 
+    /// The error of the last read of the other devices' streams of one database, none after
+    /// a clean one. A device that is behind history the relay dropped shows it here.
+    pub(crate) fn record_download(&self, database_id: &str, error: Option<String>) {
+        let mut guard = self.lock();
+        guard
+            .databases
+            .entry(database_id.to_owned())
+            .or_default()
+            .download
+            .last_error = error;
+    }
+
     /// The snapshot this node just published or installed.
     pub(crate) fn record_snapshot(&self, snapshot: SnapshotStatus) {
         self.lock().snapshot = snapshot;

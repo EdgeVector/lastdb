@@ -11,21 +11,33 @@
 //! it is stored (here 2). Entries beyond a gap wait in `pending` and join the
 //! head when the gap is filled. A reader that reads from seq 1 can never get
 //! past the gap, so the head is also the last entry such a read returns.
+//!
+//! A trim (`log/trim`) drops the entries of a stream up to a snapshot's position
+//! and leaves a `floor.json` file in the stream directory: the last dropped seq and
+//! its hash. The head counts from there, so the head row survives the trim and
+//! `log/streams` and the gapless append go on as before. A read that starts at or
+//! below the floor is refused, because the entries are gone.
 
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use mutation_log::{entry_hash, SignedEntry};
+use serde::{Deserialize, Serialize};
 use tokio::fs;
 
 use crate::error::{ApiError, ApiResult};
+
+/// The file in a stream directory that records the last seq a trim dropped.
+pub(crate) const FLOOR_FILE: &str = "floor.json";
 
 /// One stream's contiguous head. `seq` 0 means seq 1 is not stored yet.
 #[derive(Default)]
 struct StreamHead {
     seq: u64,
     hash: String,
+    /// The last seq a trim dropped. Seq 1 up to it are not stored. 0 when none was.
+    floor: u64,
     /// Stored entries beyond `seq + 1`, keyed by seq, holding their hash.
     pending: BTreeMap<u64, String>,
 }
@@ -36,11 +48,36 @@ impl StreamHead {
             return;
         }
         self.pending.insert(seq, hash);
+        self.join_pending();
+    }
+
+    /// Record that a trim dropped every entry up to `seq`, whose hash is `hash`.
+    fn trimmed(&mut self, seq: u64, hash: String) {
+        if seq <= self.floor {
+            return;
+        }
+        self.floor = seq;
+        if self.seq < seq {
+            self.seq = seq;
+            self.hash = hash;
+            self.pending.retain(|stored, _| *stored > seq);
+        }
+        self.join_pending();
+    }
+
+    fn join_pending(&mut self) {
         while let Some(next) = self.pending.remove(&(self.seq + 1)) {
             self.seq += 1;
             self.hash = next;
         }
     }
+}
+
+/// The content of `floor.json`.
+#[derive(Deserialize, Serialize)]
+pub(crate) struct FloorFile {
+    pub(crate) seq: u64,
+    pub(crate) hash: String,
 }
 
 /// One line of the `log/streams` answer.
@@ -76,6 +113,48 @@ impl Heads {
             .entry(device_id.to_owned())
             .or_default()
             .record(seq, hash);
+    }
+
+    /// Record that a trim dropped every entry of a stream up to `seq`.
+    pub(crate) fn set_floor(
+        &self,
+        database_id: &str,
+        writer_key: &str,
+        device_id: &str,
+        seq: u64,
+        hash: String,
+    ) {
+        let mut streams = self.streams.lock().expect("heads lock");
+        streams
+            .entry((database_id.to_owned(), writer_key.to_owned()))
+            .or_default()
+            .entry(device_id.to_owned())
+            .or_default()
+            .trimmed(seq, hash);
+    }
+
+    /// The last seq a trim dropped on a stream. 0 when none was.
+    pub(crate) fn floor(&self, database_id: &str, writer_key: &str, device_id: &str) -> u64 {
+        let streams = self.streams.lock().expect("heads lock");
+        streams
+            .get(&(database_id.to_owned(), writer_key.to_owned()))
+            .and_then(|devices| devices.get(device_id))
+            .map_or(0, |head| head.floor)
+    }
+
+    /// The contiguous head seq of a stream. `None` while seq 1 is not stored.
+    pub(crate) fn head_seq(
+        &self,
+        database_id: &str,
+        writer_key: &str,
+        device_id: &str,
+    ) -> Option<u64> {
+        let streams = self.streams.lock().expect("heads lock");
+        streams
+            .get(&(database_id.to_owned(), writer_key.to_owned()))
+            .and_then(|devices| devices.get(device_id))
+            .map(|head| head.seq)
+            .filter(|seq| *seq >= 1)
     }
 
     /// The streams of one writer that hold seq 1, sorted by device id.
@@ -117,6 +196,12 @@ impl Heads {
         let Ok(mut files) = fs::read_dir(device_dir).await else {
             return;
         };
+        // The floor first: entries above it then join the head from there.
+        if let Ok(bytes) = fs::read(device_dir.join(FLOOR_FILE)).await {
+            if let Ok(floor) = serde_json::from_slice::<FloorFile>(&bytes) {
+                self.set_floor(&db, &writer, &device, floor.seq, floor.hash);
+            }
+        }
         while let Ok(Some(file)) = files.next_entry().await {
             let path = file.path();
             let seq = path

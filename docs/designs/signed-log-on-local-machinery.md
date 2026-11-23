@@ -1,6 +1,6 @@
 # Design: the signed log on the previous local machinery
 
-Date: 2026-11-22. Author: Claude, for Tom. Status: approved. Steps 1 to 5 are built: step 1 earlier, steps 2 and 3 (outgoing and incoming, the order rule) together in one change, because neither can be proven without the other, step 4 (the snapshot as the checkpoint), and step 5 (the move of an existing home). Sections 9, 10 and 11 say what was built and what was deferred.
+Date: 2026-11-22. Author: Claude, for Tom. Status: approved. Steps 1 to 6 are built: step 1 earlier, steps 2 and 3 (outgoing and incoming, the order rule) together in one change, because neither can be proven without the other, step 4 (the snapshot as the checkpoint), step 5 (the move of an existing home), and step 6 (the relay drops what a snapshot covers). Sections 9, 10, 11 and 14 say what was built and what was deferred.
 
 Basis: Tom, 2026-11-22: "Can we reuse as much of the old machineries as possible? ... logs can be in any form. And then just reuse the current snapshot ... The only major change is the cloud portion", and "keep the database format as much as you can, especially the snapshot. All of that should be exactly the same."
 
@@ -140,10 +140,10 @@ Steps 1 to 5 are required before the primary moves. Step 6 can wait.
 ## 7. Differences to accept, and risks
 
 1. **Order is a hybrid time, not the cloud-capped time.** Section 4a. A fast clock is no longer capped by the cloud.
-2. **The relay holds the only copy of old entries.** If it lost them after a trim, the snapshot still restores the state.
+2. **The relay holds the only copy of old entries.** If it lost them after a trim, the snapshot still restores the state. The relay keeps the two newest snapshots, so the loss of the newest still leaves one that restores. A device that has not read the entries a trim dropped cannot read them from the relay any more; it is told so and restores into a new home (section 14).
 3. **One signed entry per write.** A bulk import would make many entries. The move does not, because it publishes the existing files as the first snapshot.
 4. **The primary's home.** #1843 refuses a home whose personal database id is not derived from the recovery phrase. The move maps the registry onto the derived id while the store files stay as they are (inferred that they do not embed the id). So the primary can move in place by a snapshot of its existing files, without copying every record through the write call.
-5. **Exemem.** The relay needs the stream listing, and later the trim call. Its file routes use presigned uploads. Section 13 says what is proven against the deployed DEV relay.
+5. **Exemem.** The relay needs the stream listing, and the trim call (section 14). Its file routes use presigned uploads. Section 13 says what is proven against the deployed DEV relay.
 
 ## 8. Decisions
 
@@ -151,7 +151,7 @@ Tom approved the plan on 2026-11-22 ("All right, it's approved. Let's do it."), 
 
 Settled by the code check after that, within the plan: the hybrid order of section 4a, and no per-entry row for a personal database.
 
-Status: steps 1 to 5 are built. Step 6 is not.
+Status: steps 1 to 6 are built.
 
 ## 9. What was built for steps 2 and 3
 
@@ -210,7 +210,7 @@ A home captures every write exactly when something sends the spool: it has a rel
 
 ### Deferred
 
-Steps 5 and 6: the move of an existing home, and the relay dropping entries a snapshot covers. Shared databases still use the in-memory history. The pure `mutation_log` crate still carries the `bundle` entry kind and the opener of sealed payloads, which only the relay end-to-end tool uses now. The relay's contiguous head (`log/streams`) is used for the listing only; a read that returns fewer entries than the head reports is an error.
+Steps 5 and 6: the move of an existing home (section 11), and the relay dropping entries a snapshot covers (section 14). Shared databases still use the in-memory history. The pure `mutation_log` crate still carries the `bundle` entry kind and the opener of sealed payloads, which only the relay end-to-end tool uses now. The relay's contiguous head (`log/streams`) is used for the listing only; a read that returns fewer entries than the head reports is an error.
 
 ## 10. What was built for step 4
 
@@ -307,7 +307,7 @@ The size of a real home, any `pending` row an earlier cloud backup left, the app
 
 ### Deferred
 
-Step 6 (the relay drops the entries a snapshot covers). A second snapshot entry after a kill at one window is left on the relay, harmless and small.
+A second snapshot entry after a kill at one window is left on the relay, harmless and small. Step 6 (the relay drops the entries a snapshot covers) is section 14.
 
 ## 12. Where the snapshot is: status, and a file the relay refuses
 
@@ -369,4 +369,56 @@ Proven against the DEV relay, with real nodes:
 - A snapshot that puts every file again is accepted. The relay answers `blob.put` begin for a digest it already holds with no `upload`; the node treats that as stored (before this change it failed with "blob.put begin has no upload.url"). Device D restores from that snapshot and replays nothing. A CI run without the fix failed there with that message.
 - A streamed file upload carries one `content-length`. The Exemem relay signs `content-length` and returns it among the upload headers, and the node used to add it a second time, so the object store answered HTTP 400 and the entry that names a file stayed unconfirmed. The reference relay returns no `content-length`, so only the DEV relay showed it.
 
-Not proven against it, because the relay's process, request log and disk are not readable: that the relay holds no key, value, schema name or marker, one entry per write by listing, a restore by full replay from a relay with no snapshot, idle turns reading no entry, reads of a restored home with the relay stopped, the kill before the first snapshot is named, the kill of a restore, kill -9 under load, and the scale run. These stay on the reference relay. The reference relay differs from Exemem in: a repeated `blob.put` begin (reference issues a new upload, Exemem answers with no `upload`), a 5 GB limit on one blob, billing of the publisher's account with a quota, a stored-entry check that does not require gapless appends, and the presigned upload and download URLs of the object store. Storage a run adds to the DEV relay stays there: a node cannot delete it.
+Not proven against it, because the relay's process, request log and disk are not readable: that the relay holds no key, value, schema name or marker, one entry per write by listing, a restore by full replay from a relay with no snapshot, idle turns reading no entry, reads of a restored home with the relay stopped, the kill before the first snapshot is named, the kill of a restore, kill -9 under load, and the scale run. These stay on the reference relay. The reference relay differs from Exemem in: a repeated `blob.put` begin (reference issues a new upload, Exemem answers with no `upload`), a 5 GB limit on one blob, billing of the publisher's account with a quota, a stored-entry check that does not require gapless appends, and the presigned upload and download URLs of the object store. Storage a run adds to the DEV relay stays there, except the log entries that the trim of section 14 drops: a node cannot delete anything else.
+
+## 14. What was built for step 6: the relay drops what a snapshot covers
+
+Basis: Tom, 2026-11-22: reuse the previous accepted machinery. The build before signed history (`d06054159`) already kept a covered log prefix and dropped it later, and this step keeps its shape and removes its separate state.
+
+### What is reused, and what is not
+
+| Previous machinery (`d06054159`, `log_sync/retention.rs`, `automatic_retention.rs`, `blob_retention.rs`) | Here |
+|---|---|
+| The relay holds a reclaimed position (`reclaimed_through`) and moves it only from the value the caller expects (`expected_floor`) | The relay holds a floor for each stream (the last dropped seq and its hash) and moves it in the same transaction as the delete, only from the floor it just read |
+| A snapshot names what is covered (`snapshot_id`, `snapshot_through`); the relay checks the request against the snapshot it holds | The request names one `snapshot` entry. The relay reads that stored entry, verifies its signature and takes every position from its `through` list. No position is in the request |
+| The relay reclaims a bounded number of steps for each request and the caller repeats (`max_steps`, `RECLAIM_BATCH`) | The relay drops at most 1,000 entries in one call and answers `done: false`; the node repeats |
+| Blobs are reclaimed after the log they belong to, in batches (`reclaim-blobs`) | Not reused. A trim drops log entries only and never a blob. Collecting files that no retained snapshot names is a later step that needs a lease |
+| A device behind the snapshot cannot read the reclaimed entries and must upgrade (a clear failure) | A device behind gets 410 `trimmed` and must restore into a new home (a clear failure) |
+| Not reused: the local work files (`snapshot-reclaim.json`), the timers that resume cleanup, the `backup reclaim` command and its enable flag, the per-device cursor that held a reclaim until the device had read through | There is no state on the node, no timer and no flag. The relay's floor is the only state, and one call after a snapshot is the only trigger |
+
+### The rule
+
+- **When.** After the node has published a snapshot, once, in the same turn. A snapshot entry is `n`. If `n` is at least 2 the node calls `log.trim` naming entry `n - 1`. The relay therefore keeps the two newest snapshots (`n - 1` and `n`), with every entry after the positions of `n - 1`. The first snapshot, and a snapshot that finds nothing changed, call nothing. A call that fails is logged and is not an error of the snapshot: nothing was lost, and the next snapshot asks again with a newer entry.
+- **Why two.** A restore uses the newest snapshot. If its files cannot be read, the one before it still works, because the entries after its positions are still on the relay. Trimming on the newest would leave one checkpoint.
+- **Who.** Only the owner's node key. The personal database only: every entry that would go must be a sealed `data` or `schema` entry (or a `snapshot` entry on the snapshot stream), else the call stops with 403 `namespace`. A shared database is never trimmed, because its members read the publisher's streams from the start.
+- **What the relay checks.** The named entry is stored, is a `snapshot` entry of the publisher on that stream, and its signature verifies. For each stream in `through`, the entry stored at the position hashes to the `entry_hash` the snapshot names, and the relay holds at least that many entries. Otherwise the call fails (400 `through`) and drops nothing from that stream.
+- **What goes.** The entries of each stream up to its position, and the snapshot entries older than `n - 1`. The `birth` entry is on its own stream and never goes. **No blob goes.** The manifests and the files of a dropped snapshot entry stay on the relay, named by nothing. Collecting them waits for a lease on the snapshot stream (`write-leases.md`, not built), because two devices that snapshot at once could otherwise make a snapshot name a file that a trim just removed.
+- **What stays.** The head of each stream, so `log/streams` and the gapless append work as before. A stream that was trimmed is listed with its real head. A device that is past the positions reads from its own head and does not notice.
+
+### A device behind the trim
+
+A device whose head on some stream is below the floor of that stream cannot read the entries after its head, because the entries in between are gone. The relay answers a `log/read` of one device stream that starts at or below the floor with 410 `trimmed`. The node reports `this device is behind history that the relay dropped after a snapshot; restore the database into a new home with lastdb backup restore` as the error of its read of the other devices' streams. That error is in the status (`cloud_sync.databases.<id>.download.last_error`, and the top-level `last_error`), not only in a log that carries no text, and it clears after a clean read. The device applies nothing. This is the simpler choice: the other, installing the snapshot into a running home, needs the staged install with the store closed that section 10 chose not to bring back for a new home. The restore it asks for is the ordinary restore: the newest snapshot, then each stream after its positions, which the trimmed relay still holds.
+
+### Billing (Exemem)
+
+The stored-bytes counter of the publisher (`storage_used_bytes`) goes down by exactly the stored length of the log entries that were deleted. Each batch of entries goes in one DynamoDB transaction with the floor write and one counter update. Blobs are neither deleted nor released, so they stay billed. A delete is conditional on the item existing, and the counter update on the counter being what the call read. A transaction that loses a race changes nothing, so nothing is subtracted twice, and a repeat finds the floor already moved. The counter does not go below zero.
+
+### Races, for entries alone (no blob is deleted, so no file can go missing)
+
+The question: can any ordering lose a log entry, or make a restore of a retained snapshot fail? Four orderings, with the code that decides each.
+
+1. **What a position means.** A snapshot is cut only when the spool's acknowledged position equals its head (`capture_synced_snapshot` returns `None` otherwise), and the head row of another device's stream moves only when `incoming` applies an entry that it read from the relay. So every entry at or before a position in `through` was already stored on the relay when the snapshot was taken, whatever stream it is on. The relay also checks, before it drops anything, that its contiguous head is at least the position and that the stored entry at the position hashes to the `entry_hash` the signed snapshot names.
+2. **An entry of device B at or before a trimmed position that reaches the relay after the trim** (B was offline and uploads late). By 1 it cannot be a first arrival: the snapshot holder could only have B's entry from the relay, so the relay already took it. What can arrive is a repeat of an append whose answer B did not see. The relay answers it as a duplicate and stores nothing, and charges nothing: the entry is absent but the contiguous head is at or past its sequence number, and a head counts only stored entries (`reference_relay/src/store.rs` `append_one`; `storage_service/src/log.rs` `append_entries`). B's spool then confirms and moves on. So the relay does not refuse it and the node does not treat it as behind. Without this answer the relay would store the entry again below the floor (and Exemem would charge for it again). An entry of B above the position is accepted as before: the head row stays, so the gapless append is the same. A different entry that a forked B signs at a sequence number below the floor is also answered as a duplicate and not stored; the relay cannot compare it, and the signed snapshot of the owner is what a restore trusts. A stream that no snapshot names has no floor and nothing changes for it.
+3. **A device that reads while another trims.** The reader reads each stream from its own head plus one. If that is at or below the floor the relay answers 410 `trimmed` and the reader applies nothing more and reports that it is behind (`incoming.rs` `Cursor::fill`, `relay.rs` `read`). If a trim lands between two pages of one run, the next page answers 410 the same way; the entries already applied were valid and stay. A reader whose head is at or above the floor never reads an entry that a trim can drop.
+4. **A device that appends while another trims.** Both act on one stream only above the position (the appender) and at or below it (the trimmer), on different items; the trim moves only the floor item and deletes entries at or below the position, and the append moves only the head. The Exemem transaction of a batch is conditional on the floor it read, so two trims cannot both release the same bytes.
+
+The restore of either retained snapshot reads each stream after its position, and nothing after a position is ever dropped, so it finds all it reads. I found no ordering that loses an entry. The only effect of a late call is a clear 410 for a device that is behind, and a duplicate answer for a repeated append.
+
+### Left as it is
+
+- **Files that no retained snapshot names** stay on the relay and stay billed. A snapshot entry that a trim dropped keeps its manifest and files there. They are collected in a later step that comes with the lease.
+- **All-devices read.** A read of every device of a writer returns the entries that are stored and does not say that some were dropped. The node uses one-device reads; a shared database is not trimmed.
+
+### Proof
+
+`personal_database_proof.py` step 16 runs after the snapshots of steps 11 to 14, against the reference relay: the relay holds no entry at or before the positions of the retained older snapshot, on any stream, and keeps the birth, the two newest snapshots and their files; a device that stopped before those positions gets the error above and applies nothing; a restore from the phrase installs the newest snapshot, replays only the entries after it, and equals the source key by key, alternate keys and file included, with the relay restarted in between (the floor survives a restart); a repeated append below the floor is not stored again; a third snapshot drops the first snapshot entry but **not its manifest or any of its files**, and a restore from snapshot 2 and from snapshot 3 each equal the source; B and F, which were past the positions, hold their state and never report that they are behind. Against the Exemem DEV relay the same snapshots call the route; the run proves the restores, and not the bytes the relay holds or the counter, which a node cannot read.

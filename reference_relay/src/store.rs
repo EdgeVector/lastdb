@@ -14,7 +14,7 @@ const MAX_BATCH: usize = 90;
 #[derive(Clone)]
 pub(crate) struct Store {
     pub(crate) root: PathBuf,
-    heads: Heads,
+    pub(crate) heads: Heads,
 }
 
 impl Store {
@@ -93,6 +93,16 @@ impl Store {
             }
             return Err(ApiError::conflict("entries.writer_seq"));
         }
+        // The entry is absent but the stream's contiguous head is at or past it: a trim dropped
+        // it. It was on the relay (a head only counts stored entries), so this is a repeat of
+        // an append that was already taken. It is not stored again.
+        if self
+            .heads
+            .head_seq(&meta.database_id, &meta.node_key, &meta.device_id)
+            .is_some_and(|head| head >= meta.writer_seq)
+        {
+            return Ok(AppendOutcome::Duplicate);
+        }
         let bytes = serde_json::to_vec(entry).map_err(|_| ApiError::invalid("entries"))?;
         atomic_write(&path, &bytes).await?;
         self.heads.record(
@@ -118,6 +128,11 @@ impl Store {
         let limit = limit.clamp(1, MAX_BATCH);
         let mut entries = Vec::new();
         let mut seq = from_seq.max(1);
+        // A trim dropped the entries up to the floor of this stream. A reader that asks
+        // for one of them is behind, and must be told, not answered with nothing.
+        if seq <= self.heads.floor(database_id, node_key, device_id) {
+            return Err(ApiError::trimmed("from_seq"));
+        }
         while entries.len() < limit {
             let meta = EntryKey {
                 database_id: database_id.to_owned(),

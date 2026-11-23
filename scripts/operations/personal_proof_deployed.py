@@ -33,6 +33,10 @@ SKIPPED = (
     ("the relay holds one signed entry for each write, by listing its files",
      "the relay's storage cannot be listed; the spool, the confirmed position and a restore are checked instead"),
     ("no key, value, schema name or marker in any byte the relay stored", "the relay's stored bytes cannot be read"),
+    ("the relay holds no entry at or before the positions of the retained older snapshot, the floors, and "
+     " the publisher's quota counter after it",
+     "the relay's storage and the account's counter cannot be read; the snapshots of this run call `log/trim`, and "
+     "the restores that follow (D restores after two trims) are checked"),
     ("restore by full replay from a relay copy with no snapshot", "the relay cannot be copied"),
     ("a restore killed at several points", "kept to the reference relay run: it adds nothing about the relay"),
     ("a deleted record stays deleted when an older edit arrives after", "kept to the reference relay run"),

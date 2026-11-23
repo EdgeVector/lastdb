@@ -79,8 +79,11 @@ def kill_under_load(relay, a, b, rounds):
     require(present <= acknowledged | uncertain, "A holds writes that nobody made")
     head = a.spool_state()["head"]
     require(head - base == len(present), f"A's spool holds {head - base} writes of the load, A holds {len(present)} records")
+    # A snapshot of the proof dropped the entries it covers, so the stream starts after its floor.
     sequences = relay.stream_entries(a.database, a.device_id())
-    require(sequences == list(range(1, head + 1)), f"the relay holds {len(sequences)} entries of A for {head} writes")
+    floor = relay.stream_floor(a.database, a.device_id())
+    require(sequences == list(range(floor + 1, head + 1)),
+            f"the relay holds {len(sequences)} entries of A after floor {floor} for {head} writes")
     require(a.checkpoint()["writer_seq"] == head, f"A confirmed {a.checkpoint()!r} for {head} writes")
     require(a.spool_bytes()[1] == 0, "the spool of A still holds entries after the relay confirmed them")
     wait("B to hold every record of the load", lambda: set(b.keys(EPSILON)) == present if b.has_schema(EPSILON) else False)

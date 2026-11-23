@@ -29,11 +29,21 @@ def stream_dirs(relay, database):
     return sorted(path for path in (relay.data / "logs" / database).glob("*/*") if path.is_dir())
 
 
+def stored_seqs(directory):
+    """The sequence numbers of the entries a stream directory holds, ascending. `floor.json` is not one."""
+    return sorted(int(path.stem) for path in directory.glob("*.json") if path.stem.isdigit())
+
+
+def stream_kind(directory):
+    """The kind of the first stored entry of a stream, or None when it holds none."""
+    seqs = stored_seqs(directory)
+    return json.loads((directory / f"{seqs[0]}.json").read_text())["kind"] if seqs else None
+
+
 def snapshot_stream(relay, database):
-    """The directory of the snapshot stream, or None. Its first entry is a `snapshot` entry."""
+    """The directory of the snapshot stream, or None. Its entries are `snapshot` entries."""
     for path in stream_dirs(relay, database):
-        first = path / "1.json"
-        if first.is_file() and '"kind":"snapshot"' in first.read_text():
+        if stream_kind(path) == "snapshot":
             return path
     return None
 
@@ -42,7 +52,7 @@ def newest_snapshot_entry(relay, database):
     """The newest `snapshot` entry on the relay, as the JSON the relay stored."""
     directory = snapshot_stream(relay, database)
     require(directory is not None, "the relay holds no snapshot stream")
-    newest = max(int(path.stem) for path in directory.glob("*.json"))
+    newest = stored_seqs(directory)[-1]
     return newest, json.loads((directory / f"{newest}.json").read_text())
 
 
@@ -51,11 +61,9 @@ def tail_entries(relay, database, entry):
     through = {position["device_id"]: position["writer_seq"] for position in entry["through"]}
     tail = total = 0
     for path in stream_dirs(relay, database):
-        first = path / "1.json"
-        kind = json.loads(first.read_text())["kind"] if first.is_file() else None
-        if kind in ("snapshot", "birth"):
+        if stream_kind(path) in ("snapshot", "birth"):
             continue
-        count = len(list(path.glob("*.json")))
+        count = len(stored_seqs(path))
         total += count
         tail += count - through.get(path.name, 0)
     return tail, total

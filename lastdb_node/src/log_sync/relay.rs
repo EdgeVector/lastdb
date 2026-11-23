@@ -24,6 +24,9 @@ const HUNG_PEER_BUDGET: Duration = Duration::from_secs(45);
 const RETRIES: u32 = 3;
 const RETRY_BASE: Duration = Duration::from_millis(250);
 
+/// Starts the error of a read of entries that the relay dropped after a snapshot.
+pub(super) const BEHIND_THE_TRIM: &str = "this device is behind history that the relay dropped after a snapshot; restore the database into a new home with `lastdb backup restore`";
+
 /// One device stream of a writer as `log.streams` lists it.
 #[derive(Debug, Deserialize)]
 pub(super) struct StreamHead {
@@ -142,11 +145,39 @@ impl RelayClient {
                 body["device_id"] = Value::String(device_id.to_owned());
             }
         }
-        let value = self.post("/relay/v1/log/read", database_id, &body).await?;
+        let value = self
+            .post("/relay/v1/log/read", database_id, &body)
+            .await
+            .map_err(|error| {
+                if error.contains("HTTP 410") {
+                    format!("{BEHIND_THE_TRIM}: {error}")
+                } else {
+                    error
+                }
+            })?;
         let entries: Vec<SignedEntry> = serde_json::from_value(value["entries"].clone())
             .map_err(|_| "relay log.read returned invalid entries".to_owned())?;
         let cursor = value["cursor"].as_str().map(str::to_owned);
         Ok((entries, cursor))
+    }
+
+    /// Ask the relay to drop what the snapshot entry `writer_seq` of the snapshot stream
+    /// `device_id` covers, and the snapshot entries and files older than it. The relay reads
+    /// that entry itself. `true` when it has nothing more to drop, `false` when it stopped
+    /// at its work limit for one call and a repeat continues.
+    pub(super) async fn trim(
+        &self,
+        database_id: &str,
+        device_id: &str,
+        writer_seq: u64,
+    ) -> Result<bool, String> {
+        let body = json!({
+            "database_id": database_id,
+            "device_id": device_id,
+            "writer_seq": writer_seq,
+        });
+        let value = self.post("/relay/v1/log/trim", database_id, &body).await?;
+        Ok(value["done"].as_bool().unwrap_or(false))
     }
 
     /// The device streams of `writer_key` and how far each reaches: for each,
