@@ -17,14 +17,15 @@ snapshot file uses. Two homes attach a file:
 
 Both run at the same time.
 
-A record file has a ceiling (`MAX_RECORD_FILE_BYTES`, a little under 32 MiB, LastDB #1870): the node
-holds a file as one sealed value. The stalled home first tries to attach a file above the ceiling. The
-write is refused with 400 at once and the record does not exist, so nothing oversized waits in the
-spool. The file that stalls is under the ceiling.
+A file above 32 MiB (`MAX_RECORD_FILE_BYTES`, the largest value the file store holds) is accepted by
+the write up to 512 MiB (LastDB #1872). What the node accepts, it must be able to back up: a third home
+attaches such a file and writes one more record after it. Then the home publishes a snapshot, and a
+home restored from the recovery phrase holds both records and reads the same file bytes.
 
 Not proven here: a download that stalls (the download client has the 30 s read
 timeout), the redaction of a query on a failing upload (the reference relay URL has none), a real network.
 """
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -38,9 +39,9 @@ from record_runs import RANGED, definition, system_seed
 
 SLOW_BYTES_PER_SECOND = 32 * 1024
 SLOW_FILE_BYTES = 1_500_000
-# Under the record file ceiling, and far above the kernel buffers of a loopback connection.
+# Under 32 MiB, and far above the kernel buffers of a loopback connection.
 STALL_FILE_BYTES = 24_000_000
-# Above the record file ceiling: the size this step used before the ceiling was checked at the write.
+# Above 32 MiB, the largest value the file store holds, and under the 512 MiB the write accepts.
 OVER_CEILING_FILE_BYTES = 40_000_000
 STALL_AFTER_BYTES = 256 * 1024
 OLD_ALLOWANCE_SECONDS = 30
@@ -60,21 +61,54 @@ def home_with_file(device, size):
     return time.monotonic()
 
 
-def refuses_file_over_ceiling(device):
-    """A write that attaches a file above the ceiling is refused with 400, and the record is absent."""
-    source = device.out / "oversized.bin"
-    source.write_bytes(os.urandom(OVER_CEILING_FILE_BYTES))
-    attached = {"path": str(source), "name": "oversized.bin", "media_type": "application/x-proof"}
+def large_file_is_backed_up(args, out):
+    """A home that attaches a file above 32 MiB still publishes a snapshot, and a restore equals it."""
+    root = out / "relay9"
+    root.mkdir()
+    relay = Relay(Path(args.relay_bin), root)
+    source, restored = Device("device-u", args, out, relay), Device("device-v", args, out, relay)
     try:
-        device.write([gamma_create("f2", "grp-f", "oversized", file=attached)])
-    except RuntimeError as error:
-        require("HTTP 400" in str(error), f"a file above the ceiling was not refused with 400: {error}")
-    else:
-        raise RuntimeError(f"a write accepted a file of {OVER_CEILING_FILE_BYTES} bytes, above the record file ceiling")
+        relay.start()
+        phrase = source.init()
+        source.start()
+        system_seed(source.node, definition(GAMMA, "Hash", FIELDS, {"by_group": RANGED}, description_prefix="Personal proof "))
+        content = os.urandom(OVER_CEILING_FILE_BYTES)
+        attachment = source.out / "large.bin"
+        attachment.write_bytes(content)
+        attached = {"path": str(attachment), "name": "large.bin", "media_type": "application/x-proof"}
+        source.write([gamma_create("f1", "grp-f", "large", file=attached)])
+        source.write([gamma_create("f2", "grp-f", "after the large file")])
+        wait("the home with the large file to sync up", source.synced_up, seconds=300)
+        snapshot = source.snapshot_now()
+        restored.restore(phrase)
+        restored.start()
+        wait("the restored home to hold both records",
+             lambda: restored.has_schema(GAMMA) and sorted(restored.keys(GAMMA)) == ["f1", "f2"], seconds=300)
+        folder = restored.out / "read-files"
+        folder.mkdir()
+        item = v1.point(GAMMA, {"hash": "f1"}, file=True)
+        item["file_dir"] = str(folder)
+        rows = v1.read_items(restored.node, [item])[0]["records"]
+        require(rows and rows[0].get("file") and rows[0]["file"].get("path"), f"the restored home reads no file for f1: {rows!r}")
+        read = Path(rows[0]["file"]["path"]).read_bytes()
+        require(hashlib.sha256(read).digest() == hashlib.sha256(content).digest(),
+                f"the restored file differs: {len(read)} bytes read, {len(content)} written")
+        return {"file_bytes": OVER_CEILING_FILE_BYTES, "snapshot_seq": snapshot.get("snapshot_seq")}
+    except Exception:
+        for device in (source, restored):
+            try:
+                print(f"{device.name} sync status: {device.sync_status()}", flush=True)
+                print(f"{device.name} warnings: {device.warnings()[-8:]}", flush=True)
+            except Exception as error:  # noqa: BLE001
+                print(f"{device.name}: no status: {error}", flush=True)
+        raise
     finally:
-        source.unlink()
-    held = v1.read_items(device.node, [v1.point(GAMMA, {"hash": "f2"})])[0]["records"]
-    require(not held, f"the refused write left a record: {held!r}")
+        for device in (source, restored):
+            try:
+                device.node.close()
+            except Exception as error:  # noqa: BLE001
+                print(f"{device.name}: cleanup failed: {error}")
+        relay.stop()
 
 
 def prove_uplink(args):
@@ -90,7 +124,6 @@ def prove_uplink(args):
         stall_relay.start()
         slow_started = home_with_file(slow, SLOW_FILE_BYTES)
         stall_started = home_with_file(stalled, STALL_FILE_BYTES)
-        refuses_file_over_ceiling(stalled)
         wait("the slow upload to complete", slow.synced_up, seconds=180)
         slow_seconds = time.monotonic() - slow_started
         # One upload, not several short ones, took longer than the old allowance.
@@ -108,11 +141,14 @@ def prove_uplink(args):
         require(place and "?" not in place[1] and "X-Amz" not in place[1], f"the error names no URL or one with a query: {place}")
         print(f"18. a file upload at {SLOW_BYTES_PER_SECOND // 1024} KiB/s took {max(uploads) / 1000:.0f} s as one upload "
               f"(old allowance {OLD_ALLOWANCE_SECONDS} s) and completed after {slow_seconds:.0f} s; an upload the relay "
-              f"stopped reading failed after {stall_seconds:.0f} s: {message[0]}; a file of {OVER_CEILING_FILE_BYTES} bytes, "
-              f"above the record file ceiling, was refused at the write with 400", flush=True)
+              f"stopped reading failed after {stall_seconds:.0f} s: {message[0]}", flush=True)
+        large = large_file_is_backed_up(args, out)
+        print(f"18b. a home with a file of {large['file_bytes']} bytes attached, above 32 MiB, published snapshot "
+              f"{large['snapshot_seq']}; a home restored from the phrase holds the record written after it and reads "
+              f"the same file bytes", flush=True)
         return {"longest_upload_ms": max(uploads), "slow_seconds": round(slow_seconds),
                 "stall_seconds": round(stall_seconds), "stall_message": message[0],
-                "stall_file_bytes": STALL_FILE_BYTES, "refused_file_bytes": OVER_CEILING_FILE_BYTES}
+                "stall_file_bytes": STALL_FILE_BYTES, "large_file": large}
     except Exception:
         for device in (slow, stalled):
             print(f"{device.name} sync status: {device.sync_status()}", flush=True)
