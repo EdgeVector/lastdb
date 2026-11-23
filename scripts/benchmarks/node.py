@@ -165,6 +165,9 @@ class Node:
                  start_seconds=120, arguments=(), temporary_directory=None, record_protocol=False):
         self.binary, self.revision, self.output = binary, revision, output
         self.api_version = 0
+        # What the daemon's /api/version must contain. A build under test carries `bench-<revision>`;
+        # a published build is named by its own version, which the caller sets here.
+        self.version_marker = f"bench-{revision}"
         self.record_protocol = RecordProtocol() if record_protocol else None
         self.native_timing, self.workers = native_timing, workers
         self.environment = environment or {}
@@ -244,7 +247,7 @@ class Node:
                 return False
             self.api_version = version["api_version"]
             save(self.output / "version.json", version)
-            if f"bench-{self.revision}" not in json.dumps(version):
+            if self.version_marker not in json.dumps(version):
                 raise RuntimeError("The actual daemon version differs from the selected revision")
             if self.workers:
                 observed = self.call("/api/status")[0]["status"]["uds"]["workers"]
