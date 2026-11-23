@@ -42,10 +42,13 @@ pub(in crate::exec) async fn execute_database_request(
     if let Some(selector) = submission_selector(req) {
         return run_submission(selector, req, ctx, host).await;
     }
+    if let Some(selector) = change_selector(req) {
+        return run_change(selector, req, ctx, host).await;
+    }
     let Some((selector, path)) = split_database_path(&req.target) else {
         return content_free(404, "Not Found");
     };
-    if path == "submissions/status" || path == "submissions" {
+    if path == "submissions/status" || path == "submissions" || path == "change" {
         return uds_router::method_not_allowed_response("POST");
     }
     if let Some(route) = super::database_share::Route::parse(path) {
@@ -96,6 +99,7 @@ async fn dispatch(
 pub(in crate::exec) fn is_deferred_database_request(req: &UdsRequest) -> bool {
     submission_status_selector(req).is_some()
         || submission_selector(req).is_some()
+        || change_selector(req).is_some()
         || split_database_path(&req.target)
             .is_some_and(|(_, path)| super::database_share::Route::parse(path).is_some())
 }
@@ -120,6 +124,12 @@ pub(in crate::exec) async fn execute_deferred_database_request(
         })
         .await;
     }
+    if let Some(selector) = change_selector(req) {
+        return with_handler_timeout_budget(ctx, handler_timeout(), async {
+            run_change(selector, req, ctx, host).await
+        })
+        .await;
+    }
     if let Some((selector, route)) = split_database_path(&req.target)
         .and_then(|(selector, path)| Some((selector, super::database_share::Route::parse(path)?)))
     {
@@ -139,6 +149,11 @@ fn submission_status_selector(req: &UdsRequest) -> Option<&str> {
 fn submission_selector(req: &UdsRequest) -> Option<&str> {
     let (selector, path) = split_database_path(&req.target)?;
     (req.method == "POST" && path == "submissions").then_some(selector)
+}
+
+fn change_selector(req: &UdsRequest) -> Option<&str> {
+    let (selector, path) = split_database_path(&req.target)?;
+    (req.method == "POST" && path == "change").then_some(selector)
 }
 
 fn run_submission_status(
@@ -168,6 +183,24 @@ async fn run_submission(
         }
         // An owned database is not a receiver. The route does not write a record.
         Ok(_) => error_response(404, "this database has no received submissions", ctx),
+        Err(response) => response,
+    }
+}
+
+/// One change to one record. An owned or personal database applies it; a
+/// received database applies or queues it by the lease (see `database_received`).
+async fn run_change(
+    selector: &str,
+    req: &UdsRequest,
+    ctx: &AccessContext,
+    host: &Host,
+) -> UdsResponse {
+    match resolve_database(selector, ctx, host) {
+        Ok(Selection::Signed(share)) => {
+            super::database_received::change_record(req, ctx, host, selector, Some(share.as_ref()))
+                .await
+        }
+        Ok(_) => super::database_received::change_record(req, ctx, host, selector, None).await,
         Err(response) => response,
     }
 }

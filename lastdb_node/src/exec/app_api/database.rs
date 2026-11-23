@@ -2,7 +2,9 @@
 //!
 //! An owned database and the personal database behave as before. A received
 //! database is readable once its signed history has materialized into the
-//! receiver store. A member changes it by a proposal on the submissions route,
+//! receiver store. A member changes it by a proposal on the submissions route
+//! (or by the change call, which asks `direct_write_allowed` and proposes when
+//! the answer is no),
 //! and `/v1/write` is refused with 403, except while a write lease covers this
 //! node and its role is `write`: then the write applies at once and is signed
 //! as a direct entry (see `log_sync::lease_member`). `changes` does not open a
@@ -73,16 +75,19 @@ async fn dispatch<T>(
         Place::Owned(store) => host.with_records(store, future).await,
         Place::Received(share) => match received {
             OnReceived::Read => read_received(host, &share, future).await,
-            OnReceived::Write
-                if share.whole_database()
-                    && crate::log_sync::may_write_direct(host, share.id.as_str()) =>
-            {
+            OnReceived::Write if direct_write_allowed(host, &share) => {
                 read_received(host, &share, future).await
             }
             OnReceived::Write => Err(HostError::new(403, READ_ONLY)),
             OnReceived::RefuseChanges => Err(HostError::new(404, CHANGES_UNSERVED)),
         },
     }
+}
+
+/// True when this node may sign a direct entry in this received database now.
+/// `/v1/write` and the change call both ask this, and nothing else.
+pub(in crate::exec) fn direct_write_allowed(host: &Host, share: &RegisteredShare) -> bool {
+    share.whole_database() && crate::log_sync::may_write_direct(host, share.id.as_str())
 }
 
 fn place(selector: Option<&str>, host: &Host) -> Result<Place, HostError> {

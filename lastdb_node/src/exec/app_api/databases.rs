@@ -111,7 +111,8 @@ fn build(
         "schemas" => schemas_request(body, host),
         "declare_schema" => declare_request(body, host),
         "share_link" => share_link_request(body, host),
-        "submit" => submit_request(body, host),
+        "submit" => submit_request(body, host, "submissions"),
+        "change" => submit_request(body, host, "change"),
         "submission_status" => status_request(body, host),
         _ => Err(bad(format!("unknown action {action}"))),
     }
@@ -194,16 +195,19 @@ fn declared_app_id(body: &Map<String, Value>) -> Result<String, HostError> {
     Ok(required_string(body, "app_id")?.to_owned())
 }
 
-fn submit_request(body: &Map<String, Value>, host: &Host) -> Result<OwnerCall, HostError> {
+/// `submit` and `change` take the same body: one proposal document and its id.
+fn submit_request(
+    body: &Map<String, Value>,
+    host: &Host,
+    route: &str,
+) -> Result<OwnerCall, HostError> {
     allow(body, &["database", "mutation", "idempotency_key"])?;
     let key = required_string(body, "idempotency_key")?;
     let mutation = required_object(body, "mutation")?;
-    Ok(OwnerCall::json(
-        "POST",
-        scoped(&database_id(body, host)?, "submissions"),
-        mutation,
-    )?
-    .header("Idempotency-Key", key))
+    Ok(
+        OwnerCall::json("POST", scoped(&database_id(body, host)?, route), mutation)?
+            .header("Idempotency-Key", key),
+    )
 }
 
 fn status_request(body: &Map<String, Value>, host: &Host) -> Result<OwnerCall, HostError> {

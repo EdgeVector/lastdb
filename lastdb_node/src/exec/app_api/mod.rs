@@ -24,9 +24,12 @@ mod write_file;
 mod write_signed;
 
 pub(in crate::exec) use changes::changes_route;
+pub(in crate::exec) use database::direct_write_allowed;
 pub(in crate::exec) use databases::databases_route;
 pub(in crate::exec) use read::read_route;
-pub(in crate::exec) use write::write_route;
+pub(in crate::exec) use write::{
+    apply_change, parse_change, require_change_grant, write_route, Change,
+};
 
 fn bad(message: impl Into<String>) -> HostError {
     HostError::new(400, message)

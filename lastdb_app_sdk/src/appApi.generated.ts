@@ -651,6 +651,28 @@ export interface DatabasesSubmitRequest {
   mutationId?: never;
 }
 
+/** POST /api/databases/{id}/change. One change to one record of the database, with the same document and the same idempotency_key rules as submit. The node decides. When this node may sign a direct entry now (an owned or personal database, or a received database whose role is write and whose newest lease covers it), the change is applied at once and the reply is 200 with status applied. Otherwise the node queues a proposal and the reply is 202 with status pending and submission_sequence. A member that may neither write nor propose is 403. A file in the document is 400. The direct path has no repeat protection by id: a repeat of an applied create or replace is refused 409 by its condition. */
+export interface DatabasesChangeRequest {
+  action: 'change';
+  database?: DatabaseSelector;
+  mutation: DatabasesMutation;
+  /** Non-nil lowercase UUID. */
+  idempotency_key: string;
+  name?: never;
+  kind?: never;
+  sharingMode?: never;
+  link?: never;
+  include_full?: never;
+  include_definition_ids?: never;
+  schema?: never;
+  intent?: never;
+  retention?: never;
+  app_id?: never;
+  grantee?: never;
+  role?: never;
+  mutationId?: never;
+}
+
 export interface DatabasesStatusRequest {
   action: 'submission_status';
   database?: DatabaseSelector;
@@ -672,7 +694,7 @@ export interface DatabasesStatusRequest {
 }
 
 /** One action. A field from another action is invalid_request. */
-export type DatabasesRequest = DatabasesListRequest | DatabasesCreateRequest | DatabasesAcceptLinkRequest | DatabasesSchemasRequest | DatabasesDeclareRequest | DatabasesGrantRequest | DatabasesRevokeRequest | DatabasesGrantsRequest | DatabasesHeadsRequest | DatabasesRelaysRequest | DatabasesBootstrapRelayRequest | DatabasesShareLinkRequest | DatabasesSubmitRequest | DatabasesStatusRequest;
+export type DatabasesRequest = DatabasesListRequest | DatabasesCreateRequest | DatabasesAcceptLinkRequest | DatabasesSchemasRequest | DatabasesDeclareRequest | DatabasesGrantRequest | DatabasesRevokeRequest | DatabasesGrantsRequest | DatabasesHeadsRequest | DatabasesRelaysRequest | DatabasesBootstrapRelayRequest | DatabasesShareLinkRequest | DatabasesSubmitRequest | DatabasesChangeRequest | DatabasesStatusRequest;
 
 /** The last publish attempt for one received database. It is kept in memory and is absent again after a restart. at is RFC 3339 UTC. status is the HTTP status when the service answered, or a string when the turn stopped before that answer: access_unknown, no_credentials, gap, spool_position_mismatch, empty_page, writer_tip, upload_identity, upload_position, reader_stopped, writer_stopped, confirm_failed, prepare_failed, queue_unreadable, spool_position, batch_invalid, entry_too_large, undo_failed, policy_unknown, local_store_unavailable, capture_disabled, payment_required, writer_sequence_unknown, or upload_unconfirmed. access_unknown means the self-access view was unknown or stale. no_credentials means the node had no usable cloud credentials for the share. policy_unknown, local_store_unavailable, and capture_disabled mean the node stopped for a local reason before it asked the cloud. payment_required means the account is unpaid. writer_sequence_unknown means the node lost its saved upload position and the cloud no longer keeps the delivered entries that show this device's last writer sequence, so the node does not guess one. status is null when the attempt failed before a status and the node had usable credentials. */
 export interface DatabasesPublishAttempt {
@@ -810,6 +832,16 @@ export interface DatabasesSubmitReply {
   [key: string]: unknown;
 }
 
+/** applied is 200. pending is 202 and carries submission_sequence. */
+export interface DatabasesChangeReply {
+  ok: true;
+  status: 'applied' | 'pending';
+  mutation_id: string;
+  /** Integer. Minimum 1. */
+  submission_sequence?: number;
+  [key: string]: unknown;
+}
+
 export interface DatabasesStatusReply {
   ok: true;
   mutation_id: string;
@@ -817,8 +849,8 @@ export interface DatabasesStatusReply {
   [key: string]: unknown;
 }
 
-/** Success JSON for an action other than submit. submit answers 202. */
-export type DatabasesReply = DatabasesListReply | DatabasesDatabaseReply | DatabasesSchemasReply | DatabasesDeclareReply | DatabasesGrantReply | DatabasesGrantsReply | DatabasesHeadsReply | DatabasesRelaysReply | DatabasesBootstrapRelayReply | DatabasesShareLinkReply | DatabasesStatusReply;
+/** Success JSON for an action other than submit. submit answers 202. change answers 200 applied or 202 pending. */
+export type DatabasesReply = DatabasesListReply | DatabasesDatabaseReply | DatabasesSchemasReply | DatabasesDeclareReply | DatabasesGrantReply | DatabasesGrantsReply | DatabasesHeadsReply | DatabasesRelaysReply | DatabasesBootstrapRelayReply | DatabasesShareLinkReply | DatabasesChangeReply | DatabasesStatusReply;
 
 /** Maximum items 256. */
 export type ManifestNameList = string[];

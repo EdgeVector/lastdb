@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "LastDB app API",
-    "version": "45",
+    "version": "46",
     "description": "The app API lastdbd serves today: POST /v1/read, POST /v1/write, and POST /v1/x/<name>. info.version is the node api_version. Extensions carry no version: adding one does not change api_version, and removing one is refused. The app socket accepts a request body of at most 8388608 bytes. The owner socket does not use that cap. On the app socket a whole-request refusal uses the error object. A read that fails one item returns HTTP 200 and puts the same error object in that item."
   },
   "x-lastdb-extensions-carry-version": false,
@@ -141,7 +141,7 @@
         },
         "responses": {
           "200": {
-            "description": "The owner route's success JSON for every action except submit.",
+            "description": "The owner route's success JSON for every action except submit. change answers 200 when the change was applied.",
             "content": {
               "application/json": {
                 "schema": {"$ref": "#/components/schemas/DatabasesReply"}
@@ -149,7 +149,7 @@
             }
           },
           "202": {
-            "description": "submit accepted the proposal into the share's pending log. The node did not write a record.",
+            "description": "submit accepted the proposal into the share's pending log. change answers 202 when it queued the change as a proposal. The node did not write a record.",
             "content": {
               "application/json": {
                 "schema": {"$ref": "#/components/schemas/DatabasesSubmitReply"}
@@ -910,6 +910,18 @@
           "idempotency_key": {"type": "string", "description": "Non-nil lowercase UUID."}
         }
       },
+      "DatabasesChangeRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["action", "mutation", "idempotency_key"],
+        "description": "POST /api/databases/{id}/change. One change to one record of the database, with the same document and the same idempotency_key rules as submit. The node decides. When this node may sign a direct entry now (an owned or personal database, or a received database whose role is write and whose newest lease covers it), the change is applied at once and the reply is 200 with status applied. Otherwise the node queues a proposal and the reply is 202 with status pending and submission_sequence. A member that may neither write nor propose is 403. A file in the document is 400. The direct path has no repeat protection by id: a repeat of an applied create or replace is refused 409 by its condition.",
+        "properties": {
+          "action": {"const": "change"},
+          "database": {"$ref": "#/components/schemas/DatabaseSelector"},
+          "mutation": {"$ref": "#/components/schemas/DatabasesMutation"},
+          "idempotency_key": {"type": "string", "description": "Non-nil lowercase UUID."}
+        }
+      },
       "DatabasesStatusRequest": {
         "type": "object",
         "additionalProperties": false,
@@ -936,6 +948,7 @@
           {"$ref": "#/components/schemas/DatabasesBootstrapRelayRequest"},
           {"$ref": "#/components/schemas/DatabasesShareLinkRequest"},
           {"$ref": "#/components/schemas/DatabasesSubmitRequest"},
+          {"$ref": "#/components/schemas/DatabasesChangeRequest"},
           {"$ref": "#/components/schemas/DatabasesStatusRequest"}
         ]
       },
@@ -1129,6 +1142,18 @@
           "submission_sequence": {"type": "integer", "minimum": 1}
         }
       },
+      "DatabasesChangeReply": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["ok", "status", "mutation_id"],
+        "description": "applied is 200. pending is 202 and carries submission_sequence.",
+        "properties": {
+          "ok": {"const": true},
+          "status": {"type": "string", "enum": ["applied", "pending"]},
+          "mutation_id": {"type": "string"},
+          "submission_sequence": {"type": "integer", "minimum": 1}
+        }
+      },
       "DatabasesStatusReply": {
         "type": "object",
         "additionalProperties": true,
@@ -1140,7 +1165,7 @@
         }
       },
       "DatabasesReply": {
-        "description": "Success JSON for an action other than submit. submit answers 202.",
+        "description": "Success JSON for an action other than submit. submit answers 202. change answers 200 applied or 202 pending.",
         "oneOf": [
           {"$ref": "#/components/schemas/DatabasesListReply"},
           {"$ref": "#/components/schemas/DatabasesDatabaseReply"},
@@ -1152,6 +1177,7 @@
           {"$ref": "#/components/schemas/DatabasesRelaysReply"},
           {"$ref": "#/components/schemas/DatabasesBootstrapRelayReply"},
           {"$ref": "#/components/schemas/DatabasesShareLinkReply"},
+          {"$ref": "#/components/schemas/DatabasesChangeReply"},
           {"$ref": "#/components/schemas/DatabasesStatusReply"}
         ]
       },

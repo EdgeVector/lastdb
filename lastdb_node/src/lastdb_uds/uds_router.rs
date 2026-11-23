@@ -12,7 +12,7 @@ use super::uds_http::{UdsRequest, UdsResponse};
 /// The only hand-edited interface version. ci-required fails a change to the
 /// socket surface that leaves it unchanged; after an edit run
 /// `python3 scripts/lints/api_surface.py --write`.
-pub const API_VERSION: u32 = 45;
+pub const API_VERSION: u32 = 46;
 pub const SOCKET_FILE_NAME: &str = "folddb.sock";
 /// The socket for installed apps. It serves only the app API, to a caller
 /// the node has registered by app id.

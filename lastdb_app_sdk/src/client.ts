@@ -43,6 +43,7 @@ import {
   type LoadedSchema,
   type SchemaDescriptor,
 } from './schemaOps.js';
+import { executeChangeRecord } from './recordChange.js';
 import { executeSubmitProposal } from './shareProposal.js';
 import { executeShareSubmissionStatus } from './shareStatus.js';
 import { openDiscoveredSocket, udsTransport, type Transport } from './transport.js';
@@ -135,6 +136,19 @@ export class LastDbClient<DatabaseId extends string | undefined = undefined> {
     options?: Types.MutationOptions,
   ): Promise<Types.ShareSubmissionResult> {
     return executeSubmitProposal(this.context, schemaName, op, options);
+  }
+
+  /**
+   * `POST /api/databases/{id}/change` — change one record. The node applies it when it may
+   * sign the change now (an owned database, or a received one under a write lease), and
+   * otherwise queues a proposal. The body is the proposal document, not a `/v1/write` item.
+   */
+  changeRecord(
+    schemaName: string,
+    op: Types.MutationOp,
+    options?: Types.MutationOptions,
+  ): Promise<Types.ChangeResult> {
+    return executeChangeRecord(this.context, schemaName, op, options);
   }
 
   /** Read the outcome of one submission made by this receiving LastDB node. */

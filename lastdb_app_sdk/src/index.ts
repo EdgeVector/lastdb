@@ -22,6 +22,8 @@ export type {
   DatabasesAcceptLinkRequest,
   DatabasesBootstrapRelayReply,
   DatabasesBootstrapRelayRequest,
+  DatabasesChangeReply,
+  DatabasesChangeRequest,
   DatabasesGrantMember,
   DatabasesGrantReply,
   DatabasesGrantRequest,
@@ -142,6 +144,7 @@ export type {
 export type {
   CasExpectation,
   ConnectOptions,
+  ChangeResult,
   CreateMutationOp,
   DeleteMutationOp,
   FileMarker,

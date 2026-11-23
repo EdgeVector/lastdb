@@ -271,3 +271,42 @@ Where this document left a detail open, the build chose the simplest thing.
 7. **Status.** `selfAccess.lease` in the database list, and the `lease` action, give
    `entryHash`, `authoredAtMs`, `expiresAtMs`, `closesAtMs`, `covers`, `directWrites` and
    `directWritesUntilMs`.
+
+## 15. The app call (2026-11-23)
+
+An app does not decide whether the node holds a lease. One call changes one record, and the
+node answers `applied` or `pending`.
+
+1. **Route.** Owner socket: `POST /api/databases/{id}/change` with `Idempotency-Key: <non-nil
+   lowercase UUID>`. The body is the proposal document of the submissions route (`type`, `schema`,
+   `record`, `key_value`, `alternates`, `mutation_type`, `expected`, `file`, optional
+   `definition_id`). App socket: the `databases` action `change`, with the fields of `submit`
+   (`database`, `mutation`, `idempotency_key`). SDK: `changeRecord(schemaName, op, options)`.
+   `/v1/write` and the submissions route stay as they are. API version 46.
+2. **The decision** is made once, in the node, by `direct_write_allowed`, the function the
+   `/v1/write` lease exception calls: a whole-database received share whose role is `write` and
+   whose newest held lease covers it within the margin (`may_write_direct`). The personal and
+   owned databases always apply. Nothing else decides.
+3. **Applied.** The change goes through the `/v1/write` path (`write_in`, so a received database
+   signs a direct entry that names the lease): `200 {"ok": true, "status": "applied",
+   "mutation_id": "<id>"}`. A create expects the key absent. A replace or delete takes the
+   revision from `expected`. A delete names no alternates, as on `/v1/write`. A failed
+   condition is `409`, as on `/v1/write`. `purge` is refused `400`.
+4. **Pending.** Otherwise the node appends a proposal through `submit_share_write`: `202
+   {"ok": true, "status": "pending", "mutation_id": "<id>", "submission_sequence": N}`. A member
+   that may neither write nor propose gets the existing `403`.
+5. **A file** in the document is refused `400` on both paths. The proposal path never took one,
+   and the direct path does not read the document's marker.
+6. **Repeats.** The proposal path keeps a ledger of ids (`proposals.json`): the same id and body
+   answer `pending` with the same sequence, and a different body is `409`. The change call looks
+   in that ledger first, so an id the node already queued stays a proposal even if a lease
+   covers the node now. **The direct path has no repeat protection by id.** `/v1/write` gives
+   every mutation a fresh id inside the commit, and the node keeps no ledger of applied ids.
+   A repeat of an applied change is therefore refused by its own condition (`409`: the key now
+   exists, or the revision has moved), never applied twice. It does not answer `applied` again.
+   Building a store of applied ids is not part of this change.
+7. **Races.** The lease is read twice, once to decide and once inside the write. If the lease
+   ends between the two, the call answers `403 a received database is read only`. The app may
+   call again and the node then proposes.
+8. **App grants.** On the app socket the calling app needs a write grant for the schema on both
+   paths. The `submit` action checks none.

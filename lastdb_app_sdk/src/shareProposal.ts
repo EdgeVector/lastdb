@@ -23,7 +23,7 @@ import type { MutationOp, MutationOptions, ShareSubmissionResult } from './types
 const UUID_LOWERCASE = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/;
 const NIL_UUID = '00000000-0000-0000-0000-000000000000';
 
-function isMutationId(id: string): boolean {
+export function isMutationId(id: string): boolean {
   return id.length === 36 && UUID_LOWERCASE.test(id) && id !== NIL_UUID;
 }
 

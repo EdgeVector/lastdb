@@ -27,7 +27,7 @@ const WRITE_PATH = '/v1/write';
 const CHANGES_PATH = '/v1/x/changes';
 const DATABASES_PATH = '/v1/x/databases';
 
-/** Owner JSON for one `databases` action. `submit` is the 202 reply. */
+/** Owner JSON for one `databases` action. `submit` is the 202 reply. `change` is 200 applied or 202 pending. */
 export type DatabasesReplyFor<T extends Api.DatabasesRequest> =
   T extends { action: 'list' } ? Api.DatabasesListReply
   : T extends { action: 'create' | 'accept' } ? Api.DatabasesDatabaseReply
@@ -40,6 +40,7 @@ export type DatabasesReplyFor<T extends Api.DatabasesRequest> =
   : T extends { action: 'bootstrap_relay' } ? Api.DatabasesBootstrapRelayReply
   : T extends { action: 'share_link' } ? Api.DatabasesShareLinkReply
   : T extends { action: 'submit' } ? Api.DatabasesSubmitReply
+  : T extends { action: 'change' } ? Api.DatabasesChangeReply
   : T extends { action: 'submission_status' } ? Api.DatabasesStatusReply
   : never;
 
