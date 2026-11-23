@@ -94,8 +94,12 @@ async fn one_turn(host: &Host, histories: &HistoryMap, base: &str) -> Result<(),
         .into_iter()
         .filter(|database| syncable_owned(database.kind, &database.id))
         .collect();
-    // No phase stops the turn. A later phase's error replaces an earlier one,
-    // and the turn reports the last.
+    // Upload failures fail the turn (ACTIVE backoff). Soft personal and
+    // received pulls: after #1843 a sticky personal error put every turn on
+    // the failed path, so a grant authored mid-pause waited out the
+    // unconditional ACTIVE sleep instead of the wake-aware clean path (#1844).
+    // #1848 moved personal onto spool/replay; soft handling still applies so
+    // shareable grant tips keep the clean wake path (#1846).
     let mut turn_error = publish_declared_schemas(host, &owned);
     turn_error = upload_owned_logs(host, &client, &owned)
         .await
@@ -104,8 +108,15 @@ async fn one_turn(host: &Host, histories: &HistoryMap, base: &str) -> Result<(),
         .await
         .or(turn_error);
     // Phase c2: the personal database. Its spool goes up, and what the other
-    // devices of this owner wrote is applied.
-    turn_error = super::personal::turn(host, &client).await.or(turn_error);
+    // devices of this owner wrote is applied. Soft: a sticky personal error
+    // must not put every turn on the failed wake path (#1846).
+    if let Some(err) = super::personal::turn(host, &client).await {
+        tracing::warn!(
+            target: "lastdbd::log_sync",
+            %err,
+            "personal database turn failed; shareable uploads keep the clean path"
+        );
+    }
     // Phase d: decisions the publisher signed during the pull go up this turn,
     // so members settle their submission status without waiting another loop.
     turn_error = upload_owned_logs(host, &client, &owned)
@@ -114,10 +125,8 @@ async fn one_turn(host: &Host, histories: &HistoryMap, base: &str) -> Result<(),
     // Phase e: proposals on received databases go up before their pull, so
     // publish.lastAttempt reflects a real attempt.
     turn_error = upload_received_logs(host, &client).await.or(turn_error);
-    // Phase f.
-    if let Err(err) = pull_received_shares(host, histories, &client).await {
-        turn_error = Some(err);
-    }
+    // Phase f: per-share errors stay soft (see pull_received_shares).
+    pull_received_shares(host, histories, &client).await;
     match turn_error {
         Some(err) => Err(err),
         None => Ok(()),
@@ -289,12 +298,23 @@ pub(super) fn keep_received(host: &Host, histories: &HistoryMap, database_id: &s
 }
 
 /// Pull publisher and write/submit member streams for signed-log received DBs.
-async fn pull_received_shares(
-    host: &Host,
-    histories: &HistoryMap,
-    client: &RelayClient,
-) -> Result<(), String> {
-    let shares = registered_share::list(&host.home).map_err(|e| e.to_string())?;
+///
+/// A grant-403 (or other error) on one received database must not stop the
+/// turn from pulling the others, and must not fail the turn: a failed turn
+/// takes the unconditional ACTIVE sleep (#1844) and leaves a newly authored
+/// grant tip waiting instead of the wake-aware clean path.
+async fn pull_received_shares(host: &Host, histories: &HistoryMap, client: &RelayClient) {
+    let shares = match registered_share::list(&host.home) {
+        Ok(shares) => shares,
+        Err(err) => {
+            tracing::warn!(
+                target: "lastdbd::log_sync",
+                %err,
+                "received share list failed"
+            );
+            return;
+        }
+    };
     for share in shares {
         if !share.signed_log {
             continue;
@@ -309,10 +329,8 @@ async fn pull_received_shares(
                 %err,
                 "received stream pull failed"
             );
-            return Err(err);
         }
     }
-    Ok(())
 }
 
 async fn pull_one_received(
