@@ -36,9 +36,10 @@ pub fn covered_write_counts() -> Result<String, String> {
     Ok("a covered write member's direct entry counted on both nodes with no accept step".into())
 }
 
-/// A member that does not hold `write` as of the lease does not join the
-/// stream, and a lease needs the publisher and an end after its expiry.
-pub fn uncovered_write_refused() -> Result<String, String> {
+/// A member that does not hold `write` as of the lease has its direct entry
+/// stored in its stream, where it never counts, and a lease needs the
+/// publisher and an end after its expiry.
+pub fn uncovered_write_ignored() -> Result<String, String> {
     let mut world = World::new()?;
     let mut submit = Member::new();
     let mut late = Member::new();
@@ -46,9 +47,11 @@ pub fn uncovered_write_refused() -> Result<String, String> {
     let lease = world.lease()?;
     world.grant(late.key(), Role::Write)?;
     let entry = submit.direct(&mut world, Some(&lease), "k", b"from submit")?;
-    expect_unauthorized(&mut world.hist, entry, "write grant")?;
+    must_accept(&mut world.hist, entry.clone())?;
+    expect_excluded(&world.hist, "publisher", &entry, true)?;
     let entry = late.direct(&mut world, Some(&lease), "k", b"from late writer")?;
-    expect_unauthorized(&mut world.hist, entry, "write grant")?;
+    must_accept(&mut world.hist, entry.clone())?;
+    expect_excluded(&world.hist, "publisher", &entry, true)?;
     let mut nameless = Member::new();
     world.grant(nameless.key(), Role::Write)?;
     let entry = nameless.direct(&mut world, None, "k", b"names no lease")?;
@@ -87,7 +90,44 @@ pub fn uncovered_write_refused() -> Result<String, String> {
             ))
         }
     }
-    Ok("submit, late and nameless direct entries refused; the next lease covers the late writer; a member lease and an inverted lease refused".into())
+    Ok("submit and late direct entries stored and ignored, a nameless one refused; the next lease covers the late writer; a member lease and an inverted lease refused".into())
+}
+
+/// A writer reduced to `submit` holds direct entries it did not upload. Every
+/// node takes them into the stream and none counts them, so the writer's next
+/// proposal is not blocked, and the publisher can incorporate it.
+pub fn reduced_writer_stream_continues() -> Result<String, String> {
+    let mut world = World::new()?;
+    let mut member = Member::new();
+    world.grant(member.key(), Role::Write)?;
+    let lease = world.lease()?;
+    let first = member.direct(&mut world, Some(&lease), "k", b"signed as a writer")?;
+    // The writer is reduced to submit before its entry reaches any node, then
+    // signs again under the next lease, which no longer covers it.
+    world.grant(member.key(), Role::Submit)?;
+    let grant = world.log.last().cloned().ok_or("no grant entry")?;
+    let second_lease = world.lease()?;
+    let direct = member.direct(&mut world, Some(&second_lease), "k2", b"signed as submit")?;
+    let proposal = member.propose(&mut world, &grant, "p", b"proposed")?;
+    let log = world.log.clone();
+    let mut other = fresh(&world);
+    deliver_all(&mut world.hist, &log)?;
+    deliver_all(&mut other, &log)?;
+    let proposal_hash = entry_hash(&proposal).map_err(|e| e.to_string())?;
+    for (who, hist) in [("publisher", &world.hist), ("other node", &other)] {
+        // The entry signed under the first lease counts (nothing is taken back);
+        // the one signed after the reduction is stored and joins nothing.
+        expect(hist, who, "k", Some(b"signed as a writer"))?;
+        expect_excluded(hist, who, &first, false)?;
+        expect(hist, who, "k2", None)?;
+        expect_excluded(hist, who, &direct, true)?;
+        if hist.get_accepted(&proposal_hash).is_none() {
+            return Err(format!(
+                "{who}: the proposal after the direct entries was not accepted"
+            ));
+        }
+    }
+    Ok("a reduced writer's entry under the earlier lease counted, its entry after the reduction was stored and ignored, and its proposal after both was accepted on both nodes".into())
 }
 
 /// The scenario's world after a closing: member stream `a` wrote five entries

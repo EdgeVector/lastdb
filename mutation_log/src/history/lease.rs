@@ -160,8 +160,12 @@ impl VerifiedHistory {
 
     /// Does an entry of `stream` at `writer_seq` that names `lease` count?
     /// It does unless the lease is closed and the entry lies past the closing
-    /// point. A closing entry that does not list the stream gives point 0.
+    /// point. A closing entry that does not list the stream gives point 0. An
+    /// entry of a member that did not hold `write` as of the lease never counts.
     fn entry_counts(&self, lease: &EntryHash, stream: StreamId, writer_seq: u64) -> bool {
+        if !self.writer_under(lease, &stream.node_key) {
+            return false;
+        }
         let Some(at) = self.lease_by_hash.get(lease) else {
             return true;
         };

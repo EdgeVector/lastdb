@@ -62,6 +62,29 @@ impl Member {
         key: &str,
         value: &[u8],
     ) -> Result<SignedEntry, String> {
+        self.sign(world, StreamKind::Direct, lease, key, value)
+    }
+
+    /// Sign a proposal that cites the member's `grant`, and log it.
+    pub(super) fn propose(
+        &mut self,
+        world: &mut World,
+        grant: &SignedEntry,
+        key: &str,
+        value: &[u8],
+    ) -> Result<SignedEntry, String> {
+        self.sign(world, StreamKind::Proposal, Some(grant), key, value)
+    }
+
+    fn sign(
+        &mut self,
+        world: &mut World,
+        stream: StreamKind,
+        cited: Option<&SignedEntry>,
+        key: &str,
+        value: &[u8],
+    ) -> Result<SignedEntry, String> {
+        let lease = cited;
         let at = world.advance(1);
         let (seen, lamports) = match lease {
             Some(lease) => (
@@ -73,7 +96,7 @@ impl Member {
         let ctx = self
             .dev
             .author_ctx(world.database_id, self.head, seen, lamports, at);
-        let body = data_record(StreamKind::Direct, NS, key, value);
+        let body = data_record(stream, NS, key, value);
         let entry = author_data(&ctx, &self.dev.signing_key, body).map_err(|e| e.to_string())?;
         self.head = Some(StreamHead {
             entry_hash: entry_hash(&entry).map_err(|e| e.to_string())?,

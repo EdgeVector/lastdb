@@ -38,14 +38,14 @@ pub fn authorize_data<'s>(
     owner: Option<NodeKey>,
     grants: &GrantState,
     lookup: &dyn Fn(&EntryHash) -> Option<&'s AcceptedMeta>,
-    writer_under: &dyn Fn(&EntryHash, &NodeKey) -> bool,
+    leases_held: bool,
 ) -> Option<RejectReason> {
     let h = entry.header();
     if owner == Some(h.node_key) {
         return None;
     }
     match body.stream {
-        StreamKind::Direct => authorize_member_direct(h, body, lookup, writer_under),
+        StreamKind::Direct => authorize_member_direct(h, body, lookup, leases_held),
         StreamKind::Proposal => authorize_proposal(h, body, grants, lookup),
     }
 }
@@ -57,7 +57,7 @@ fn authorize_member_direct<'s>(
     h: &EntryHeader,
     body: &DataBody,
     lookup: &dyn Fn(&EntryHash) -> Option<&'s AcceptedMeta>,
-    writer_under: &dyn Fn(&EntryHash, &NodeKey) -> bool,
+    leases_held: bool,
 ) -> Option<RejectReason> {
     if body.grant_at_device.is_some() || body.grant_at_seq.is_some() {
         return Some(RejectReason::Malformed(
@@ -73,16 +73,16 @@ fn authorize_member_direct<'s>(
         .seen_heads
         .iter()
         .filter(|hash| lookup(hash).is_some_and(|meta| meta.entry.kind() == EntryKind::Lease));
-    let (Some(lease), None) = (leases.next(), leases.next()) else {
+    let (Some(_), None) = (leases.next(), leases.next()) else {
         return Some(RejectReason::Malformed(
             "member direct entry must cite exactly one lease",
         ));
     };
-    if writer_under(lease, &h.node_key) {
+    if leases_held {
         None
     } else {
         Some(RejectReason::Unauthorized(
-            "direct entry requires a write grant before the named lease",
+            "member direct entry needs a history that holds leases",
         ))
     }
 }

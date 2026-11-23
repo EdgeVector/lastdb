@@ -255,10 +255,7 @@ impl VerifiedHistory {
             lookup: &|h| self.accepted.get(h),
             grants: &self.grants,
         };
-        self.require_sealed(
-            entry,
-            evaluate_with_leases(entry, &ctx, &|lease, key| self.writer_under(lease, key)),
-        )
+        self.require_sealed(entry, evaluate_with_leases(entry, &ctx, true))
     }
 
     fn note_reject(&mut self, reason: RejectReason, entry: SignedEntry) {
