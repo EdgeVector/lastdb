@@ -1,10 +1,15 @@
 //! HTTP client for `/relay/v1/log/*`.
 
+use std::time::Duration;
+
 use app_identity_crypto::{hex_lower, sign, SigningKey};
 use base64::Engine as _;
 use mutation_log::SignedEntry;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
+
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Signed HTTP client for one node/device identity.
 pub struct RelayClient {
@@ -24,13 +29,19 @@ impl RelayClient {
         node_key_hex: impl Into<String>,
         device_id: impl Into<String>,
     ) -> Self {
+        // trace-egress: public — relay gates by grants; node key only in signed headers.
+        let http = reqwest::Client::builder()
+            .connect_timeout(CONNECT_TIMEOUT)
+            .timeout(REQUEST_TIMEOUT)
+            .pool_max_idle_per_host(0)
+            .build()
+            .expect("relay http client");
         Self {
             base: base.into().trim_end_matches('/').to_owned(),
             signing_key,
             node_key_hex: node_key_hex.into(),
             device_id: device_id.into(),
-            // trace-egress: public — relay gates by grants; node key only in signed headers.
-            http: reqwest::Client::new(),
+            http,
         }
     }
 
@@ -47,10 +58,7 @@ impl RelayClient {
         let value = self
             .post("/relay/v1/log/append", database_id, &body)
             .await?;
-        Ok((
-            value["stored"].as_u64().unwrap_or(0),
-            value["duplicate"].as_u64().unwrap_or(0),
-        ))
+        Ok(parse_append_counts(&value, entries.len() as u64))
     }
 
     /// Read one device stream page. `writer_key` is the hex node key.
@@ -135,6 +143,17 @@ fn sign_headers(
         ("X-LastDB-Signature", signature),
         ("content-type", "application/json".into()),
     ])
+}
+
+fn parse_append_counts(value: &Value, sent: u64) -> (u64, u64) {
+    let stored = value["stored"].as_u64().unwrap_or(0);
+    if stored >= sent {
+        (stored, 0)
+    } else if value["duplicate"].as_bool() == Some(true) && stored == 0 {
+        (0, sent)
+    } else {
+        (stored, value["duplicate"].as_u64().unwrap_or(0))
+    }
 }
 
 fn rand_32() -> [u8; 32] {

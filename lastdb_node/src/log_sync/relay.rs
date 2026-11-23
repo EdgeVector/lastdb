@@ -16,11 +16,7 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 pub(super) const STALL_TIMEOUT: Duration = Duration::from_secs(30);
 /// CI probe budget: request timeout plus a little slack.
 const HUNG_PEER_BUDGET: Duration = Duration::from_secs(45);
-/// A relay call that the relay marks as transient is sent again at most this many times. The waits
-/// before the retries are 250, 500 and 1000 ms, each cut to a random value between half and all
-/// of it, so one call adds at most 1.75 s of waiting. That is long enough for a colliding
-/// transaction to clear and short enough that a restore does not hang, and the waits stay small
-/// while a relay that keeps refusing is not pressed: a call that is still refused fails.
+/// Bounded retries with 250/500/1000 ms jittered waits (at most 1.75 s total).
 const RETRIES: u32 = 3;
 const RETRY_BASE: Duration = Duration::from_millis(250);
 
@@ -41,16 +37,9 @@ pub(super) struct RelayClient {
     pub(super) node_key_hex: String,
     pub(super) device_id: String,
     pub(super) http: reqwest::Client,
-    /// For the presigned upload of a blob. No total timeout and no read timeout: reqwest arms its
-    /// read timeout when the request starts and keeps it until the response headers arrive, which
-    /// for a PUT is after the whole body is sent, so it would cut off every upload longer than
-    /// the timeout however fast it moves. The upload watches its own body instead (see
-    /// `blob_transfer`). What still applies: connect timeout 10 s; no idle pool (each upload opens its
-    /// own connection); TCP keepalive 15 s (keeps a quiet connection open, ends nothing);
-    /// no HTTP/2 keep-alive ping and no other timeout.
+    /// Presigned upload client: no total/read timeout (watched by `blob_transfer`), no idle pool.
     pub(super) transfer: reqwest::Client,
-    /// For the presigned download of a blob: the same, with [`STALL_TIMEOUT`] for each read of the
-    /// answer. The body of a download is the answer, so the timeout is a stall timeout there.
+    /// Presigned download client: [`STALL_TIMEOUT`] per read, no idle pool.
     pub(super) download: reqwest::Client,
 }
 
@@ -65,6 +54,7 @@ impl RelayClient {
         let http = reqwest::Client::builder()
             .connect_timeout(CONNECT_TIMEOUT)
             .timeout(REQUEST_TIMEOUT)
+            .pool_max_idle_per_host(0)
             .build()
             .map_err(|e| format!("relay http client: {e}"))?;
         // trace-egress: public — presigned blob URLs; the signed headers go only to the relay.
@@ -80,6 +70,7 @@ impl RelayClient {
         let download = reqwest::Client::builder()
             .connect_timeout(CONNECT_TIMEOUT)
             .read_timeout(STALL_TIMEOUT)
+            .pool_max_idle_per_host(0)
             .build()
             .map_err(|e| format!("relay http client: {e}"))?;
         Ok(Self {
@@ -114,10 +105,7 @@ impl RelayClient {
         let value = self
             .post("/relay/v1/log/append", database_id, &body)
             .await?;
-        Ok((
-            value["stored"].as_u64().unwrap_or(0),
-            value["duplicate"].as_u64().unwrap_or(0),
-        ))
+        Ok(parse_append_counts(&value, entries.len() as u64))
     }
 
     /// Read one writer's entries. Omit `device_id` to receive that writer's
@@ -222,15 +210,36 @@ impl RelayClient {
             for (name, value) in headers {
                 req = req.header(name, value);
             }
-            let resp = req
-                .send()
-                .await
-                .map_err(|e| format!("relay request failed: {e}"))?;
+            let started = Instant::now();
+            let resp = match req.send().await {
+                Ok(resp) => resp,
+                Err(e) if retried < RETRIES && retryable_transport(&e, started.elapsed()) => {
+                    tokio::time::sleep(retry_wait(retried)).await;
+                    retried += 1;
+                    continue;
+                }
+                Err(e) => {
+                    return Err(format!(
+                        "relay request failed: {}",
+                        super::blob_transfer::describe(e, &url)
+                    ));
+                }
+            };
             let status = resp.status();
-            let text = resp
-                .text()
-                .await
-                .map_err(|e| format!("relay response body: {e}"))?;
+            let text = match resp.text().await {
+                Ok(text) => text,
+                Err(e) if retried < RETRIES && retryable_transport(&e, started.elapsed()) => {
+                    tokio::time::sleep(retry_wait(retried)).await;
+                    retried += 1;
+                    continue;
+                }
+                Err(e) => {
+                    return Err(format!(
+                        "relay response body: {}",
+                        super::blob_transfer::describe(e, &url)
+                    ));
+                }
+            };
             if status.is_success() {
                 return serde_json::from_str(&text)
                     .map_err(|_| "relay response is not JSON".into());
@@ -242,6 +251,25 @@ impl RelayClient {
             }
             return Err(format!("relay {path} HTTP {status}: {text}"));
         }
+    }
+}
+
+const FAST_TRANSPORT_LIMIT: Duration = Duration::from_secs(5);
+
+fn retryable_transport(error: &reqwest::Error, elapsed: Duration) -> bool {
+    !error.is_timeout()
+        && elapsed < FAST_TRANSPORT_LIMIT
+        && (error.is_connect() || error.is_request() || error.is_body())
+}
+
+fn parse_append_counts(value: &Value, sent: u64) -> (u64, u64) {
+    let stored = value["stored"].as_u64().unwrap_or(0);
+    if stored >= sent {
+        (stored, 0)
+    } else if value["duplicate"].as_bool() == Some(true) && stored == 0 {
+        (0, sent)
+    } else {
+        (stored, value["duplicate"].as_u64().unwrap_or(0))
     }
 }
 

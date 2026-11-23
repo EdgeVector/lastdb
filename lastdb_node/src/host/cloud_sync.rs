@@ -130,6 +130,9 @@ impl CloudSyncTracker {
         error: Option<String>,
     ) {
         let mut guard = self.lock();
+        if error.as_deref() == Some(crate::cloud::PAYMENT_REQUIRED_MESSAGE) {
+            guard.payment_hold = true;
+        }
         let upload = &mut guard
             .databases
             .entry(database_id.to_owned())
@@ -144,6 +147,9 @@ impl CloudSyncTracker {
     /// a clean one. A device that is behind history the relay dropped shows it here.
     pub(crate) fn record_download(&self, database_id: &str, error: Option<String>) {
         let mut guard = self.lock();
+        if error.as_deref() == Some(crate::cloud::PAYMENT_REQUIRED_MESSAGE) {
+            guard.payment_hold = true;
+        }
         guard
             .databases
             .entry(database_id.to_owned())
@@ -170,18 +176,7 @@ impl CloudSyncTracker {
     }
 
     pub(crate) fn snapshot(&self) -> CloudSyncStatus {
-        let mut status = self.lock().clone();
-        if status.last_error.is_none() {
-            status.last_error = status.databases.values().find_map(|database| {
-                database
-                    .upload
-                    .last_error
-                    .as_ref()
-                    .or(database.download.last_error.as_ref())
-                    .cloned()
-            });
-        }
-        status
+        self.lock().clone()
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, CloudSyncStatus> {
