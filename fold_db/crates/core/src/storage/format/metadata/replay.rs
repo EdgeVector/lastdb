@@ -232,24 +232,41 @@ impl Metadata {
         target: ReplayTarget<'_>,
         stamp: &ReplayStamp,
     ) -> Res<bool> {
+        self.accept_replay_slot(target, "winner", stamp).await
+    }
+
+    pub(crate) async fn accept_replay_slot(
+        &self,
+        target: ReplayTarget<'_>,
+        slot: &str,
+        stamp: &ReplayStamp,
+    ) -> Res<bool> {
         if self
-            .replay_winner(target)
+            .replay_slot_winner(target, slot)
             .await?
             .is_some_and(|prev| prev >= *stamp)
         {
             return Ok(false);
         }
         let bytes = serde_json::to_vec(stamp).map_err(read_err)?;
-        self.stage(vec![(target.key("winner"), Some(bytes))])
+        self.stage(vec![(target.key(slot), Some(bytes))])
             .await
             .map_err(read_err)
             .map(|()| true)
     }
 
     pub(crate) async fn replay_winner(&self, target: ReplayTarget<'_>) -> Res<Option<ReplayStamp>> {
+        self.replay_slot_winner(target, "winner").await
+    }
+
+    pub(crate) async fn replay_slot_winner(
+        &self,
+        target: ReplayTarget<'_>,
+        slot: &str,
+    ) -> Res<Option<ReplayStamp>> {
         self.require_scope().map_err(read_err)?;
         self.store
-            .get(target.key("winner").as_bytes())
+            .get(target.key(slot).as_bytes())
             .await
             .map_err(read_err)?
             .map(|bytes| serde_json::from_slice(&bytes).map_err(read_err))

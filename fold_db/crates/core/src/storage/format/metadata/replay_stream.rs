@@ -42,6 +42,18 @@ impl Metadata {
             .transpose()
     }
 
+    pub(crate) async fn has_any_replay_stream_head(&self) -> Res<bool> {
+        self.require_scope().map_err(read_err)?;
+        let (lower, upper) =
+            lastdb_model::kind_partition::exact_prefix_bounds("signed-replay-head:");
+        let scan = self
+            .store
+            .scan_range_yielding(lower.as_bytes(), upper.as_bytes(), 1, 1)
+            .await
+            .map_err(read_err)?;
+        Ok(!scan.rows.is_empty())
+    }
+
     pub(crate) async fn stage_replay_stream_head(
         &self,
         stream: &str,

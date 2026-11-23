@@ -3,10 +3,18 @@
 use super::{has_attachment, MutationManager};
 use crate::schema::types::{cas::CasExpectation, KeyValue, Mutation, MutationType};
 use crate::schema::SchemaError;
+use crate::storage::disk_pack::transaction;
 use crate::storage::format::metadata::{ReplayStamp, ReplayTarget};
 use lastdb_model::record_replacement::RecordTarget;
 use lastdb_model::record_value::StoredRecord;
 use std::collections::{BTreeMap, HashMap};
+
+/// Which attachment slots a record entry explicitly sets or clears.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ReplayAttachmentSlots {
+    pub file: bool,
+    pub inline: bool,
+}
 
 impl MutationManager {
     /// The latest local mutation to this record that has not been read back from the cloud.
@@ -84,6 +92,133 @@ impl MutationManager {
             .metadata()
             .accept_replay(ReplayTarget::Record(&address), stamp)
             .await
+    }
+
+    /// Advance the per-record external and inline attachment winner stamps.
+    pub async fn accept_replay_record_attachments(
+        &self,
+        schema: &str,
+        key: &KeyValue,
+        stamp: &ReplayStamp,
+        slots: ReplayAttachmentSlots,
+    ) -> Result<(), SchemaError> {
+        if !slots.file && !slots.inline {
+            return Ok(());
+        }
+        let address = self.replay_record_address(schema, key)?;
+        let target = ReplayTarget::Record(&address);
+        let metadata = self.db_ops.metadata();
+        if slots.file {
+            metadata
+                .accept_replay_slot(target, "file-winner", stamp)
+                .await?;
+        }
+        if slots.inline {
+            metadata
+                .accept_replay_slot(target, "inline-winner", stamp)
+                .await?;
+        }
+        Ok(())
+    }
+
+    /// Apply attachment slots that beat the slot winner onto a settled live record.
+    pub async fn apply_losing_replay_attachments(
+        &self,
+        mutation: Mutation,
+        stamp: &ReplayStamp,
+    ) -> Result<(), SchemaError> {
+        if mutation.file_write.is_none() && mutation.inline_write.is_none() {
+            return Ok(());
+        }
+        let metadata = self.db_ops.metadata();
+        metadata.require_replay_scope()?;
+        let address = self.replay_record_address(&mutation.schema_name, &mutation.key_value)?;
+        let target = ReplayTarget::Record(&address);
+        if metadata.pending_replay(target).await?.is_some() {
+            return Ok(());
+        }
+        let file = mutation.file_write.is_some()
+            && metadata
+                .replay_slot_winner(target, "file-winner")
+                .await?
+                .is_none_or(|held| stamp > &held);
+        let inline = mutation.inline_write.is_some()
+            && metadata
+                .replay_slot_winner(target, "inline-winner")
+                .await?
+                .is_none_or(|held| stamp > &held);
+        if !file && !inline {
+            return Ok(());
+        }
+        let before = self.replay_preimage(address).await?;
+        let Some(live) = before.as_deref().filter(|record| record.is_live()) else {
+            return Ok(());
+        };
+        let (schema, key) = (mutation.schema_name, mutation.key_value);
+        let mut patched = as_mutation(&schema, live.key.clone(), Some(live.clone()));
+        if file {
+            patched.file = mutation.file;
+            patched.file_write = mutation.file_write;
+        }
+        if inline {
+            patched.inline_write = mutation.inline_write;
+        }
+        let writer = live.updated_by.as_deref().unwrap_or(&stamp.writer_key);
+        self.apply_replay_record(patched, writer).await?;
+        self.accept_replay_record_attachments(
+            &schema,
+            &key,
+            stamp,
+            ReplayAttachmentSlots { file, inline },
+        )
+        .await
+    }
+
+    /// True when a remote record entry cannot change the record or either attachment slot.
+    pub async fn is_replay_record_superseded(
+        &self,
+        schema: &str,
+        key: &KeyValue,
+        stamp: &ReplayStamp,
+        slots: ReplayAttachmentSlots,
+    ) -> Result<bool, SchemaError> {
+        let installed = self.schema_manager.resolve_schema(schema).await?.is_some();
+        transaction::scope(self.db_ops.native_runtime(), async {
+            if !installed {
+                return self.replay_schema_dropped_after(schema, stamp).await;
+            }
+            let address = self.replay_record_address(schema, key)?;
+            let target = ReplayTarget::Record(&address);
+            let metadata = self.db_ops.metadata();
+            if metadata.pending_replay(target).await?.is_some() {
+                return Ok(false);
+            }
+            if metadata
+                .replay_winner(target)
+                .await?
+                .is_none_or(|winner| &winner < stamp)
+            {
+                return Ok(false);
+            }
+            if slots.file
+                && metadata
+                    .replay_slot_winner(target, "file-winner")
+                    .await?
+                    .is_none_or(|held| stamp > &held)
+            {
+                return Ok(false);
+            }
+            if slots.inline
+                && metadata
+                    .replay_slot_winner(target, "inline-winner")
+                    .await?
+                    .is_none_or(|held| stamp > &held)
+            {
+                return Ok(false);
+            }
+            Ok(true)
+        })
+        .await
     }
 
     /// Read the greatest accepted cloud stamp for a record in this replay scope.

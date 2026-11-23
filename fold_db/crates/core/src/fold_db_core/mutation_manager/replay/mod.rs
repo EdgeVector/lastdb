@@ -7,14 +7,15 @@ mod served;
 mod state;
 mod stream;
 
+pub use records::ReplayAttachmentSlots;
 pub use served::ServedLocal;
 
 use super::{AuthoredMutation, MutationManager};
 use crate::schema::types::{KeyValue, Mutation, MutationType};
 use crate::schema::{Schema, SchemaError, SchemaState};
 use crate::storage::disk_backup::accepted;
-use crate::storage::disk_pack::PackRuntime;
-use crate::storage::format::metadata::ReplayTarget;
+use crate::storage::disk_pack::{transaction, PackRuntime};
+use crate::storage::format::metadata::{ReplayStamp, ReplayTarget};
 use crate::storage::format::records::RecordAddress;
 use lastdb_model::record_value::StoredRecord;
 use std::collections::BTreeSet;
@@ -120,22 +121,76 @@ impl MutationManager {
             .is_some_and(|installed| installed.to_wire() == definition.to_wire()))
     }
 
-    /// Settle an authenticated own record that precedes this device's pending schema drop.
-    pub async fn clear_replay_record_after_schema_drop(
+    /// Greatest applied schema put or drop stamp in the current replay scope.
+    pub async fn replay_schema_winner(
         &self,
         schema: &str,
-        mutation_id: &str,
+    ) -> Result<Option<ReplayStamp>, SchemaError> {
+        self.db_ops
+            .metadata()
+            .replay_winner(ReplayTarget::Schema(schema))
+            .await
+    }
+
+    /// Read the greatest applied schema put or drop stamp in a fresh read scope.
+    pub async fn read_replay_schema_winner(
+        &self,
+        schema: &str,
+    ) -> Result<Option<ReplayStamp>, SchemaError> {
+        transaction::scope(
+            self.db_ops.native_runtime(),
+            self.replay_schema_winner(schema),
+        )
+        .await
+    }
+
+    /// Stage a greater schema put or drop stamp in the current replay scope.
+    pub async fn accept_replay_schema(
+        &self,
+        schema: &str,
+        stamp: &ReplayStamp,
+    ) -> Result<bool, SchemaError> {
+        self.db_ops
+            .metadata()
+            .accept_replay(ReplayTarget::Schema(schema), stamp)
+            .await
+    }
+
+    /// True when `schema` is absent because a newer schema drop already removed it.
+    pub async fn replay_schema_dropped_after(
+        &self,
+        schema: &str,
+        stamp: &ReplayStamp,
     ) -> Result<bool, SchemaError> {
         let metadata = self.db_ops.metadata();
         metadata.require_replay_scope()?;
         let schemas = self.db_ops.schemas();
-        if !schemas.pending_local_drop(schema).await?
-            || schemas.get_schema_state(schema).await?.is_some()
+        if schemas.get_schema_state(schema).await?.is_some()
             || schemas.get_schema(schema).await?.is_some()
         {
             return Ok(false);
         }
-        metadata
+        if schemas.pending_local_drop(schema).await? {
+            return Ok(true);
+        }
+        Ok(metadata
+            .replay_winner(ReplayTarget::Schema(schema))
+            .await?
+            .is_some_and(|winner| &winner > stamp))
+    }
+
+    /// Settle an authenticated own record that precedes a schema drop.
+    pub async fn clear_replay_record_after_schema_drop(
+        &self,
+        schema: &str,
+        mutation_id: &str,
+        stamp: &ReplayStamp,
+    ) -> Result<bool, SchemaError> {
+        if !self.replay_schema_dropped_after(schema, stamp).await? {
+            return Ok(false);
+        }
+        self.db_ops
+            .metadata()
             .clear_pending_replay(ReplayTarget::SchemaRecords(schema), mutation_id)
             .await?;
         Ok(true)

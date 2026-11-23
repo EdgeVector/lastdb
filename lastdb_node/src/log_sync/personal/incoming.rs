@@ -199,14 +199,32 @@ async fn apply_entry(
     let Some(plain) = ctx.sealer.open(header, &data.payload) else {
         return freeze(ctx, cursor, "a payload does not open").await;
     };
-    let change = body::classify(&body::parse(&plain)?)?;
-    let blob = fetch_file(ctx, client, data, &change).await?;
-    let next = apply::head_of(header, &hash);
-    let result = apply::remote(ctx, &cursor.name, &next, header, change, blob.as_deref()).await;
-    if let Some(path) = &blob {
-        let _ = disk::remove_private(path);
+    let Ok(accepted) = body::parse(&plain) else {
+        return freeze(ctx, cursor, "a payload is not an accepted write").await;
+    };
+    let Ok(change) = body::classify(&accepted) else {
+        return freeze(ctx, cursor, "a payload is not a valid change").await;
+    };
+    if matches!(&change, Change::Record(r) if matches!(r.file, RecordFile::Put(_)) && data.file.is_none())
+    {
+        return freeze(
+            ctx,
+            cursor,
+            "a record sets a file that its entry does not name",
+        )
+        .await;
     }
-    result?;
+    let next = apply::head_of(header, &hash);
+    if apply::superseded(ctx, header, &change).await? {
+        apply::skip_remote(ctx, &cursor.name, &next, header).await?;
+    } else {
+        let blob = fetch_file(ctx, client, data, &change).await?;
+        let result = apply::remote(ctx, &cursor.name, &next, header, change, blob.as_deref()).await;
+        if let Some(path) = &blob {
+            let _ = disk::remove_private(path);
+        }
+        result?;
+    }
     applied.entries += 1;
     applied.through = applied.through.max(header.writer_seq);
     cursor.head = Some(next);
