@@ -175,9 +175,11 @@ The schema definitions the database uses, and their retention (TTL) state.
 - A signed `snapshot` entry that names the manifest and, for each device
   stream, the last entry the files hold. Those positions are the head rows as
   they were at the same instant.
-- A file that a record holds by path (at most 512 MiB) is sealed into a private
-  copy of the file store for the snapshot. One such value holds at most 32 MiB
-  (`MAX_RUN_VALUE_BYTES`), so a larger referenced file blocks the snapshot.
+- A file that a record holds by path is sealed into a private copy of the file
+  store for the snapshot, as one value. A value holds at most 32 MiB
+  (`MAX_RUN_VALUE_BYTES`), so a record file is at most `MAX_RECORD_FILE_BYTES`
+  (32 MiB less 29 bytes of sealing). `/v1/write` refuses a larger file with a 400
+  that states both sizes: a file the snapshot cannot carry is never accepted.
 - A restore installs the files with no store open, checks that the head rows
   equal the positions in the entry, and reads each stream after its position.
 

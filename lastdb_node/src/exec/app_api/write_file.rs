@@ -36,6 +36,17 @@ pub(super) async fn link_file(
     if real.starts_with(&home) {
         return Err(bad(UNUSABLE_FILE));
     }
+    // The size limit gets its own answer: the refusal below hides every reason.
+    // `reference_local_file` enforces the same limit; this states it.
+    let length = std::fs::metadata(&real)
+        .map_err(|_| bad(UNUSABLE_FILE))?
+        .len();
+    let limit = fold_db::storage::MAX_RECORD_FILE_BYTES;
+    if length > limit {
+        return Err(bad(format!(
+            "the file is {length} bytes; a record file holds at most {limit} bytes"
+        )));
+    }
     let records = host.records();
     let write = records
         .db_ops()

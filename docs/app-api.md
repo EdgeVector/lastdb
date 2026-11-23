@@ -98,6 +98,9 @@ A file is a path in and a path out. No file bytes pass through the app API.
 - A path inside the LastDB home is refused, through any symlink. That covers the
   key file and every database in the home. Every file that cannot be linked gets
   the same answer.
+- A record file holds at most 33,554,403 bytes (32 MiB less 29 bytes of sealing).
+  A larger file is refused with a 400 that states the file's size and the limit.
+  The limit is the largest value a snapshot and a receiving device can hold.
 - A `replace` that omits `file` keeps the record's file. A `replace` whose `file` is JSON null clears it. The node frees the bytes when no record names them. A `create` names a file by path or omits `file`. A `delete` carries no `file`.
 - Every record in a read reply has `file`: null, or `name`, `media_type`, `size` and `local`.
 - In a read reply, `file: null` means the record has no file. That is the reply. On a `replace`, sending `file: null` is the request that clears the file.

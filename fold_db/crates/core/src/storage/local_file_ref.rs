@@ -14,7 +14,7 @@ use std::io::{ErrorKind, Read};
 use std::path::{Path, PathBuf};
 use std::sync::MutexGuard;
 
-/// Largest plaintext file a record may seal into `disk-cas`.
+/// Largest plaintext file a record may name. `describe` refuses a larger one at the write.
 ///
 /// A sealed file row adds `1 + NONCE_SIZE + TAG_SIZE` (29 bytes) and must fit
 /// inside a single `laststore::disk_run::MAX_RUN_VALUE_BYTES` (32 MiB) run value.
@@ -189,9 +189,13 @@ pub(crate) fn describe(runtime: &PackRuntime, path: &Path) -> StorageResult<Desc
             "local file {display} is not a regular file"
         )));
     }
-    if metadata.len() > LOCAL_FILE_INPUT_MEMORY_BYTES {
+    // A snapshot and a receiving device hold the file as one value of the file
+    // store. A file the store cannot hold is refused here, at the write, because
+    // nothing after the write can back it up.
+    if metadata.len() > MAX_RECORD_FILE_BYTES {
         return Err(invalid(format!(
-            "local file {display} exceeds the {LOCAL_FILE_INPUT_MEMORY_BYTES}-byte local file limit"
+            "local file {display} is {} bytes; a record file holds at most {MAX_RECORD_FILE_BYTES} bytes",
+            metadata.len()
         )));
     }
     let (length, sha256) = sha256_regular_file(&canonical, Some(metadata.len()))?;
