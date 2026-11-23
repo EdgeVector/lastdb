@@ -18,14 +18,24 @@ relay, restores from it, and takes a third snapshot:
 - devices that were past the positions (A, B and F) read nothing wrong, and log no warning that
   they are behind.
 """
+import base64
+import hashlib
 import json
+import secrets
 import shutil
 import time
+import urllib.error
+import urllib.request
 
 from personal_proof_nodes import ALPHA, BETA, Relay, converged, create, expect, wait
 from personal_proof_snapshot import (
     last_record, snapshot_stream, stored_seqs, stream_dirs, stream_kind, views)
 from record_runs import require
+
+try:
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+except ImportError:  # pragma: no cover - the runner image has it
+    Ed25519PrivateKey = None
 
 BEHIND = "behind history that the relay dropped after a snapshot"
 
@@ -83,6 +93,48 @@ def check_dropped(relay, database, entry):
     return tail
 
 
+def relay_post(relay, device, database, node_hex, path, body):
+    """One signed request of A to the relay, as the node signs it. Returns (HTTP status, JSON answer)."""
+    key = Ed25519PrivateKey.from_private_bytes((device.node.home / "identity.key").read_bytes())
+    raw = json.dumps(body, separators=(",", ":")).encode()
+    issued, nonce = str(int(time.time())), secrets.token_hex(32)
+    message = f"POST\n{path}\n1\n{node_hex}\n{database}\n{hashlib.sha256(raw).hexdigest()}\n{issued}\n{nonce}"
+    signature = base64.urlsafe_b64encode(key.sign(message.encode())).rstrip(b"=").decode()
+    headers = {"X-LastDB-Relay-Protocol": "1", "X-LastDB-Node-Key": node_hex, "X-LastDB-Database-Id": database,
+               "X-LastDB-Device-Id": device.device_id(), "X-LastDB-Issued-At": issued, "X-LastDB-Nonce": nonce,
+               "X-LastDB-Signature": signature, "content-type": "application/json"}
+    request = urllib.request.Request(relay.url + path, data=raw, headers=headers, method="POST")
+    try:
+        with urllib.request.urlopen(request, timeout=60) as answer:
+            return answer.status, json.loads(answer.read())
+    except urllib.error.HTTPError as error:
+        return error.code, json.loads(error.read() or b"{}")
+
+
+def late_repeat(relay, relay2, a, database, older):
+    """A repeat of an append of entries at and below the floor is answered as a duplicate, is not stored
+    and is not readable (410). `relay2` still holds the entries, from a copy made before the first trim."""
+    seq = positions(older)[a.device_id()]
+    directory = next(path for path in stream_dirs(relay, database) if path.name == a.device_id())
+    node_hex, stored = directory.parent.name, relay.stream_floor(database, a.device_id())
+    require(stored == seq, f"the floor of A is {stored}, not {seq}")
+    before = stored_seqs(directory)
+    for repeated in (seq, seq - 3):
+        copy = relay2.data / directory.relative_to(relay.data) / f"{repeated}.json"
+        require(copy.is_file(), f"the pre-trim copy holds no entry {repeated} of A")
+        status, answer = relay_post(relay, a, database, node_hex, "/relay/v1/log/append",
+                                    {"database_id": database, "entries": [json.loads(copy.read_text())]})
+        require(status == 200 and answer.get("duplicate") is True, f"a repeat of entry {repeated}: {status} {answer!r}")
+        require(not (directory / f"{repeated}.json").exists(), f"the relay stored entry {repeated} again below the floor")
+        status, answer = relay_post(relay, a, database, node_hex, "/relay/v1/log/read",
+                                    {"database_id": database, "writer_key": node_hex, "device_id": a.device_id(),
+                                     "from_seq": repeated, "limit": 1})
+        require(status == 410 and answer.get("code") == "trimmed", f"a read at entry {repeated}: {status} {answer!r}")
+    require(stored_seqs(directory) == before, "the repeats changed the entries of A's stream")
+    print(f"   a repeat of entries {seq - 3} and {seq} of A (at and below the floor) was answered as a duplicate, "
+          "not stored, and a read there is 410", flush=True)
+
+
 def behind_device(c, relay, phrase):
     """A device that stopped before the positions is told it is behind, and applies nothing."""
     c.start()
@@ -110,7 +162,7 @@ def restore_equals(relay, device, phrase, state, folders, expected, snapshot_seq
     return restored
 
 
-def trimmed_relay_restores(relay, a, b, c, f, g, phrase, state, folders, expected):  # noqa: PLR0915 one scenario, in order
+def trimmed_relay_restores(relay, relay2, a, b, c, f, g, phrase, state, folders, expected):  # noqa: PLR0915 one scenario, in order
     """16. The relay holds no covered entry, still restores, survives a restart, and drops the older snapshot."""
     database = a.database
     wait("A, B and F to upload", lambda: a.synced_up() and b.synced_up() and f.synced_up())
@@ -123,6 +175,8 @@ def trimmed_relay_restores(relay, a, b, c, f, g, phrase, state, folders, expecte
     check_dropped(relay, database, older)
     for device_id, position in positions(older).items():
         require(relay.stream_floor(database, device_id) == position, f"the floor of {device_id[:8]} is not {position}")
+
+    late_repeat(relay, relay2, a, database, older)
 
     # A device behind the positions fails clearly and applies nothing.
     behind = behind_device(c, relay, phrase)

@@ -205,16 +205,18 @@ the caller repeats. A repeat is safe at any point.
   with 403 `forbidden`, field `namespace`. A shared database, whose members read
   the publisher's streams from the start, is never trimmed.
 - **A reader behind the trim.** A `log.read` of one device stream that starts at or
-  below the floor, when the entry is gone, answers 410 `trimmed` (field
+  below the floor answers 410 `trimmed` (field
   `from_seq`). The node does not read around it: it reports that it is behind the
   history the relay dropped and that the database must be restored into a new
   home. A read that starts above the floor, a restore from a retained snapshot, and a
   device that is already past the positions see no difference. A read of all devices
   of a writer returns the entries that are stored.
-- **A late repeat of an append.** `log.append` of an entry whose sequence number is at or
-  below the stream's contiguous head, when that entry is absent (a trim dropped it), is
-  answered as a duplicate and stored nowhere. The entry was on the relay, because a head
-  counts only stored entries.
+- **A late repeat of an append.** `log.append` of an entry at or below a stream's floor is
+  answered as a duplicate and stored nowhere, and not charged: the floor is part of append
+  admission (Exemem: a condition in the same transaction as the write; the reference relay:
+  the entry is taken back when the floor is found at or above it). The entry was on the
+  relay, because a floor is only set from stored entries. A read there is 410 whether or not
+  an item exists.
 - **Billing (Exemem).** The stored-bytes counter of the publisher goes down by the
   stored length of exactly the entries deleted, in the same transaction
   as each delete, so a repeated or concurrent call subtracts nothing twice.

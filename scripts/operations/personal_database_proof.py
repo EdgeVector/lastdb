@@ -38,7 +38,8 @@ as its own stream and applies the other streams through the store's last-writer 
     positions of the older one, on any stream, and keeps the birth, both snapshots and what follows.
     A device that stopped before those positions is told it is behind and applies nothing. A restore
     from the phrase installs the newest snapshot, replays only the entries after it, and equals A key
-    by key, also after the relay restarts. A third snapshot drops the first snapshot entry and no
+    by key, also after the relay restarts. A late repeat of an append below the floor is answered as a duplicate, not stored, and a
+    read there is 410. A third snapshot drops the first snapshot entry and no
     blob (its manifest and files stay), and a restore from the second and from the third snapshot each equal A. A, B and F are never told they
     are behind.
 17. A relay answer that says try again is tried again. The first `log/streams` request of a relay gets
@@ -134,7 +135,7 @@ def prove(relay, relay2, relay3, relay4, a, b, c, d, e, f, g, h, j, k, m, n, p, 
     report["restore_killed"] = kill_the_restore(g, phrase, a, state, folders, expected)
     report["second_snapshot"] = second_snapshot(relay, a, b, f, h, phrase, state, folders, expected)
     exchange_writes(relay, a, f, state, folders, expected)
-    report["trim"] = trimmed_relay_restores(relay, a, b, c, f, g, phrase, state, folders, expected)
+    report["trim"] = trimmed_relay_restores(relay, relay2, a, b, c, f, g, phrase, state, folders, expected)
     # The relay that refuses a large blob, with a home of its own.
     k.init()
     k.start()

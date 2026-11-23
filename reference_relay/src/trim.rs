@@ -245,7 +245,14 @@ async fn apply(store: &Store, database_id: &str, writer: &str, plan: &Plan) -> A
             .set_floor(database_id, writer, &plan.device, *seq, hash.clone());
     }
     let mut dropped = 0;
-    for seq in &plan.covered {
+    // Listed again after the floor is set: an append that raced the plan may have written an
+    // entry at or below the floor, and it must go too (see `Store::append_one`).
+    let covered = if let Some((through, _)) = &plan.floor {
+        stored_up_to(&plan.dir, *through).await
+    } else {
+        plan.covered.clone()
+    };
+    for seq in &covered {
         match fs::remove_file(plan.dir.join(format!("{seq}.json"))).await {
             Ok(()) => dropped += 1,
             Err(error) if error.kind() == ErrorKind::NotFound => {}
