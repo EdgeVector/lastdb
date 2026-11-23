@@ -9,7 +9,7 @@ mod primitives;
 pub mod v2;
 
 pub use common::*;
-pub use primitives::{AccountId, DecimalU64, Digest, Id, RelativePath, Text};
+pub use primitives::{AccountId, DecimalU64, Digest, Id, Text};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};

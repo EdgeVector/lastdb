@@ -127,6 +127,6 @@ Every payload of the personal database is sealed with the AES-256-GCM envelope t
 
 ### Open items
 
-- The relay does not yet drop the entries a snapshot covers (a later step). A home that held data before it began to sync publishes its existing files as its first snapshot and sends nothing else until that snapshot is named (`signed-log-on-local-machinery.md` section 11, runbook `move-an-old-home.md`).
+- The relay does not yet drop the entries a snapshot covers (a later step). A home that held data before it began to sync publishes its existing files as its first snapshot and sends nothing else until that snapshot is named (`signed-log-on-local-machinery.md` section 11).
 - Shared databases keep the in-memory history and their log files.
 - The list of owned databases (section 7) is not built. A database of kind personal that is not the owner row stays unsynced.

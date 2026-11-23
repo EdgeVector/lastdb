@@ -106,12 +106,9 @@ fn initialize(
     )
 }
 
-pub(super) fn canonical_backup_endpoint(env: Environment, api_key: &str) -> Result<String, String> {
-    let auth = lastdb_node::cloud_backup_client::AuthClient::new(
-        exemem_api_url_for(env).to_owned(),
-        api_key.to_owned(),
-    );
-    lastdb_node::cloud_backup_client::canonical_backup_endpoint(auth).map_err(|e| e.to_string())
+pub(super) fn canonical_backup_endpoint(env: Environment) -> Result<String, String> {
+    lastdb_node::cloud_backup_client::canonical_backup_endpoint(exemem_api_url_for(env))
+        .map_err(|e| e.to_string())
 }
 
 pub(super) fn encode_connected_credentials(
@@ -120,7 +117,7 @@ pub(super) fn encode_connected_credentials(
     api_key: String,
     existing_home: Option<Id>,
 ) -> Result<Zeroizing<Vec<u8>>, String> {
-    let endpoint = canonical_backup_endpoint(env, &api_key)?;
+    let endpoint = canonical_backup_endpoint(env)?;
     let source_home = if let Some(id) = existing_home {
         id
     } else {
@@ -244,10 +241,7 @@ fn connect_existing(
     if expected.as_ref().is_some_and(|id| id != &account_id) {
         return Err("expected account identity does not match this home".into());
     }
-    let (api_url, endpoint) = (
-        exemem_api_url_for(env),
-        canonical_backup_endpoint(env, api_key.as_str())?,
-    );
+    let (api_url, endpoint) = (exemem_api_url_for(env), canonical_backup_endpoint(env)?);
     let prev = dir
         .read(CLOUD_CREDENTIALS_FILE)
         .map_err(|e| e.to_string())?;

@@ -14,12 +14,6 @@ pub(crate) enum AdminCommand {
     Storage(AdminStorageCommand),
     #[command(subcommand)]
     Backup(AdminBackupCommand),
-    /// Print the personal database id and the node key that the identity key of the home
-    /// derives. It reads `identity.key` only: no node starts and nothing in the home changes.
-    Identity {
-        #[arg(long)]
-        json: bool,
-    },
 }
 
 #[derive(Subcommand, Debug)]

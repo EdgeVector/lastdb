@@ -137,7 +137,7 @@ impl PreparedHome {
                 "saved native credentials do not match the selected cloud environment".into(),
             );
         }
-        let endpoint = canonical_backup_endpoint(env, creds.api_key.as_str())?;
+        let endpoint = canonical_backup_endpoint(env)?;
         if let Some(saved) = &creds.connection {
             if &saved.account_id != account_id
                 || saved.environment != env.as_str()
