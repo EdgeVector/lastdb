@@ -13,7 +13,8 @@ import os
 import subprocess
 import time
 
-from personal_proof_nodes import ALPHA, require, wait
+from personal_proof_nodes import ALPHA, FIELDS as RECORD_FIELDS, require, wait
+from record_runs import definition, system_seed
 import v1_records as v1
 
 NONE_YET = "Snapshot: none yet"
@@ -107,6 +108,7 @@ def prove_installed(device, published):
 def refused_snapshot(relay, device):
     """A relay that refuses a file over its limit: a clear report, no loop, and the entries still go up."""
     require(refusals(relay) == 0, "the refusing relay refused a blob before the snapshot")
+    system_seed(device.node, definition(ALPHA, "Hash", RECORD_FIELDS, description_prefix="Personal proof "))
     device.write([create_big(i) for i in range(BIG_RECORDS)])
     wait("the refusing home to upload its writes", device.synced_up)
     env = {k: v for k, v in os.environ.items() if not k.startswith("LASTDB")}
