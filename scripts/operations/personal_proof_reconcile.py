@@ -165,8 +165,11 @@ def check_positions(devices, streams_through):
         confirmed = (device.checkpoint() or {"writer_seq": 0})["writer_seq"]
         mine = streams_through.get(device.device_id(), 0)
         require(confirmed == mine, f"{device.name}: confirmed position {confirmed}, its account says it put {mine}")
-        shown = device.sync_status()["databases"][device.database]["usage"]
         account = device.usage()
+        if account is None:
+            require(mine == 0, f"{device.name}: no account file, but its stream holds {mine} entries")
+            continue
+        shown = device.sync_status()["databases"][device.database]["usage"]
         require(all(shown[field] == account[field] for field in FIELDS),
                 f"{device.name}: the status shows {shown!r}, the account file {account!r}")
 
