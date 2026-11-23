@@ -3,8 +3,8 @@
 
 One publisher and three members run as real `lastdbd` processes. A and B go
 through a small proxy that can cut them off from the relay, so a member can
-write while it is offline. Leases are 30 seconds long (renewed at 15 seconds, a
-margin of 3 seconds, closable 15 seconds after expiry). No clock is changed.
+write while it is offline. Leases are 60 seconds long (renewed at 30 seconds, a
+margin of 6 seconds, closable 30 seconds after expiry). No clock is changed.
 
 1. With no lease length set, a write to a received database is refused 403 and
    no lease exists: the database behaves as before.
@@ -41,7 +41,7 @@ from shared_database_proof import (  # noqa: E402
 )
 from record_runs import definition  # noqa: E402
 
-LEASE_MS = 30_000
+LEASE_MS = 60_000
 READ_ONLY = "a received database is read only"
 OUTCOMES = {}
 
@@ -247,7 +247,7 @@ def prove(pub, a, b, c, proxies):
     pa.block()
     a.stop()
     a.restart()
-    lease = wait("A to hold its lease after the restart", lambda: (x := a.lease()) and x["directWrites"] and x, 30)
+    lease = wait("A to hold its lease after the restart", lambda: (x := a.lease()) and x["directWrites"] and x, 60)
     a.write("k3", "written-offline")
     pa.unblock()
     everywhere(members, "k3", "written-offline", a.key)
@@ -276,7 +276,7 @@ def prove(pub, a, b, c, proxies):
     covered = wait("B to hold a lease that covers it",
                    lambda: (x := b.lease()) and x["covers"] and x["directWrites"] and x, 60)
     gap = covered["authoredAtMs"] - fresh["authoredAtMs"]
-    require(gap < LEASE_MS // 2 - 3_000, f"the lease for B came {gap} ms after a renewal; half-life is {LEASE_MS // 2}")
+    require(gap < LEASE_MS // 2 - 6_000, f"the lease for B came {gap} ms after a renewal; half-life is {LEASE_MS // 2}")
     b.write("k6", "b-direct")
     everywhere(members, "k6", "b-direct", b.key)
     print(f"5. B covered {gap} ms after the previous lease, by the change and not the half-life", flush=True)
@@ -290,7 +290,7 @@ def prove(pub, a, b, c, proxies):
     a.write("x2", "offline-2")
     require(a.row("x1") and a.row("x2"), "A does not hold its offline writes")
     require(pub.row("x1") is None, "the publisher holds an entry A has not uploaded")
-    wait("a lease that closes A's lease", lambda: publisher_lease(pub)["authoredAtMs"] >= lease["closesAtMs"], 150)
+    wait("a lease that closes A's lease", lambda: publisher_lease(pub)["authoredAtMs"] >= lease["closesAtMs"], 240)
     pa.unblock()
     everywhere(members, "x1", "offline-1", a.key)
     everywhere(members, "x2", "offline-2", a.key)
