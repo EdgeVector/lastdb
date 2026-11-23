@@ -166,6 +166,11 @@ class Node(Member):
         status = self.node.call("/api/status")[0]["status"]["cloud_sync"]
         return (((status.get("databases") or {}).get(self.db) or {}).get("upload") or {}).get("last_error")
 
+    def upload_settled(self):
+        status = self.node.call("/api/status")[0]["status"]["cloud_sync"]
+        upload = ((status.get("databases") or {}).get(self.db) or {}).get("upload") or {}
+        return upload.get("spool_head") is not None and upload.get("spool_head") == upload.get("spool_confirmed_through")
+
     def log_count(self, text):
         try:
             return (self.out / "node.log").read_text().count(text)
@@ -321,9 +326,14 @@ def prove(pub, a, b, c, proxies):
     pb.block()
     b.write("h1", "unsent")
     pub.act(action="grant", database=pub.db, grantee=b.key, role="read")
+    # The reduction must be on the relay before B reconnects. Otherwise B's upload
+    # can win the race and the relay takes the entry, which is correct and proves nothing.
+    wait("the reduction to be on the relay", pub.upload_settled)
     pb.unblock()
-    message = wait("B's sync status to name the refusal",
-                   lambda: (m := b.upload_error()) and "refused entry" in m and m, 90)
+    # Whichever happens first, the relay refusing the entry or B learning that it
+    # is read, the status says the entries cannot be deposited.
+    message = wait("B's sync status to say its entries cannot be uploaded",
+                   lambda: (m := b.upload_error()) and "read or removed" in m and m, 90)
     require("read or removed" in message, f"the refusal message is unclear: {message!r}")
     refusals = b.log_count("the relay refused this member's entries")
     time.sleep(12)
