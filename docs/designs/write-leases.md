@@ -263,11 +263,13 @@ Where this document left a detail open, the build chose the simplest thing.
    again as a proposal (`create`, `replace` or `delete` against the record state the history now
    holds), once, with an id made from the entry hash. A record with no remaining write is
    removed from the store.
-6. **A refused member.** When the relay answers 403 to a member's append (a member reduced to
-   `read` or removed, holding unsent entries), the database's sync status
-   (`cloud_sync.databases.<id>.upload.last_error`) says which entry was refused and that later
-   entries wait behind it. The node does not fail its turn, tries again when the grants or
-   leases change and otherwise every 30 seconds, and keeps pulling and syncing other databases.
+6. **A member that cannot deposit.** A node that holds unsent entries of a received database and
+   whose folded role is `read` or removed says so in the sync status
+   (`cloud_sync.databases.<id>.upload.last_error`) from its own history, without asking the relay,
+   so the status does not depend on whether it learned of the change before or after it tried to
+   upload. If its role is still `write` or `submit` locally and the relay answers 403, the status
+   names the refused entry the same way, and uploads wait until the grants or leases change and
+   otherwise 30 seconds. The turn does not fail, and pulling and other databases carry on.
 7. **Status.** `selfAccess.lease` in the database list, and the `lease` action, give
    `entryHash`, `authoredAtMs`, `expiresAtMs`, `closesAtMs`, `covers`, `directWrites` and
    `directWritesUntilMs`.

@@ -35,6 +35,19 @@ pub(super) async fn upload_log(
     if member && publish_state::uploads_held(database_id, tip.as_deref()) {
         return None;
     }
+    if member {
+        if let Some(message) = cannot_deposit(host, database_id) {
+            // The fact is enough: unsent entries and a role the relay takes
+            // nothing from. No request is made, so there is nothing to retry.
+            let (head, confirmed) = history_store::pending(&host.home, database_id, 0)
+                .map_or((0, 0), |found| {
+                    (found.log_len as u64, found.uploaded as u64)
+                });
+            host.cloud_sync
+                .record_upload(database_id, head, confirmed, Some(message));
+            return None;
+        }
+    }
     let result = drain_log(client, &host.home, database_id).await;
     let (head, confirmed) = history_store::pending(&host.home, database_id, 0)
         .map_or((0, 0), |found| {
@@ -126,6 +139,7 @@ pub(super) fn shareable_uploads_pending(host: &Host, include_received: bool) -> 
             for share in shares {
                 if share.signed_log
                     && database_pending(&host.home, share.id.as_str())
+                    && cannot_deposit(host, share.id.as_str()).is_none()
                     && !publish_state::uploads_held(
                         share.id.as_str(),
                         Some(grant_and_lease_tip(host, share.id.as_str()).as_str()),
@@ -153,6 +167,39 @@ fn grant_and_lease_tip(host: &Host, database_id: &str) -> String {
             )
         })
         .unwrap_or_default()
+}
+
+/// The sync status message when this node holds unsent entries of a received
+/// database and its role, as its history folds it, is not `write` or `submit`
+/// (it was reduced to `read` or removed). The relay takes entries only from a
+/// member that may deposit, so these entries stay unsent. It is a fact of the
+/// history, so it holds whether the node learned of the change before or
+/// after it tried to upload. A role change that comes later is seen on the
+/// next turn.
+fn cannot_deposit(host: &Host, database_id: &str) -> Option<String> {
+    let node = mutation_log::NodeKey::from_bytes(host.keypair.public_key_bytes());
+    let known = super::histories_for(host)
+        .peek_with(database_id, |history| {
+            history.owner().is_some()
+                && !matches!(
+                    super::received::role_of(history, node),
+                    Some(mutation_log::Role::Write | mutation_log::Role::Submit)
+                )
+        })
+        .unwrap_or(false);
+    if !known {
+        return None;
+    }
+    let found = history_store::pending(&host.home, database_id, 1).ok()?;
+    let first = found.batch.first()?;
+    Some(format!(
+        "{} entries of this device stream are not uploaded, from entry {}: this node's role is \
+         read or removed, and the relay takes entries only from a member that holds write or \
+         submit. Entries after them wait behind them. Pulling and other databases are not \
+         affected. They are uploaded when the publisher grants this node write or submit again.",
+        found.log_len - found.uploaded,
+        first.header().writer_seq
+    ))
 }
 
 /// What the sync status says when the relay refuses a member's entries. A
