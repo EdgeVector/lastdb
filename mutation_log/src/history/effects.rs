@@ -26,15 +26,15 @@ impl VerifiedHistory {
                 if let Some((author, namespace, decoded)) =
                     self.contribution(header, body, &hash, is_publisher)
                 {
-                    self.merge_write(
-                        namespace,
-                        decoded.record_key,
-                        decoded.value,
+                    let write = MaterializedRecord {
                         position,
                         author,
-                        hash,
-                        false,
-                    );
+                        entry: hash,
+                        creator: author,
+                        creator_position: position,
+                        value: decoded.value,
+                    };
+                    self.merge_write((namespace, decoded.record_key), write, false);
                 }
             }
             SignedEntry::Lease { header, body, .. } => {
@@ -143,32 +143,28 @@ impl VerifiedHistory {
         let Ok(decoded) = decode_record_payload(payload) else {
             return;
         };
-        self.merge_write(
-            namespace.to_owned(),
-            decoded.record_key,
-            decoded.value,
+        let key = (namespace.to_owned(), decoded.record_key);
+        let write = MaterializedRecord {
             position,
             author,
             entry,
-            from_bundle,
-        );
+            creator: author,
+            creator_position: position,
+            value: decoded.value,
+        };
+        self.merge_write(key, write, from_bundle);
     }
 
     /// Merge one whole-record write: the higher position wins. When a bundle
     /// write and a non-bundle write meet and the bundle write loses, it is kept
     /// aside, because a lease closing can take the other write back.
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn merge_write(
         &mut self,
-        namespace: String,
-        record_key: String,
-        value: Vec<u8>,
-        position: RecordPosition,
-        author: crate::ids::NodeKey,
-        entry: EntryHash,
+        key: (String, String),
+        write: MaterializedRecord,
         from_bundle: bool,
     ) {
-        let key = (namespace, record_key);
+        let position = write.position;
         let mut aside: Option<MaterializedRecord> = None;
         if let Some(held) = self.records.get(&key) {
             let held_bundle = self.is_bundle(&held.entry);
@@ -180,14 +176,7 @@ impl VerifiedHistory {
                 };
                 if !bundle_at.beats(other_at) {
                     aside = Some(if from_bundle {
-                        MaterializedRecord {
-                            position,
-                            author,
-                            entry,
-                            creator: author,
-                            creator_position: position,
-                            value: value.clone(),
-                        }
+                        write.clone()
                     } else {
                         held.clone()
                     });
@@ -207,10 +196,10 @@ impl VerifiedHistory {
             Some(held)
                 if !position.beats(held.creator_position) && position != held.creator_position =>
             {
-                (author, position)
+                (write.author, position)
             }
             Some(held) => (held.creator, held.creator_position),
-            None => (author, position),
+            None => (write.author, position),
         };
         match self.records.get_mut(&key) {
             Some(existing) if !position.beats(existing.position) => {
@@ -221,12 +210,9 @@ impl VerifiedHistory {
                 self.records.insert(
                     key,
                     MaterializedRecord {
-                        position,
-                        author,
-                        entry,
                         creator,
                         creator_position,
-                        value,
+                        ..write
                     },
                 );
             }

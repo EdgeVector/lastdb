@@ -3,7 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::entry::SignedEntry;
-use crate::ids::NodeKey;
+use crate::ids::{EntryHash, NodeKey};
 use crate::payload::{decode_record_payload, MaterializedRecord, RecordPosition};
 
 use super::lease::{pos_key, PosKey};
