@@ -97,10 +97,12 @@ the birth signature.
 publisher, **or** a publisher-signed grant in that database’s chain
 currently gives that key **`submit`** or **`write`**, and no later revoke /
 role reduction has removed that authority. A member holding `submit` or
-`write` may append proposal `data` (`stream = proposal`) to its own stream. A
-member holding `write` may also append direct `data` and `bundle` entries to its
-own stream: the relay does not know whether a lease covers them, and the nodes
-decide (see "The `lease` entry"). Everything else, the publisher kinds and
+`write` may append `data` entries (`stream = proposal` or `stream = direct`) to
+its own stream. The relay is a mailbox: it does not know whether a lease covers a
+direct entry, and the nodes decide (see "The `lease` entry"). A direct entry that
+no lease covers, such as one from a writer later reduced to `submit`, is stored
+and ignored, and it does not stop the stream. A member holding `write` may also
+append `bundle` entries to its own stream. Everything else, the publisher kinds and
 `lease` among them, is the publisher’s alone (403 `forbidden`). A **revoke cuts off appends immediately** (new requests →
 **403** `forbidden`). Entries the relay already stored before the revoke
 **stay**; the relay does **not** retroactively delete them.
@@ -298,14 +300,14 @@ it; only the publisher may append it (403 `forbidden` for anyone else).
   `seen_heads` where it can; a node reads the grants before the lease in position
   order `(lamport, node_key, device_id)`.
 - **A member's direct entry** names its lease by citing exactly one `lease` entry in
-  `seen_heads`. A node accepts it into the stream when the member held `write`
-  as of that lease. It counts unless the lease is closed and the entry lies past
-  the closing point; the rule is in `write-leases.md` section 5 and lives in
+  `seen_heads`. A node accepts it into the stream whatever the
+  member's role, so a stream never stops at it. It counts only when the member held
+  `write` as of that lease and the lease is not closed before the entry; the rule is in `write-leases.md` section 5 and lives in
   `mutation_log` only. `grant_at_device` and `grant_at_seq` stay absent on such an
   entry.
 - **A relay must:** accept the kind from the publisher only, derive the stream head
-  from it like any entry, and accept a `write` member's direct data and bundle
-  entries on its own stream. A parser that refuses unknown kinds must learn this kind.
+  from it like any entry, and accept a `write` or `submit` member's data entries (proposal and
+  direct) and a `write` member's bundle entries on its own stream. A parser that refuses unknown kinds must learn this kind.
 - **Bundles:** a node takes a bundle from the publisher only. A member's
   bundle entry is stored by the relay and ignored by nodes.
 

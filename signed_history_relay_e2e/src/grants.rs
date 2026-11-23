@@ -2,16 +2,20 @@
 //! under the publisher's lease and proposes, the publisher incorporates the
 //! proposal, then revokes the member, and the relay refuses the member's next
 //! `log.append` and `blob.put` with HTTP 403. The relay stores the publisher's
-//! `lease` entry and reads it back. It refuses a `lease` entry from a member and
-//! a direct entry from a `submit` member. The member's proposal stays stored and the
+//! `lease` entry and reads it back. It refuses a `lease` entry from a member, a
+//! direct entry from a `read` member, and a bundle entry and a `blob.put` from a
+//! `submit` member. It stores a direct entry from a `submit` member (the relay is a
+//! mailbox; no lease covers that entry, so the nodes ignore it) and the publisher
+//! reads it back. The member's proposal stays stored and the
 //! publisher's incorporation is what puts its record in the history. A
 //! never-granted node key gets 403 on signed `log.append` and on `log.read` of a
 //! non-public database.
 
 use bytes::Bytes;
 use mutation_log::{
-    author_data, author_lease, data_record, entry_hash, AcceptOutcome, AuthorCtx, DatabaseId,
-    DeviceId, Grantee, Hex32, LeaseBody, NodeKey, Role, SignedEntry, StreamKind, VerifiedHistory,
+    author_bundle, author_data, author_lease, data_record, entry_hash, AcceptOutcome, AuthorCtx,
+    BundleBody, DatabaseId, DeviceId, Grantee, Hex32, LeaseBody, NodeKey, Role, SignedEntry,
+    StreamKind, VerifiedHistory,
 };
 use sha2::{Digest, Sha256};
 use signed_history_materialize::encode_string_field;
@@ -29,6 +33,7 @@ pub const MEMBER_TEXT: &str = "proposed by a write member and incorporated by th
 
 /// Where the database lives: relay, publisher and the publisher's first device stream.
 pub struct Scene<'a> {
+    pub publisher: &'a Actor,
     pub http: &'a reqwest::Client,
     pub relay_url: &'a str,
     pub database_id: DatabaseId,
@@ -91,12 +96,14 @@ impl Member {
 /// The member reads the publisher's root stream, verifies it with AcceptEntry,
 /// finds its own `write` grant and the publisher's lease (the relay read the
 /// lease entry back), signs one direct entry under the lease and appends it,
-/// and appends one proposal. The relay refuses a `lease` entry from the member
-/// and a direct entry from a `submit` member.
+/// and appends one proposal. The relay refuses a `lease` entry from the member,
+/// a direct entry from a `read` member, and a bundle entry and a blob from a
+/// `submit` member. It stores a direct entry from the `submit` member.
 pub async fn propose_as_member(
     scene: &Scene<'_>,
     actor: Actor,
     submit: &Actor,
+    reader: &Actor,
 ) -> Result<Member, String> {
     let device = new_device_id();
     let client = scene.client(&actor, device);
@@ -133,21 +140,22 @@ pub async fn propose_as_member(
         grant,
         proposal: None,
     };
-    let submit_device = new_device_id();
-    let sneaked = direct_under(
-        submit,
-        &Chain::new(submit_device),
+    let reader_device = new_device_id();
+    let by_reader = direct_under(
+        reader,
+        &Chain::new(reader_device),
         scene.database_id,
         &lease,
     )?;
     refused(
-        "submit member",
+        "read member",
         "log.append of a direct entry",
         scene
-            .client(submit, submit_device)
-            .append(std::slice::from_ref(&sneaked))
+            .client(reader, reader_device)
+            .append(std::slice::from_ref(&by_reader))
             .await,
     )?;
+    submit_deposits(scene, submit, &lease).await?;
     let forged = lease_by(&member.actor, &member.chain, scene.database_id)?;
     refused(
         "write member",
@@ -167,6 +175,65 @@ pub async fn propose_as_member(
     member.chain.advance(&first)?;
     member.proposal = Some(first);
     Ok(member)
+}
+
+/// A `submit` member deposits a direct entry (stored, though no lease covers it,
+/// and the publisher reads it back) and is refused a bundle entry and a blob.
+async fn submit_deposits(
+    scene: &Scene<'_>,
+    submit: &Actor,
+    lease: &SignedEntry,
+) -> Result<(), String> {
+    let device = new_device_id();
+    let client = scene.client(submit, device);
+    let mut chain = Chain::new(device);
+    let direct = direct_under(submit, &chain, scene.database_id, lease)?;
+    client.append(std::slice::from_ref(&direct)).await?;
+    chain.advance(&direct)?;
+    let stored = scene
+        .client(scene.publisher, scene.root_device)
+        .read_writer(&submit.node_key.to_hex())
+        .await?;
+    let direct_hash = entry_hash(&direct).map_err(|e| e.to_string())?;
+    let found = stored
+        .entries
+        .iter()
+        .any(|entry| entry_hash(entry).is_ok_and(|hash| hash == direct_hash));
+    if !found {
+        return Err("the publisher did not read back the submit member's direct entry".into());
+    }
+    let ctx = AuthorCtx {
+        database_id: scene.database_id,
+        node_key: submit.node_key,
+        device_id: device,
+        stream_head: chain.head(),
+        seen_heads: Vec::new(),
+        seen_lamports: Vec::new(),
+        authored_at_ms: now_ms(),
+    };
+    let blob: [u8; 32] = Sha256::digest(b"bundle from a submit member").into();
+    let body = BundleBody {
+        blob_sha256: Hex32::from_bytes(blob),
+        blob_size: 1,
+        change_count: 1,
+        grant_at_device: None,
+        grant_at_seq: None,
+    };
+    let bundle = author_bundle(&ctx, &submit.signing_key, body).map_err(|e| e.to_string())?;
+    refused(
+        "submit member",
+        "log.append of a bundle entry",
+        client.append(std::slice::from_ref(&bundle)).await,
+    )?;
+    let probe = Bytes::from_static(b"blob from a submit member");
+    let digest: [u8; 32] = Sha256::digest(&probe).into();
+    refused(
+        "submit member",
+        "blob.put",
+        client
+            .blob_put(&Hex32::from_bytes(digest).to_hex(), probe)
+            .await,
+    )
 }
 
 /// A direct entry that writes the member's record and cites `lease`.

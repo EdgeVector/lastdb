@@ -15,7 +15,7 @@ Related: `signed-history-single-log.md` (the log and cursor), `relay-protocol.md
 | Fact | Owner | Rule |
 |---|---|---|
 | Does an entry count? | `AcceptEntry` in `mutation_log` | A function of the entry and the publisher's grants. Only the publisher's direct entries, bundles and publisher kinds change records. |
-| May a node deposit an entry? | Relay | The publisher, or a member holding `submit` or `write` that appends proposal `data` to its own stream. |
+| May a node deposit an entry? | Relay | The publisher, or a member holding `submit` or `write` that appends `data` (proposals, and direct entries that the nodes count only under a lease) to its own stream. |
 | Order and continuity | The device stream | Consecutive `writer_seq`, each naming the previous hash. |
 | A record's value, author and revision | History | The winner by Lamport position. The revision is the winning entry's hash. |
 | Who created a record | History | The writer of the earliest write by position. |

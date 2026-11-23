@@ -45,8 +45,14 @@ pub async fn run_all(relay: &RelayHandle, blob_bytes: u64, work: &Path) -> Vec<S
         .await,
     );
     out.push(
-        run_named("lease_uncovered_write_refused", async {
-            lease::uncovered_write_refused()
+        run_named("lease_uncovered_write_ignored", async {
+            lease::uncovered_write_ignored()
+        })
+        .await,
+    );
+    out.push(
+        run_named("lease_reduced_writer_stream_continues", async {
+            lease::reduced_writer_stream_continues()
         })
         .await,
     );

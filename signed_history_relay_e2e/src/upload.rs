@@ -66,6 +66,7 @@ pub async fn bootstrap(http: &reqwest::Client, plan: &UploadPlan) -> Result<Uplo
     let owner = Actor::generate();
     let member_actor = Actor::generate();
     let submit_actor = Actor::generate();
+    let read_actor = Actor::generate();
     let birth = DbBirth::generate(owner.node_key);
     let publisher = Publisher {
         actor: owner,
@@ -90,17 +91,20 @@ pub async fn bootstrap(http: &reqwest::Client, plan: &UploadPlan) -> Result<Uplo
         publisher.grant_read(&mut chain_a, plan.reader)?,
         publisher.grant_write(&mut chain_a, member_actor.node_key)?,
         publisher.grant_submit(&mut chain_a, submit_actor.node_key)?,
+        publisher.grant_read(&mut chain_a, read_actor.node_key)?,
         publisher.lease(&mut chain_a, now_ms() + DAY_MS, now_ms() + 2 * DAY_MS)?,
     ];
     client_a.append(&opening).await?;
     let scene = Scene {
+        publisher: &publisher.actor,
         http,
         relay_url: &plan.relay_url,
         database_id: birth.database_id,
         owner: publisher.actor.node_key,
         root_device: chain_a.device_id,
     };
-    let member = grants::propose_as_member(&scene, member_actor, &submit_actor).await?;
+    let member =
+        grants::propose_as_member(&scene, member_actor, &submit_actor, &read_actor).await?;
 
     let records = plan.total_bytes.div_ceil(VALUE_TEXT_BYTES).max(1);
     let bundles = records.div_ceil(BUNDLE_RECORDS);
