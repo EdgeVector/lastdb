@@ -316,6 +316,19 @@ the grant index from verified publisher birth/grant entries in the logs.
 refusals use **403** `forbidden` (spam/cost gate), not AcceptEntry. A 500
 `unavailable` is not a chain conflict and is not final.
 
+**What a client does with a refusal.** A 429 carries a `field`. A field that names a provider
+(`provider.*`: `provider.dynamo` throttled, `provider.dynamo.conflict` the transaction of this
+request collided with another), `log.streams.head` and `log.streams.backfill` (progress is stored,
+ask again), or a read that failed (`mutation_log.read`, `quota.read`, `payment.read`,
+`payment.clock`) means the same request can succeed a moment later. A field that ends in
+`.configuration` and every other field, among them `quota.bytes`, is final: the client reports the
+relay's message at once. A 500 `unavailable` and a 502, 503 or 504 from the gateway are retried the
+same way. The node retries at most three times, after 250, 500 and 1000 ms, each cut to a random
+value between half and all of it, so a call adds at most 1.75 s of waiting. The relay consumes the
+`nonce` of a request it refuses, so every retry is signed again with a new nonce and time. A retried
+`log.append` is a duplicate the relay already counts, and a second `blob.put` commit of the same
+digest and length answers like the first.
+
 ## CI conformance
 
 Same scenarios as `cloud-api.md` against ExeMem and the in-repo reference

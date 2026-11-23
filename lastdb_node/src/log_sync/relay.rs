@@ -11,9 +11,18 @@ use sha2::{Digest, Sha256};
 
 /// Bound a hung peer so the sync loop can return and re-push the log.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
-pub(super) const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+/// A blob transfer fails when it makes no progress for this long, however slow the link.
+pub(super) const STALL_TIMEOUT: Duration = Duration::from_secs(30);
 /// CI probe budget: request timeout plus a little slack.
 const HUNG_PEER_BUDGET: Duration = Duration::from_secs(45);
+/// A relay call that the relay marks as transient is sent again at most this many times. The waits
+/// before the retries are 250, 500 and 1000 ms, each cut to a random value between half and all
+/// of it, so one call adds at most 1.75 s of waiting. That is long enough for a colliding
+/// transaction to clear and short enough that a restore does not hang, and the waits stay small
+/// while a relay that keeps refusing is not pressed: a call that is still refused fails.
+const RETRIES: u32 = 3;
+const RETRY_BASE: Duration = Duration::from_millis(250);
 
 /// One device stream of a writer as `log.streams` lists it.
 #[derive(Debug, Deserialize)]
@@ -29,6 +38,10 @@ pub(super) struct RelayClient {
     pub(super) node_key_hex: String,
     pub(super) device_id: String,
     pub(super) http: reqwest::Client,
+    /// For the presigned transfers of a blob: no total timeout, so a slow link is not cut off.
+    /// A transfer fails when the connection stalls: each read of the answer has
+    /// [`STALL_TIMEOUT`], and an upload watches its own body (see `blob_transfer`).
+    pub(super) transfer: reqwest::Client,
 }
 
 impl RelayClient {
@@ -44,12 +57,19 @@ impl RelayClient {
             .timeout(REQUEST_TIMEOUT)
             .build()
             .map_err(|e| format!("relay http client: {e}"))?;
+        // trace-egress: public — presigned blob URLs; the signed headers go only to the relay.
+        let transfer = reqwest::Client::builder()
+            .connect_timeout(CONNECT_TIMEOUT)
+            .read_timeout(STALL_TIMEOUT)
+            .build()
+            .map_err(|e| format!("relay http client: {e}"))?;
         Ok(Self {
             base: base.trim_end_matches('/').to_owned(),
             signing_key,
             node_key_hex,
             device_id: device_id.to_string(),
             http,
+            transfer,
         })
     }
 
@@ -137,33 +157,81 @@ impl RelayClient {
         body: &Value,
     ) -> Result<Value, String> {
         let raw = serde_json::to_vec(body).map_err(|_| "cannot encode relay body")?;
-        let headers = sign_headers(
-            &self.signing_key,
-            &self.node_key_hex,
-            &self.device_id,
-            database_id,
-            path,
-            &raw,
-        )?;
         let url = format!("{}{path}", self.base);
-        let mut req = self.http.post(url).body(raw);
-        for (name, value) in headers {
-            req = req.header(name, value);
-        }
-        let resp = req
-            .send()
-            .await
-            .map_err(|e| format!("relay request failed: {e}"))?;
-        let status = resp.status();
-        let text = resp
-            .text()
-            .await
-            .map_err(|e| format!("relay response body: {e}"))?;
-        if !status.is_success() {
+        let mut retried = 0;
+        loop {
+            // Every try is signed again: the relay consumes the nonce of a request it refuses,
+            // and it rejects a replayed nonce and a request issued too long ago.
+            let headers = sign_headers(
+                &self.signing_key,
+                &self.node_key_hex,
+                &self.device_id,
+                database_id,
+                path,
+                &raw,
+            )?;
+            let mut req = self.http.post(&url).body(raw.clone());
+            for (name, value) in headers {
+                req = req.header(name, value);
+            }
+            let resp = req
+                .send()
+                .await
+                .map_err(|e| format!("relay request failed: {e}"))?;
+            let status = resp.status();
+            let text = resp
+                .text()
+                .await
+                .map_err(|e| format!("relay response body: {e}"))?;
+            if status.is_success() {
+                return serde_json::from_str(&text)
+                    .map_err(|_| "relay response is not JSON".into());
+            }
+            if retried < RETRIES && is_transient(status.as_u16(), &text) {
+                tokio::time::sleep(retry_wait(retried)).await;
+                retried += 1;
+                continue;
+            }
             return Err(format!("relay {path} HTTP {status}: {text}"));
         }
-        serde_json::from_str(&text).map_err(|_| "relay response is not JSON".into())
     }
+}
+
+/// Whether the relay says that the same request can succeed a moment later: a gateway failure
+/// (502, 503, 504), `unavailable` (500), and `rate_limited` (429) with a field that names a
+/// provider or a read that failed or collided. A quota or payment refusal is a 429 too, and
+/// any other field, and it is final.
+fn is_transient(status: u16, body: &str) -> bool {
+    if matches!(status, 502..=504) {
+        return true;
+    }
+    let reply: Value = serde_json::from_str(body).unwrap_or(Value::Null);
+    let (code, field) = (
+        reply["code"].as_str(),
+        reply["field"].as_str().unwrap_or(""),
+    );
+    match (status, code) {
+        (500, Some("unavailable")) => true,
+        (429, Some("rate_limited")) => {
+            !field.ends_with(".configuration")
+                && (field.starts_with("provider.")
+                    || field.starts_with("log.streams.")
+                    || matches!(
+                        field,
+                        "mutation_log.read" | "quota.read" | "payment.read" | "payment.clock"
+                    ))
+        }
+        _ => false,
+    }
+}
+
+/// The wait before retry number `retried` (0 first): 250 ms, doubled each time, cut to between
+/// half and all of it.
+fn retry_wait(retried: u32) -> Duration {
+    use rand::Rng;
+    let full = RETRY_BASE * 2u32.pow(retried);
+    let low = full / 2;
+    rand::thread_rng().gen_range(low..=full)
 }
 
 fn sign_headers(

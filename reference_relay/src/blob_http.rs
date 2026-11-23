@@ -7,6 +7,7 @@ use axum::body::{Body, Bytes};
 use axum::extract::{Path, Query, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
+use futures::StreamExt;
 use serde::Deserialize;
 use tokio::io::AsyncReadExt;
 
@@ -28,9 +29,25 @@ pub(crate) async fn blob_upload(
     let checksum = headers
         .get("x-amz-checksum-sha256")
         .and_then(|value| value.to_str().ok());
+    let (rate, stall_after) = (state.upload_bytes_per_second, state.upload_stall_after);
+    let mut seen = 0u64;
+    // Proof options: a slow or a stalled reader. Without them the body passes untouched.
+    let chunks = body.into_data_stream().then(move |chunk| {
+        let len = chunk.as_ref().map_or(0, |bytes| bytes.len() as u64);
+        let stalled = stall_after.is_some_and(|after| seen >= after);
+        seen += len;
+        async move {
+            if stalled {
+                tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
+            } else if let Some(rate) = rate.filter(|rate| *rate > 0) {
+                tokio::time::sleep(std::time::Duration::from_millis(len * 1000 / rate)).await;
+            }
+            chunk
+        }
+    });
     state
         .store
-        .stage_put(&token, checksum, Box::pin(body.into_data_stream()))
+        .stage_put(&token, checksum, Box::pin(chunks))
         .await?;
     Ok(StatusCode::OK)
 }

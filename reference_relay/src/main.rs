@@ -17,6 +17,7 @@ mod grant_verify;
 mod handlers;
 mod heads;
 mod presign;
+mod refusal;
 mod request_log;
 mod store;
 
@@ -54,6 +55,20 @@ struct Cli {
     /// relay does (HTTP 400, `invalid_request`, field `bytes`). No limit when absent.
     #[arg(long)]
     max_blob_bytes: Option<u64>,
+    /// `ROUTE=FIELD`, for example `log/streams=provider.dynamo.conflict`: answer the first request
+    /// of that route with HTTP 429 `rate_limited` and that field, as the Exemem relay does when a
+    /// transaction collides (`quota.bytes` for a quota refusal). Later requests are served. May be
+    /// repeated. With this option the relay also refuses a nonce it has seen, as Exemem does. Only
+    /// the retry proof uses it.
+    #[arg(long, value_name = "ROUTE=FIELD")]
+    refuse_first: Vec<String>,
+    /// Read an upload body at most this many bytes a second (a slow uplink). Only the proof uses it.
+    #[arg(long)]
+    upload_bytes_per_second: Option<u64>,
+    /// After this many bytes of an upload body, stop reading it and hold the connection (a stalled
+    /// uplink). Only the proof uses it.
+    #[arg(long)]
+    upload_stall_after: Option<u64>,
 }
 
 #[tokio::main]
@@ -84,6 +99,8 @@ async fn run() -> Result<(), String> {
         secret,
         grants: Mutex::new(grants),
         max_blob_bytes: cli.max_blob_bytes,
+        upload_bytes_per_second: cli.upload_bytes_per_second,
+        upload_stall_after: cli.upload_stall_after,
     });
     let app = Router::new()
         .route("/relay/v1/log/append", post(log_append))
@@ -93,7 +110,12 @@ async fn run() -> Result<(), String> {
         .route("/relay/v1/blob/get", post(blob_get))
         .route("/relay/v1/blob/upload/{token}", put(blob_upload))
         .route("/relay/v1/blob/bytes/{sha256}", get(blob_bytes))
-        .layer(DefaultBodyLimit::max(MAX_JSON_BODY_BYTES))
+        .layer(DefaultBodyLimit::max(MAX_JSON_BODY_BYTES));
+    let app = match refusal::Refusals::parse(&cli.refuse_first)? {
+        Some(refusals) => app.layer(middleware::from_fn_with_state(refusals, refusal::refuse)),
+        None => app,
+    };
+    let app = app
         .layer(middleware::from_fn(request_log::log_request))
         .with_state(state);
     axum::serve(listener, app)
