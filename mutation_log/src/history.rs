@@ -17,6 +17,7 @@ use crate::wire::entry_hash;
 
 mod effects;
 mod lease;
+mod recompute;
 mod view;
 
 pub use lease::LeaseView;

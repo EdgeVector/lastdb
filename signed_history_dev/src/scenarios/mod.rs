@@ -5,6 +5,7 @@ mod converge;
 mod fixture;
 mod forge;
 mod lease;
+mod lease_world;
 mod nongrantee;
 mod offchain_revoke;
 mod restore;

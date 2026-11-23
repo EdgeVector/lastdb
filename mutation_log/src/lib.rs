@@ -59,6 +59,7 @@ mod history_bundle;
 mod history_util;
 mod ids;
 mod kinds;
+mod lease_body;
 mod payload;
 mod record_key;
 mod sealed;

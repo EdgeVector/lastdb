@@ -6,7 +6,7 @@
 //! only whether it may propose.
 
 use crate::accept::RejectReason;
-use crate::entry::{BundleBody, DataBody, EntryHeader, SignedEntry};
+use crate::entry::{BundleBody, DataBody, EntryHeader, LeaseBody, SignedEntry};
 use crate::grants::{AcceptedMeta, GrantState};
 use crate::ids::{EntryHash, NodeKey};
 use crate::kinds::{EntryKind, Role, StreamKind};
@@ -72,7 +72,7 @@ fn authorize_member_direct<'s>(
     let mut leases = h
         .seen_heads
         .iter()
-        .filter(|hash| lookup(*hash).is_some_and(|meta| meta.entry.kind() == EntryKind::Lease));
+        .filter(|hash| lookup(hash).is_some_and(|meta| meta.entry.kind() == EntryKind::Lease));
     let (Some(lease), None) = (leases.next(), leases.next()) else {
         return Some(RejectReason::Malformed(
             "member direct entry must cite exactly one lease",
@@ -118,4 +118,14 @@ fn authorize_proposal<'s>(
             "proposal requires a current submit or write grant",
         )),
     }
+}
+
+/// A lease must close later than it expires.
+pub fn check_lease(body: &LeaseBody) -> Option<RejectReason> {
+    if body.closes_at_ms <= body.expires_at_ms {
+        return Some(RejectReason::Malformed(
+            "lease closes_at_ms must be later than expires_at_ms",
+        ));
+    }
+    None
 }

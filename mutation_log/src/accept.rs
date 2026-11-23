@@ -6,9 +6,9 @@
 //! `owner(32) ‖ db_salt(32)`, signed by that key (`birth_signature` on the
 //! wire). See [`birth_proof_bytes`] and [`verify_birth_signature`].
 
-use crate::auth::{authorize_bundle, authorize_data};
+use crate::auth::{authorize_bundle, authorize_data, check_lease};
 use crate::bundle::validate_bundle_body;
-use crate::entry::{LeaseBody, SignedEntry};
+use crate::entry::SignedEntry;
 use crate::grants::{AcceptedMeta, GrantState};
 use crate::ids::{DatabaseId, EntryHash, Hex32, NodeKey, StreamId};
 use crate::kinds::EntryKind;
@@ -318,15 +318,6 @@ fn check_auth(
         },
         _ => None,
     }
-}
-
-fn check_lease(body: &LeaseBody) -> Option<RejectReason> {
-    if body.closes_at_ms <= body.expires_at_ms {
-        return Some(RejectReason::Malformed(
-            "lease closes_at_ms must be later than expires_at_ms",
-        ));
-    }
-    None
 }
 
 fn check_birth(entry: &SignedEntry, ctx: &AcceptContext<'_>) -> Option<RejectReason> {
