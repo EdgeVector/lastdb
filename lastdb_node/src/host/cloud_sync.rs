@@ -63,6 +63,28 @@ pub(crate) struct SnapshotStatus {
     pub(crate) message: Option<String>,
 }
 
+/// The totals that `cloud_sync.databases.<id>.usage` of `/api/status` shows.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct CloudUsage {
+    /// Signed entries this device sent and the relay accepted.
+    pub(crate) entries: u64,
+    /// The length of those entries as sent.
+    pub(crate) entry_bytes: u64,
+    /// Blobs this device uploaded and committed.
+    pub(crate) blobs: u64,
+    /// The length of those blobs.
+    pub(crate) blob_bytes: u64,
+    /// Entries the relay dropped for trims this device asked for.
+    pub(crate) released_entries: u64,
+    /// Stored bytes the relay released for trims this device asked for.
+    pub(crate) released_bytes: u64,
+    /// Blobs whose upload began and has not ended: cut off by a stop, and not put again yet. The
+    /// relay may hold them. They are not in `blobs`.
+    pub(crate) unconfirmed_blobs: u64,
+    /// The length of those blobs.
+    pub(crate) unconfirmed_blob_bytes: u64,
+}
+
 /// Separate local upload and download progress for one owned database.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
 pub(crate) struct DatabaseSyncStatus {
@@ -70,7 +92,7 @@ pub(crate) struct DatabaseSyncStatus {
     pub(crate) download: DownloadSyncStatus,
     /// What this device put on the relay and the relay accepted (see `log_sync::usage`). None
     /// until it put anything.
-    pub(crate) usage: Option<crate::log_sync::usage::CloudUsage>,
+    pub(crate) usage: Option<CloudUsage>,
 }
 
 /// Positions in this device's durable upload queue.

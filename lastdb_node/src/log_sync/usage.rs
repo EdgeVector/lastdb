@@ -33,7 +33,7 @@ use std::sync::Mutex;
 use mutation_log::SignedEntry;
 use serde::{Deserialize, Serialize};
 
-use crate::host::cloud_sync::CloudSyncStatus;
+use crate::host::cloud_sync::{CloudSyncStatus, CloudUsage};
 use crate::profile::private_fs as disk;
 
 const FILE: &str = "cloud-usage.json";
@@ -41,28 +41,6 @@ const LIMIT: usize = 4 * 1024 * 1024;
 
 /// One writer at a time: the lane and the sync turn both put things.
 static LOCK: Mutex<()> = Mutex::new(());
-
-/// The totals that `cloud_sync.databases.<id>.usage` of `/api/status` shows.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) struct CloudUsage {
-    /// Signed entries this device sent and the relay accepted.
-    pub(crate) entries: u64,
-    /// The length of those entries as sent.
-    pub(crate) entry_bytes: u64,
-    /// Blobs this device uploaded and committed.
-    pub(crate) blobs: u64,
-    /// The length of those blobs.
-    pub(crate) blob_bytes: u64,
-    /// Entries the relay dropped for trims this device asked for.
-    pub(crate) released_entries: u64,
-    /// Stored bytes the relay released for trims this device asked for.
-    pub(crate) released_bytes: u64,
-    /// Blobs whose upload began and has not ended: cut off by a stop, and not put again yet. The
-    /// relay may hold them. They are not in `blobs`.
-    pub(crate) unconfirmed_blobs: u64,
-    /// The length of those blobs.
-    pub(crate) unconfirmed_blob_bytes: u64,
-}
 
 #[derive(Default, Serialize, Deserialize)]
 struct Saved {
