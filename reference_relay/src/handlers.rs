@@ -27,6 +27,8 @@ pub(crate) struct AppState {
     pub(crate) public_base: String,
     pub(crate) secret: Vec<u8>,
     pub(crate) grants: Mutex<GrantIndex>,
+    /// The largest blob a `blob.put` begin may declare. `None` sets no limit.
+    pub(crate) max_blob_bytes: Option<u64>,
 }
 
 impl AppState {
@@ -190,6 +192,9 @@ pub(crate) async fn blob_put(
 }
 
 async fn blob_begin(state: &AppState, req: &BlobPutBody) -> ApiResult<Json<Value>> {
+    if state.max_blob_bytes.is_some_and(|limit| req.bytes > limit) {
+        return Err(ApiError::invalid("bytes"));
+    }
     let token = state.store.stage_begin(&req.sha256, req.bytes).await?;
     let (url, expires_at_ms) = presign::make_put_url(&state.public_base, &token, now_ms());
     Ok(Json(json!({

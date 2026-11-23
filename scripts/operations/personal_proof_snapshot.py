@@ -15,6 +15,7 @@ import time
 from personal_proof_nodes import (
     ALPHA, BETA, GAMMA, MEBIBYTE, MEMORY_BOUND_BYTES, MARK, converged, create, delete, expect, relay_files,
     relay_holds_none, replace, wait)
+from personal_proof_status import prove_installed, prove_taken
 from personal_proof_steps import gamma_replace, gamma_seen, gamma_view
 from record_runs import require
 import v1_records as v1
@@ -112,6 +113,7 @@ def snapshot_restore_equals_replay(relay, relay2, devices, phrase, state):
     wait("A to upload", a.synced_up)
     first = a.snapshot_now()
     require(first["uploaded_files"] == first["files"] and first["files"] >= 5, f"first snapshot: {first!r}")
+    published = prove_taken(a, first, newest_snapshot_entry(relay, a.database), relay, "published")
     write_after(a, state, expected)
     require(gamma_view(a, folders[a.name]) == expected, "A does not read what it wrote after the snapshot")
     wait("A to upload the writes after the snapshot", a.synced_up)
@@ -133,6 +135,7 @@ def snapshot_restore_equals_replay(relay, relay2, devices, phrase, state):
     require(replayed["snapshot"] is None and replayed["replayed"] == total, f"E restore: {replayed!r}")
     f.start()
     e.start()
+    prove_installed(f, published)
     wait("F, E and A to read the same", lambda: views((a, b, e, f), state, folders, expected))
     for schema in (ALPHA, BETA):
         require(e.records(schema) == f.records(schema) == a.records(schema), f"{schema} differs")
@@ -177,6 +180,7 @@ def second_snapshot(relay, a, b, f, h, phrase, state, folders, expected):
     mark = len(relay.lines())
     second = a.snapshot_now()
     uploaded = uploads_since(relay, mark)
+    prove_taken(a, second, newest_snapshot_entry(relay, a.database), relay, "published")
     require(second["snapshot_seq"] == 2 and 0 < second["uploaded_files"] < second["files"], f"second snapshot: {second!r}")
     require(uploaded == second["uploaded_files"] + 1, f"the relay took {uploaded} uploads, expected files + manifest")
     mark = len(relay.lines())
