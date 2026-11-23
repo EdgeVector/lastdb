@@ -6,6 +6,7 @@ mod stream;
 pub use records::ReplayAttachmentSlots;
 
 use super::{AuthoredMutation, MutationManager};
+use crate::platform::clock;
 use crate::schema::types::{KeyValue, Mutation, MutationType};
 use crate::schema::SchemaError;
 use crate::storage::disk_pack::transaction;
@@ -13,6 +14,8 @@ use crate::storage::format::metadata::{ReplayStamp, ReplayTarget, FILE_SLOT, INL
 use crate::storage::format::records::RecordAddress;
 use lastdb_model::record_value::StoredRecord;
 use std::sync::Arc;
+
+const NANOS_PER_MILLI: u64 = 1_000_000;
 
 impl MutationManager {
     /// Raise the durable author clock past a verified cloud ordering time.
@@ -32,6 +35,74 @@ impl MutationManager {
             metadata.stage_author_clock(&self.writer_id, &state).await?;
         }
         Ok(())
+    }
+
+    /// Give each mutation its author time. A captured write takes a
+    /// millisecond of its own, because that millisecond is its order value in
+    /// the signed log and the order values of one device rise with every entry.
+    pub(super) async fn prepare_mutation_author_clocks(
+        &self,
+        mutations: &mut [Mutation],
+        captured: bool,
+    ) -> Result<u64, SchemaError> {
+        let exhausted = || SchemaError::InvalidData("mutation author-clock range exhausted".into());
+        let mut state = self
+            .db_ops
+            .metadata()
+            .author_clock(&self.writer_id)
+            .await?
+            .unwrap_or_default();
+        let counter = if captured {
+            let (first, counter) = state
+                .advance_local_batch_spaced(clock::unix_nanos(), mutations.len())
+                .ok_or_else(exhausted)?;
+            for (m, step) in mutations.iter_mut().zip(0u64..) {
+                m.imported_written_at = Some(first + step * NANOS_PER_MILLI);
+            }
+            counter
+        } else {
+            let (mut times, counter) = state
+                .advance_local_batch(clock::unix_nanos(), mutations.len())
+                .ok_or_else(exhausted)?;
+            for m in mutations {
+                m.imported_written_at = Some(times.next().expect("reserved time"));
+            }
+            counter
+        };
+        self.db_ops
+            .metadata()
+            .stage_author_clock(&self.writer_id, &state)
+            .await?;
+        Ok(counter)
+    }
+
+    /// The stamp each write has in the signed log, in commit order. The spool
+    /// takes one entry for each mutation in the same order, so the sequence
+    /// numbers here are the ones the sender signs.
+    pub(super) async fn local_replay_stamps(
+        &self,
+        mutations: &[Mutation],
+        captured: bool,
+    ) -> Result<Vec<Option<ReplayStamp>>, SchemaError> {
+        if !captured {
+            return Ok(vec![None; mutations.len()]);
+        }
+        let orders = mutations
+            .iter()
+            .map(|m| {
+                m.imported_written_at
+                    .map(|nanos| nanos / NANOS_PER_MILLI)
+                    .ok_or_else(|| {
+                        SchemaError::InvalidData("a captured write has no author time".into())
+                    })
+            })
+            .collect::<Result<Vec<u64>, _>>()?;
+        let stamps = self
+            .db_ops
+            .metadata()
+            .stage_local_replay_stamps(&self.writer_id, &orders)
+            .await?;
+        Ok(stamps.into_iter().map(Some).collect())
     }
 
     /// Write the stamp rows of each captured write of a commit, in the

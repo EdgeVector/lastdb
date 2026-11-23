@@ -137,7 +137,7 @@ impl Host {
         let capture_accepted = signed_restore || has_spool || syncs;
         // Each captured write is stamped, when it commits, with the device that will sign it.
         let capture_device = if capture_accepted {
-            Some(crate::log_sync::device_hex(home)?)
+            Some(crate::device_identity::device_id(home)?.to_hex())
         } else {
             None
         };
