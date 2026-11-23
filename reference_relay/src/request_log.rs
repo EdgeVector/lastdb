@@ -17,13 +17,10 @@ pub(crate) async fn log_request(request: Request, next: Next) -> Response {
     let started = std::time::Instant::now();
     let response = next.run(request).await;
     let status = response.status().as_u16();
-    // An upload says how long it took (`ms=`), so a proof can tell one long upload from many short ones.
-    if route == "blob/upload" {
-        eprintln!(
-            "relay route={route} status={status} ms={}",
-            started.elapsed().as_millis()
-        );
-        return response;
+    // An upload says how long it took on a line of its own (`relay upload_ms=N`), so a proof can tell
+    // one long upload from many short ones. The ordinary line keeps its form.
+    if route == "blob/upload" && status == 200 {
+        eprintln!("relay upload_ms={}", started.elapsed().as_millis());
     }
     match response.extensions().get::<EntriesReturned>() {
         Some(EntriesReturned(n)) => eprintln!("relay route={route} status={status} entries={n}"),

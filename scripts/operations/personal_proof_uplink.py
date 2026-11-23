@@ -79,8 +79,7 @@ def prove_uplink(args):
                 f"the stalled snapshot did not fail with the stall message: {stall_code} {stall_error[-800:]!r}")
         require("?" not in stall_error and "X-Amz" not in stall_error, f"the error holds a URL query: {stall_error!r}")
         # One upload, not several short ones, took longer than the old allowance.
-        uploads = [int(line.split("ms=")[1]) for line in slow_relay.lines()
-                   if "route=blob/upload status=200" in line and "ms=" in line]
+        uploads = [int(line.split("upload_ms=")[1]) for line in slow_relay.lines() if "upload_ms=" in line]
         require(uploads and max(uploads) > (OLD_ALLOWANCE_SECONDS + 2) * 1000,
                 f"no single upload took over {OLD_ALLOWANCE_SECONDS + 2} s; uploads took {uploads!r} ms")
         require(STALL_SECONDS <= stall_seconds < STALL_BOUND_SECONDS, f"the stalled snapshot took {stall_seconds:.0f} s")
