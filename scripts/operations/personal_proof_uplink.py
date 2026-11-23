@@ -7,7 +7,7 @@ fails only when the transport takes no byte of the body (or no answer follows th
     slow:     the relay reads an upload body at SLOW_BYTES_PER_SECOND. The snapshot file takes longer than
               the old allowance, makes progress all the time, and the snapshot completes.
     stalled:  the relay stops reading an upload body. The snapshot request fails after 30 s, and its
-              message says "stalled for 30 s with <n> of <size> bytes sent".
+              message says how long it waited and "<n> of <size> bytes sent".
 
 Both run at the same time, so the step costs about one minute. Not proven here: a stall in the middle
 of a long upload on a real network, and a download that stalls (the download uses the same 30 s
@@ -15,6 +15,7 @@ read timeout of the HTTP client, which the proof does not exercise).
 """
 from concurrent.futures import ThreadPoolExecutor
 import os
+import re
 from pathlib import Path
 import subprocess
 import time
@@ -68,7 +69,9 @@ def prove_uplink(args):
         require(slow_code == 0, f"the slow snapshot failed after {slow_seconds:.0f} s: {slow_error[-800:]!r}")
         require(slow_seconds > OLD_ALLOWANCE_SECONDS,
                 f"the slow snapshot took {slow_seconds:.0f} s, which the old allowance of {OLD_ALLOWANCE_SECONDS} s would have allowed")
-        require(stall_code != 0 and f"stalled for {STALL_SECONDS} s with " in stall_error and " bytes sent" in stall_error,
+        # Either the HTTP client's 30 s read timeout (nothing answers after the last byte) or the upload's own
+        # watch (the transport takes no byte) ends it first. Both say the time and the bytes sent.
+        require(stall_code != 0 and re.search(rf"(stalled for|after) {STALL_SECONDS} s with \d+ of \d+ bytes sent", stall_error),
                 f"the stalled snapshot did not fail with the stall message: {stall_code} {stall_error[-800:]!r}")
         require(STALL_SECONDS <= stall_seconds < STALL_BOUND_SECONDS, f"the stalled snapshot took {stall_seconds:.0f} s")
         print(f"18. an upload at {SLOW_BYTES_PER_SECOND // 1024} KiB/s took {slow_seconds:.0f} s (old allowance "

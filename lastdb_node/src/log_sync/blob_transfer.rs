@@ -51,9 +51,6 @@ fn describe(error: &reqwest::Error) -> String {
         text.push_str(&next.to_string());
         cause = next.source();
     }
-    if error.is_timeout() {
-        text.push_str(" (timed out)");
-    }
     text
 }
 
