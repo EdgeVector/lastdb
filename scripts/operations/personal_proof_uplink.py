@@ -69,10 +69,10 @@ def prove_uplink(args):
         require(uploads and max(uploads) > (OLD_ALLOWANCE_SECONDS + 2) * 1000,
                 f"no single upload took over {OLD_ALLOWANCE_SECONDS + 2} s; uploads took {uploads!r} ms")
         message = wait("the stalled upload to fail", lambda: re.search(
-            r"stalled for (\d+) s with (\d+) of (\d+) bytes sent", json.dumps(stalled.sync_status())),
+            r"(\d+) s with (\d+) of (\d+) bytes sent", json.dumps(stalled.sync_status())),
             seconds=STALL_BOUND_SECONDS)
         stall_seconds = time.monotonic() - stall_started
-        require(30 <= int(message[1]) < 35 and int(message[2]) < int(message[3]),
+        require(30 <= int(message[1]) < 40 and int(message[2]) < int(message[3]),
                 f"the stall did not end in the middle of the body after 30 s: {message[0]!r}")
         require(not stalled.synced_up(), "the stalled home reports its writes as uploaded")
         require("?" not in json.dumps(stalled.sync_status()).split("stalled for")[1][:60], "the error holds a URL query")

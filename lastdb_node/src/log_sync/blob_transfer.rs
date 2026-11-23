@@ -61,9 +61,10 @@ fn describe(error: reqwest::Error, url: &str) -> String {
 fn place(url: &str) -> String {
     match reqwest::Url::parse(url) {
         Ok(url) => format!(
-            "{}://{}{}",
+            "{}://{}{}{}",
             url.scheme(),
             url.host_str().unwrap_or("?"),
+            url.port().map_or(String::new(), |port| format!(":{port}")),
             url.path()
         ),
         Err(_) => "an unreadable URL".to_owned(),
