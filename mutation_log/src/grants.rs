@@ -49,11 +49,11 @@ impl GrantState {
     pub fn apply_grant(&mut self, position: RecordPosition, body: &GrantBody) {
         let _ = position; // ordering is the caller's responsibility
         match body.grantee {
-            Grantee::Any => {
-                if body.role == Role::Read {
-                    self.any = Some(Role::Read);
-                }
-            }
+            Grantee::Any => match body.role {
+                Role::Read => self.any = Some(Role::Read),
+                Role::Revoked => self.any = None,
+                Role::Submit | Role::Write => {}
+            },
             Grantee::Member(key) => {
                 let prev = self.members.get(&key).copied();
                 let next = pick_role(prev, body.role);
@@ -66,8 +66,8 @@ impl GrantState {
 
     /// Rebuild grant state from every accepted publisher grant body.
     ///
-    /// Sorts by `(lamport, node_key, device_id)` then revoke-wins tie rank,
-    /// then applies in that order. Call after each accepted publisher grant.
+    /// Sorts by `lamport`, revoke-wins tie rank, then `(node_key, device_id)`,
+    /// and applies in that order. Call after each accepted publisher grant.
     #[must_use]
     pub fn rebuild_from<'a>(
         grants: impl IntoIterator<Item = (RecordPosition, &'a GrantBody)>,
@@ -101,12 +101,10 @@ impl GrantState {
 
 fn sort_grants(grants: &mut [(RecordPosition, &GrantBody)]) {
     grants.sort_by(|a, b| {
-        let primary = (a.0.lamport, a.0.node_key, a.0.device_id).cmp(&(
-            b.0.lamport,
-            b.0.node_key,
-            b.0.device_id,
-        ));
-        primary.then_with(|| grant_tie_rank(a.1.role).cmp(&grant_tie_rank(b.1.role)))
+        a.0.lamport
+            .cmp(&b.0.lamport)
+            .then_with(|| grant_tie_rank(a.1.role).cmp(&grant_tie_rank(b.1.role)))
+            .then_with(|| (a.0.node_key, a.0.device_id).cmp(&(b.0.node_key, b.0.device_id)))
     });
 }
 

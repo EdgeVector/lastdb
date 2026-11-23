@@ -38,6 +38,8 @@ struct StreamHead {
     hash: String,
     /// The last seq a trim dropped. Seq 1 up to it are not stored. 0 when none was.
     floor: u64,
+    /// Entry hash of `floor`, when `floor > 0`.
+    floor_hash: Option<String>,
     /// Stored entries beyond `seq + 1`, keyed by seq, holding their hash.
     pending: BTreeMap<u64, String>,
 }
@@ -57,10 +59,11 @@ impl StreamHead {
             return;
         }
         self.floor = seq;
-        if self.seq < seq {
+        self.floor_hash = Some(hash.clone());
+        self.pending.retain(|stored, _| *stored > seq);
+        if self.seq <= seq {
             self.seq = seq;
             self.hash = hash;
-            self.pending.retain(|stored, _| *stored > seq);
         }
         self.join_pending();
     }
@@ -135,11 +138,21 @@ impl Heads {
 
     /// The last seq a trim dropped on a stream. 0 when none was.
     pub(crate) fn floor(&self, database_id: &str, writer_key: &str, device_id: &str) -> u64 {
+        self.floor_info(database_id, writer_key, device_id).0
+    }
+
+    /// The `(floor_seq, floor_hash)` of a stream. `(0, None)` when never trimmed.
+    pub(crate) fn floor_info(
+        &self,
+        database_id: &str,
+        writer_key: &str,
+        device_id: &str,
+    ) -> (u64, Option<String>) {
         let streams = self.streams.lock().expect("heads lock");
         streams
             .get(&(database_id.to_owned(), writer_key.to_owned()))
             .and_then(|devices| devices.get(device_id))
-            .map_or(0, |head| head.floor)
+            .map_or((0, None), |head| (head.floor, head.floor_hash.clone()))
     }
 
     /// The contiguous head seq of a stream. `None` while seq 1 is not stored.
@@ -175,33 +188,41 @@ impl Heads {
     }
 
     /// Build the map from every entry file under `<root>/logs`.
-    pub(crate) async fn scan(logs: &Path) -> Self {
+    pub(crate) async fn scan(logs: &Path) -> ApiResult<Self> {
         let heads = Self::default();
         for db_dir in subdirs(logs).await {
             for writer_dir in subdirs(&db_dir).await {
                 for device_dir in subdirs(&writer_dir).await {
-                    heads.scan_device(&db_dir, &writer_dir, &device_dir).await;
+                    heads.scan_device(&db_dir, &writer_dir, &device_dir).await?;
                 }
             }
         }
-        heads
+        Ok(heads)
     }
 
-    async fn scan_device(&self, db_dir: &Path, writer_dir: &Path, device_dir: &Path) {
+    async fn scan_device(
+        &self,
+        db_dir: &Path,
+        writer_dir: &Path,
+        device_dir: &Path,
+    ) -> ApiResult<()> {
         let (Some(db), Some(writer), Some(device)) =
             (name(db_dir), name(writer_dir), name(device_dir))
         else {
-            return;
+            return Ok(());
         };
+        if !crate::store::is_hex64(&db)
+            || !crate::store::is_hex64(&writer)
+            || !crate::store::is_hex64(&device)
+        {
+            return Ok(());
+        }
         let Ok(mut files) = fs::read_dir(device_dir).await else {
-            return;
+            return Ok(());
         };
         // The floor first: entries above it then join the head from there.
-        if let Ok(bytes) = fs::read(device_dir.join(FLOOR_FILE)).await {
-            if let Ok(floor) = serde_json::from_slice::<FloorFile>(&bytes) {
-                self.set_floor(&db, &writer, &device, floor.seq, floor.hash);
-            }
-        }
+        self.load_floor(&db, &writer, &device, &device_dir.join(FLOOR_FILE))
+            .await?;
         while let Ok(Some(file)) = files.next_entry().await {
             let path = file.path();
             let seq = path
@@ -218,6 +239,38 @@ impl Heads {
             };
             if let Ok(hash) = entry_hash(&entry) {
                 self.record(&db, &writer, &device, seq, hash.to_hex());
+            }
+        }
+        Ok(())
+    }
+
+    async fn load_floor(
+        &self,
+        db: &str,
+        writer: &str,
+        device: &str,
+        floor_path: &Path,
+    ) -> ApiResult<()> {
+        match fs::read(floor_path).await {
+            Ok(bytes) => {
+                let floor = serde_json::from_slice::<FloorFile>(&bytes).map_err(|err| {
+                    eprintln!("reference_relay: invalid {}: {err}", floor_path.display());
+                    ApiError::invalid("floor")
+                })?;
+                if floor.seq == 0 || !crate::store::is_hex64(&floor.hash) {
+                    eprintln!("reference_relay: malformed {}", floor_path.display());
+                    return Err(ApiError::invalid("floor"));
+                }
+                self.set_floor(db, writer, device, floor.seq, floor.hash);
+                Ok(())
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(err) => {
+                eprintln!(
+                    "reference_relay: unreadable {}: {err}",
+                    floor_path.display()
+                );
+                Err(ApiError::invalid("floor"))
             }
         }
     }

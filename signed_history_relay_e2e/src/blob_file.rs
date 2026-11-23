@@ -50,24 +50,13 @@ impl RelayClient {
             .find(|(name, _)| is_checksum(name))
             .map(|(_, value)| value.clone())
             .ok_or("blob.put begin returned no x-amz-checksum-sha256 header")?;
-        let send = |headers: Vec<(String, String)>, data: Vec<u8>| {
-            let mut req = self.http.put(&url).body(data);
-            for (name, value) in headers {
-                req = req.header(name, value);
-            }
-            async move {
-                req.send()
-                    .await
-                    .map(|resp| resp.status())
-                    .map_err(|e| format!("blob upload: {e}"))
-            }
-        };
         let mut other_bytes = body.to_vec();
         other_bytes[0] ^= 0xff;
+        let flipped = flip_first_base64_char(&checksum)?;
         let mut other_checksum = headers.clone();
         for (name, value) in &mut other_checksum {
             if is_checksum(name) {
-                *value = format!("{}A", &checksum[..checksum.len() - 1]);
+                *value = flipped.clone();
             }
         }
         let without: Vec<_> = headers
@@ -77,9 +66,19 @@ impl RelayClient {
             .collect();
         let mut refused = 0;
         for (label, wrong) in [
-            ("header left out", send(without, body.to_vec()).await?),
-            ("other bytes", send(headers.clone(), other_bytes).await?),
-            ("other checksum", send(other_checksum, body.to_vec()).await?),
+            (
+                "header left out",
+                self.send_put_once(&url, &without, body.to_vec()).await?,
+            ),
+            (
+                "other bytes",
+                self.send_put_once(&url, &headers, other_bytes).await?,
+            ),
+            (
+                "other checksum",
+                self.send_put_once(&url, &other_checksum, body.to_vec())
+                    .await?,
+            ),
         ] {
             if !wrong.is_client_error() {
                 return Err(format!(
@@ -88,13 +87,29 @@ impl RelayClient {
             }
             refused += 1;
         }
-        let right = send(headers, body.to_vec()).await?;
+        let right = self.send_put_once(&url, &headers, body.to_vec()).await?;
         if !right.is_success() {
             return Err(format!("upload with the returned headers: HTTP {right}"));
         }
         self.post("/relay/v1/blob/put", &stage_body("commit"))
             .await?;
         Ok(refused)
+    }
+
+    async fn send_put_once(
+        &self,
+        url: &str,
+        headers: &[(String, String)],
+        data: Vec<u8>,
+    ) -> Result<reqwest::StatusCode, String> {
+        let mut req = self.http.put(url).body(data);
+        for (name, value) in headers {
+            req = req.header(name.as_str(), value.as_str());
+        }
+        req.send()
+            .await
+            .map(|resp| resp.status())
+            .map_err(|e| format!("blob upload: {e}"))
     }
 
     /// `blob.put` begin, the presigned upload streamed from `source`, commit.
@@ -118,6 +133,9 @@ impl RelayClient {
         let begin = self
             .post("/relay/v1/blob/put", &stage_body("begin"))
             .await?;
+        if begin["upload"].is_null() && begin["sha256"].as_str() == Some(sha256) {
+            return Ok(());
+        }
         let url = begin["upload"]["url"]
             .as_str()
             .ok_or("blob.put begin has no upload.url")?;
@@ -186,6 +204,15 @@ impl RelayClient {
         file.flush().await.map_err(|e| format!("blob file: {e}"))?;
         Ok(hex_lower(&hasher.finalize()))
     }
+}
+
+fn flip_first_base64_char(checksum: &str) -> Result<String, String> {
+    let mut chars = checksum.chars();
+    let first = chars
+        .next()
+        .ok_or_else(|| "empty x-amz-checksum-sha256 header".to_owned())?;
+    let replacement = if first == 'A' { 'B' } else { 'A' };
+    Ok(format!("{replacement}{}", chars.as_str()))
 }
 
 fn file_body(file: fs::File) -> reqwest::Body {
