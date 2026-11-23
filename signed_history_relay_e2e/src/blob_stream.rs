@@ -25,6 +25,8 @@ pub struct BlobStreamReport {
     pub sha256: String,
     pub put_seconds: f64,
     pub get_seconds: f64,
+    /// Wrong uploads of a small blob that the store or relay refused (see `prove_upload_verified`).
+    pub refused_uploads: u32,
 }
 
 pub async fn prove(
@@ -52,6 +54,10 @@ pub async fn prove(
         .await
         .map_err(|e| format!("generate worker: {e}"))??;
 
+    let mut small = vec![0u8; 4096];
+    rand::thread_rng().fill_bytes(&mut small);
+    let refused_uploads = client.prove_upload_verified(&small).await?;
+
     let started = Instant::now();
     client.blob_put_file(&sha256, &source).await?;
     let put_seconds = started.elapsed().as_secs_f64();
@@ -77,6 +83,7 @@ pub async fn prove(
         sha256,
         put_seconds,
         get_seconds,
+        refused_uploads,
     })
 }
 

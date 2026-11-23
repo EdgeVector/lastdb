@@ -174,15 +174,25 @@ impl RelayClient {
         Ok(())
     }
 
-    pub async fn blob_upload(&self, url: &str, bytes: &[u8]) -> Result<(), String> {
-        let resp = self
-            .http
-            .put(url)
-            .header("content-type", "application/octet-stream")
-            .body(bytes.to_vec())
-            .send()
-            .await
-            .map_err(|e| format!("blob upload: {e}"))?;
+    /// PUT `bytes` to the presigned `url` with the headers `blob.put` begin returned (`headers` is
+    /// `begin["upload"]["headers"]`): the object store checks the signed ones, among them
+    /// `x-amz-checksum-sha256`. The client sets the content length itself, so a returned
+    /// `content-length` is skipped.
+    pub async fn blob_upload(
+        &self,
+        url: &str,
+        headers: &Value,
+        bytes: &[u8],
+    ) -> Result<(), String> {
+        let mut req = self.http.put(url).body(bytes.to_vec());
+        for (name, value) in headers.as_object().into_iter().flatten() {
+            if let Some(value) = value.as_str() {
+                if !name.eq_ignore_ascii_case("content-length") {
+                    req = req.header(name.as_str(), value);
+                }
+            }
+        }
+        let resp = req.send().await.map_err(|e| format!("blob upload: {e}"))?;
         if !resp.status().is_success() {
             let status = resp.status();
             let text = resp.text().await.unwrap_or_default();

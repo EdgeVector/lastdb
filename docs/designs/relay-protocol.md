@@ -232,9 +232,22 @@ reference relay does the same on its side (it hashes the upload as it writes
 the staging file, and `blob.put` commit is a rename). Timeouts for such
 transfers must scale with the size, not use the 30-second request timeout.
 
+**Who verifies the upload.** The relay does not read a large upload to check it. The
+`blob.put` begin answer names the presigned PUT in `upload` with `headers` that include
+`x-amz-checksum-sha256`, the base64 (standard alphabet, padded) of the 32 bytes of the blob's
+SHA-256. The client sends exactly the headers returned, except that it sets `content-length`
+itself (a returned `content-length` equals the `bytes` it declared and must not be sent twice).
+The object store, or the reference relay, refuses a body of another length or digest with HTTP
+400 and refuses a request that leaves the header out. The commit step confirms the length and
+the recorded checksum and reads no object bytes. The signed log entry still names the blob by
+its SHA-256 only, never by a URL, and a blob the relay already holds answers begin with HTTP 200
+and no `upload`. Exemem's store is Backblaze B2, which enforces the signed header on a presigned
+single PUT and returns it on HeadObject (probed on the DEV bucket, 2026-11-23).
+
 **A relay's limit on one blob.** A relay may refuse a blob that is larger than it accepts. It
 answers the `blob.put` begin (before any upload) with HTTP 400, code `invalid_request`, field
-`bytes`. The Exemem relay does this for a blob over 64 MiB. A relay that sets a limit does not
+`bytes`. The Exemem relay does this for a blob over 5 000 000 000 bytes (one presigned single PUT;
+a larger object would need multipart, which the protocol does not define). A relay that sets a limit does not
 have to name it. The reference relay has no limit by default; `reference_relay --max-blob-bytes N`
 sets one and gives the same answer, so a client can be proved against it. A client that meets
 this answer for a file with a length above zero must not retry in a tight loop, and must say

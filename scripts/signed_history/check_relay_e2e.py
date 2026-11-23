@@ -51,6 +51,10 @@ def problems(report: dict, expect_streams: bool, blob_file_bytes: int | None) ->
             found.append(f"blob_file_stream is {blob!r}, expected {blob_file_bytes} bytes")
         elif not isinstance(blob.get("sha256"), str) or len(blob["sha256"]) != 64:
             found.append("blob_file_stream has no sha256")
+        elif blob.get("refused_uploads") != 3:
+            found.append(
+                f"blob_file_stream refused_uploads is {blob.get('refused_uploads')!r}, expected 3"
+            )
     if report.get("ok") is not True:
         found.append(f"ok is {report.get('ok')!r}: {report.get('error')}")
     if report.get("grant_revoke_ok") is not True:

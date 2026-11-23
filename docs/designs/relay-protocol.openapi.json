@@ -679,7 +679,7 @@
             "nodeSignature": []
           }
         ],
-        "description": "Requires nodeSignature. Accepted for the publisher or a current write grant. Revoke cuts off new puts immediately (403). Spam/cost gate only \u2014 not AcceptEntry."
+        "description": "Requires nodeSignature. Accepted for the publisher or a current write grant. Revoke cuts off new puts immediately (403). Spam/cost gate only \u2014 not AcceptEntry. Begin returns the presigned upload described by `Upload`; the relay never reads the uploaded bytes at commit, it confirms their length and `x-amz-checksum-sha256` recorded by the object store. A digest the relay already holds answers begin with HTTP 200 and no `upload`."
       }
     },
     "/relay/v1/blob/get": {
@@ -1068,7 +1068,8 @@
             "type": "integer",
             "minimum": 0
           }
-        }
+        },
+        "description": "A presigned single PUT. The client sends the file bytes with every header pair in `headers` except a `content-length` (the client sets its own, equal to the `bytes` of the begin request). `headers` carries `x-amz-checksum-sha256`, the base64 of the 32 bytes of the blob's SHA-256; the store or relay refuses a body of another length or digest (HTTP 400) and a request without that header. `content-type` may also appear. A client must not add other headers the relay did not return."
       },
       "PresignedGet": {
         "type": "object",
