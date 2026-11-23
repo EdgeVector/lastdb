@@ -207,6 +207,9 @@ pub(super) fn status(
         {
             println!("{line}");
         }
+        for line in cloud_sync.iter().flat_map(super::usage_line::usage_lines) {
+            println!("{line}");
+        }
         if std::fs::read(home.join("data").join(NODE_MARKER))
             .ok()
             .as_deref()

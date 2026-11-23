@@ -24,6 +24,8 @@ mod share_cmds;
 mod snapshot_line;
 #[path = "lastdb/uds_client.rs"]
 mod uds_client;
+#[path = "lastdb/usage_line.rs"]
+mod usage_line;
 #[path = "lastdb/v1_records.rs"]
 mod v1_records;
 

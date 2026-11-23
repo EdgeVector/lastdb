@@ -15,6 +15,12 @@ test = false
 name = "reference_relay"
 path = "src/main.rs"
 
+[[bin]]
+bench = false
+test = false
+name = "entry_audit"
+path = "src/bin/entry_audit.rs"
+
 [dependencies]
 app_identity_crypto = { workspace = true }
 axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio", "query"] }

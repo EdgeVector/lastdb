@@ -1538,7 +1538,7 @@
           "released_bytes": {
             "type": "integer",
             "minimum": 0,
-            "description": "Stored bytes subtracted from the publisher's quota counter by this call (Exemem). The reference relay has no quota and omits it."
+            "description": "Length of the entries this call dropped, as the relay stored them. Exemem subtracts it from the publisher's quota counter. The node adds it to its account of what trims released (`cloud-usage.json`)."
           }
         }
       },

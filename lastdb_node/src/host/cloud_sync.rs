@@ -63,11 +63,43 @@ pub(crate) struct SnapshotStatus {
     pub(crate) message: Option<String>,
 }
 
+/// The totals that `cloud_sync.databases.<id>.usage` of `/api/status` shows.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct CloudUsage {
+    /// Signed entries this device sent and the relay accepted.
+    pub(crate) entries: u64,
+    /// The length of those entries as sent.
+    pub(crate) entry_bytes: u64,
+    /// Blobs this device uploaded and committed.
+    pub(crate) blobs: u64,
+    /// The length of those blobs.
+    pub(crate) blob_bytes: u64,
+    /// Entries the relay dropped for trims this device asked for.
+    pub(crate) released_entries: u64,
+    /// Stored bytes the relay released for trims this device asked for.
+    pub(crate) released_bytes: u64,
+    /// Blobs whose upload began and has not ended: cut off by a stop, and not put again yet. The
+    /// relay may hold them. They are not in `blobs`.
+    pub(crate) unconfirmed_blobs: u64,
+    /// The length of those blobs.
+    pub(crate) unconfirmed_blob_bytes: u64,
+    /// Unix milliseconds at which the account began. Nothing this device put before is in it.
+    pub(crate) since_ms: u64,
+    /// True when the account began before this device's first entry on the relay: the first entry
+    /// it counted was entry 1 of its stream. False for a home that uploaded before the account
+    /// began (an earlier build, or a copy of such a home): its earlier entries and blobs are not
+    /// counted, and the totals are not what it has on the relay.
+    pub(crate) complete: bool,
+}
+
 /// Separate local upload and download progress for one owned database.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
 pub(crate) struct DatabaseSyncStatus {
     pub(crate) upload: UploadSyncStatus,
     pub(crate) download: DownloadSyncStatus,
+    /// What this device put on the relay and the relay accepted (see `log_sync::usage`). None
+    /// until it put anything.
+    pub(crate) usage: Option<CloudUsage>,
 }
 
 /// Positions in this device's durable upload queue.
