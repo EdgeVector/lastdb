@@ -112,13 +112,11 @@ relay are the ones named by content (the SHA-256 of the stored bytes).
 
 | Key | Value | Purpose |
 |---|---|---|
-| `signed-replay-winner:record:<hash>` | `ordering_ms`, `writer_key`, `writer_device`, `writer_seq` | The stamp of the write that wins for a record now. An incoming entry replaces the record only if its stamp is higher. |
-| `signed-replay-file-winner:record:<hash>`, `-inline-winner:record:<hash>` | `ordering_ms`, `writer_key`, `writer_device`, `writer_seq` | The stamp of the write that wins for a record's external or inline attachment slot. |
-| `signed-replay-winner:schema:<hash>` | `ordering_ms`, `writer_key`, `writer_device`, `writer_seq` | The stamp of the latest applied schema put or drop. |
+| `signed-replay-winner:record:<hash>` | `ordering_ms`, `writer_key`, `writer_device`, `writer_seq` | The stamp of the newest write of a record's fields. An incoming entry replaces the fields only if its stamp is higher. |
+| `signed-replay-file-winner:record:<hash>`, `-inline-winner:record:<hash>` | `ordering_ms`, `writer_key`, `writer_device`, `writer_seq` | The stamp of the newest write that set or cleared a record's file, or its inline file. A delete is a write of both. |
+| `signed-replay-winner:schema:<hash>` | `ordering_ms`, `writer_key`, `writer_device`, `writer_seq` | The stamp of the newest schema put or drop. |
+| `signed-replay-local:<device id>` | `seq` | The sequence number of the newest captured write of this device. It equals that write's number in the spool and in the device stream. |
 | `signed-replay-head:<node key>:<device id>` | `seq`, `hash`, `order`, `frozen` | The last entry of one device stream that this node applied, and for its own stream the last entry the relay acknowledged. |
-| `signed-replay-pending:`, `-pending-attachment:` | A local write whose entry is not signed yet. | A remote entry does not replace an edit the user just made. |
-| `signed-replay-baseline:` (and `-inline:`, `-file-ref:`, `-index:`) | The remote value held under a pending local write. | Becomes the record if the local write loses when it is signed. |
-| `signed-replay-deferred:` | A remote change that waits behind a pending write. | |
 | `signed-replay-receipt:` | The digest of an applied schema drop. | The store's paged removal needs it. |
 | `changes:<stream>:<seq>` | One changed key. The newest 250,000. | The local changes list for apps. It is not the cloud log. |
 | `portable-local-author` | The local author stream. | Numbers local writes. The changes list reuses its numbers. |
@@ -127,9 +125,18 @@ relay are the ones named by content (the SHA-256 of the stored bytes).
 The head row and the record are one store transaction. "Accepted" and
 "applied" are therefore one fact, and a restart replays nothing.
 
-A snapshot is refused while any `signed-replay-pending:` or
-`signed-replay-deferred:` row exists, and while the spool holds an entry the
-relay did not acknowledge.
+A write made on this device gets its stamp rows in the transaction that commits
+it: its order value is the millisecond of its author time (the clock gives each
+captured write a millisecond of its own), and its sequence number is its number
+in the spool. Nothing about a write changes in the store when it is sent. An
+entry of another device is compared with the stamp rows when it arrives, part
+by part: the fields, the file and the inline file each take the value of their
+newest write, so the result does not depend on the order of arrival. A write
+that names no file does not change the file. In a schema that requires a file,
+a record whose file is cleared this way is removed.
+
+A snapshot is refused while the spool holds an entry the relay did not
+acknowledge.
 
 ### Schemas (`schemas`, `schema_states`)
 

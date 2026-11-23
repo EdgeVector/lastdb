@@ -72,6 +72,12 @@ pub(crate) struct WriteTarget {
     pub(crate) personal: bool,
 }
 
+/// The id of the device stream this home signs, lowercase hex. The first call makes it.
+pub(crate) fn device_hex(home: &Path) -> Result<String, String> {
+    let device = device::device_id(home)?;
+    Ok(device.to_hex())
+}
+
 /// The owned database a write names by id or by name, or the personal database
 /// when it names none. `None` for a database this node does not own.
 pub(crate) fn write_target(

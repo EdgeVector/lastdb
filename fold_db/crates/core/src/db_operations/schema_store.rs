@@ -169,14 +169,17 @@ impl SchemaStore {
                     }
                 }
                 self.format.put_schema(input).await?;
-                let mutation_id = accepted::stage_schema_put(
+                let authored_at_ms = self.local_author_ms().await?;
+                let captured = accepted::stage_schema_put(
                     &self.runtime,
                     &self.content_key,
                     schema_name,
                     schema,
-                    self.local_author_ms().await?,
+                    authored_at_ms,
                 )?;
-                self.note_local_replay(schema_name, mutation_id).await?;
+                if captured {
+                    self.stamp_local_change(schema_name, authored_at_ms).await?;
+                }
                 Ok(())
             }),
         )
@@ -220,17 +223,25 @@ impl SchemaStore {
         self.metadata.stage_local_author_ms(&self.writer_id).await
     }
 
-    pub(super) async fn note_local_replay(
+    /// Write the stamp row of a captured schema put or drop in the transaction
+    /// that commits it. A put or drop of another device is compared with it
+    /// when it arrives.
+    pub(super) async fn stamp_local_change(
         &self,
         schema: &str,
-        mutation_id: Option<String>,
+        authored_at_ms: u64,
     ) -> Result<(), SchemaError> {
-        if let Some(id) = mutation_id.as_deref() {
-            self.metadata
-                .stage_local_replay_targets([(ReplayTarget::Schema(schema), id)])
-                .await?;
-        }
-        Ok(())
+        let stamps = self
+            .metadata
+            .stage_local_replay_stamps(&self.writer_id, &[authored_at_ms])
+            .await?;
+        self.metadata
+            .stage_replay_stamps(
+                stamps
+                    .iter()
+                    .map(|stamp| (ReplayTarget::Schema(schema), None, stamp)),
+            )
+            .await
     }
 }
 

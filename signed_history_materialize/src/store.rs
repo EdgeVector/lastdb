@@ -27,6 +27,7 @@ pub async fn open_store(
         FoldDbOptions {
             offline_maintenance: false,
             capture_accepted,
+            capture_device: None,
             record_log: None,
         },
     )

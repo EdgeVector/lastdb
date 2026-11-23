@@ -1,24 +1,17 @@
-//! Signed-log replay clock, local pending markers, and schema-level replay coordination.
+//! Signed-log replay clock, the stamps of local writes, and schema-level replay coordination.
 
-mod attachments;
-mod candidate;
 mod records;
-mod served;
-mod state;
 mod stream;
 
 pub use records::ReplayAttachmentSlots;
-pub use served::ServedLocal;
 
 use super::{AuthoredMutation, MutationManager};
 use crate::schema::types::{KeyValue, Mutation, MutationType};
-use crate::schema::{Schema, SchemaError, SchemaState};
-use crate::storage::disk_backup::accepted;
-use crate::storage::disk_pack::{transaction, PackRuntime};
-use crate::storage::format::metadata::{ReplayStamp, ReplayTarget};
+use crate::schema::SchemaError;
+use crate::storage::disk_pack::transaction;
+use crate::storage::format::metadata::{ReplayStamp, ReplayTarget, FILE_SLOT, INLINE_SLOT};
 use crate::storage::format::records::RecordAddress;
 use lastdb_model::record_value::StoredRecord;
-use std::collections::BTreeSet;
 use std::sync::Arc;
 
 impl MutationManager {
@@ -41,51 +34,38 @@ impl MutationManager {
         Ok(())
     }
 
-    pub(super) async fn stage_local_replay_records(
+    /// Write the stamp rows of each captured write of a commit, in the
+    /// transaction of the commit. The write is the newest of its record from
+    /// this moment: an entry of another device is compared with these rows
+    /// when it arrives, and nothing about the write changes when it is sent.
+    ///
+    /// A delete is the newest write of the fields, the file and the inline
+    /// file. Any other write is the newest of the fields, and of the file or
+    /// the inline file only when it sets or clears that part.
+    pub(super) async fn stamp_local_records(
         &self,
-        runtime: &PackRuntime,
-        schema: &str,
         addresses: &[RecordAddress],
         mutations: &[AuthoredMutation],
-        preimages: &[Option<Arc<StoredRecord>>],
-    ) -> Result<BTreeSet<String>, SchemaError> {
-        if !accepted::capture_enabled(runtime) {
-            return Ok(BTreeSet::new());
+    ) -> Result<(), SchemaError> {
+        let mut rows = Vec::new();
+        for (address, item) in addresses.iter().zip(mutations) {
+            let Some(stamp) = &item.replay else {
+                continue;
+            };
+            let target = ReplayTarget::Record(address.as_str());
+            let slots = slots_of(&item.mutation);
+            rows.push((target, None, stamp));
+            if slots.file {
+                rows.push((target, Some(FILE_SLOT), stamp));
+            }
+            if slots.inline {
+                rows.push((target, Some(INLINE_SLOT), stamp));
+            }
         }
-        let mut targets: Vec<_> = addresses
-            .iter()
-            .zip(mutations)
-            .map(|(address, item)| {
-                (
-                    ReplayTarget::Record(address.as_str()),
-                    item.mutation.uuid.as_str(),
-                )
-            })
-            .collect();
-        if let Some(item) = mutations.last() {
-            targets.push((
-                ReplayTarget::SchemaRecords(schema),
-                item.mutation.uuid.as_str(),
-            ));
+        if rows.is_empty() {
+            return Ok(());
         }
-        let metadata = self.db_ops.metadata();
-        let keep = self
-            .stage_replay_baselines(schema, addresses, preimages)
-            .await?;
-        metadata.stage_local_replay_targets(targets).await?;
-        metadata
-            .stage_pending_replay_attachments(
-                addresses
-                    .iter()
-                    .zip(mutations)
-                    .zip(preimages)
-                    .filter(|((_, item), before)| {
-                        affects_attachment(&item.mutation, before.as_deref())
-                    })
-                    .map(|((address, _), _)| address.as_str()),
-            )
-            .await?;
-        Ok(keep)
+        self.db_ops.metadata().stage_replay_stamps(rows).await
     }
 
     /// Stable address of one record in this store.
@@ -95,30 +75,6 @@ impl MutationManager {
         key: &KeyValue,
     ) -> Result<String, SchemaError> {
         self.replay_record_address(schema, key)
-    }
-
-    /// Latest local schema definition change awaiting cloud delivery.
-    pub async fn pending_replay_schema(&self, schema: &str) -> Result<Option<String>, SchemaError> {
-        self.db_ops
-            .metadata()
-            .pending_replay(ReplayTarget::Schema(schema))
-            .await
-    }
-
-    /// An identical schema put is a durable no-op, even while a local put is pending.
-    pub async fn pending_replay_schema_matches(
-        &self,
-        definition: &Schema,
-    ) -> Result<bool, SchemaError> {
-        self.db_ops.metadata().require_replay_scope()?;
-        let schemas = self.db_ops.schemas();
-        if schemas.get_schema_state(&definition.name).await? == Some(SchemaState::Blocked) {
-            return Ok(false);
-        }
-        Ok(schemas
-            .get_schema(&definition.name)
-            .await?
-            .is_some_and(|installed| installed.to_wire() == definition.to_wire()))
     }
 
     /// Greatest applied schema put or drop stamp in the current replay scope.
@@ -170,52 +126,10 @@ impl MutationManager {
         {
             return Ok(false);
         }
-        if schemas.pending_local_drop(schema).await? {
-            return Ok(true);
-        }
         Ok(metadata
             .replay_winner(ReplayTarget::Schema(schema))
             .await?
             .is_some_and(|winner| &winner > stamp))
-    }
-
-    /// Settle an authenticated own record that precedes a schema drop.
-    pub async fn clear_replay_record_after_schema_drop(
-        &self,
-        schema: &str,
-        mutation_id: &str,
-        stamp: &ReplayStamp,
-    ) -> Result<bool, SchemaError> {
-        if !self.replay_schema_dropped_after(schema, stamp).await? {
-            return Ok(false);
-        }
-        self.db_ops
-            .metadata()
-            .clear_pending_replay(ReplayTarget::SchemaRecords(schema), mutation_id)
-            .await?;
-        Ok(true)
-    }
-
-    /// Clear the matching local schema change during replay.
-    pub async fn clear_pending_replay_schema(
-        &self,
-        schema: &str,
-        mutation_id: &str,
-    ) -> Result<(), SchemaError> {
-        self.db_ops
-            .metadata()
-            .clear_pending_replay(ReplayTarget::Schema(schema), mutation_id)
-            .await
-    }
-
-    /// Whether two entry keys resolve to the same native record.
-    pub fn replay_record_key_matches(
-        &self,
-        schema: &str,
-        a: &KeyValue,
-        b: &KeyValue,
-    ) -> Result<bool, SchemaError> {
-        Ok(self.replay_record_address(schema, a)? == self.replay_record_address(schema, b)?)
     }
 
     pub(super) fn replay_record_address(
@@ -243,15 +157,14 @@ impl MutationManager {
     }
 }
 
-fn affects_attachment(mutation: &Mutation, before: Option<&StoredRecord>) -> bool {
-    mutation.file_write.is_some()
-        || mutation.inline_write.is_some()
-        || (matches!(
-            mutation.mutation_type,
-            MutationType::Delete | MutationType::Purge
-        ) && before.is_some_and(has_attachment))
-}
-
-pub(super) fn has_attachment(record: &StoredRecord) -> bool {
-    record.is_live() && (record.file.is_some() || record.inline_file.is_some())
+/// The parts of a record besides its fields that a write is the newest write of.
+pub(super) fn slots_of(mutation: &Mutation) -> ReplayAttachmentSlots {
+    let deletes = matches!(
+        mutation.mutation_type,
+        MutationType::Delete | MutationType::Purge
+    );
+    ReplayAttachmentSlots {
+        file: deletes || mutation.file_write.is_some(),
+        inline: deletes || mutation.inline_write.is_some(),
+    }
 }

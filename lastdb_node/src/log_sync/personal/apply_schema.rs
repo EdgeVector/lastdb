@@ -1,4 +1,8 @@
 //! Apply remote schema puts and drops with author-clock and winner tracking.
+//!
+//! A schema has one stamp row: the stamp of its newest put or drop. A put or
+//! drop made on this device writes that row when it commits, so an older put of
+//! another device changes nothing here, and a newer one replaces the local one.
 
 use fold_db::fold_db_core::mutation_manager::{ReplayStamp, ReplayStreamHead};
 use fold_db::schema::types::{Schema, SchemaError};
@@ -43,22 +47,13 @@ async fn put_schema(
     {
         return Ok(());
     }
-    if manager.pending_replay_schema(&name).await?.is_none() {
-        ctx.host
-            .db
-            .schema_manager()
-            .load_schema_internal(definition)
-            .await?;
-        manager.accept_replay_schema(&name, stamp).await?;
-        Ok(())
-    } else if manager.pending_replay_schema_matches(&definition).await? {
-        manager.accept_replay_schema(&name, stamp).await?;
-        Ok(())
-    } else {
-        Err(SchemaError::Blocked(
-            "a local schema change awaits upload".into(),
-        ))
-    }
+    ctx.host
+        .db
+        .schema_manager()
+        .load_schema_internal(definition)
+        .await?;
+    manager.accept_replay_schema(&name, stamp).await?;
+    Ok(())
 }
 
 /// A schema drop is a paged removal in several transactions, so the head row

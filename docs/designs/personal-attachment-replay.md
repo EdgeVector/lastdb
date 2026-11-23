@@ -1,5 +1,13 @@
 # Last writer wins for personal attachments
 
+> Changed on 23 November 2026. A local write now gets its stamp when it
+> commits, so no local write is pending and no confirmed state is kept behind
+> it. The fields, the file and the inline file of a record each take the value
+> of their newest write, and a write that names no file does not change the
+> file. [The home on disk](../home-format.md) describes it as built, and step 22
+> of the personal database proof (`personal_proof_merge.py`) proves it on real
+> nodes. The sections on a pending local write below describe the earlier rule.
+
 Private owner-device replay orders a whole record by its accepted replay
 stamp: author time capped by cloud acceptance time, then writer key, device,
 and writer sequence. The same order selects external and inline attachment

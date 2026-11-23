@@ -68,6 +68,9 @@ pub struct PackRuntime {
     pub(in crate::storage) physical: physical::V2Home,
     pub(in crate::storage) cleanup_job: Arc<CleanupJob>,
     pub(in crate::storage) accepted: Option<crate::storage::disk_backup::accepted::Log>,
+    /// The device id that the captured writes of this store are signed under,
+    /// lowercase hex. The host names it once, before the first captured write.
+    pub(in crate::storage) capture_device: std::sync::OnceLock<String>,
     pub(in crate::storage) local_file_refs_lock: Mutex<()>,
     pub(in crate::storage) view: Arc<RwLock<NativeReadView>>,
     pub(in crate::storage::disk_pack) prepare_gate: Arc<tokio::sync::Mutex<()>>,
@@ -93,6 +96,24 @@ impl PackRuntime {
 
     pub(crate) fn fresh_initialization_pending(&self) -> bool {
         self.initializing.load(Ordering::Acquire)
+    }
+
+    /// Name the device that signs the captured writes of this store. Every
+    /// captured write is stamped with it when it commits. A second call with
+    /// another id is refused.
+    pub fn name_capture_device(&self, device_hex: &str) -> StorageResult<()> {
+        let held = self.capture_device.get_or_init(|| device_hex.to_owned());
+        if held == device_hex {
+            Ok(())
+        } else {
+            Err(StorageError::invalid(
+                "the store already captures writes for another device",
+            ))
+        }
+    }
+
+    pub(crate) fn capture_device(&self) -> Option<&str> {
+        self.capture_device.get().map(String::as_str)
     }
 
     pub async fn diagnostics_native(

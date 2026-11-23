@@ -27,6 +27,9 @@ pub mod factory {
         pub offline_maintenance: bool,
         /// Capture the accepted publication stream for an owned database.
         pub capture_accepted: bool,
+        /// The device id that signs the captured writes, lowercase hex. A store
+        /// that captures needs it: each captured write is stamped with it.
+        pub capture_device: Option<String>,
         /// Host notes for each committed record. Absent when the host keeps no notes.
         pub record_log:
             Option<std::sync::Arc<dyn crate::fold_db_core::mutation_manager::RecordWriteLog>>,
@@ -54,6 +57,18 @@ pub mod factory {
         )
         .await
         .map_err(|e| FoldDbError::Config(e.to_string()))?;
+        match &options.capture_device {
+            Some(device) => db_ops
+                .native_runtime()
+                .name_capture_device(device)
+                .map_err(|e| FoldDbError::Config(e.to_string()))?,
+            None if options.capture_accepted => {
+                return Err(FoldDbError::Config(
+                    "a store that captures its writes needs the device that signs them".into(),
+                ));
+            }
+            None => {}
+        }
         let fold_db = FoldDB::initialize(Arc::new(db_ops), writer_id, options)
             .await
             .map_err(|e| map_boot_decrypt_error(e.to_string()))?;

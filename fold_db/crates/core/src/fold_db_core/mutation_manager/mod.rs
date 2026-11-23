@@ -7,7 +7,7 @@ mod write_records;
 
 pub use record_log::{RecordWriteLog, RecordWriteNote};
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -21,10 +21,13 @@ use crate::schema::types::operations::MutationType;
 use crate::schema::types::schema::DeclarativeSchemaType;
 use crate::schema::types::{KeyValue, Mutation, Schema};
 use crate::schema::{SchemaCore, SchemaError};
+use crate::storage::disk_backup::accepted;
 use crate::storage::disk_pack::transaction;
 
 pub use crate::storage::format::metadata::{ReplayStamp, ReplayStreamHead};
-pub use replay::{ReplayAttachmentSlots, ServedLocal};
+pub use replay::ReplayAttachmentSlots;
+
+const NANOS_PER_MILLI: u64 = 1_000_000;
 
 /// The author clock keeps `writer_id` in base64. Record authorship uses lowercase hex.
 fn fill_local_writer(writer_id: &str, mutations: &mut [Mutation]) -> Result<(), SchemaError> {
@@ -81,6 +84,9 @@ pub(super) struct AuthoredMutation {
     pub(super) mutation: Mutation,
     pub(super) key: KeyValue,
     pub(super) stamp: Stamp,
+    /// The stamp of the write in the signed log. `None` for a write that is
+    /// not captured: one of a store with no relay, or the apply of an entry.
+    pub(super) replay: Option<ReplayStamp>,
 }
 
 pub(super) struct ChangedRecord<'a> {
@@ -155,29 +161,72 @@ impl MutationManager {
         .await
     }
 
+    /// Give each mutation its author time. A captured write takes a
+    /// millisecond of its own, because that millisecond is its order value in
+    /// the signed log and the order values of one device rise with every entry.
     async fn prepare_mutation_author_clocks(
         &self,
         mutations: &mut [Mutation],
+        captured: bool,
     ) -> Result<u64, SchemaError> {
+        let exhausted = || SchemaError::InvalidData("mutation author-clock range exhausted".into());
         let mut state = self
             .db_ops
             .metadata()
             .author_clock(&self.writer_id)
             .await?
             .unwrap_or_default();
-        let (mut times, counter) = state
-            .advance_local_batch(clock::unix_nanos(), mutations.len())
-            .ok_or_else(|| {
-                SchemaError::InvalidData("mutation author-clock range exhausted".into())
-            })?;
-        for m in mutations {
-            m.imported_written_at = Some(times.next().expect("reserved time"));
-        }
+        let counter = if captured {
+            let (first, counter) = state
+                .advance_local_batch_spaced(clock::unix_nanos(), mutations.len())
+                .ok_or_else(exhausted)?;
+            for (m, step) in mutations.iter_mut().zip(0u64..) {
+                m.imported_written_at = Some(first + step * NANOS_PER_MILLI);
+            }
+            counter
+        } else {
+            let (mut times, counter) = state
+                .advance_local_batch(clock::unix_nanos(), mutations.len())
+                .ok_or_else(exhausted)?;
+            for m in mutations {
+                m.imported_written_at = Some(times.next().expect("reserved time"));
+            }
+            counter
+        };
         self.db_ops
             .metadata()
             .stage_author_clock(&self.writer_id, &state)
             .await?;
         Ok(counter)
+    }
+
+    /// The stamp each write has in the signed log, in commit order. The spool
+    /// takes one entry for each mutation in the same order, so the sequence
+    /// numbers here are the ones the sender signs.
+    async fn local_replay_stamps(
+        &self,
+        mutations: &[Mutation],
+        captured: bool,
+    ) -> Result<Vec<Option<ReplayStamp>>, SchemaError> {
+        if !captured {
+            return Ok(vec![None; mutations.len()]);
+        }
+        let orders = mutations
+            .iter()
+            .map(|m| {
+                m.imported_written_at
+                    .map(|nanos| nanos / NANOS_PER_MILLI)
+                    .ok_or_else(|| {
+                        SchemaError::InvalidData("a captured write has no author time".into())
+                    })
+            })
+            .collect::<Result<Vec<u64>, _>>()?;
+        let stamps = self
+            .db_ops
+            .metadata()
+            .stage_local_replay_stamps(&self.writer_id, &orders)
+            .await?;
+        Ok(stamps.into_iter().map(Some).collect())
     }
 
     async fn commit_native_batch(
@@ -200,7 +249,11 @@ impl MutationManager {
                         "a contribution requires one native mutation".into(),
                     ));
                 }
-                let revision = self.prepare_mutation_author_clocks(&mut mutations).await?;
+                let captured = accepted::capture_enabled(&runtime);
+                let revision = self
+                    .prepare_mutation_author_clocks(&mut mutations, captured)
+                    .await?;
+                let replay = self.local_replay_stamps(&mutations, captured).await?;
                 let ops = count_commit_ops(&mutations);
                 let listed: Vec<_> = mutations
                     .iter()
@@ -225,10 +278,12 @@ impl MutationManager {
                 let authored = mutations
                     .into_iter()
                     .zip(keys.into_iter().zip(stamps))
-                    .map(|(mutation, (key, stamp))| AuthoredMutation {
+                    .zip(replay)
+                    .map(|((mutation, (key, stamp)), replay)| AuthoredMutation {
                         mutation,
                         key,
                         stamp,
+                        replay,
                     })
                     .collect();
                 self.stage_record_groups(authored, &mut stages, &runtime)
@@ -251,7 +306,6 @@ impl MutationManager {
         schema: &Schema,
         changed: &[ChangedRecord<'_>],
         changes: Vec<RecordChange>,
-        keep: &BTreeSet<String>,
     ) -> Result<(), SchemaError> {
         let outcomes: Vec<_> = changes
             .iter()
@@ -266,7 +320,7 @@ impl MutationManager {
         self.db_ops
             .records()
             .format
-            .stage_records(schema, changes, keep)
+            .stage_records(schema, changes)
             .await?;
         let live = changed
             .iter()
