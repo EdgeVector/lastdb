@@ -45,7 +45,7 @@ removed page with `git show 13a2cf188:<path>`.
 The unsigned mutation log, proposal log, and snapshot path are retired.
 Read `docs/designs/cloud-api.md` and `docs/designs/relay-protocol.md` before
 changing sync, AcceptEntry, or relay code. Grants live only as signed chain
-entries; relays gate access from publisher-signed grant entries (and list a writer's device streams with `log/streams`, gated like an all-devices `log/read`); there are no snapshots. DEV proofs run in
+entries; relays gate access from publisher-signed grant entries (and list a writer's device streams with `log/streams`, gated like an all-devices `log/read`). The personal database has a snapshot: the native files of the store plus a publisher-signed `snapshot` entry on its own stream (`docs/designs/relay-protocol.md`); the old cloud snapshot is gone. DEV proofs run in
 `.github/workflows/signed-history-dev.yml` against in-repo `reference_relay`.
 
 ## Code size limits (CI fails a PR that breaks them)
@@ -134,7 +134,9 @@ publisher keys stay in `lastdb_node/environments.json`.
 ### Scoped extension: signed snapshot round trip — RETIRED (cloud API v3)
 
 Snapshot roundtrip DEV CI and `snapshot_gate*.py` were removed with the
-unsigned mutation log. Signed-history + relay DEV CI replaces them.
+unsigned mutation log. The personal snapshot (native files, manifest by digest,
+`snapshot` entry) is proved by `scripts/operations/personal_database_proof.py`
+(steps 11 to 14), job `personal_nodes` of `signed-history-dev.yml`.
 
 ## Cursor Cloud specific instructions
 
@@ -145,7 +147,7 @@ entries of the other devices are applied through the store's last-writer stamp, 
 order value of an entry is the time of the commit; the later edit wins. The relay copy is the backup, and reading it is how a second
 device or a restore catches up (`docs/designs/personal-database-signed-log.md`,
 `docs/designs/signed-log-on-local-machinery.md`). A home captures into the spool exactly when something sends it: keep it that way.
-No snapshots yet, no dual readers, feature flags, or migration paths.
+A snapshot is the checkpoint: a restore installs the newest one and reads each stream after its position. A home that held data before it began to sync keeps a copy of its files as it starts, publishes that copy as its first snapshot, and sends no spool entry before that snapshot is named. The files are the store's own, already encrypted, and are never sealed again. No dual readers, feature flags, or migration paths.
 
 The image already has Rust (`rust-toolchain.toml`, 1.96.1) and Node 22.
 `install` adds Ruby and the pinned

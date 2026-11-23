@@ -158,6 +158,7 @@ pub(in crate::exec) async fn execute_data_route_with_timeout(
                 heap_route!(admin_routes::db_delete_ledger, req, ctx, host)
             }
             DataRoute::DbSchemaRetention => heap_route!(admin_routes::db_retention, req, ctx, host),
+            DataRoute::BackupSnapshot => heap_route!(admin_routes::backup_snapshot, req, ctx, host),
             DataRoute::CloudWake => return admin_routes::cloud_wake(req, ctx, host),
             DataRoute::V1Read => heap_route!(app_api::read_route, req, ctx, host),
             DataRoute::V1Write => heap_route!(app_api::write_route, req, ctx, host),
@@ -178,6 +179,7 @@ pub(in crate::exec) fn data_route_budget(route: DataRoute) -> Duration {
         | DataRoute::DbDeleteLedger
         | DataRoute::AppsDeclareSchema
         | DataRoute::DropSchema
+        | DataRoute::BackupSnapshot
         | DataRoute::CloudWake => admin_handler_timeout(),
         DataRoute::Status | DataRoute::Ops => Duration::from_secs(2),
         DataRoute::AdminShed => Duration::from_secs(60),

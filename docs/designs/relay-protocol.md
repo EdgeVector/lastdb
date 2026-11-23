@@ -131,7 +131,7 @@ non-`grant#any` reads.
 
 Store key `(database_id, node_key, device_id, writer_seq)`; `device_id` is
 Hex32 (64 lowercase hex, 32 bytes in `signed_bytes`), never a UUID. Entries:
-`birth`|`data`|`bundle`|`grant`|`blob_delete`|`heads`|`relays`.
+`birth`|`data`|`bundle`|`grant`|`schema`|`blob_delete`|`heads`|`relays`|`snapshot`.
 
 Read by `writer_key` from `from_seq` (default 1) or opaque delivery cursor
 (pagination only; never expires). Omit `device_id` to receive that writer's
@@ -168,6 +168,52 @@ current read grant or revoked, 400 `invalid_request` for a malformed
 `database_id` or `writer_key`, 426 protocol); the heads must be contiguous
 heads as defined here, and answering must not require reading every entry.
 
+### The `snapshot` entry
+
+A `snapshot` entry names a checkpoint of a database: the native files of the
+publisher's store at one write boundary, and the stream positions they hold. A
+node that installs the files reads each stream after its position instead of
+from the first entry. The relay stores the entry like any publisher entry and
+reads nothing in it. The files and the manifest are blobs (`blob.put` before
+the entry is appended).
+
+- **Kind string:** `snapshot` (JSON `"kind":"snapshot"`, `"namespace":"snapshot"`).
+- **Who may sign it:** the publisher only (`is_publisher_kind`), like `heads` and
+  `relays`. The personal database puts its snapshot entries on a stream of their
+  own, whose `device_id` is derived from the node seed
+  (HKDF-SHA256, `info` = `lastdb:personal-database:v1:snapshot-device`), so every
+  device of the owner signs snapshots on the one stream and no data entry shares it.
+- **JSON body fields** (beside the common header: `database_id`, `node_key`,
+  `device_id`, `writer_seq`, `prev_hash`, `authored_at_ms`, `lamport`,
+  `seen_heads`, `signature`): `manifest_sha256` (64 hex, the SHA-256 of the
+  manifest blob), `manifest_bytes` (integer, its length, at most 16 MiB),
+  `through` (array, at most 1024, strictly ascending by `device_id`) of
+  `{ "device_id", "writer_seq", "entry_hash", "order" }`: the last entry of each
+  stream that the snapshot holds, its hash, and its order value (`lamport`).
+- **Signed bytes:** the common header (domain `lastdb-snapshot-v1` + `0x00`, then
+  `database_id`(32) `node_key`(32) `device_id`(32) `writer_seq`(u64)
+  `prev_hash`(32) `authored_at_ms`(u64) `lamport`(u64) `seen_heads`(u16 + hashes
+  ascending)), then `manifest_sha256`(32) `manifest_bytes`(u64) `through` count
+  (u16) and for each position `device_id`(32) `writer_seq`(u64) `entry_hash`(32)
+  `order`(u64). All integers big-endian. `entry_hash = SHA-256(signed_bytes ‖
+  signature_raw_64)` as for every kind.
+- **Order value:** the normal rule, and above every `order` in `through`. A
+  personal snapshot entry cites only the birth in `seen_heads`.
+- **The manifest** is JSON, `{ "upload_id": "<uuid>", "files": [ { "path",
+  "bytes", "sha256" } ] }`: the files under the data directory
+  (`laststore-pack-node-v1`, and `disk-run/` and `disk-cas/` with `CURRENT`,
+  `laststore-run-home-v2` and `runs/<uuid>.ldrun`). Each file is a blob named by
+  its own SHA-256. The files are encrypted at rest by the store, so they travel
+  as they are. The relay sees the paths, lengths and digests in the manifest.
+- **A relay must:** accept the kind from the publisher, derive the stream head
+  from it like any entry, and accept `blob.put` of the files. An entry parser that
+  refuses unknown kinds (a 400 on `entries.kind`) must learn this kind, and a
+  parser that deserializes each entry into `mutation_log::SignedEntry` must be
+  built against a `mutation_log` that has `SignedEntry::Snapshot`.
+- **Blob size.** One native file is one blob. The protocol sets no cap. Run files
+  grow as the store compacts, and the node moves each file in one `blob.put` and
+  one `blob.get`, streamed, with no resume: a failed transfer restarts that file.
+
 ### `blob.put` / `blob.get`
 
 Blob keys are scoped per `database_id`, content-addressed by sha256 of
@@ -202,7 +248,8 @@ an accepted `bundle` (or other entry) is invalid; nodes ignore it.
 | `manage`/`delete` | Erase that DB’s relay logs + blobs; id tombstoned |
 | `account`/`deactivate` | Erase all publisher relay data (ExeMem-driven) |
 | `account/*` (other) | not protocol |
-| former `manage`/`access`, `snapshot`, `retention` | **removed** |
+| former `manage`/`access`, `retention` | **removed** |
+| former `snapshot` | the `snapshot` entry and the blobs it names |
 
 ## Discovery and failover
 

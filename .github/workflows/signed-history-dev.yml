@@ -35,6 +35,9 @@ on:
       - "scripts/operations/shared_database_proof.py"
       - "scripts/operations/personal_database_proof.py"
       - "scripts/operations/personal_proof_*.py"
+      - "scripts/operations/old_home_*.py"
+      - "scripts/operations/adopt_old_home.py"
+      - "fold_db/crates/core/src/storage/format/metadata/**"
       - "lastdb_node/src/log_sync/**"
       - "lastdb_node/src/host.rs"
       - "fold_db/crates/core/src/fold_db_core/mutation_manager/**"
@@ -52,6 +55,9 @@ on:
       - "scripts/operations/shared_database_proof.py"
       - "scripts/operations/personal_database_proof.py"
       - "scripts/operations/personal_proof_*.py"
+      - "scripts/operations/old_home_*.py"
+      - "scripts/operations/adopt_old_home.py"
+      - "fold_db/crates/core/src/storage/format/metadata/**"
       - "lastdb_node/src/log_sync/**"
       - "lastdb_node/src/host.rs"
       - "fold_db/crates/core/src/fold_db_core/mutation_manager/**"
@@ -420,10 +426,85 @@ jobs:
           {
             echo "## Personal database on real nodes"
             echo "Source: $GITHUB_SHA"
-            echo "Device A writes single and batched records in two schemas, device B and restored homes C and D start from the recovery phrase alone, the later edit wins whichever device syncs first, a deleted record stays deleted, alternate keys and files arrive with the relay stopped, the relay holds no key, value or schema name, an idle turn reads nothing, kill -9 under write load loses and repeats nothing, and tens of thousands of writes run in bounded memory."
+            echo "Device A writes single and batched records in two schemas, device B and restored homes C and D start from the recovery phrase alone, the later edit wins whichever device syncs first, a deleted record stays deleted, alternate keys and files arrive with the relay stopped, the relay holds no key, value or schema name, an idle turn reads nothing, kill -9 under write load loses and repeats nothing, and tens of thousands of writes run in bounded memory. A snapshot is the checkpoint: a restore installs it and reads only the tail, equals a full replay, survives a kill during the install, and a second snapshot uploads only the changed files."
             if [[ -f "${RUNNER_TEMP}/personal-nodes/nodes/summary.json" ]]; then
               echo '```json'
               cat "${RUNNER_TEMP}/personal-nodes/nodes/summary.json"
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  old_home:
+    name: an old home moves and publishes its first snapshot (reference_relay)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      CARGO_BUILD_JOBS: "2"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      FOLDDB_BUILD_VERSION_OVERRIDE: bench-${{ github.sha }}
+      # The build that wrote the owner's home: release nightly-20261119-d06054159.
+      OLD_RELEASE: nightly-20261119-d06054159
+      OLD_TARBALL_SHA256: 6f49a1655ea5167f1813096b3945b47409cee1dad83b584521862635950fdeab
+      OLD_LASTDBD_SHA256: 955446be862f9e55d0f7415d3faec4697e5b67e962a5dce7c5f9bd608ce78a9b
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: signed-history-shared-nodes
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Build reference_relay, lastdbd and lastdb
+        run: |
+          set -euo pipefail
+          cargo build --locked -p reference_relay --bin reference_relay
+          cargo build --locked -p lastdb_node --bin lastdb --bin lastdbd
+      - name: Fetch the old build and check its digests
+        run: |
+          set -euo pipefail
+          OLD="${RUNNER_TEMP}/old-build"
+          mkdir -p "$OLD"
+          curl -fsSL -o "$OLD/lastdb.tar.gz" \
+            "https://github.com/EdgeVector/lastdb/releases/download/${OLD_RELEASE}/lastdb-x86_64-unknown-linux-gnu.tar.gz"
+          echo "${OLD_TARBALL_SHA256}  $OLD/lastdb.tar.gz" | sha256sum -c -
+          tar -xzf "$OLD/lastdb.tar.gz" -C "$OLD"
+          OLD_DAEMON="$(find "$OLD" -maxdepth 3 -name lastdbd -type f | head -n 1)"
+          test -n "$OLD_DAEMON"
+          echo "${OLD_LASTDBD_SHA256}  ${OLD_DAEMON}" | sha256sum -c -
+          chmod +x "$OLD_DAEMON"
+          echo "OLD_DAEMON=${OLD_DAEMON}" >> "$GITHUB_ENV"
+      - name: Old homes, the move, the first snapshot, a kill before it is named, and a restore
+        run: |
+          set -euo pipefail
+          OUT="${RUNNER_TEMP}/old-home"
+          mkdir -p "$OUT"
+          python3 scripts/operations/old_home_proof.py \
+            --old-daemon "$OLD_DAEMON" \
+            --daemon "$PWD/target/debug/lastdbd" --cli "$PWD/target/debug/lastdb" \
+            --relay-bin "$PWD/target/debug/reference_relay" --revision "$GITHUB_SHA" \
+            --output "$OUT/nodes" 2>&1 | tee "$OUT/proof.log"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: signed-history-old-home-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/old-home/proof.log
+            ${{ runner.temp }}/old-home/nodes/relay.stderr
+            ${{ runner.temp }}/old-home/nodes/summary.json
+            ${{ runner.temp }}/old-home/nodes/*/node.log
+            ${{ runner.temp }}/old-home/nodes/*/*/node.log
+          retention-days: 7
+          if-no-files-found: warn
+      - name: Publish summary
+        if: always()
+        run: |
+          {
+            echo "## An old home moves and publishes its first snapshot"
+            echo "Source: $GITHUB_SHA. Old build: ${OLD_RELEASE}."
+            echo "Homes written by the old build (no cloud; a variant with unacknowledged spool entries and pending markers; one with a large file) are adopted by adopt_old_home.py, started on the current build with the reference relay, and publish their files as a first snapshot before any later write goes up. A restore equals the moved home and reads only the tail, a second device equals it, a kill before the snapshot is named loses and repeats nothing, and the relay holds no marker."
+            if [[ -f "${RUNNER_TEMP}/old-home/nodes/summary.json" ]]; then
+              echo '```json'
+              cat "${RUNNER_TEMP}/old-home/nodes/summary.json"
               echo '```'
             fi
           } >> "$GITHUB_STEP_SUMMARY"

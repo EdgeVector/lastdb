@@ -4,7 +4,6 @@ mod recover;
 pub(super) mod upload;
 
 use super::{body, io, Error, Page, Status};
-use serde::de::IgnoredAny;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
@@ -31,9 +30,11 @@ pub(super) struct State {
     pub(super) head: u64,
     pub(super) acked: u64,
     pub(super) retained_bytes: u64,
-    /// Older homes wrote this retired flag. It is read and dropped on the next save.
-    #[serde(default, skip_serializing, rename = "snapshot_required")]
-    pub(super) _snapshot_required: IgnoredAny,
+    /// The writes of the home from before this stream began are in no entry. A first
+    /// snapshot must cover them before any entry may be read for upload or acknowledged.
+    /// False for a home that captured from its birth, and for a restore.
+    #[serde(default)]
+    pub(super) snapshot_required: bool,
     pub(super) gap: bool,
     pub(super) armed: bool,
 }
@@ -80,6 +81,10 @@ struct Inner {
     state: Option<State>,
     frontier: u64,
     blocked: bool,
+    /// The home held data when it opened and has no stream yet.
+    history: bool,
+    /// Acknowledged entries since the id records were last trimmed.
+    since_trim: u64,
 }
 
 pub(in crate::storage) struct Log {
@@ -94,6 +99,9 @@ impl Log {
             frontier,
             ..Inner::default()
         };
+        if !root.exists() {
+            inner.history = frontier > 0;
+        }
         let loaded = root.exists().then(|| inner.load(&root));
         if let Some(Err(error)) = loaded {
             inner.block(&root, error);
@@ -110,10 +118,32 @@ impl Log {
                 head: 0,
                 acked: 0,
                 opened_frontier: 0,
+                snapshot_required: false,
                 gap: true,
             },
             |inner| inner.status(),
         )
+    }
+
+    pub(super) fn note_snapshot(&self, covered: u64) -> Result<(), Error> {
+        self.lock()?.note_snapshot(&self.root, covered)
+    }
+
+    /// Record that the files at `covered` are the first snapshot's cut. The caller holds the
+    /// write gate, no entry exists yet, and the checkpoint of those files is already durable.
+    pub(in crate::storage) fn pin_initial_frontier(&self, covered: u64) -> Result<(), Error> {
+        let mut inner = self.lock()?;
+        inner.refuse_gap()?;
+        inner.frontier = covered;
+        let state = match &inner.state {
+            Some(state) if state.head == 0 && state.snapshot_required => State {
+                opened_frontier: covered,
+                ..state.clone()
+            },
+            None if inner.history => inner.fresh(covered, true),
+            _ => return Err(Error::Snapshot),
+        };
+        inner.store(&self.root, state)
     }
 
     pub(super) fn prefix(&self, after: u64, limit: u32) -> Result<Page, Error> {
@@ -168,15 +198,20 @@ impl Log {
 impl Inner {
     fn load(&mut self, root: &Path) -> Result<(), Error> {
         io::require_dir(root)?;
-        if let Some(state) = io::read_json::<State>(&root.join("state.json"))? {
-            let bad = state.version != 1 || state.gap;
-            self.state = Some(state);
-            if bad {
-                return Err(Error::Gap);
+        match io::read_json::<State>(&root.join("state.json"))? {
+            Some(state) => {
+                let bad = state.version != 1 || state.gap;
+                self.state = Some(state);
+                if bad {
+                    return Err(Error::Gap);
+                }
             }
+            None => self.history = self.frontier > 0,
         }
         recover::reconcile(root, self)?;
-        recover::finish_pending(root, self)
+        recover::finish_pending(root, self)?;
+        recover::trim_ids(root, self);
+        Ok(())
     }
 
     fn status(&self) -> Status {
@@ -185,6 +220,7 @@ impl Inner {
             head: state.map_or(0, |state| state.head),
             acked: state.map_or(0, |state| state.acked),
             opened_frontier: state.map_or(0, |state| state.opened_frontier),
+            snapshot_required: state.map_or(self.history, |state| state.snapshot_required),
             gap: self.blocked || state.is_some_and(|state| state.gap),
         }
     }
@@ -209,6 +245,9 @@ impl Inner {
     fn acknowledge(&mut self, root: &Path, through: u64) -> Result<(), Error> {
         self.refuse_gap()?;
         let view = self.status();
+        if view.snapshot_required && through > view.acked {
+            return Err(Error::Snapshot);
+        }
         if through > view.head {
             return Err(Error::Ahead);
         }
@@ -225,21 +264,46 @@ impl Inner {
         io::write_json(&root.join("state.json"), &state)?;
         self.state = Some(state);
         recover::release_acked(root, view.acked, through);
+        self.since_trim += through - view.acked;
+        if self.since_trim >= recover::TRIM_EVERY {
+            self.since_trim = 0;
+            recover::trim_ids(root, self);
+        }
         Ok(())
+    }
+
+    fn note_snapshot(&mut self, root: &Path, covered: u64) -> Result<(), Error> {
+        self.refuse_gap()?;
+        let needed = self
+            .state
+            .as_ref()
+            .map_or(self.frontier, |s| s.opened_frontier);
+        if covered < needed {
+            return Err(Error::Snapshot);
+        }
+        self.history = false;
+        let mut state = self
+            .state
+            .clone()
+            .unwrap_or_else(|| self.fresh(needed, false));
+        state.snapshot_required = false;
+        self.store(root, state)
     }
 
     fn mark_born(&mut self, root: &Path, frontier: u64) -> Result<(), Error> {
         self.refuse_gap()?;
         self.frontier = frontier;
+        self.history = false;
         if let Some(mut state) = self.state.clone() {
             if state.head > 0 {
                 return Ok(());
             }
+            state.snapshot_required = false;
             state.opened_frontier = frontier;
             state.armed = false;
             return self.store(root, state);
         }
-        self.store(root, self.fresh(frontier))
+        self.store(root, self.fresh(frontier, false))
     }
 
     fn prepare(&mut self, root: &Path, frontier_before: u64, notes: &[Note]) -> Result<(), Error> {
@@ -287,14 +351,14 @@ impl Inner {
         recover::persist_gap(root, self);
     }
 
-    pub(super) fn fresh(&self, opened: u64) -> State {
+    pub(super) fn fresh(&self, opened: u64, snapshot_required: bool) -> State {
         State {
             version: 1,
             opened_frontier: opened,
             head: 0,
             acked: 0,
             retained_bytes: 0,
-            _snapshot_required: IgnoredAny,
+            snapshot_required,
             gap: false,
             armed: false,
         }
@@ -304,6 +368,7 @@ impl Inner {
         recover::ensure_tree(root)?;
         io::write_json(&root.join("state.json"), &state)?;
         self.state = Some(state);
+        self.history = false;
         Ok(())
     }
 }

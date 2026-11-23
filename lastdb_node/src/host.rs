@@ -81,6 +81,20 @@ impl Host {
         Self::boot_inner(home, true).await
     }
 
+    /// Boot a staged home whose database files are the installed files of a
+    /// snapshot. It captures writes like [`Self::boot_for_signed_restore`]. The
+    /// caller gives the store its own author stream before anything is written.
+    #[doc(hidden)]
+    pub async fn boot_for_snapshot_restore(home: &Path) -> Result<Self, String> {
+        let marker = home
+            .join("data")
+            .join(fold_db::storage::disk_pack::NODE_MARKER);
+        if !marker.is_file() {
+            return Err("a snapshot restore needs the installed database files".to_owned());
+        }
+        Self::boot_inner(home, true).await
+    }
+
     async fn boot_inner(home: &Path, signed_restore: bool) -> Result<Self, String> {
         recovery::ensure_node_home(home)
             .map_err(|e| format!("failed to create node home {}: {e}", home.display()))?;
@@ -133,6 +147,16 @@ impl Host {
         )
         .await
         .map_err(|e| recovery::map_and_record_boot_error(home, existing, e))?;
+        // A home that held data before it began to capture writes keeps the files as they are
+        // now, as the cut of its first snapshot, before any write is accepted. It does nothing
+        // for any other home. The node refuses to start when it cannot keep the cut, because a
+        // capture that began without it would leave that data out of the signed history.
+        if existing && !signed_restore {
+            db.db_ops()
+                .begin_first_snapshot()
+                .await
+                .map_err(|e| format!("cannot keep the first snapshot of this home: {e}"))?;
+        }
         let owned = owned::Tables::open(home, Arc::clone(&keypair)).await?;
         let user_hash = user_hash_from_pubkey(&keypair.public_key_base64())?;
         let cloud_sync = cloud_sync::CloudSyncTracker::from_boot(

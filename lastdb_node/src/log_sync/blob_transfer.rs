@@ -42,6 +42,17 @@ impl RelayClient {
         let file = fs::File::open(source)
             .await
             .map_err(|e| format!("blob file: {e}"))?;
+        self.blob_put_file(database_id, sha256, file).await
+    }
+
+    /// The same as [`Self::blob_put`] for a file that is already open, read from
+    /// its current position to its end. A snapshot holds its files open.
+    pub(super) async fn blob_put_file(
+        &self,
+        database_id: &str,
+        sha256: &str,
+        file: fs::File,
+    ) -> Result<(), String> {
         let size = file
             .metadata()
             .await

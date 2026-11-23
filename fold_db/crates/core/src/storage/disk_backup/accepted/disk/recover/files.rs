@@ -4,7 +4,6 @@ use super::super::super::io;
 use super::super::super::Error;
 use super::super::{Inner, Meta, Note, PendingNote};
 use lastdb_model::hex::sha256_hex;
-use serde::de::IgnoredAny;
 use std::path::Path;
 
 const BODY_MAX: u64 = 2 * 1024 * 1024;
@@ -41,6 +40,43 @@ pub(super) fn read_meta(dir: &Path) -> Result<Meta, Error> {
         return Err(Error::Gap);
     }
     Ok(meta)
+}
+
+/// The id records of this many of the newest writes stay, besides those of writes the relay
+/// has not acknowledged. A retry of a write older than that is taken as a new write.
+const IDS_KEPT: usize = 10_000;
+
+/// Remove the id records beyond the newest `IDS_KEPT`, except those of the unacknowledged entries
+/// (`acked` up to `head`). A write is one file, so the directory stays near `IDS_KEPT` files.
+pub(super) fn trim_ids(root: &Path, head: u64, acked: u64) -> Result<(), Error> {
+    let dir = root.join("ids");
+    let mut found: Vec<(std::time::SystemTime, String)> = Vec::new();
+    for item in std::fs::read_dir(&dir).map_err(|_| Error::Unavailable)? {
+        let item = item.map_err(|_| Error::Unavailable)?;
+        let Some(name) = item.file_name().to_str().map(str::to_owned) else {
+            continue;
+        };
+        let modified = item
+            .metadata()
+            .and_then(|meta| meta.modified())
+            .map_err(|_| Error::Unavailable)?;
+        found.push((modified, name));
+    }
+    if found.len() <= IDS_KEPT {
+        return Ok(());
+    }
+    found.sort_unstable_by_key(|item| std::cmp::Reverse(item.0));
+    let mut waiting = std::collections::HashSet::new();
+    for sequence in (acked + 1)..=head {
+        let meta = read_meta(&root.join("entries").join(seq_name(sequence)))?;
+        waiting.insert(meta.mutation_id.clone());
+    }
+    for (_, name) in &found[IDS_KEPT..] {
+        if !waiting.contains(name) {
+            io::remove_file(&dir.join(name))?;
+        }
+    }
+    Ok(())
 }
 
 pub(super) fn read_id(root: &Path, id: &str) -> Result<Option<String>, Error> {
@@ -232,6 +268,10 @@ pub(super) fn install(
         .map_or(0, |state| state.retained_bytes)
         .saturating_add(added);
     let head = pending.notes.last().map_or(0, |note| note.sequence);
+    let snapshot = inner
+        .state
+        .as_ref()
+        .map_or(inner.history, |state| state.snapshot_required);
     inner.store(
         root,
         super::super::State {
@@ -240,7 +280,7 @@ pub(super) fn install(
             head,
             acked,
             retained_bytes: retained,
-            _snapshot_required: IgnoredAny,
+            snapshot_required: snapshot,
             gap: false,
             armed: false,
         },
