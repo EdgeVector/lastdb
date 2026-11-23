@@ -94,14 +94,6 @@ impl Fixture {
         }
     }
 
-    /// The publisher's history must reject `entry` as `Malformed(want)`.
-    pub fn expect_malformed(&mut self, entry: SignedEntry, want: &str) -> Result<(), String> {
-        match must_reject(&mut self.owner_hist, entry)? {
-            RejectReason::Malformed(msg) if msg.contains(want) => Ok(()),
-            other => Err(format!("expected Malformed({want}), got {other:?}")),
-        }
-    }
-
     /// The publisher incorporates the proposal; the member sees it too.
     pub fn incorporate(
         &mut self,

@@ -57,7 +57,7 @@ pub async fn run(relay: &RelayHandle) -> Result<String, String> {
     }
     for (entry, want) in entries.into_iter().zip([
         "proposal requires submit or write grant",
-        "must cite exactly one lease",
+        "direct entry requires a submit or write grant",
     ]) {
         expect_reject(&mut receiver, entry, want)?;
     }

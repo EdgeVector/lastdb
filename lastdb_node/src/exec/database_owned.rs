@@ -137,7 +137,7 @@ pub(super) fn accept(req: &UdsRequest, ctx: &AccessContext, host: &Host) -> UdsR
 }
 
 fn row(entry: &Entry) -> Value {
-    json!({
+    let mut value = json!({
         "id": entry.id,
         "name": entry.name,
         "kind": entry.kind.as_str(),
@@ -147,7 +147,11 @@ fn row(entry: &Entry) -> Value {
         "sharingMode": entry.spec.as_ref().filter(|spec| {
             database_policy::SpecBinding::is_whole_database_name(&spec.name) && spec.version == 1
         }).map(|_| "whole_database"),
-    })
+    });
+    if let Some(length) = entry.lease_length_ms {
+        value["leaseLengthMs"] = json!(length);
+    }
+    value
 }
 
 fn shared_database(host: &Host, share: &RegisteredShare) -> Value {

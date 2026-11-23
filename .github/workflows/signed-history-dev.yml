@@ -44,6 +44,7 @@ on:
       - "signed_history_relay_e2e/**"
       - "scripts/signed_history/**"
       - "scripts/operations/shared_database_proof.py"
+      - "scripts/operations/lease_proof.py"
       - "scripts/operations/personal_database_proof.py"
       - "scripts/operations/personal_proof_*.py"
       - "scripts/operations/existing_home_proof.py"
@@ -68,6 +69,7 @@ on:
       - "signed_history_relay_e2e/**"
       - "scripts/signed_history/**"
       - "scripts/operations/shared_database_proof.py"
+      - "scripts/operations/lease_proof.py"
       - "scripts/operations/personal_database_proof.py"
       - "scripts/operations/personal_proof_*.py"
       - "scripts/operations/existing_home_proof.py"
@@ -392,6 +394,71 @@ jobs:
             if [[ -f "${RUNNER_TEMP}/shared-nodes/nodes/summary.json" ]]; then
               echo '```json'
               cat "${RUNNER_TEMP}/shared-nodes/nodes/summary.json"
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  lease_nodes:
+    name: write leases on real nodes (reference_relay)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      CARGO_BUILD_JOBS: "2"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      FOLDDB_BUILD_VERSION_OVERRIDE: bench-${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: signed-history-shared-nodes
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Build reference_relay, lastdbd and lastdb
+        run: |
+          set -euo pipefail
+          cargo build --locked -p reference_relay --bin reference_relay
+          cargo build --locked -p lastdb_node --bin lastdb --bin lastdbd
+      - name: Write leases: publisher, two writers and a reader on real nodes
+        run: |
+          set -euo pipefail
+          OUT="${RUNNER_TEMP}/lease-nodes"
+          mkdir -p "$OUT"
+          ./target/debug/reference_relay --listen 127.0.0.1:0 --data-dir "$OUT/relay-data" \
+            > "$OUT/relay.addr" 2> "$OUT/relay.stderr" &
+          RELAY_PID=$!
+          trap 'kill "$RELAY_PID" 2>/dev/null || true' EXIT
+          for _ in $(seq 1 100); do
+            [[ -s "$OUT/relay.addr" ]] && break
+            sleep 0.1
+          done
+          ADDR="$(head -n1 "$OUT/relay.addr")"
+          [[ -n "$ADDR" ]] || { echo "reference_relay printed no address" >&2; exit 1; }
+          python3 scripts/operations/lease_proof.py \
+            --daemon "$PWD/target/debug/lastdbd" --cli "$PWD/target/debug/lastdb" \
+            --relay-url "http://${ADDR}" --revision "$GITHUB_SHA" \
+            --output "$OUT/nodes" 2>&1 | tee "$OUT/proof.log"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: signed-history-lease-nodes-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/lease-nodes/proof.log
+            ${{ runner.temp }}/lease-nodes/relay.stderr
+            ${{ runner.temp }}/lease-nodes/nodes/summary.json
+            ${{ runner.temp }}/lease-nodes/nodes/*/node.log
+          retention-days: 7
+          if-no-files-found: warn
+      - name: Publish summary
+        if: always()
+        run: |
+          {
+            echo "## Signed history write leases on real nodes"
+            echo "Source: $GITHUB_SHA"
+            echo "Publisher, A, B, C: real lastdbd nodes on the reference relay. Direct writes under a lease, expiry, renewal, closing, reduced roles."
+            if [[ -f "${RUNNER_TEMP}/lease-nodes/nodes/summary.json" ]]; then
+              echo '```json'
+              cat "${RUNNER_TEMP}/lease-nodes/nodes/summary.json"
               echo '```'
             fi
           } >> "$GITHUB_STEP_SUMMARY"

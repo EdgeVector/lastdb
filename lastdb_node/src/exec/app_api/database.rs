@@ -2,9 +2,11 @@
 //!
 //! An owned database and the personal database behave as before. A received
 //! database is readable once its signed history has materialized into the
-//! receiver store. It is never written here: only its publisher's signature
-//! changes it, so a member changes it by a proposal on the submissions route
-//! and `/v1/write` is refused. `changes` does not open a received database.
+//! receiver store. A member changes it by a proposal on the submissions route,
+//! and `/v1/write` is refused with 403, except while a write lease covers this
+//! node and its role is `write`: then the write applies at once and is signed
+//! as a direct entry (see `log_sync::lease_member`). `changes` does not open a
+//! received database.
 
 use std::future::Future;
 use std::sync::Arc;
@@ -32,7 +34,7 @@ enum Place {
 
 enum OnReceived {
     Read,
-    RefuseWrite,
+    Write,
     RefuseChanges,
 }
 
@@ -49,7 +51,7 @@ pub(super) async fn write_in<T>(
     host: &Host,
     future: impl Future<Output = Result<T, HostError>>,
 ) -> Result<T, HostError> {
-    dispatch(selector, host, OnReceived::RefuseWrite, future).await
+    dispatch(selector, host, OnReceived::Write, future).await
 }
 
 pub(super) async fn changes_in<T>(
@@ -71,7 +73,13 @@ async fn dispatch<T>(
         Place::Owned(store) => host.with_records(store, future).await,
         Place::Received(share) => match received {
             OnReceived::Read => read_received(host, &share, future).await,
-            OnReceived::RefuseWrite => Err(HostError::new(403, READ_ONLY)),
+            OnReceived::Write
+                if share.whole_database()
+                    && crate::log_sync::may_write_direct(host, share.id.as_str()) =>
+            {
+                read_received(host, &share, future).await
+            }
+            OnReceived::Write => Err(HostError::new(403, READ_ONLY)),
             OnReceived::RefuseChanges => Err(HostError::new(404, CHANGES_UNSERVED)),
         },
     }

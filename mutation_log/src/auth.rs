@@ -9,7 +9,7 @@ use crate::accept::RejectReason;
 use crate::entry::{BundleBody, DataBody, EntryHeader, LeaseBody, SignedEntry};
 use crate::grants::{AcceptedMeta, GrantState};
 use crate::ids::{EntryHash, NodeKey};
-use crate::kinds::{EntryKind, Role, StreamKind};
+use crate::kinds::{Role, StreamKind};
 
 /// Authorize a bundle entry: the publisher's alone.
 pub fn authorize_bundle(
@@ -31,33 +31,34 @@ pub fn authorize_bundle(
 }
 
 /// Authorize a data entry: a direct entry is the publisher's, or a member's
-/// that names a lease covering it; a proposal needs a submit or write grant.
+/// that holds `submit` or `write`; a proposal needs a submit or write grant.
 pub fn authorize_data<'s>(
     entry: &SignedEntry,
     body: &DataBody,
     owner: Option<NodeKey>,
     grants: &GrantState,
     lookup: &dyn Fn(&EntryHash) -> Option<&'s AcceptedMeta>,
-    writer_under: &dyn Fn(&EntryHash, &NodeKey) -> bool,
 ) -> Option<RejectReason> {
     let h = entry.header();
     if owner == Some(h.node_key) {
         return None;
     }
     match body.stream {
-        StreamKind::Direct => authorize_member_direct(h, body, lookup, writer_under),
+        StreamKind::Direct => authorize_member_direct(h, body, grants),
         StreamKind::Proposal => authorize_proposal(h, body, grants, lookup),
     }
 }
 
-/// A member's direct entry names its lease by citing it in `seen_heads`: the
-/// entry cites exactly one lease entry, and the member held the `write` role
-/// as of that lease. Whether the entry counts is the history's counting rule.
-fn authorize_member_direct<'s>(
+/// A member's direct entry joins its stream when the member may deposit at all:
+/// it holds `submit` or `write`. It names its lease by citing it in
+/// `seen_heads`. Whether it counts is the history's counting rule, which reads
+/// the lease and the member's role as of it; an entry that no lease covers
+/// stays in the stream and writes nothing, so it never blocks the entries that
+/// follow it.
+fn authorize_member_direct(
     h: &EntryHeader,
     body: &DataBody,
-    lookup: &dyn Fn(&EntryHash) -> Option<&'s AcceptedMeta>,
-    writer_under: &dyn Fn(&EntryHash, &NodeKey) -> bool,
+    grants: &GrantState,
 ) -> Option<RejectReason> {
     if body.grant_at_device.is_some() || body.grant_at_seq.is_some() {
         return Some(RejectReason::Malformed(
@@ -69,21 +70,11 @@ fn authorize_member_direct<'s>(
             "member direct entry must not carry incorporated_from",
         ));
     }
-    let mut leases = h
-        .seen_heads
-        .iter()
-        .filter(|hash| lookup(hash).is_some_and(|meta| meta.entry.kind() == EntryKind::Lease));
-    let (Some(lease), None) = (leases.next(), leases.next()) else {
-        return Some(RejectReason::Malformed(
-            "member direct entry must cite exactly one lease",
-        ));
-    };
-    if writer_under(lease, &h.node_key) {
-        None
-    } else {
-        Some(RejectReason::Unauthorized(
-            "direct entry requires a write grant before the named lease",
-        ))
+    match grants.role_of(&h.node_key) {
+        Some(Role::Submit | Role::Write) => None,
+        _ => Some(RejectReason::Unauthorized(
+            "direct entry requires a submit or write grant",
+        )),
     }
 }
 

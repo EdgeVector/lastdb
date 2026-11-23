@@ -8,7 +8,7 @@
 use std::sync::Arc;
 
 use fold_db::fold_db_core::FoldDB;
-use mutation_log::VerifiedHistory;
+use mutation_log::{decode_record_payload, SignedEntry, VerifiedHistory};
 
 use crate::host::owned::ResolvedStore;
 use crate::host::Host;
@@ -33,7 +33,29 @@ pub(super) async fn apply_history_records(
     history: &VerifiedHistory,
 ) -> Result<(), String> {
     signed_history_materialize::declare_history_schemas(store, history).await?;
-    signed_history_materialize::apply_history(store, history).await
+    signed_history_materialize::apply_history(store, history).await?;
+    // A lease closing can leave a record with no write that counts. The loop
+    // above visits only records the history still holds, so these keys are
+    // brought to the history one by one.
+    let keys = excluded_keys(history);
+    if keys.is_empty() {
+        return Ok(());
+    }
+    signed_history_materialize::reconcile_keys(store, history, keys.iter()).await
+}
+
+/// The record keys that entries excluded by a lease closing wrote.
+fn excluded_keys(history: &VerifiedHistory) -> std::collections::BTreeSet<(String, String)> {
+    history
+        .excluded_entries()
+        .into_iter()
+        .filter_map(|entry| match entry {
+            SignedEntry::Data { body, .. } => decode_record_payload(&body.payload)
+                .ok()
+                .map(|payload| (body.namespace.clone(), payload.record_key)),
+            _ => None,
+        })
+        .collect()
 }
 
 /// Bring `store` back to the history at the keys of a write whose signed

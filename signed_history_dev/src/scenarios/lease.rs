@@ -36,8 +36,9 @@ pub fn covered_write_counts() -> Result<String, String> {
     Ok("a covered write member's direct entry counted on both nodes with no accept step".into())
 }
 
-/// A member that does not hold `write` as of the lease does not join the
-/// stream, and a lease needs the publisher and an end after its expiry.
+/// A member that does not hold `write` as of the lease still joins its stream,
+/// so the entries after it are not held back, and the entry writes nothing. A
+/// lease needs the publisher and an end after its expiry.
 pub fn uncovered_write_refused() -> Result<String, String> {
     let mut world = World::new()?;
     let mut submit = Member::new();
@@ -46,16 +47,13 @@ pub fn uncovered_write_refused() -> Result<String, String> {
     let lease = world.lease()?;
     world.grant(late.key(), Role::Write)?;
     let entry = submit.direct(&mut world, Some(&lease), "k", b"from submit")?;
-    expect_unauthorized(&mut world.hist, entry, "write grant")?;
+    accepted_not_counted(&mut world.hist, entry)?;
     let entry = late.direct(&mut world, Some(&lease), "k", b"from late writer")?;
-    expect_unauthorized(&mut world.hist, entry, "write grant")?;
+    accepted_not_counted(&mut world.hist, entry)?;
     let mut nameless = Member::new();
     world.grant(nameless.key(), Role::Write)?;
     let entry = nameless.direct(&mut world, None, "k", b"names no lease")?;
-    match must_reject(&mut world.hist, entry)? {
-        RejectReason::Malformed(_) => {}
-        other => return Err(format!("expected Malformed for no lease, got {other:?}")),
-    }
+    accepted_not_counted(&mut world.hist, entry)?;
     expect(&world.hist, "publisher", "k", None)?;
     // The next lease covers the writer added after the first one.
     let second = world.lease()?;
@@ -87,7 +85,13 @@ pub fn uncovered_write_refused() -> Result<String, String> {
             ))
         }
     }
-    Ok("submit, late and nameless direct entries refused; the next lease covers the late writer; a member lease and an inverted lease refused".into())
+    Ok("submit, late and nameless direct entries join the stream and count for nothing; the next lease covers the late writer; a member lease and an inverted lease refused".into())
+}
+
+/// The entry joins its stream and does not count.
+fn accepted_not_counted(history: &mut VerifiedHistory, entry: SignedEntry) -> Result<(), String> {
+    must_accept(history, entry.clone())?;
+    expect_excluded(history, "publisher", &entry, true)
 }
 
 /// The scenario's world after a closing: member stream `a` wrote five entries

@@ -30,6 +30,7 @@ pub fn spawn(host: Arc<Host>, shutdown: Arc<AtomicBool>) -> tokio::task::JoinHan
     tokio::spawn(
         async move {
             let histories = super::histories_for(&host);
+            load_received_histories(&host, &histories);
             while !shutdown.load(Ordering::Acquire) {
                 match crate::cloud::relay_base_url(&host.home) {
                     None => {
@@ -109,6 +110,9 @@ async fn one_turn(host: &Arc<Host>, histories: &HistoryMap, base: &str) -> Resul
     turn_error = pull_owned_shareables(host, histories, &client, &owned)
         .await
         .or(turn_error);
+    // Write leases come after the pull, so a closing records what the member
+    // streams hold now. A database with no lease length has none.
+    turn_error = super::lease_publish::renew_owned(host, histories, &owned).or(turn_error);
     // Phase c2: the personal database. Its spool goes up, and what the other
     // devices of this owner wrote is applied. Soft: a sticky personal error
     // must not put every turn on the failed wake path (#1846).
@@ -165,7 +169,7 @@ async fn upload_owned_logs(
 ) -> Option<String> {
     let mut turn_error = None;
     for database in owned.iter().filter(|database| database.kind != "personal") {
-        if let Some(err) = upload_log(client, host, &database.id).await {
+        if let Some(err) = upload_log(client, host, &database.id, false).await {
             turn_error = Some(err);
         }
     }
@@ -331,6 +335,33 @@ async fn pull_received_shares(host: &Host, histories: &HistoryMap, client: &Rela
                 %err,
                 "received stream pull failed"
             );
+        }
+        // A lease closing may have excluded direct changes of this device.
+        if let Err(err) = super::lease_resign::resign_excluded(host, share.id.as_str()) {
+            tracing::warn!(
+                target: "lastdbd::log_sync",
+                id = %share.id.as_str(),
+                %err,
+                "excluded changes could not be signed again as proposals"
+            );
+        }
+    }
+}
+
+/// Load the history of each received signed-log database from the log on disk,
+/// so a held write lease is known after a restart before any pull, and with no
+/// relay at all.
+fn load_received_histories(host: &Host, histories: &HistoryMap) {
+    for share in registered_share::list(&host.home).unwrap_or_default() {
+        if share.signed_log && mutation_log::DatabaseId::from_hex(share.id.as_str()).is_ok() {
+            if let Err(err) = histories.with_mut(share.id.as_str(), |_| ()) {
+                tracing::warn!(
+                    target: "lastdbd::log_sync",
+                    id = %share.id.as_str(),
+                    %err,
+                    "history could not be loaded from the log"
+                );
+            }
         }
     }
 }

@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::Arc;
 
 use crate::accept::{
-    evaluate_with_leases, position_of, stream_id_of, AcceptContext, AcceptOutcome, RejectReason,
+    evaluate, position_of, stream_id_of, AcceptContext, AcceptOutcome, RejectReason,
     StreamHead,
 };
 use crate::entry::SignedEntry;
@@ -257,7 +257,7 @@ impl VerifiedHistory {
         };
         self.require_sealed(
             entry,
-            evaluate_with_leases(entry, &ctx, &|lease, key| self.writer_under(lease, key)),
+            evaluate(entry, &ctx),
         )
     }
 

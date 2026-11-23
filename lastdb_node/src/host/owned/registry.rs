@@ -24,6 +24,7 @@ pub(crate) struct RegisteredDatabase {
     pub kind: &'static str,
     pub spec: Option<PublicationSpec>,
     pub native: bool,
+    pub lease_length_ms: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -83,6 +84,7 @@ fn accept_registered(row: &Entry, native: bool) -> Option<RegisteredDatabase> {
         kind: row.kind.as_str(),
         spec,
         native,
+        lease_length_ms: row.lease_length_ms,
     })
 }
 
@@ -267,6 +269,7 @@ fn fresh(owner_id: String) -> RegistryFile {
         name: Some("personal".to_owned()),
         kind: Kind::Personal,
         spec: None,
+        lease_length_ms: None,
     };
     RegistryFile {
         format: FORMAT,

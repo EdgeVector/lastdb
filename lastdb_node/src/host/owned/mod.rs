@@ -34,6 +34,10 @@ pub(crate) fn content_encryption_key(
     store::content_encryption_key(node_seed, id)
 }
 
+/// The shortest and longest lease length a publisher may choose.
+const LEASE_MIN_MS: u64 = 10_000;
+const LEASE_MAX_MS: u64 = 90 * 24 * 60 * 60 * 1000;
+
 tokio::task_local! {
     static ACTIVE_STORE: Arc<FoldDB>;
 }
@@ -63,6 +67,10 @@ pub(crate) struct Entry {
     pub kind: Kind,
     #[serde(default)]
     pub spec: Option<PublicationSpec>,
+    /// Length of the write leases this node signs for the database, in
+    /// milliseconds. Absent means the database has no leases.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lease_length_ms: Option<u64>,
 }
 
 impl Entry {
@@ -83,6 +91,7 @@ pub(crate) enum ResolvedStore {
 pub(crate) enum OwnedError {
     InvalidName,
     InvalidSpec,
+    InvalidLeaseLength,
     AlreadyRegistered,
     NotOwned,
     Unavailable,
@@ -93,6 +102,10 @@ impl OwnedError {
         match self {
             Self::InvalidName => (400, "invalid database name"),
             Self::InvalidSpec => (400, "invalid spec binding"),
+            Self::InvalidLeaseLength => (
+                400,
+                "the lease length must be between 10 seconds and 90 days",
+            ),
             Self::AlreadyRegistered => (409, "database name is already registered"),
             Self::NotOwned => (404, "database is not registered"),
             Self::Unavailable => (503, "database registry is unavailable"),
@@ -205,6 +218,35 @@ impl Tables {
                 state.owned[index].spec = previous;
             }
             tracing::warn!(error = %error, "owned database spec binding was not saved");
+            return Err(OwnedError::Unavailable);
+        }
+        Ok(state.owned[index].clone())
+    }
+
+    /// Set or clear the lease length of a shareable database this node owns.
+    pub(crate) fn set_lease_length(
+        &self,
+        home: &Path,
+        id: &str,
+        length_ms: Option<u64>,
+    ) -> Result<Entry, OwnedError> {
+        if length_ms.is_some_and(|length| !(LEASE_MIN_MS..=LEASE_MAX_MS).contains(&length)) {
+            return Err(OwnedError::InvalidLeaseLength);
+        }
+        let mut state = self.write()?;
+        let index = state
+            .owned
+            .iter()
+            .position(|entry| entry.id == id && entry.kind == Kind::Shareable)
+            .ok_or(OwnedError::NotOwned)?;
+        let previous = state.owned[index].lease_length_ms;
+        state.owned[index].lease_length_ms = length_ms;
+        let file = snapshot(&state);
+        if let Err(error) = registry::write(home, &file) {
+            if !error.renamed {
+                state.owned[index].lease_length_ms = previous;
+            }
+            tracing::warn!(error = %error, "owned database lease length was not saved");
             return Err(OwnedError::Unavailable);
         }
         Ok(state.owned[index].clone())

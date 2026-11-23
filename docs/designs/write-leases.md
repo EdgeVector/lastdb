@@ -1,6 +1,6 @@
 # Design: write leases, one per database
 
-Date: 2026-11-22. Author: Claude, for Tom. Status: approved in direction by Tom on 2026-11-22. Tom said to build it on 2026-11-23. The entry kind and the counting rule are built (section 13); the node is built after them.
+Date: 2026-11-22. Author: Claude, for Tom. Status: approved in direction by Tom on 2026-11-22. Tom said to build it on 2026-11-23. The entry kind, the counting rule and the node are built (sections 13 and 14).
 
 What he approved: timed leases with no emergency revoke, a length the publisher chooses, one lease for the whole database (membership stays as grant entries), and a node that keeps the lease on disk and decides each write locally, without asking the relay, until the lease is close to its end.
 
@@ -222,9 +222,50 @@ Where this document left a detail open, the build chose the simplest thing.
 7. **`closed` size.** At most 65535 streams, strictly ascending by node key and device id.
 8. **Expiry is not checked by nodes.** Expiry binds honest signers; a node never reads a
    clock to decide whether an entry counts.
-9. **The relay and a reduced writer.** The relay gates a `write` member's direct entries
-   on its current role, as for every deposit. A writer whose role was reduced cannot
-   deposit direct entries after the reduction, so an entry it signed under the earlier
-   lease and did not upload before the reduction never reaches the relay. This is stricter
-   than section 7 ("Nothing is taken back"). Whether the relay should admit it until the
-   lease is closed needs Tom's word; the relay would then have to read leases.
+9. **The relay and a reduced writer.** Tom decided on 2026-11-23: a member that may deposit
+   at all (`write` or `submit`) may deposit proposals and direct data entries on its own
+   stream, and nodes alone decide what counts. Bundles and file uploads stay with `write`.
+   `read` and removed members deposit nothing. A writer reduced to `submit` therefore uploads
+   the direct entries it signed before the reduction, and the counting rule decides.
+10. **An entry no lease covers does not stall its stream.** A direct entry of a member that holds
+    `submit` or `write` joins its stream even when it cites no lease, cites more than one, or
+    names a lease that does not cover the member. It is excluded and writes nothing, so the
+    entries after it (proposals) are read and decided. A key with no such role is still rejected.
+
+## 14. The node (2026-11-23)
+
+1. **Setting.** The lease length of a database is `lease_length_ms` in the owned database
+   registry entry (`databases/registry.json`), between 10 seconds and 90 days. A database with no
+   length has no leases and behaves as before. Set and read: owner socket
+   `POST /api/databases/{id}/lease` (`{}` reads, `{"length_ms": N}` sets, `{"length_ms": null}`
+   clears); `databases` extension actions `lease` and `lease_length`; CLI
+   `lastdb share lease <db> [--length 24h | --clear]`. A cleared length stops new leases and
+   a signed lease runs to its end. There is no call to end a lease early.
+2. **Signing.** After each pull of an owned database, the publisher node signs a lease when none
+   exists, when half of the newest is left, and once for each new grant tip when a member is a
+   writer the newest lease does not cover or a covered member is no longer a writer. A lease
+   expires one length after signing and may be closed half a length after that. Its `closed`
+   list comes from `closing_streams`. Two devices of the publisher that both have a length set
+   may sign together: both leases are valid, a member names the newest, and the earlier
+   position closes, so the second changes no result.
+3. **Member decision.** A node signs a direct entry only when its current role is `write`, the
+   newest lease it holds covers it, and its clock is before `expires_at_ms` less a margin. The
+   margin is a tenth of the lease length (expires minus authored), at most five minutes. The
+   entry cites that lease in `seen_heads`. The node asks no relay, and rebuilds the history from
+   its log at start, so the lease works after a restart and offline. A write the lease does not
+   cover is refused 403 `a received database is read only`, as before.
+4. **After a reduction.** A node stops signing direct entries when it learns of the reduction,
+   not at the lease's end, because the relay takes direct entries from a current depositor only.
+   Entries signed earlier are uploaded and counted by the rule.
+5. **Excluded entries.** After a pull, each excluded direct entry of this device is signed
+   again as a proposal (`create`, `replace` or `delete` against the record state the history now
+   holds), once, with an id made from the entry hash. A record with no remaining write is
+   removed from the store.
+6. **A refused member.** When the relay answers 403 to a member's append (a member reduced to
+   `read` or removed, holding unsent entries), the database's sync status
+   (`cloud_sync.databases.<id>.upload.last_error`) says which entry was refused and that later
+   entries wait behind it. The node does not fail its turn, tries again when the grants or
+   leases change and otherwise every 30 seconds, and keeps pulling and syncing other databases.
+7. **Status.** `selfAccess.lease` in the database list, and the `lease` action, give
+   `entryHash`, `authoredAtMs`, `expiresAtMs`, `closesAtMs`, `covers`, `directWrites` and
+   `directWritesUntilMs`.
