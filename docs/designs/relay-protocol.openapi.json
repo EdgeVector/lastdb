@@ -8,7 +8,7 @@
   "paths": {
     "/relay/v1/log/append": {
       "post": {
-        "summary": "Append signed log entries (append-only, never trimmed)",
+        "summary": "Append signed log entries (append-only; log/trim drops what a snapshot covers)",
         "parameters": [
           {
             "$ref": "#/components/parameters/NodeKey"
@@ -317,7 +317,25 @@
               }
             }
           },
-          "403": {
+          "410": {
+          "description": "the entries from from_seq were dropped by a trim after a snapshot; restore from the snapshot",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Error"
+              },
+              "examples": {
+                "trimmed": {
+                  "value": {
+                    "code": "trimmed",
+                    "field": "from_seq"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "403": {
             "description": "no current grant for this node_key / role",
             "content": {
               "application/json": {
@@ -511,6 +529,193 @@
           }
         ],
         "description": "Requires nodeSignature. Allowed exactly when an all-devices log/read of the same writer_key is allowed (the same check decides both): a current read grant, the publisher, or grant#any/read. A caller with no grant, and a revoked member, get 403 forbidden. A writer with no stream gets an empty list, not an error. head_seq is the contiguous head: the highest writer_seq such that every sequence number from 1 up to it is stored on that stream; entries stored beyond a gap do not count until the gap is filled. head_hash is the entry hash of that entry. A stream whose seq 1 is not stored is not listed."
+      }
+    },
+    "/relay/v1/log/trim": {
+      "post": {
+        "summary": "Drop the entries that a snapshot covers (owner, personal database)",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/NodeKey"
+          },
+          {
+            "$ref": "#/components/parameters/DatabaseId"
+          },
+          {
+            "$ref": "#/components/parameters/DeviceId"
+          },
+          {
+            "$ref": "#/components/parameters/IssuedAt"
+          },
+          {
+            "$ref": "#/components/parameters/Nonce"
+          },
+          {
+            "$ref": "#/components/parameters/Signature"
+          },
+          {
+            "$ref": "#/components/parameters/RelayProtocol"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LogTrimBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogTrimResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "request auth",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "quota / rate limit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "rate_limited": {
+                    "value": {
+                      "code": "rate_limited",
+                      "field": "quota"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "unknown or service error; retry",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "unavailable": {
+                    "value": {
+                      "code": "unavailable",
+                      "field": "provider.dynamo"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "arg paths / grants.any.role / batch.response, entries.signature, incorporated_from",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "invalid_request": {
+                    "value": {
+                      "code": "invalid_request",
+                      "field": "example"
+                    }
+                  },
+                  "batch_too_large": {
+                    "value": {
+                      "code": "batch_too_large",
+                      "field": "example"
+                    }
+                  },
+                  "grants_any_role": {
+                    "summary": "any grantee must be read",
+                    "value": {
+                      "code": "invalid_request",
+                      "field": "grants.any.role"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "426": {
+            "description": "request.protocol",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "upgrade_required": {
+                    "value": {
+                      "code": "upgrade_required",
+                      "field": "example"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+          "description": "the named snapshot entry is not stored",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Error"
+              },
+              "examples": {
+                "not_found": {
+                  "value": {
+                    "code": "not_found",
+                    "field": "writer_seq"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "403": {
+            "description": "caller is not the publisher (field publisher), or an entry that would be dropped is not sealed (field namespace)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "forbidden": {
+                    "value": {
+                      "code": "forbidden",
+                      "field": "publisher"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "nodeSignature": []
+          }
+        ],
+        "description": "Requires nodeSignature from the publisher. Names one snapshot entry on the snapshot stream. The relay reads that stored entry, checks its signature, and drops the entries up to each stream position in its through list, and the snapshot entries before it. It never drops a blob. Positions come only from the stored entry. A call does a bounded amount of work; repeat until done is true. Only sealed data and schema entries and snapshot entries are dropped."
       }
     },
     "/relay/v1/blob/put": {
@@ -962,6 +1167,7 @@
               "conflict",
               "rate_limited",
               "upgrade_required",
+              "trimmed",
               "batch_too_large",
               "payment_required",
               "unavailable"
@@ -1280,6 +1486,58 @@
             "items": {
               "$ref": "#/components/schemas/StreamHead"
             }
+          }
+        }
+      },
+      "LogTrimBody": {
+        "type": "object",
+        "required": [
+          "database_id",
+          "device_id",
+          "writer_seq"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "database_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "device_id": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64,
+            "description": "Hex32 id of the snapshot stream"
+          },
+          "writer_seq": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Sequence number of the snapshot entry whose positions are dropped. Snapshot entries before it are dropped too; it and newer ones stay."
+          }
+        }
+      },
+      "LogTrimResult": {
+        "type": "object",
+        "required": [
+          "done",
+          "entries_deleted"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "done": {
+            "type": "boolean",
+            "description": "False when the call stopped at its work limit. Call again."
+          },
+          "entries_deleted": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "released_bytes": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Stored bytes subtracted from the publisher's quota counter by this call (Exemem). The reference relay has no quota and omits it."
           }
         }
       },

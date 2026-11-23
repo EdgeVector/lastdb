@@ -33,6 +33,15 @@ as its own stream and applies the other streams through the store's last-writer 
     home reports the snapshot it installed. A relay that refuses a file over its limit (as Exemem
     does, HTTP 400 `invalid_request` on `bytes`) gets one try, a report that names the file and its
     size, and no loop; entries still upload.
+16. The relay drops what a snapshot covers (`log/trim`, called by the node after each snapshot for the
+    second newest) and still restores. After two snapshots the relay holds no entry at or before the
+    positions of the older one, on any stream, and keeps the birth, both snapshots and what follows.
+    A device that stopped before those positions is told it is behind and applies nothing. A restore
+    from the phrase installs the newest snapshot, replays only the entries after it, and equals A key
+    by key, also after the relay restarts. A late repeat of an append below the floor is answered as a duplicate, not stored, and a
+    read there is 410. A third snapshot drops the first snapshot entry and no
+    blob (its manifest and files stay), and a restore from the second and from the third snapshot each equal A. A, B and F are never told they
+    are behind.
 17. A relay answer that says try again is tried again. The first `log/streams` request of a relay gets
     HTTP 429 `rate_limited` (`provider.dynamo.conflict`, as when two transactions collide): a running
     daemon and a restore still succeed, and each request signs again. A quota refusal (`quota.bytes`)
@@ -65,6 +74,7 @@ from harness import append_step_summary  # noqa: E402
 from personal_proof_load import idle_turn_reads_nothing, kill_under_load, scale  # noqa: E402
 from personal_proof_deployed import prove_deployed, render  # noqa: E402
 from personal_proof_nodes import DELTA, DeployedRelay, Device, Relay, converged, prove_hidden, require, wait  # noqa: E402
+from personal_proof_trim import trimmed_relay_restores  # noqa: E402
 from personal_proof_status import prove_none_yet, refused_snapshot, RELAY_LIMIT_BYTES  # noqa: E402
 from personal_proof_retries import prove_retries  # noqa: E402
 from personal_proof_uplink import prove_uplink  # noqa: E402
@@ -125,6 +135,7 @@ def prove(relay, relay2, relay3, relay4, a, b, c, d, e, f, g, h, j, k, m, n, p, 
     report["restore_killed"] = kill_the_restore(g, phrase, a, state, folders, expected)
     report["second_snapshot"] = second_snapshot(relay, a, b, f, h, phrase, state, folders, expected)
     exchange_writes(relay, a, f, state, folders, expected)
+    report["trim"] = trimmed_relay_restores(relay, relay2, a, b, c, f, g, phrase, state, folders, expected)
     # The relay that refuses a large blob, with a home of its own.
     k.init()
     k.start()

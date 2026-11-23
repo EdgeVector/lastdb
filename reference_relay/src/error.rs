@@ -39,6 +39,11 @@ impl ApiError {
         Self::new(StatusCode::TOO_MANY_REQUESTS, "rate_limited", field)
     }
 
+    /// The entries asked for were dropped by a trim after a snapshot named them.
+    pub(crate) fn trimmed(field: impl Into<String>) -> Self {
+        Self::new(StatusCode::GONE, "trimmed", field)
+    }
+
     pub(crate) fn batch_too_large(field: impl Into<String>) -> Self {
         Self::new(StatusCode::BAD_REQUEST, "batch_too_large", field)
     }

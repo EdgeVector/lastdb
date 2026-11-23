@@ -15,6 +15,9 @@
 //! 3. Sign a `snapshot` entry on the snapshot stream and append it. Only now does
 //!    the relay name the snapshot. A file or manifest that is on the relay without
 //!    such an entry is unused and harmless.
+//! 4. Ask the relay to drop what the second newest snapshot covers (`trim_covered`). The relay
+//!    keeps the two newest snapshots, so a restore from either still finds every entry it
+//!    reads, and a failed or unknown trim only leaves the relay larger.
 //!
 //! The files are encrypted at rest by the store (the keys come from the node
 //! seed), so they are uploaded as they are. The relay sees file names, lengths
@@ -45,6 +48,10 @@ use crate::profile::private_fs as disk;
 /// A routine snapshot is taken once this many entries have been signed on this
 /// device's stream since its last snapshot. This is the one place the number is set.
 pub(super) const AUTO_SNAPSHOT_ENTRIES: u64 = 25_000;
+
+/// Calls of one trim. The relay does a bounded amount of work in a call and says whether
+/// it is done, so a large backlog takes several calls. What is left goes on at the next snapshot.
+const TRIM_CALLS: usize = 64;
 
 enum Outcome {
     /// A write is not yet on the relay or not yet settled. Try again next turn.
@@ -221,7 +228,35 @@ async fn publish(ctx: &Ctx<'_>, client: &RelayClient, first: bool) -> Result<Out
             device: ctx.identity.device_id,
         },
     );
+    trim_covered(ctx, client, report.snapshot_seq).await;
     Ok(Outcome::Done(report))
+}
+
+/// Keep the two newest snapshots on the relay and drop what the older of them covers: the
+/// entries up to its positions and the snapshot entries before it. It never drops a file or a
+/// manifest. The relay reads that snapshot entry itself and checks it. A failure is
+/// logged and not an error of the snapshot: the snapshot is already named, nothing was lost,
+/// and the next snapshot asks again. A relay without the route answers 404, which is the same.
+async fn trim_covered(ctx: &Ctx<'_>, client: &RelayClient, newest: u64) {
+    let Some(basis) = newest.checked_sub(1).filter(|basis| *basis >= 1) else {
+        return;
+    };
+    for _ in 0..TRIM_CALLS {
+        match client
+            .trim(&ctx.database_id, &ctx.snapshot_device_hex, basis)
+            .await
+        {
+            Ok(true) => {
+                tracing::info!(target: "lastdbd::log_sync", basis, "the relay dropped what the snapshot covers");
+                return;
+            }
+            Ok(false) => {}
+            Err(error) => {
+                tracing::warn!(target: "lastdbd::log_sync", %error, "the relay could not drop what the snapshot covers");
+                return;
+            }
+        }
+    }
 }
 
 /// The stream positions of a cut, ascending by device id.

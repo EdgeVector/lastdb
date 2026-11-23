@@ -21,6 +21,7 @@ import time
 from personal_proof_nodes import (
     ALPHA, BETA, ENVELOPE_OVERHEAD, FIELDS, FILE_MARK, GAMMA, NAME_MARK, SCHEMAS, DeployedRelay, converged,
     create, delete, expect, replace, wait)
+from personal_proof_deployed_trim import after_trim, before_trim
 from personal_proof_snapshot import last_record, views, write_after
 from personal_proof_steps import gamma_create, gamma_replace, gamma_view
 from record_runs import RANGED, definition, require, system_seed
@@ -33,6 +34,10 @@ SKIPPED = (
     ("the relay holds one signed entry for each write, by listing its files",
      "the relay's storage cannot be listed; the spool, the confirmed position and a restore are checked instead"),
     ("no key, value, schema name or marker in any byte the relay stored", "the relay's stored bytes cannot be read"),
+    ("the relay holds no entry at or before the positions of the retained older snapshot, the floors, and "
+     " the publisher's quota counter after it",
+     "the relay's storage and the account's counter cannot be read; the snapshots of this run call `log/trim`, and "
+     "the restores that follow (D restores after two trims) are checked"),
     ("restore by full replay from a relay copy with no snapshot", "the relay cannot be copied"),
     ("a restore killed at several points", "kept to the reference relay run: it adds nothing about the relay"),
     ("a deleted record stays deleted when an older edit arrives after", "kept to the reference relay run"),
@@ -209,13 +214,15 @@ def exchange(a, c, state):
 
 # 7. A snapshot that uploads every file again ----------------------------------------------
 
-def snapshot_again(a, d, phrase, state, expected, folders):
+def snapshot_again(relay, a, d, phrase, state, expected, folders):
     """An incremental snapshot, then one that has forgotten the last: it puts every file again.
 
     The relay already holds each digest, answers `begin` with no upload, and the node counts it as stored.
     """
     wait("A to upload", a.synced_up, seconds=SYNC_SECONDS)
+    early = before_trim(relay, a)
     second = a.snapshot_now()
+    trimmed = after_trim(relay, a, early)
     require(second["snapshot_seq"] == 2, f"second snapshot: {second!r}")
     (a.log_dir() / "snapshot-last.json").unlink()
     third = a.snapshot_now()
@@ -231,7 +238,7 @@ def snapshot_again(a, d, phrase, state, expected, folders):
     print(f"7. a snapshot that put all {third['files']} files again was accepted (the relay already held them); D "
           f"restored from snapshot 3 in {seconds}s, replayed nothing, {restored['devices']} device streams listed",
           flush=True)
-    return second, third, {"restore_seconds": seconds, "devices": restored["devices"]}
+    return second, third, {"restore_seconds": seconds, "devices": restored["devices"], "after_trim": trimmed}
 
 
 # Run --------------------------------------------------------------------------------------
@@ -264,7 +271,7 @@ def prove_deployed(relay, devices, out):
     report["snapshot"] = {**first, **extra, "tail_entries": tail}
     report["c_restore"] = step("C restores from the snapshot", c_restores, a, b, c, phrase, state, expected, folders, tail)
     step("C and A exchange writes", exchange, a, c, state)
-    second, third, report["d_restore"] = step("snapshot again, D restores", snapshot_again, a, d, phrase, state,
+    second, third, report["d_restore"] = step("snapshot again, D restores", snapshot_again, relay, a, d, phrase, state,
                                               expected, folders)
     report["second_snapshot"], report["third_snapshot"] = second, third
     report["entries_signed"] = sum(device.spool_state()["head"] for device in (a, b, c))

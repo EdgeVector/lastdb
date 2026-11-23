@@ -235,6 +235,11 @@ async fn run_turn(host: &Host, client: &RelayClient) -> Result<(), String> {
     // A failure of the sender must not stop the incoming side, or the reverse.
     let sent = outgoing::run(&ctx, client, &streams).await;
     let read = incoming::run(&ctx, client, &streams).await;
+    // What the read failed with is in the status, so a device that is behind history the relay
+    // dropped after a snapshot says so there and not only in a log that carries no text.
+    ctx.host
+        .cloud_sync
+        .record_download(&ctx.database_id, read.as_ref().err().cloned());
     // A snapshot is taken only after a clean turn: the spool is on the relay and
     // the streams are applied, so the cut holds exactly what the relay holds.
     let snapped = if sent.is_ok() && read.is_ok() {

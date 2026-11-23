@@ -20,6 +20,7 @@ mod presign;
 mod refusal;
 mod request_log;
 mod store;
+mod trim;
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -36,6 +37,7 @@ use tokio::sync::Mutex;
 use blob_http::{blob_bytes, blob_upload};
 use handlers::{blob_get, blob_put, log_append, log_read, log_streams, AppState};
 use store::Store;
+use trim::log_trim;
 
 /// Largest signed JSON request body (`log/append` carries up to 90 entries).
 /// Blob bodies are not buffered, so they are not bound by this limit; each
@@ -113,6 +115,7 @@ async fn run() -> Result<(), String> {
         .route("/relay/v1/log/append", post(log_append))
         .route("/relay/v1/log/read", post(log_read))
         .route("/relay/v1/log/streams", post(log_streams))
+        .route("/relay/v1/log/trim", post(log_trim))
         .route("/relay/v1/blob/put", post(blob_put))
         .route("/relay/v1/blob/get", post(blob_get))
         .route("/relay/v1/blob/upload/{token}", put(blob_upload))

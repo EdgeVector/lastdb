@@ -18,7 +18,9 @@ or wrongly refuses, **cannot** make honest nodes disagree. It can only
 withhold, which is the same as data loss, already handled by failover
 through the publisher-signed `relays` entry.
 
-**Logs are append-only and never trimmed** (except product erase).
+**Logs are append-only and never trimmed**, except product erase and the one trim
+below: the owner of a personal database asks the relay to drop the entries that a
+snapshot covers (`log.trim`).
 Grants/revokes exist only as signed chain entries. The relay’s grant index
 is **derived** from publisher-signed birth/grant entries it has verified
 for gating — never a side channel. People carries signed heads for
@@ -49,6 +51,7 @@ none of this.
 POST /relay/v1/log/append
 POST /relay/v1/log/read
 POST /relay/v1/log/streams
+POST /relay/v1/log/trim
 POST /relay/v1/blob/put
 POST /relay/v1/blob/get
 ```
@@ -134,7 +137,8 @@ Hex32 (64 lowercase hex, 32 bytes in `signed_bytes`), never a UUID. Entries:
 `birth`|`data`|`bundle`|`grant`|`schema`|`blob_delete`|`heads`|`relays`|`snapshot`.
 
 Read by `writer_key` from `from_seq` (default 1) or opaque delivery cursor
-(pagination only; never expires). Omit `device_id` to receive that writer's
+(pagination only; never expires). A read of one device stream from a seq that a
+trim dropped (see `log.trim`) answers 410 `trimmed`. Omit `device_id` to receive that writer's
 entries across every device; the cursor carries the device. With `device_id`,
 read that one device chain. Nodes run `AcceptEntry` on read (pending until
 `seen_heads` deps — and for `bundle`, a valid blob — arrive).
@@ -167,6 +171,61 @@ body and response; errors as in the table below (401 bad signature, 403 no
 current read grant or revoked, 400 `invalid_request` for a malformed
 `database_id` or `writer_key`, 426 protocol); the heads must be contiguous
 heads as defined here, and answering must not require reading every entry.
+
+### `log.trim`
+
+The owner of a **personal database** (every data and schema entry carries the
+namespace `sealed`, one owner, no grants) asks the relay to drop what a snapshot
+covers, so the relay does not keep a history that a snapshot already holds.
+
+Request `{ "database_id", "device_id", "writer_seq" }`: the snapshot stream and the
+sequence number of one `snapshot` entry on it. Response
+`{ "done", "entries_deleted" }` (Exemem adds `released_bytes`).
+A call does a bounded amount of work and answers `done: false` when more is left;
+the caller repeats. A repeat is safe at any point.
+
+- **Who.** Only the publisher's node key (403 `forbidden`, field `publisher`).
+- **What the relay trusts.** Nothing in the request but the name of the entry. It reads
+  that stored entry, checks that it is a `snapshot` entry of the publisher at that
+  position, verifies its signature, and takes every position from its `through`
+  list. The entry stored for a position must hash to the `entry_hash` that the
+  snapshot names, or the call fails with 400 `through` and drops nothing from that
+  stream. A snapshot that names a position beyond what the relay holds fails the
+  same way.
+- **What goes.** For each stream in `through`: the entries from the first stored one
+  up to the position. The snapshot entries before the named one. **Nothing else: a
+  trim never drops a blob.** The manifests and files of a dropped snapshot entry stay
+  on the relay (and stay billed); collecting them is a later step.
+- **What stays.** The per-stream head (so `log.streams` and the gapless append are
+  unchanged; the relay keeps the last dropped sequence number and its hash as a
+  floor), the `birth` entry, the named snapshot and the newer ones with their
+  files, and every entry after a position.
+- **Only a personal database.** An entry that would go and is not a sealed `data` or
+  `schema` entry (or, on the snapshot stream, a `snapshot` entry) stops the call
+  with 403 `forbidden`, field `namespace`. A shared database, whose members read
+  the publisher's streams from the start, is never trimmed.
+- **A reader behind the trim.** A `log.read` of one device stream that starts at or
+  below the floor answers 410 `trimmed` (field
+  `from_seq`). The node does not read around it: it reports that it is behind the
+  history the relay dropped and that the database must be restored into a new
+  home. A read that starts above the floor, a restore from a retained snapshot, and a
+  device that is already past the positions see no difference. A read of all devices
+  of a writer returns the entries that are stored.
+- **A late repeat of an append.** `log.append` of an entry at or below a stream's floor is
+  answered as a duplicate and stored nowhere, and not charged: the floor is part of append
+  admission (Exemem: a condition in the same transaction as the write; the reference relay:
+  the entry is taken back when the floor is found at or above it). The entry was on the
+  relay, because a floor is only set from stored entries. A read there is 410 whether or not
+  an item exists.
+- **Billing (Exemem).** The stored-bytes counter of the publisher goes down by the
+  stored length of exactly the entries deleted, in the same transaction
+  as each delete, so a repeated or concurrent call subtracts nothing twice.
+- **Old relays and old nodes.** A relay without the route answers 404, which the node
+  logs and ignores. A node that never calls it leaves the relay as it was.
+
+The node calls it once after each snapshot it publishes, naming the **second newest**
+snapshot, so the relay always keeps the two newest snapshots with everything after
+the older one's positions. See `signed-log-on-local-machinery.md`, section 14.
 
 ### The `snapshot` entry
 
@@ -290,7 +349,7 @@ the grant index from verified publisher birth/grant entries in the logs.
 | Reference relay | In `lastdb` for CI; writes one stderr line per request (route, status, entries returned by `log/read`) |
 | Public `grant#any` reads | Any **signed** caller may read when `grant#any`/`read` is active |
 | Relay list | Publisher-signed `relays` + People |
-| Log GC | Never (product erase via delete/deactivate only) |
+| Log GC | Never, except product erase via delete/deactivate and `log.trim` of a personal database |
 | Blob GC | After valid chain `blob_delete`, or product erase |
 | Bundle blob max | 64 MiB / 10_000 changes (node-enforced) |
 | Download | Presigned URL only |
@@ -307,7 +366,8 @@ the grant index from verified publisher birth/grant entries in the logs.
 | 400 | `batch_too_large` | batch caps |
 | 401 | `unauthorized` | bad or missing request signature |
 | 403 | `forbidden` | no current grant for this `node_key` / role |
-| 404 | `not_found` | missing log/blob (incl. after `blob_delete`) |
+| 404 | `not_found` | missing log/blob (incl. after `blob_delete`); `log.trim` names no stored snapshot entry |
+| 410 | `trimmed` | `log.read` starts at an entry that `log.trim` dropped |
 | 426 | `upgrade_required` | `request.protocol` |
 | 429 | `rate_limited` | quota / rate limits (publisher-billed) |
 | 500 | `unavailable` | unknown or service Dynamo errors; retry (same as 429) |

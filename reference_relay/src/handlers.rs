@@ -69,7 +69,7 @@ pub(crate) async fn log_append(
     body: Bytes,
 ) -> ApiResult<Json<Value>> {
     let verified = auth::verify_request(&headers, "/relay/v1/log/append", &body)?;
-    let req: LogAppendBody = parse_body(&body)?;
+    let req: LogAppendBody = parse_body(&body, crate::MAX_JSON_BODY_BYTES)?;
     verified.check_database(&req.database_id)?;
     let caller = verified.node_key;
     let db = gate::parse_id(&req.database_id, "database_id")?;
@@ -90,7 +90,7 @@ pub(crate) async fn log_read(
     body: Bytes,
 ) -> ApiResult<Response> {
     let verified = auth::verify_request(&headers, "/relay/v1/log/read", &body)?;
-    let req: LogReadBody = parse_body(&body)?;
+    let req: LogReadBody = parse_body(&body, SMALL_BODY_BYTES)?;
     verified.check_database(&req.database_id)?;
     let caller = verified.node_key;
     let db = gate::parse_id(&req.database_id, "database_id")?;
@@ -152,7 +152,7 @@ pub(crate) async fn log_streams(
     body: Bytes,
 ) -> ApiResult<Json<Value>> {
     let verified = auth::verify_request(&headers, "/relay/v1/log/streams", &body)?;
-    let req: LogStreamsBody = parse_body(&body)?;
+    let req: LogStreamsBody = parse_body(&body, SMALL_BODY_BYTES)?;
     verified.check_database(&req.database_id)?;
     let caller = verified.node_key;
     let db = gate::parse_id(&req.database_id, "database_id")?;
@@ -181,7 +181,7 @@ pub(crate) async fn blob_put(
     body: Bytes,
 ) -> ApiResult<Json<Value>> {
     let verified = auth::verify_request(&headers, "/relay/v1/blob/put", &body)?;
-    let req: BlobPutBody = parse_body(&body)?;
+    let req: BlobPutBody = parse_body(&body, SMALL_BODY_BYTES)?;
     verified.check_database(&req.database_id)?;
     let caller = verified.node_key;
     let db = gate::parse_id(&req.database_id, "database_id")?;
@@ -226,7 +226,7 @@ pub(crate) async fn blob_get(
     body: Bytes,
 ) -> ApiResult<Json<Value>> {
     let verified = auth::verify_request(&headers, "/relay/v1/blob/get", &body)?;
-    let req: BlobGetBody = parse_body(&body)?;
+    let req: BlobGetBody = parse_body(&body, SMALL_BODY_BYTES)?;
     verified.check_database(&req.database_id)?;
     let caller = verified.node_key;
     let db = gate::parse_id(&req.database_id, "database_id")?;
@@ -304,10 +304,22 @@ fn read_position(req: &LogReadBody) -> ApiResult<ReadPosition> {
     }
 }
 
+/// The most bytes a request body may have when it carries no entries: a database id, a key,
+/// a sequence number or a digest. `log/append` carries up to 90 entries and is bound by
+/// the limit of the server instead.
+pub(crate) const SMALL_BODY_BYTES: usize = 64 * 1024;
+
 /// Decode a request body whose signature was already verified. Every handler
 /// decodes through here, so there is one place that turns request bytes into a
-/// typed body.
-fn parse_body<T: serde::de::DeserializeOwned>(body: &[u8]) -> ApiResult<T> {
+/// typed body. The length is checked first, so a body larger than the route can
+/// carry is refused before it is parsed.
+pub(crate) fn parse_body<T: serde::de::DeserializeOwned>(
+    body: &[u8],
+    limit: usize,
+) -> ApiResult<T> {
+    if body.len() > limit {
+        return Err(ApiError::invalid("body"));
+    }
     serde_json::from_slice(body).map_err(|_| ApiError::invalid("body"))
 }
 
