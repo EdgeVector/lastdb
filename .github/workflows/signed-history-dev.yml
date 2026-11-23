@@ -419,7 +419,7 @@ jobs:
           set -euo pipefail
           cargo build --locked -p reference_relay --bin reference_relay
           cargo build --locked -p lastdb_node --bin lastdb --bin lastdbd
-      - name: Write leases: publisher, two writers and a reader on real nodes
+      - name: Write leases, publisher, two writers and a reader on real nodes
         run: |
           set -euo pipefail
           OUT="${RUNNER_TEMP}/lease-nodes"
