@@ -1,6 +1,6 @@
 //! Relay-side access gating from the grant index (see `docs/designs/relay-protocol.md`).
 
-use mutation_log::{DatabaseId, Hex32, NodeKey, Role, SignedEntry, StreamKind};
+use mutation_log::{DatabaseId, Hex32, NodeKey, Role, SignedEntry};
 use serde_json::Value;
 
 use crate::error::{ApiError, ApiResult};
@@ -138,15 +138,14 @@ fn authorize_member_entry(
         return Err(ApiError::forbidden("entries.node_key"));
     }
     let role = index.role_of(db, caller);
-    // A member holding submit or write may deposit proposal data on its own
-    // stream. A member holding write may also deposit direct data and bundles:
-    // the nodes decide whether a lease covers them. Lease entries and the other
-    // kinds are the publisher's alone.
+    // The relay is a mailbox. A member holding submit or write may deposit
+    // data on its own stream, proposals and direct entries alike: the nodes
+    // decide what counts, and a direct entry no lease covers is stored and
+    // ignored. Bundles are for a member holding write. Lease entries and the
+    // other kinds are the publisher's alone.
     let allowed = match entry {
-        SignedEntry::Data { body, .. } if body.stream == StreamKind::Proposal => {
-            matches!(role, Some(Role::Write | Role::Submit))
-        }
-        SignedEntry::Data { .. } | SignedEntry::Bundle { .. } => role == Some(Role::Write),
+        SignedEntry::Data { .. } => matches!(role, Some(Role::Write | Role::Submit)),
+        SignedEntry::Bundle { .. } => role == Some(Role::Write),
         _ => false,
     };
     if allowed {

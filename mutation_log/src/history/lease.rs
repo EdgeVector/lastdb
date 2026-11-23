@@ -160,8 +160,12 @@ impl VerifiedHistory {
 
     /// Does an entry of `stream` at `writer_seq` that names `lease` count?
     /// It does unless the lease is closed and the entry lies past the closing
-    /// point. A closing entry that does not list the stream gives point 0.
+    /// point. A closing entry that does not list the stream gives point 0. An
+    /// entry of a member that did not hold `write` as of the lease never counts.
     fn entry_counts(&self, lease: &EntryHash, stream: StreamId, writer_seq: u64) -> bool {
+        if !self.writer_under(lease, &stream.node_key) {
+            return false;
+        }
         let Some(at) = self.lease_by_hash.get(lease) else {
             return true;
         };
@@ -177,34 +181,28 @@ impl VerifiedHistory {
         }
     }
 
-    /// Record a member's accepted direct entry under the lease it names. An
-    /// entry that cites no lease, cites more than one, or names a lease that
-    /// does not cover its signer joins the stream and does not count.
-    pub(super) fn note_member_direct(&mut self, header: &EntryHeader, hash: EntryHash) {
-        let named: Vec<EntryHash> = header
-            .seen_heads
-            .iter()
-            .filter(|seen| self.lease_by_hash.contains_key(*seen))
+    /// The accepted lease that `seen` cites.
+    fn lease_named(&self, seen: &[EntryHash]) -> Option<EntryHash> {
+        seen.iter()
+            .find(|hash| self.lease_by_hash.contains_key(*hash))
             .copied()
-            .collect();
-        let [lease] = named.as_slice() else {
-            self.excluded.insert(hash);
+    }
+
+    /// Record a member's accepted direct entry under the lease it names.
+    pub(super) fn note_member_direct(&mut self, header: &EntryHeader, hash: EntryHash) {
+        let Some(lease) = self.lease_named(&header.seen_heads) else {
             return;
         };
-        if !self.writer_under(lease, &header.node_key) {
-            self.excluded.insert(hash);
-            return;
-        }
         let stream = StreamId {
             node_key: header.node_key,
             device_id: header.device_id,
         };
-        self.under_lease.entry(*lease).or_default().push(Under {
+        self.under_lease.entry(lease).or_default().push(Under {
             hash,
             stream,
             writer_seq: header.writer_seq,
         });
-        if !self.entry_counts(lease, stream, header.writer_seq) {
+        if !self.entry_counts(&lease, stream, header.writer_seq) {
             self.excluded.insert(hash);
         }
     }

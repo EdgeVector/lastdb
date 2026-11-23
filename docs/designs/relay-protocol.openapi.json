@@ -172,7 +172,7 @@
             "nodeSignature": []
           }
         ],
-        "description": "Requires nodeSignature. Accepted for the publisher, or for a current submit or write grant when the entries are proposal data on the caller's own stream, and for a current write grant when the entries are direct data or bundles on the caller's own stream (the nodes decide whether a lease covers them); the publisher kinds, lease among them, are the publisher's alone. Revoke cuts off new appends immediately (403). Spam/cost gate only \u2014 not AcceptEntry."
+        "description": "Requires nodeSignature. Accepted for the publisher, or for a current submit or write grant when the entries are data (proposal or direct) on the caller's own stream (the nodes decide whether a lease covers a direct entry; an uncovered one is stored and ignored), and for a current write grant when the entries are bundles on the caller's own stream; the publisher kinds, lease among them, are the publisher's alone. Revoke cuts off new appends immediately (403). Spam/cost gate only \u2014 not AcceptEntry."
       }
     },
     "/relay/v1/log/read": {

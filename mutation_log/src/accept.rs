@@ -137,11 +137,21 @@ pub struct AcceptContext<'a> {
 
 /// Run AcceptEntry checks 1–6. Does not mutate S.
 ///
-/// A direct entry of a member that holds `submit` or `write` joins its stream.
-/// Whether it counts is the history's decision, from the lease it names (see
-/// [`crate::VerifiedHistory::is_excluded`]). Refusing it here would leave the
-/// later entries of the stream waiting for it.
+/// A direct entry of a member is refused here: leases live in a
+/// [`crate::VerifiedHistory`], which checks them through
+/// [`evaluate_with_leases`].
 pub fn evaluate(entry: &SignedEntry, ctx: &AcceptContext<'_>) -> AcceptOutcome {
+    evaluate_with_leases(entry, ctx, false)
+}
+
+/// [`evaluate`] for a history that holds leases (`leases_held`). Such a history
+/// takes a member's direct entry that names an accepted lease into its stream
+/// whatever the member's role: whether it counts is the history's counting rule.
+pub(crate) fn evaluate_with_leases(
+    entry: &SignedEntry,
+    ctx: &AcceptContext<'_>,
+    leases_held: bool,
+) -> AcceptOutcome {
     if let Err(err) = verify_entry_signature(entry) {
         return reject(RejectReason::Signature(err));
     }
@@ -176,7 +186,7 @@ pub fn evaluate(entry: &SignedEntry, ctx: &AcceptContext<'_>) -> AcceptOutcome {
             got: h.lamport,
         });
     }
-    if let Some(reason) = check_auth(entry, ctx) {
+    if let Some(reason) = check_auth(entry, ctx, leases_held) {
         return reject(reason);
     }
     if let SignedEntry::Bundle { body, .. } = entry {
@@ -273,7 +283,11 @@ fn lamport_floor(
     1 + l_prev.max(l_seen)
 }
 
-fn check_auth(entry: &SignedEntry, ctx: &AcceptContext<'_>) -> Option<RejectReason> {
+fn check_auth(
+    entry: &SignedEntry,
+    ctx: &AcceptContext<'_>,
+    leases_held: bool,
+) -> Option<RejectReason> {
     let h = entry.header();
     match entry.kind() {
         EntryKind::Birth => check_birth(entry, ctx),
@@ -294,7 +308,7 @@ fn check_auth(entry: &SignedEntry, ctx: &AcceptContext<'_>) -> Option<RejectReas
         },
         EntryKind::Data => match entry {
             SignedEntry::Data { body, .. } => {
-                authorize_data(entry, body, ctx.owner, ctx.grants, ctx.lookup)
+                authorize_data(entry, body, ctx.owner, ctx.grants, ctx.lookup, leases_held)
             }
             _ => Some(RejectReason::Malformed("data kind mismatch")),
         },

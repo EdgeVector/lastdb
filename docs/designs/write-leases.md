@@ -32,7 +32,7 @@ Exemem's check does not change. It keeps one row per member from the membership 
 | Role | Covered by a live lease | Not covered |
 |---|---|---|
 | `write` | Writes directly | Proposes. The publisher accepts a change to any record |
-| `submit` | (never covered) | Proposes. Creates records and changes the ones it created |
+| `submit` | (never covered) | Proposes. Creates records and changes the ones it created. A direct entry it signed earlier, as a writer, is stored and ignored |
 | `read` | (never covered) | Reads |
 
 Deliver, Share and Org stay presets of these roles in People.
@@ -97,7 +97,7 @@ The rule reads only signed entries. No node's clock takes part. When a lease is 
 
 ### The relay
 
-A member holding `write` may deposit direct data, bundles and proposals. A member holding `submit` may deposit proposals. The relay does not read lease entries.
+The relay is a mailbox (Tom, 2026-11-23). A member holding `write` or `submit` may deposit proposals and direct data on its own stream. A member holding `write` may also deposit bundles. The relay does not read lease entries. The nodes alone decide what counts, so a direct entry that no lease covers, such as one from a `submit` member, is stored and ignored. Section 13, item 9 gives the reason.
 
 ## 6. A day in the life
 
@@ -201,9 +201,10 @@ Where this document left a detail open, the build chose the simplest thing.
    The check is made when the member's entry is accepted. A grant of a second
    publisher device that arrives later with a lower position does not change an
    entry that was already accepted.
-3. **Accepted versus counting.** A direct entry of a member joins its stream when the
-   named lease is accepted and the member was `write` as of it. Whether it counts is a
-   separate fact, recomputed whenever a lease entry is accepted. An excluded entry stays
+3. **Accepted versus counting.** A direct entry of a member joins its stream when it
+   names exactly one accepted lease, whatever the member's role. Whether it counts is a
+   separate fact: it counts only when the member was `write` as of that lease and the lease
+   is not closed past it. The fact is recomputed whenever a lease entry is accepted. An excluded entry stays
    in its stream (the chain stays gapless) and writes nothing.
 4. **Closing.** A lease L is closed by the earliest later lease entry, in position
    order, whose `authored_at_ms` is at or after L's `closes_at_ms`. That entry's `closed`
@@ -222,15 +223,16 @@ Where this document left a detail open, the build chose the simplest thing.
 7. **`closed` size.** At most 65535 streams, strictly ascending by node key and device id.
 8. **Expiry is not checked by nodes.** Expiry binds honest signers; a node never reads a
    clock to decide whether an entry counts.
-9. **The relay and a reduced writer.** Tom decided on 2026-11-23: a member that may deposit
-   at all (`write` or `submit`) may deposit proposals and direct data entries on its own
-   stream, and nodes alone decide what counts. Bundles and file uploads stay with `write`.
-   `read` and removed members deposit nothing. A writer reduced to `submit` therefore uploads
-   the direct entries it signed before the reduction, and the counting rule decides.
-10. **An entry no lease covers does not stall its stream.** A direct entry of a member that holds
-    `submit` or `write` joins its stream even when it cites no lease, cites more than one, or
-    names a lease that does not cover the member. It is excluded and writes nothing, so the
-    entries after it (proposals) are read and decided. A key with no such role is still rejected.
+9. **The relay and a reduced writer (resolved, Tom, 2026-11-23).** The relay admits direct
+   `data` entries from `submit` members as well as from `write` members. A writer reduced to
+   `submit` may hold direct entries it signed under the earlier lease and did not upload. A
+   device stream has no gaps, so if the relay refused those entries (403), the writer's later
+   entries, its proposals, could never be deposited. The relay therefore does not read roles
+   for direct entries beyond "may deposit at all", and the nodes decide what counts. A direct
+   entry that the member's role as of the named lease does not cover is accepted into its
+   stream by `mutation_log` and never counts (it is in the excluded set), so it does not stop
+   the entries after it. Bundles and file uploads stay with `write`. `read`, revoked and
+   unknown callers deposit nothing, and `lease` stays the publisher's.
 
 ## 14. The node (2026-11-23)
 

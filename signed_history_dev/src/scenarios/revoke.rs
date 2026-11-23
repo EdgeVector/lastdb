@@ -1,17 +1,19 @@
 //! B. Write grant → proposal → incorporation / not accepted → on-chain revoke.
 //!
 //! A member with a write grant signs proposals. A proposal joins the member's
-//! chain and changes no record. A member-signed direct entry that names no lease
-//! joins the stream and counts for nothing, with or without a grant. Only the publisher's incorporation entry changes the
+//! chain and changes no record. A member-signed direct entry is rejected with
+//! or without a grant. Only the publisher's incorporation entry changes the
 //! record. After the revoke, the member's next proposal is rejected, on the
 //! same device and on a new one, and the relay returns 403 for its append.
 
-use mutation_log::{entry_hash, SignedEntry, StreamKind};
+use mutation_log::{SignedEntry, StreamKind};
 
 use super::fixture::{Fixture, KEY, NAMESPACE};
-use crate::device::{must_accept, random_device_id, DataWrite, Device};
+use crate::device::{random_device_id, DataWrite, Device};
 use crate::proposal::author_member_entry;
 use crate::relay::{RelayClient, RelayHandle};
+
+const DIRECT: &str = "must cite exactly one lease";
 
 pub async fn run(relay: &RelayHandle) -> Result<String, String> {
     let mut fx = Fixture::new()?;
@@ -49,27 +51,15 @@ pub async fn run(relay: &RelayHandle) -> Result<String, String> {
         .await?;
     reject_after_revoke(&mut fx, &db, relay).await?;
     fx.expect_record(Some(b"ok"))?;
-    Ok("proposal joins the chain and changes no record; member direct entry counts for nothing; record changes only by publisher incorporation; not accepted proposal leaves it unchanged; after revoke proposals are rejected and relay 403s the append".into())
+    Ok("proposal joins the chain and changes no record; member direct entry rejected; record changes only by publisher incorporation; not accepted proposal leaves it unchanged; after revoke proposals are rejected and relay 403s the append".into())
 }
 
-/// A member direct entry that names no lease joins the stream and counts for
-/// nothing. It is tried on a copy of the publisher's history, so the stream of
-/// the scenario goes on from the proposals.
+/// A member direct entry that names no lease is rejected by AcceptEntry. The
+/// relay would store it from a `write` member: it does not read leases.
 fn reject_direct(fx: &mut Fixture) -> Result<(), String> {
     for cite_grant in [true, false] {
         let direct = fx.author(StreamKind::Direct, cite_grant, KEY, b"sneak")?;
-        let hash = entry_hash(&direct).map_err(|e| e.to_string())?;
-        let mut probe = fx.owner_hist.clone();
-        must_accept(&mut probe, direct)?;
-        if !probe.is_excluded(&hash) {
-            return Err("a direct entry that names no lease counted".into());
-        }
-        if probe
-            .records()
-            .contains_key(&(NAMESPACE.to_owned(), KEY.to_owned()))
-        {
-            return Err("a direct entry that names no lease wrote a record".into());
-        }
+        fx.expect_malformed(direct, DIRECT)?;
     }
     fx.expect_record(None)
 }
