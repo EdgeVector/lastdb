@@ -3,6 +3,7 @@
 
 use std::collections::HashMap;
 
+use fold_db::fold_db_core::FoldDB;
 use fold_db::schema::types::{KeyValue, MutationType};
 use serde_json::Value;
 
@@ -11,28 +12,97 @@ use crate::host::Host;
 use crate::log_sync::{mirror_owned_write, request_wake, write_target, OwnedMutation};
 
 /// One write item's fields needed to author a signed `data` entry.
-pub(super) type SignedParts<'a> = (
-    &'a str,
-    &'a KeyValue,
-    MutationType,
-    Option<&'a HashMap<String, Value>>,
-);
+pub(super) struct SignedInput<'a> {
+    pub(super) schema: &'a str,
+    pub(super) key: &'a KeyValue,
+    pub(super) op: MutationType,
+    pub(super) record: Option<&'a HashMap<String, Value>>,
+    pub(super) alternates: &'a signed_history_materialize::Alternates,
+}
 
-/// Capture schema/key/fields for the signed-history mirror after FoldDB commits.
-pub(super) fn plan<'a>(items: impl IntoIterator<Item = SignedParts<'a>>) -> Vec<OwnedMutation> {
+/// Hold the per-database async write lock across commit + mirror for an owned
+/// shareable database so `incorporate::resolve_owned` cannot interleave.
+pub(super) async fn lock_owned_shared(
+    host: &Host,
+    selector: Option<&str>,
+) -> Option<tokio::sync::OwnedMutexGuard<()>> {
+    let selector = selector?;
+    let entry = crate::host::owned::find_shareable_database(&host.home, selector).ok()?;
+    let lock = crate::log_sync::histories_for(host).write_lock(&entry.id);
+    Some(lock.lock_owned().await)
+}
+
+/// True when `selector` names an owned shareable database or a received
+/// signed-log share.
+pub(super) fn is_shared_target(host: &Host, selector: Option<&str>) -> bool {
+    let Some(selector) = selector else {
+        return false;
+    };
+    if crate::host::owned::find_shareable_database(&host.home, selector).is_ok() {
+        return true;
+    }
+    matches!(
+        crate::registered_share::resolve(&host.home, selector),
+        Ok(Some(share)) if share.signed_log
+    )
+}
+
+/// Refuse features that signed-history shared databases cannot carry.
+pub(super) fn check_shared_item(
+    index: usize,
+    has_file: bool,
+    key: &KeyValue,
+) -> Result<(), HostError> {
+    if has_file {
+        return Err(super::bad("files are not supported in shared databases").at(index));
+    }
+    if key.range.is_some()
+        && key
+            .hash
+            .as_deref()
+            .is_some_and(|h| h.contains(mutation_log::RANGE_SEPARATOR))
+    {
+        return Err(super::bad("hash key cannot contain unit separator").at(index));
+    }
+    Ok(())
+}
+
+/// Capture canonical schema/key/fields/alternates for the signed-history mirror.
+pub(super) fn plan<'a>(
+    store: &FoldDB,
+    items: impl IntoIterator<Item = SignedInput<'a>>,
+) -> Vec<OwnedMutation> {
     items
         .into_iter()
-        .filter_map(|(schema, key, op, record)| {
-            let record_key =
-                mutation_log::join_record_key(key.hash.as_deref()?, key.range.as_deref())?;
-            let fields = record.map(|map| {
+        .filter_map(|item| {
+            let hash = item.key.hash.as_deref()?;
+            let record_key = signed_history_materialize::canonical_record_key(
+                store,
+                item.schema,
+                hash,
+                item.key.range.as_deref(),
+            )
+            .ok()
+            .or_else(|| mutation_log::join_record_key(hash, item.key.range.as_deref()))?;
+            let fields = item.record.map(|map| {
                 Value::Object(map.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
             });
+            let alternates = if item.op == MutationType::Delete {
+                signed_history_materialize::Alternates::new()
+            } else {
+                signed_history_materialize::resolve_alternates(
+                    store,
+                    item.schema,
+                    item.alternates.clone(),
+                )
+                .unwrap_or_else(|_| item.alternates.clone())
+            };
             Some(OwnedMutation {
-                schema: schema.to_owned(),
+                schema: item.schema.to_owned(),
                 record_key,
-                op,
+                op: item.op,
                 fields,
+                alternates,
             })
         })
         .collect()

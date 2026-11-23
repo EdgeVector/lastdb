@@ -6,26 +6,25 @@
 //! key may propose. The publisher decides each proposal once: it incorporates
 //! it, or signs that it is not accepted.
 
+mod ledger;
+
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
 
 use cloud_backup_protocol::Id;
-use mutation_log::{
-    author_data, data_record, EntryHash, NodeKey, Role, StreamKind, VerifiedHistory,
-};
-use serde::{Deserialize, Serialize};
+use mutation_log::{author_data, data_record, NodeKey, Role, StreamKind, VerifiedHistory};
 use serde_json::Value;
 use sha2::{Digest as _, Sha256};
+
+use ledger::{fits_ledger, submit_lock};
+pub(super) use ledger::{load_ledger, store_ledger, Submitted};
 
 use super::chain_author::{self, Target};
 use super::chain_error::ChainError;
 use crate::host::Host;
-use crate::profile::private_fs as disk;
 use crate::registered_share::{self, RegisteredShare};
 
 const BODY_MAX: usize = 64 * 1024;
 const NAMESPACE_MAX: usize = 128;
-const LEDGER_LIMIT: usize = 4 * 1024 * 1024;
 
 /// Share-write contribution failures, in the owner route's terms.
 #[derive(Debug)]
@@ -51,54 +50,18 @@ impl std::fmt::Display for ContributionError {
     }
 }
 
-#[derive(Serialize, Deserialize)]
-pub(super) struct Submitted {
-    pub(super) writer_seq: u64,
-    pub(super) entry_hash: EntryHash,
-    pub(super) body_sha256: String,
-}
-
-pub(super) type Ledger = BTreeMap<String, Submitted>;
-
-fn ledger_path(home: &Path, database_id: &str) -> PathBuf {
-    home.join("log-sync")
-        .join(database_id)
-        .join("proposals.json")
-}
-
-pub(super) fn load_ledger(home: &Path, database_id: &str) -> Result<Ledger, ContributionError> {
-    let path = ledger_path(home, database_id);
-    match disk::read_limited(&path, LEDGER_LIMIT) {
-        Ok(Some(bytes)) => {
-            serde_json::from_slice(&bytes).map_err(|_| ContributionError::Unavailable)
-        }
-        Ok(None) => Ok(Ledger::new()),
-        Err(_) => Err(ContributionError::Unavailable),
-    }
-}
-
-pub(super) fn store_ledger(
-    home: &Path,
-    database_id: &str,
-    ledger: &Ledger,
-) -> Result<(), ContributionError> {
-    let bytes = serde_json::to_vec(ledger).map_err(|_| ContributionError::Unavailable)?;
-    disk::write_private(&ledger_path(home, database_id), &bytes)
-        .map_err(|_| ContributionError::Unavailable)
-}
-
 struct Proposed {
     namespace: String,
+    hash: String,
+    range: Option<String>,
     record_key: String,
     mutation_type: String,
     expected: Value,
     record: Option<Value>,
+    alternates: signed_history_materialize::Alternates,
 }
 
-/// Map the owner submission document onto the history record convention:
-/// namespace is the schema name, key is the hash key (joined with the range
-/// key for a hash-range schema), value is the publisher
-/// decision envelope (`mutation_type`, `expected`, optional `record`).
+/// Map the owner submission document onto the history record convention.
 fn parse(body: &[u8]) -> Result<Proposed, ContributionError> {
     let Ok(Value::Object(doc)) = serde_json::from_slice::<Value>(body) else {
         return Err(ContributionError::Invalid);
@@ -128,21 +91,72 @@ fn parse(body: &[u8]) -> Result<Proposed, ContributionError> {
         .get("expected")
         .ok_or(ContributionError::Invalid)?
         .clone();
-    let record = if mutation_type == "delete" {
-        None
-    } else {
-        match doc.get("record") {
-            Some(record @ Value::Object(_)) => Some(record.clone()),
-            _ => return Err(ContributionError::Invalid),
+    let (record, alternates) = if mutation_type == "delete" {
+        if doc
+            .get("alternates")
+            .is_some_and(|v| !v.is_null() && v.as_object().is_none_or(|m| !m.is_empty()))
+        {
+            return Err(ContributionError::Invalid);
         }
+        (None, BTreeMap::new())
+    } else {
+        let Some(record @ Value::Object(_)) = doc.get("record") else {
+            return Err(ContributionError::Invalid);
+        };
+        let alts = match doc.get("alternates") {
+            None | Some(Value::Null) => BTreeMap::new(),
+            Some(val) => {
+                serde_json::from_value(val.clone()).map_err(|_| ContributionError::Invalid)?
+            }
+        };
+        (Some(record.clone()), alts)
     };
     Ok(Proposed {
         namespace,
+        hash,
+        range,
         record_key,
         mutation_type,
         expected,
         record,
+        alternates,
     })
+}
+
+async fn canonicalize_proposed(
+    host: &Host,
+    share: &RegisteredShare,
+    proposed: &mut Proposed,
+) -> Result<(), ContributionError> {
+    let id =
+        Id::try_from(share.id.as_str().to_owned()).map_err(|_| ContributionError::Unavailable)?;
+    let store = registered_share::receiver_store(host, &id)
+        .await
+        .map_err(|_| ContributionError::Unavailable)?;
+    let declared = store
+        .schema_manager()
+        .get_schema_metadata(&proposed.namespace)
+        .map_err(|_| ContributionError::Unavailable)?
+        .is_some();
+    if !declared {
+        return Ok(());
+    }
+    proposed.record_key = signed_history_materialize::canonical_record_key(
+        &store,
+        &proposed.namespace,
+        &proposed.hash,
+        proposed.range.as_deref(),
+    )
+    .map_err(|_| ContributionError::Invalid)?;
+    if proposed.mutation_type != "delete" {
+        proposed.alternates = signed_history_materialize::resolve_alternates(
+            &store,
+            &proposed.namespace,
+            std::mem::take(&mut proposed.alternates),
+        )
+        .map_err(|_| ContributionError::Invalid)?;
+    }
+    Ok(())
 }
 
 /// The publisher decision envelope that goes into the signed proposal.
@@ -156,6 +170,11 @@ fn envelope(proposed: &Proposed, expected: Value) -> Result<Vec<u8>, Contributio
     if let Some(record) = &proposed.record {
         envelope.insert("record".into(), record.clone());
     }
+    if !proposed.alternates.is_empty() {
+        let alts =
+            serde_json::to_value(&proposed.alternates).map_err(|_| ContributionError::Invalid)?;
+        envelope.insert("alternates".into(), alts);
+    }
     let value =
         serde_json::to_vec(&Value::Object(envelope)).map_err(|_| ContributionError::Invalid)?;
     if value.len() > BODY_MAX {
@@ -164,12 +183,7 @@ fn envelope(proposed: &Proposed, expected: Value) -> Result<Vec<u8>, Contributio
     Ok(value)
 }
 
-/// Name the expected record state in history terms. A revision a client read
-/// is a hash of this node's local stamp, which no other node shares. When the
-/// client's revision is still the one this node holds, the proposal names the
-/// history entry that wrote that record instead, which every node shares. A
-/// revision this node no longer holds names no entry, so the publisher cannot
-/// match it and leaves the proposal submitted.
+/// Name the expected record state in history terms.
 async fn history_expected(
     host: &Host,
     share: &RegisteredShare,
@@ -222,8 +236,10 @@ pub(crate) async fn submit(
     body: &[u8],
 ) -> Result<u64, ContributionError> {
     let database_id = share.id.as_str();
-    let proposed = parse(body)?;
+    let mut proposed = parse(body)?;
     let digest = hex_digest(body);
+    let lock = submit_lock(&host.home, database_id);
+    let _guard = lock.lock().await;
     let mut ledger = load_ledger(&host.home, database_id)?;
     let key = mutation_id.to_string();
     if let Some(done) = ledger.get(&key) {
@@ -233,8 +249,10 @@ pub(crate) async fn submit(
             Err(ContributionError::Conflict)
         };
     }
+    canonicalize_proposed(host, share, &mut proposed).await?;
     let expected = history_expected(host, share, &proposed).await?;
     let value = envelope(&proposed, expected)?;
+    fits_ledger(&ledger, &key, &digest)?;
     let authored = author_proposal(
         host,
         database_id,
@@ -242,6 +260,9 @@ pub(crate) async fn submit(
         &proposed.record_key,
         &value,
     )?;
+    if let Ok(pending) = super::history_store::pending_count(&host.home, database_id) {
+        super::publish_state::note_pending(database_id, pending);
+    }
     ledger.insert(
         key,
         Submitted {

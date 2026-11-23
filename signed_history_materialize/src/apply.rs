@@ -11,20 +11,112 @@ use serde_json::Value;
 use crate::key::key_value;
 use crate::read::read_at;
 
+/// Named alternate key map carried by a record target.
+pub type Alternates = BTreeMap<String, Option<KeyValue>>;
+
+const RECORD_WRAP_FIELDS: &str = "lastdb:record";
+const RECORD_WRAP_ALTS: &str = "lastdb:alternates";
+
 pub(crate) struct Stored {
     pub(crate) revision: String,
     pub(crate) created_by: Option<String>,
     pub(crate) updated_by: Option<String>,
     pub(crate) fields: HashMap<String, Value>,
+    pub(crate) alternates: Alternates,
+}
+
+/// Encode record fields (and non-empty alternates, when present) as UTF-8 JSON bytes.
+///
+/// When `alternates` is empty, encodes plain `fields` JSON so schemas without
+/// alternate keys produce identical bytes. Field names in LastDB cannot contain
+/// `:`, so `lastdb:record` and `lastdb:alternates` never collide with user fields.
+pub fn encode_record_value(fields: &Value, alternates: &Alternates) -> Result<Vec<u8>, String> {
+    if alternates.is_empty() {
+        return serde_json::to_vec(fields).map_err(|e| format!("cannot encode record fields: {e}"));
+    }
+    let mut map = serde_json::Map::with_capacity(2);
+    map.insert(RECORD_WRAP_FIELDS.to_owned(), fields.clone());
+    let alts = serde_json::to_value(alternates)
+        .map_err(|e| format!("cannot encode record alternates: {e}"))?;
+    map.insert(RECORD_WRAP_ALTS.to_owned(), alts);
+    serde_json::to_vec(&Value::Object(map))
+        .map_err(|e| format!("cannot encode record envelope: {e}"))
+}
+
+/// Decoded record fields and alternate keys from a history value payload.
+pub struct DecodedRecord {
+    pub fields: HashMap<String, Value>,
+    pub alternates: Alternates,
+}
+
+/// Decode non-empty record value JSON into fields and alternate keys.
+pub fn decode_record_value(value: &[u8]) -> Result<Option<DecodedRecord>, String> {
+    if value.is_empty() {
+        return Ok(None);
+    }
+    let Value::Object(mut map) = serde_json::from_slice::<Value>(value)
+        .map_err(|e| format!("record value is not JSON: {e}"))?
+    else {
+        return Err("record value is not a JSON object".into());
+    };
+    if map.len() == 2 && map.contains_key(RECORD_WRAP_FIELDS) && map.contains_key(RECORD_WRAP_ALTS)
+    {
+        let Some(Value::Object(fields_map)) = map.remove(RECORD_WRAP_FIELDS) else {
+            return Err("wrapped record fields is not a JSON object".into());
+        };
+        let alts_val = map.remove(RECORD_WRAP_ALTS).unwrap_or(Value::Null);
+        let alternates: Alternates = serde_json::from_value(alts_val)
+            .map_err(|e| format!("wrapped record alternates is invalid: {e}"))?;
+        return Ok(Some(DecodedRecord {
+            fields: fields_map.into_iter().collect(),
+            alternates,
+        }));
+    }
+    Ok(Some(DecodedRecord {
+        fields: map.into_iter().collect(),
+        alternates: BTreeMap::new(),
+    }))
+}
+
+/// Normalize `supplied` alternates against `namespace`'s declared alternate keys,
+/// filling `None` for omitted `allow_absent` keys and canonicalizing range coordinates.
+pub fn resolve_alternates(
+    store: &FoldDB,
+    namespace: &str,
+    mut supplied: Alternates,
+) -> Result<Alternates, String> {
+    let Some(schema) = store
+        .schema_manager()
+        .get_schema_metadata(namespace)
+        .map_err(|e| e.to_string())?
+    else {
+        return Ok(supplied);
+    };
+    let keys = schema.require_record_keys().map_err(|e| e.to_string())?;
+    for (name, def) in &keys.alternates {
+        match supplied.get_mut(name) {
+            Some(Some(kv)) if kv.range.is_some() => {
+                let raw_range = kv.range.as_deref().unwrap_or_default();
+                let profile = def.range_profile()?;
+                let encoded = profile.encode_value(raw_range)?;
+                kv.range = Some(profile.decode_value(&encoded)?);
+            }
+            None if def.allow_absent => {
+                supplied.insert(name.clone(), None);
+            }
+            Some(_) | None => {}
+        }
+    }
+    Ok(supplied)
 }
 
 /// Make FoldDB hold exactly the winners of `history`.
 ///
-/// A winner already stored with equal fields and the same authors is left
-/// alone. History records are whole-record last-writer-wins, so the winner's
-/// writer is both `created_by` and `updated_by` on every node. An empty value
-/// deletes the record. A live winner whose namespace has no declared schema
-/// fails closed. A tombstone for an undeclared namespace is skipped so a
+/// A winner already stored with equal fields, equal alternates, and the same
+/// authors is left alone. History records are whole-record last-writer-wins, so
+/// the winner's writer is both `created_by` and `updated_by` on every node. An
+/// empty value deletes the record. A live winner whose namespace has no declared
+/// schema fails closed. A tombstone for an undeclared namespace is skipped so a
 /// tombstone-only namespace does not block restore.
 pub async fn apply_history(store: &FoldDB, history: &VerifiedHistory) -> Result<(), String> {
     for ((namespace, record_key), winner) in history.records() {
@@ -49,31 +141,47 @@ async fn apply_winner(
     }
     let key = key_value(store, namespace, record_key)?;
     let current = read_at(store, namespace, &key).await?;
-    let fields = decode_fields(&winner.value)?;
+    let decoded = decode_record_value(&winner.value)?;
     let author = winner.author.to_hex();
-    let (kind, expected) = match (&current, &fields) {
+    let (kind, expected, fields, alternates) = match (&current, decoded) {
         (None, None) => return Ok(()),
-        (None, Some(_)) => (MutationType::Create, CasExpectation::Absent),
-        (Some(old), Some(new))
-            if old.fields == *new
-                && old.created_by.as_deref() == Some(author.as_str())
-                && old.updated_by.as_deref() == Some(author.as_str()) =>
-        {
-            return Ok(());
+        (None, Some(rec)) => {
+            let alts = resolve_alternates(store, namespace, rec.alternates)?;
+            (
+                MutationType::Create,
+                CasExpectation::Absent,
+                rec.fields,
+                alts,
+            )
         }
-        (Some(old), Some(_)) => (MutationType::Replace, revision_of(old)),
-        (Some(old), None) => (MutationType::Delete, revision_of(old)),
+        (Some(old), Some(rec)) => {
+            let alts = resolve_alternates(store, namespace, rec.alternates)?;
+            if old.fields == rec.fields
+                && old.alternates == alts
+                && old.created_by.as_deref() == Some(author.as_str())
+                && old.updated_by.as_deref() == Some(author.as_str())
+            {
+                return Ok(());
+            }
+            (MutationType::Replace, revision_of(old), rec.fields, alts)
+        }
+        (Some(old), None) => (
+            MutationType::Delete,
+            revision_of(old),
+            HashMap::new(),
+            old.alternates.clone(),
+        ),
     };
     let target = RecordTarget {
         schema: namespace.to_owned(),
         key,
-        alternates: BTreeMap::new(),
+        alternates,
     };
     let carries_authors = !matches!(kind, MutationType::Delete);
     let mut mutation = Mutation::with_uuid(
         uuid::Uuid::new_v4().to_string(),
         target,
-        fields.unwrap_or_default(),
+        fields,
         kind,
         expected,
     );
@@ -92,17 +200,6 @@ async fn apply_winner(
 fn revision_of(stored: &Stored) -> CasExpectation {
     CasExpectation::Revision {
         revision: stored.revision.clone(),
-    }
-}
-
-fn decode_fields(value: &[u8]) -> Result<Option<HashMap<String, Value>>, String> {
-    if value.is_empty() {
-        return Ok(None);
-    }
-    match serde_json::from_slice::<Value>(value) {
-        Ok(Value::Object(map)) => Ok(Some(map.into_iter().collect())),
-        Ok(_) => Err("record value is not a JSON object".into()),
-        Err(e) => Err(format!("record value is not JSON: {e}")),
     }
 }
 
@@ -147,7 +244,7 @@ async fn delete_record(store: &FoldDB, namespace: &str, key: KeyValue) -> Result
     let target = RecordTarget {
         schema: namespace.to_owned(),
         key,
-        alternates: BTreeMap::new(),
+        alternates: current.alternates.clone(),
     };
     let mutation = Mutation::with_uuid(
         uuid::Uuid::new_v4().to_string(),

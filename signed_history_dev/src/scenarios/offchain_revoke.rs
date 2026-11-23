@@ -7,7 +7,7 @@
 use mutation_log::{author_grant, grant_reduce, Grantee, Role, SignedEntry, StreamKind};
 
 use super::fixture::{Fixture, KEY};
-use crate::device::{stream_head_of, Device};
+use crate::device::{must_accept, stream_head_of, Device};
 
 pub fn run() -> Result<String, String> {
     let mut fx = Fixture::new()?;
@@ -30,13 +30,41 @@ pub fn run() -> Result<String, String> {
     fx.expect_decision(&still, true, false)?;
     fx.expect_record(Some(b"still-granted"))?;
 
-    // On-chain revoke: the next proposal is rejected and the record stays.
+    // On-chain revoke: citing the member's grant window is rejected, and even a
+    // stale-cited proposal leaves the record unchanged with no current grant.
     fx.revoke()?;
-    let late = fx.author(StreamKind::Proposal, true, KEY, b"after-revoke")?;
-    fx.expect_unauthorized(late, "proposal requires")?;
+    let (seen, lamports): (Vec<_>, Vec<_>) = fx.member_hist.publisher_grants().into_iter().unzip();
+    let head = stream_head_of(&fx.member_hist, &fx.member);
+    fx.clock += 1;
+    let ctx = fx
+        .member
+        .author_ctx(fx.birth.database_id, head, seen, lamports, fx.clock);
+    let body = mutation_log::data_record(
+        StreamKind::Proposal,
+        super::fixture::NAMESPACE,
+        KEY,
+        b"after-revoke",
+    );
+    let honest_late =
+        mutation_log::author_data(&ctx, &fx.member.signing_key, body).map_err(|e| e.to_string())?;
+    fx.expect_unauthorized(honest_late, "proposal requires")?;
+
+    let stale = fx.author(StreamKind::Proposal, true, KEY, b"stale-grant")?;
+    must_accept(&mut fx.member_hist, stale.clone())?;
+    must_accept(&mut fx.owner_hist, stale.clone())?;
+    if fx
+        .owner_hist
+        .grants()
+        .role_of(&fx.member.node_key)
+        .is_some()
+    {
+        return Err("on-chain revoke left the member with an active grant".into());
+    }
+    fx.decline(&stale)?;
+    fx.expect_decision(&stale, false, true)?;
     fx.expect_record(Some(b"still-granted"))?;
 
-    Ok("non-publisher revoke rejected; withheld revoke ignored (proposal accepted and incorporated); after on-chain revoke the proposal is rejected and the record is unchanged".into())
+    Ok("non-publisher revoke rejected; withheld revoke ignored (proposal accepted and incorporated); after on-chain revoke the proposal is rejected or declined and the record is unchanged".into())
 }
 
 /// A revoke of the fixture's member, signed by `signer`, not accepted.

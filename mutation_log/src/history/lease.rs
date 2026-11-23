@@ -12,7 +12,7 @@ use std::ops::Bound;
 use crate::accept::position_of;
 use crate::entry::{ClosedStream, DataBody, EntryHeader, LeaseBody, SignedEntry};
 use crate::ids::{DeviceId, EntryHash, NodeKey, StreamId};
-use crate::kinds::{EntryKind, Role, StreamKind};
+use crate::kinds::{Role, StreamKind};
 use crate::payload::{decode_record_payload, RecordPayload, RecordPosition};
 
 use super::VerifiedHistory;
@@ -270,18 +270,16 @@ impl VerifiedHistory {
         }
     }
 
-    /// What a data entry puts into the records, when it counts: the author, the
-    /// namespace and the record payload.
-    pub(super) fn contribution(
+    /// Decode a direct or publisher-incorporated data entry regardless of lease
+    /// exclusion, returning `(author, namespace, payload)`.
+    pub(super) fn decoded_direct(
         &self,
         header: &EntryHeader,
         body: &DataBody,
-        hash: &EntryHash,
         is_publisher: bool,
     ) -> Option<(NodeKey, String, RecordPayload)> {
-        let counted = is_publisher || !self.excluded.contains(hash);
-        let merges = (body.stream == StreamKind::Direct && counted)
-            || (is_publisher && body.incorporated_from.is_some());
+        let merges =
+            body.stream == StreamKind::Direct || (is_publisher && body.incorporated_from.is_some());
         if !merges {
             return None;
         }
@@ -295,23 +293,46 @@ impl VerifiedHistory {
         Some((author, namespace, decoded))
     }
 
-    /// True when `hash` is an accepted bundle entry.
-    pub(super) fn is_bundle(&self, hash: &EntryHash) -> bool {
-        self.accepted
-            .get(hash)
-            .is_some_and(|meta| meta.entry.kind() == EntryKind::Bundle)
-    }
-
     /// Keep a publisher grant in the per-member role index that
-    /// [`Self::writer_under`] reads.
+    /// [`Self::writer_under`] reads, and recompute any later leases whose
+    /// coverage of that member changed.
     pub(super) fn note_member_role(&mut self, entry: &SignedEntry) {
-        if let SignedEntry::Grant { body, .. } = entry {
-            if let crate::kinds::Grantee::Member(key) = body.grantee {
-                self.member_roles
-                    .entry(key)
-                    .or_default()
-                    .insert(pos_key(position_of(entry)), body.role);
+        let SignedEntry::Grant { body, .. } = entry else {
+            return;
+        };
+        let crate::kinds::Grantee::Member(key) = body.grantee else {
+            return;
+        };
+        let grant_at = pos_key(position_of(entry));
+        self.member_roles
+            .entry(key)
+            .or_default()
+            .insert(grant_at, body.role);
+        let affected: Vec<EntryHash> = self
+            .leases
+            .range((Bound::Excluded(grant_at), Bound::Unbounded))
+            .map(|(_, lease)| lease.hash)
+            .collect();
+        let mut changed: Vec<EntryHash> = Vec::new();
+        for lease in affected {
+            let held: Vec<Under> = self.under_lease.get(&lease).cloned().unwrap_or_default();
+            for under in held {
+                if under.stream.node_key != key {
+                    continue;
+                }
+                let counts = self.entry_counts(&lease, under.stream, under.writer_seq);
+                let flipped = if counts {
+                    self.excluded.remove(&under.hash)
+                } else {
+                    self.excluded.insert(under.hash)
+                };
+                if flipped {
+                    changed.push(under.hash);
+                }
             }
+        }
+        if !changed.is_empty() {
+            self.recompute_written_by(&changed);
         }
     }
 }

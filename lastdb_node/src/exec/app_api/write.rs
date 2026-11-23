@@ -108,18 +108,27 @@ async fn write(req: &UdsRequest, host: &Host) -> Result<Value, HostError> {
         require_write(&item.schema).map_err(|error| error.at(index))?;
     }
     let database = items.first().and_then(|item| item.database.clone());
-    let signed = super::write_signed::plan(items.iter().map(|item| {
-        (
-            item.schema.as_str(),
-            &item.key,
-            mutation_type(item.op),
-            item.record.as_ref(),
-        )
-    }));
-    let body = super::database::write_in(database.as_deref(), host, async {
+    let _shared_lock = super::write_signed::lock_owned_shared(host, database.as_deref()).await;
+    let (body, signed) = super::database::write_in(database.as_deref(), host, async {
+        let shared = super::write_signed::is_shared_target(host, database.as_deref());
         for (index, item) in items.iter().enumerate() {
             require_exact_name(host, &item.schema).map_err(|error| error.at(index))?;
+            if shared {
+                let has_file = !matches!(item.file, FileInput::Absent);
+                super::write_signed::check_shared_item(index, has_file, &item.key)?;
+            }
         }
+        let store = host.records();
+        let signed = super::write_signed::plan(
+            &store,
+            items.iter().map(|item| super::write_signed::SignedInput {
+                schema: item.schema.as_str(),
+                key: &item.key,
+                op: mutation_type(item.op),
+                record: item.record.as_ref(),
+                alternates: &item.alternates,
+            }),
+        );
         let located = located_keys(host, &items)?;
         let prepared = prepare(host, items).await?;
         let receipt = commit_mutations(host, prepared.mutations)
@@ -135,11 +144,14 @@ async fn write(req: &UdsRequest, host: &Host) -> Result<Value, HostError> {
             .iter()
             .map(|id| json!(receipt.record_revisions.get(id)))
             .collect();
-        Ok(json!({ "written": revisions.len(), "revisions": revisions }))
+        Ok((
+            json!({ "written": revisions.len(), "revisions": revisions }),
+            signed,
+        ))
     })
     .await?;
-    // Owned databases and the personal database: mirror onto the signed log. A
-    // write to a received database was refused above.
+    // Owned databases, leased received databases, and the personal database:
+    // mirror onto the signed log while holding `_shared_lock`.
     super::write_signed::mirror_committed(host, database.as_deref(), signed).await?;
     Ok(body)
 }

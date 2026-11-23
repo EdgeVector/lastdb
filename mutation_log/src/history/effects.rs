@@ -6,6 +6,7 @@ use crate::ids::EntryHash;
 use crate::payload::{decode_record_payload, MaterializedRecord, RecordPosition};
 use crate::sealed::{decode_named, SEALED_NAMESPACE};
 
+use super::recompute::WriteMeta;
 use super::VerifiedHistory;
 
 impl VerifiedHistory {
@@ -18,55 +19,102 @@ impl VerifiedHistory {
     ) {
         match entry {
             SignedEntry::Data { header, body } => {
-                // Proposals count as content only after publisher incorporation.
-                // A member's direct entry counts under the lease it names.
-                if body.stream == crate::kinds::StreamKind::Direct && !is_publisher {
-                    self.note_member_direct(header, hash);
-                }
-                if let Some((author, namespace, decoded)) =
-                    self.contribution(header, body, &hash, is_publisher)
-                {
-                    let write = MaterializedRecord {
-                        position,
-                        author,
-                        entry: hash,
-                        creator: author,
-                        creator_position: position,
-                        value: decoded.value,
-                    };
-                    self.merge_write((namespace, decoded.record_key), write, false);
-                }
+                self.apply_data_effect(header, body, hash, position, is_publisher);
             }
             SignedEntry::Lease { header, body, .. } => {
                 self.note_lease(hash, position, header, body);
             }
             SignedEntry::Schema { header, body } => {
-                if self.is_sealed(&body.namespace) {
-                    if let Some((namespace, definition)) =
-                        self.open_content(header, &body.definition)
-                    {
-                        self.schemas.insert(namespace, definition);
-                    }
-                } else {
-                    self.schemas
-                        .insert(body.namespace.clone(), body.definition.clone());
-                }
+                self.apply_schema_effect(header, body, position);
             }
             SignedEntry::Bundle { body, .. } => {
                 self.live_bundle_blobs.insert(body.blob_sha256);
             }
-            SignedEntry::BlobDelete { body, .. } => {
-                if !self.live_bundle_blobs.contains(&body.sha256) {
-                    self.deleted_blobs.insert(body.sha256);
-                }
+            SignedEntry::BlobDelete { body, .. }
+                if !self.live_bundle_blobs.contains(&body.sha256) =>
+            {
+                self.deleted_blobs.insert(body.sha256);
             }
-            SignedEntry::Heads { body, .. } => {
+            SignedEntry::Heads { body, .. }
+                if self
+                    .publisher_heads_position
+                    .is_none_or(|held| position.beats(held)) =>
+            {
+                self.publisher_heads_position = Some(position);
                 self.publisher_heads = body.publisher_heads.clone();
             }
-            SignedEntry::Relays { body, .. } => {
+            SignedEntry::Relays { body, .. }
+                if self.relays_position.is_none_or(|held| position.beats(held)) =>
+            {
+                self.relays_position = Some(position);
                 self.relays = body.relays.iter().map(|r| r.url.clone()).collect();
             }
             _ => {}
+        }
+    }
+
+    fn apply_schema_effect(
+        &mut self,
+        header: &EntryHeader,
+        body: &crate::entry::SchemaBody,
+        position: RecordPosition,
+    ) {
+        let opened = if self.is_sealed(&body.namespace) {
+            self.open_content(header, &body.definition)
+        } else {
+            Some((body.namespace.clone(), body.definition.clone()))
+        };
+        let Some((namespace, definition)) = opened else {
+            return;
+        };
+        if self
+            .schema_positions
+            .get(&namespace)
+            .is_none_or(|held| position.beats(*held))
+        {
+            self.schema_positions.insert(namespace.clone(), position);
+            self.schemas.insert(namespace, definition);
+        }
+    }
+
+    fn apply_data_effect(
+        &mut self,
+        header: &EntryHeader,
+        body: &DataBody,
+        hash: EntryHash,
+        position: RecordPosition,
+        is_publisher: bool,
+    ) {
+        // Proposals count as content only after publisher incorporation.
+        // A member's direct entry counts under the lease it names.
+        if body.stream == crate::kinds::StreamKind::Direct && !is_publisher {
+            self.note_member_direct(header, hash);
+        }
+        let Some((author, namespace, decoded)) = self.decoded_direct(header, body, is_publisher)
+        else {
+            return;
+        };
+        let key = (namespace, decoded.record_key);
+        self.record_write_meta(
+            &key,
+            WriteMeta {
+                position,
+                author,
+                entry: hash,
+                tombstone: decoded.value.is_empty(),
+                from_bundle: false,
+            },
+        );
+        if is_publisher || !self.excluded.contains(&hash) {
+            let write = MaterializedRecord {
+                position,
+                author,
+                entry: hash,
+                creator: author,
+                creator_position: position,
+                value: decoded.value,
+            };
+            self.merge_write(key, write, false);
         }
     }
 
@@ -144,6 +192,16 @@ impl VerifiedHistory {
             return;
         };
         let key = (namespace.to_owned(), decoded.record_key);
+        self.record_write_meta(
+            &key,
+            WriteMeta {
+                position,
+                author,
+                entry,
+                tombstone: decoded.value.is_empty(),
+                from_bundle,
+            },
+        );
         let write = MaterializedRecord {
             position,
             author,
@@ -167,7 +225,7 @@ impl VerifiedHistory {
         let position = write.position;
         let mut aside: Option<MaterializedRecord> = None;
         if let Some(held) = self.records.get(&key) {
-            let held_bundle = self.is_bundle(&held.entry);
+            let held_bundle = self.is_bundle_write(&key, held.position);
             if from_bundle != held_bundle {
                 let (bundle_at, other_at) = if from_bundle {
                     (position, held.position)
@@ -192,15 +250,9 @@ impl VerifiedHistory {
                 self.bundle_floor.insert(key.clone(), candidate);
             }
         }
-        let (creator, creator_position) = match self.records.get(&key) {
-            Some(held)
-                if !position.beats(held.creator_position) && position != held.creator_position =>
-            {
-                (write.author, position)
-            }
-            Some(held) => (held.creator, held.creator_position),
-            None => (write.author, position),
-        };
+        let (creator, creator_position) = self
+            .active_creator(&key)
+            .unwrap_or((write.author, position));
         match self.records.get_mut(&key) {
             Some(existing) if !position.beats(existing.position) => {
                 existing.creator = creator;

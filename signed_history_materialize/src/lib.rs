@@ -14,11 +14,14 @@ mod read;
 mod schema;
 mod store;
 
-pub use apply::{apply_history, reconcile_keys};
+pub use apply::{
+    apply_history, decode_record_value, encode_record_value, reconcile_keys, resolve_alternates,
+    Alternates, DecodedRecord,
+};
 pub use codec::{decode_string_field, encode_string_field, STRING_FIELD};
 pub use declare::declare_history_schemas;
 pub use fold_db::fold_db_core::FoldDB;
-pub use key::key_value;
-pub use read::{read_field_map, read_revision};
+pub use key::{canonical_record_key, canonical_record_key_from_joined, key_value};
+pub use read::{read_alternates, read_field_map, read_revision};
 pub use schema::{ensure_hash_schema, hash_string_schema_bytes, hash_string_schema_json};
 pub use store::{open_proof_store, open_store};
