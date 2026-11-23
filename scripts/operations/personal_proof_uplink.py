@@ -81,6 +81,10 @@ def prove_uplink(args):
               f"stopped reading failed after {stall_seconds:.0f} s: {message[0]}", flush=True)
         return {"longest_upload_ms": max(uploads), "slow_seconds": round(slow_seconds),
                 "stall_seconds": round(stall_seconds), "stall_message": message[0]}
+    except Exception:
+        for device in (slow, stalled):
+            print(f"{device.name} sync status: {device.sync_status()}", flush=True)
+        raise
     finally:
         for device in (slow, stalled):
             try:
