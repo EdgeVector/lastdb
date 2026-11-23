@@ -4,7 +4,6 @@ use super::SchemaStore;
 use crate::db_operations::record_store::RangeWalk;
 use crate::schema::types::catalog_types::SchemaState;
 use crate::schema::types::{Schema, SchemaError};
-use crate::storage::disk_backup::accepted;
 use crate::storage::disk_pack::transaction;
 use crate::storage::format::metadata::SchemaReplayDrop;
 use crate::storage::format::schemas::*;
