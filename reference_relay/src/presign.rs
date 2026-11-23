@@ -12,6 +12,7 @@ type HmacSha256 = Hmac<Sha256>;
 
 const TTL_MS: u64 = 900_000;
 
+#[derive(Clone, Copy)]
 struct SignedTarget<'a> {
     method: &'a str,
     database_id: &'a str,
@@ -123,7 +124,7 @@ fn verify_target(
     let raw = URL_SAFE_NO_PAD
         .decode(sig.as_bytes())
         .map_err(|_| ApiError::unauthorized("signature"))?;
-    let mut mac = build_mac(secret, target, expires_at_ms);
+    let mac = build_mac(secret, target, expires_at_ms);
     mac.verify_slice(&raw)
         .map_err(|_| ApiError::unauthorized("signature"))
 }
