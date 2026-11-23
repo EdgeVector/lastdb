@@ -50,6 +50,13 @@ changing sync, AcceptEntry, or relay code. Grants live only as signed chain
 entries; relays gate access from publisher-signed grant entries (and list a writer's device streams with `log/streams`, gated like an all-devices `log/read`). The personal database has a snapshot: the native files of the store plus a publisher-signed `snapshot` entry on its own stream (`docs/designs/relay-protocol.md`); the old cloud snapshot is gone. DEV proofs run in
 `.github/workflows/signed-history-dev.yml` against in-repo `reference_relay`.
 
+A pull request merges only when the check `signed-history-proofs-complete` of that
+workflow passes (ruleset `signed-history-proofs-required` on main). The check reports
+on every pull request. It passes when every proof in scope passed, and when the pull
+request changes no file of the proofs. The files in scope are one list, in job `scope`
+of the workflow: add a path there when a proof starts to depend on it. Do not merge
+around a red proof; fix the cause or the proof.
+
 ## Code size limits (CI fails a PR that breaks them)
 
 Source file: 400 lines. Function: 100 lines. CI checks
