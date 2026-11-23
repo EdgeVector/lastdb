@@ -15,9 +15,9 @@ use std::path::{Path, PathBuf};
 const READY: &str = ".signed-initial-snapshot";
 const STAGING: &str = ".signed-initial-snapshot-staging";
 const SOURCE_FRONTIER: &str = "source-frontier";
-// Match the native cloud snapshot service's signed inventory bounds.
-const MAX_FILES: usize = 2048;
-const MAX_FILE_BYTES: u64 = 5 * 1024 * 1024 * 1024;
+// Match the snapshot manifest's file count bound and the Exemem relay's 5 GB single-blob ceiling.
+const MAX_FILES: usize = 4096;
+const MAX_FILE_BYTES: u64 = 5_000_000_000;
 
 /// Keep the files of the home exactly as they are now, as the cut of its first snapshot, and
 /// record that cut in the spool.

@@ -97,63 +97,111 @@ pub async fn install_newest_snapshot(
         device_id,
     };
     let (_, _, birth_hash) = birth_of(seed, &identity)?;
-    let (entries, _) = client
+    let target = RestoreTarget {
+        client: &client,
+        home,
+        relay_url,
+        database_id: &database_id,
+        node_hex: &node_hex,
+        node_key,
+        database,
+        device: snapshot_device,
+        birth_hash,
+    };
+    match install_at(&target, listed.head_seq, Some(&listed.head_hash)).await {
+        Ok(base) => Ok(Some(base)),
+        Err(first_err) if listed.head_seq > 1 => {
+            tracing::warn!(
+                target: "lastdbd::log_sync",
+                seq = listed.head_seq,
+                %first_err,
+                "newest snapshot could not be installed; trying the retained previous snapshot"
+            );
+            install_at(&target, listed.head_seq - 1, None)
+                .await
+                .map(Some)
+                .map_err(|_| first_err)
+        }
+        Err(error) => Err(error),
+    }
+}
+
+struct RestoreTarget<'a> {
+    client: &'a RelayClient,
+    home: &'a Path,
+    relay_url: &'a str,
+    database_id: &'a str,
+    node_hex: &'a str,
+    node_key: NodeKey,
+    database: DatabaseId,
+    device: DeviceId,
+    birth_hash: mutation_log::EntryHash,
+}
+
+async fn install_at(
+    target: &RestoreTarget<'_>,
+    seq: u64,
+    expected_hash: Option<&str>,
+) -> Result<SnapshotBase, String> {
+    let device_hex = target.device.to_hex();
+    let (entries, _) = target
+        .client
         .read(
-            &database_id,
-            &node_hex,
-            Some(&snapshot_device.to_hex()),
-            listed.head_seq,
+            target.database_id,
+            target.node_hex,
+            Some(&device_hex),
+            seq,
             None,
             1,
         )
         .await?;
     let entry = entries
         .first()
-        .ok_or("the relay lacks its newest snapshot entry")?;
+        .ok_or("the relay lacks the requested snapshot entry")?;
     let stream = Stream {
-        node_key,
-        database,
-        device: snapshot_device,
-        birth_hash,
-        seq: listed.head_seq,
-        hash: &listed.head_hash,
+        node_key: target.node_key,
+        database: target.database,
+        device: target.device,
+        birth_hash: target.birth_hash,
+        seq,
+        hash: expected_hash,
     };
     let (manifest_sha256, manifest_bytes, through) = check_entry(&stream, entry)?;
     let started = Instant::now();
     let list = fetch_manifest(
-        &client,
-        &database_id,
-        home,
+        target.client,
+        target.database_id,
+        target.home,
         &manifest_sha256,
         manifest_bytes,
     )
     .await?;
-    let data = home.join("data");
-    let installed = install_files(&client, &database_id, &data, &list).await;
-    if let Err(error) = installed {
+    let data = target.home.join("data");
+    let _ = manifest::remove_tree(&data);
+    if let Err(error) = install_files(target.client, target.database_id, &data, &list).await {
         let _ = manifest::remove_tree(&data);
         return Err(error);
     }
-    Ok(Some(SnapshotBase {
-        snapshot_seq: listed.head_seq,
+    Ok(SnapshotBase {
+        snapshot_seq: seq,
         files: list.files.len(),
         bytes: list.bytes(),
         download_ms: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
         through,
         taken_at_ms: entry.header().authored_at_ms,
         manifest_sha256,
-        relay: relay_url.to_owned(),
-    }))
+        relay: target.relay_url.to_owned(),
+    })
 }
 
-/// What the newest entry of the snapshot stream must be.
+/// What a snapshot entry of the snapshot stream must be.
 struct Stream<'a> {
     node_key: NodeKey,
     database: DatabaseId,
     device: DeviceId,
     birth_hash: mutation_log::EntryHash,
     seq: u64,
-    hash: &'a str,
+    hash: Option<&'a str>,
 }
 
 /// Check the entry and return its manifest digest, manifest length and positions.
@@ -170,7 +218,8 @@ fn check_entry(
         && header.database_id == stream.database
         && header.device_id == stream.device
         && header.writer_seq == stream.seq
-        && hash.to_hex() == stream.hash
+        && stream.hash.is_none_or(|want| hash.to_hex() == want)
+        && (stream.seq == 1) == (header.prev_hash == mutation_log::EntryHash::ZERO)
         && header.seen_heads == [stream.birth_hash]
         && header.lamport < LAMPORT_LIMIT
         && body.manifest_bytes > 0

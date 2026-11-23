@@ -7,37 +7,60 @@
 //! task that the turn starts and that ends when its snapshot is done. There is at most one, so
 //! there is one snapshot at a time. It has no timer and no queue.
 
+use std::collections::HashMap;
 use std::future::Future;
-use std::sync::Mutex;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{LazyLock, Mutex};
 
 use tokio::task::JoinHandle;
+use tracing::Instrument;
 
-static LANE: Mutex<Option<JoinHandle<()>>> = Mutex::new(None);
+static NEXT_ID: AtomicU64 = AtomicU64::new(1);
+static LANES: LazyLock<Mutex<HashMap<PathBuf, (u64, JoinHandle<()>)>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
-/// True while a snapshot is uploading.
+/// True while any snapshot upload lane is running.
 pub(super) fn busy() -> bool {
-    lock().as_ref().is_some_and(|task| !task.is_finished())
+    lock().values().any(|(_, task)| !task.is_finished())
 }
 
-/// Start the lane with `work`. The caller checked [`busy`] first.
-pub(super) fn start(work: impl Future<Output = ()> + Send + 'static) {
-    *lock() = Some(tokio::spawn(work));
+/// True while `home`'s snapshot upload lane is running.
+pub(super) fn busy_for(home: &Path) -> bool {
+    lock()
+        .get(home)
+        .is_some_and(|(_, task)| !task.is_finished())
 }
 
-/// End the lane and wait until it is gone. The daemon calls this when it stops. Everything the
-/// lane has not yet written stays unwritten: the files it uploaded are on the relay and are
-/// skipped the next time, the request file stays, and the next start takes the snapshot again.
-/// The lane has no await between the append of the `snapshot` entry and the write of its
-/// records, so it never stops in between.
+/// Start the lane for `home` with `work`. The caller checked [`busy_for`] first.
+pub(super) fn start_for(home: &Path, work: impl FnOnce(u64) -> PinBoxFuture) {
+    let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+    let task = tokio::spawn(work(id).in_current_span());
+    lock().insert(home.to_path_buf(), (id, task));
+}
+
+pub(super) type PinBoxFuture = std::pin::Pin<Box<dyn Future<Output = ()> + Send + 'static>>;
+
+/// Mark lane `id` of `home` finished before waking the sync loop, so the woken turn never
+/// observes its own lane as still busy.
+pub(super) fn finish_for(home: &Path, id: u64) {
+    let mut lanes = lock();
+    if lanes.get(home).is_some_and(|(held, _)| *held == id) {
+        lanes.remove(home);
+    }
+}
+
+/// End every active lane and wait until it is gone. The daemon calls this when it stops.
 pub(crate) async fn stop() {
-    let task = lock().take();
-    if let Some(task) = task {
+    let tasks: Vec<JoinHandle<()>> = lock().drain().map(|(_, (_, task))| task).collect();
+    for task in tasks {
         task.abort();
         let _ = task.await;
     }
 }
 
-fn lock() -> std::sync::MutexGuard<'static, Option<JoinHandle<()>>> {
-    LANE.lock()
+fn lock() -> std::sync::MutexGuard<'static, HashMap<PathBuf, (u64, JoinHandle<()>)>> {
+    LANES
+        .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }

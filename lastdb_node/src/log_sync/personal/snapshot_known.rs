@@ -9,8 +9,9 @@
 //! its size, no new attempt starts for [`RETRY`] unless a person asks for one, because each
 //! attempt freezes the files and hashes all of them.
 
-use std::path::Path;
-use std::sync::Mutex;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant};
 
 use mutation_log::{DeviceId, SnapshotThrough};
@@ -25,7 +26,8 @@ const LIMIT: usize = 64 * 1024;
 /// How long a snapshot that a relay refused for size waits before the next automatic attempt.
 const RETRY: Duration = Duration::from_secs(10 * 60);
 
-static REFUSED: Mutex<Option<(Instant, String)>> = Mutex::new(None);
+static REFUSED: LazyLock<Mutex<HashMap<PathBuf, (Instant, String)>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// The facts of one snapshot, as the entry and its manifest name them.
 pub(super) struct Taken<'a> {
@@ -68,7 +70,7 @@ pub(super) fn record(ctx: &Ctx<'_>, taken: &Taken<'_>) {
     if let Err(error) = written {
         tracing::warn!(target: "lastdbd::log_sync", %error, "the snapshot record for status could not be saved");
     }
-    clear_refusal();
+    clear_refusal(&ctx.host.home);
     ctx.host.cloud_sync.record_snapshot(status);
 }
 
@@ -97,25 +99,25 @@ pub(super) fn origin(base: &str) -> String {
 /// attempts for [`RETRY`].
 pub(super) fn refused(ctx: &Ctx<'_>, message: &str) {
     tracing::warn!(target: "lastdbd::log_sync", %message, "snapshot cannot be published");
-    *lock() = Some((Instant::now(), message.to_owned()));
+    lock().insert(ctx.host.home.clone(), (Instant::now(), message.to_owned()));
     ctx.host
         .cloud_sync
         .mark_snapshot(SnapshotState::Blocked, Some(message.to_owned()));
 }
 
-/// The message of a refusal that is still recent, so no attempt should start yet.
-pub(super) fn waiting() -> Option<String> {
+/// The message of a refusal that is still recent for `home`, so no attempt should start yet.
+pub(super) fn waiting(home: &Path) -> Option<String> {
     lock()
-        .as_ref()
+        .get(home)
         .filter(|(at, _)| at.elapsed() < RETRY)
         .map(|(_, message)| message.clone())
 }
 
-fn clear_refusal() {
-    *lock() = None;
+fn clear_refusal(home: &Path) {
+    lock().remove(home);
 }
 
-fn lock() -> std::sync::MutexGuard<'static, Option<(Instant, String)>> {
+fn lock() -> std::sync::MutexGuard<'static, HashMap<PathBuf, (Instant, String)>> {
     REFUSED
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
