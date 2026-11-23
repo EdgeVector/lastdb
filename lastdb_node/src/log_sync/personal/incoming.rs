@@ -205,14 +205,8 @@ async fn apply_entry(
     let Ok(change) = body::classify(&accepted) else {
         return freeze(ctx, cursor, "a payload is not a valid change").await;
     };
-    if matches!(&change, Change::Record(r) if matches!(r.file, RecordFile::Put(_)) && data.file.is_none())
-    {
-        return freeze(
-            ctx,
-            cursor,
-            "a record sets a file that its entry does not name",
-        )
-        .await;
+    if let Some(reason) = invalid_file_reason(data, &change) {
+        return freeze(ctx, cursor, reason).await;
     }
     let next = apply::head_of(header, &hash);
     if apply::superseded(ctx, header, &change).await? {
@@ -229,6 +223,22 @@ async fn apply_entry(
     applied.through = applied.through.max(header.writer_seq);
     cursor.head = Some(next);
     Ok(())
+}
+
+fn invalid_file_reason(data: &DataBody, change: &Change) -> Option<&'static str> {
+    let Change::Record(record) = change else {
+        return None;
+    };
+    let RecordFile::Put(marker) = &record.file else {
+        return None;
+    };
+    if data.file.is_none() {
+        return Some("a record sets a file that its entry does not name");
+    }
+    if marker.size_bytes > fold_db::storage::MAX_RECORD_FILE_BYTES {
+        return Some("a record file exceeds the 32 MiB store value limit");
+    }
+    None
 }
 
 /// Fetch the sealed blob of the file a record write sets, into a file.
