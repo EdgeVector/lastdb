@@ -86,7 +86,9 @@ async fn upload_blob(
         .as_str()
         .ok_or_else(|| "blob.put begin missing upload.url".to_owned())?
         .to_owned();
-    client.blob_upload(&url, payload).await?;
+    client
+        .blob_upload(&url, &begin["upload"]["headers"], payload)
+        .await?;
     client
         .blob_put_commit(database_id, digest, payload.len() as u64)
         .await?;

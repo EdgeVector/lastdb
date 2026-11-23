@@ -14,6 +14,7 @@ use serde_json::{json, Value};
 use tokio::sync::Mutex;
 
 use crate::auth;
+use crate::blob_store::checksum_header;
 use crate::error::{ApiError, ApiResult};
 use crate::gate;
 use crate::grant_index::GrantIndex;
@@ -202,7 +203,10 @@ async fn blob_begin(state: &AppState, req: &BlobPutBody) -> ApiResult<Json<Value
         "sha256": req.sha256,
         "upload": {
             "url": url,
-            "headers": { "content-type": "application/octet-stream" },
+            "headers": {
+                "content-type": "application/octet-stream",
+                "x-amz-checksum-sha256": checksum_header(&req.sha256)
+            },
             "expires_at_ms": expires_at_ms
         }
     })))

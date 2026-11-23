@@ -19,6 +19,84 @@ use crate::relay::{header_pairs, RelayClient};
 const CHUNK_BYTES: usize = 64 * 1024;
 
 impl RelayClient {
+    /// Prove that the store, not the client, verifies an upload: begin a blob of `body`, then send
+    /// the upload three wrong ways and expect each refused with a 4xx (the header left out, other
+    /// bytes of the same length under the returned checksum, a different checksum value), then send
+    /// it right and commit. Returns how many wrong uploads were refused.
+    pub async fn prove_upload_verified(&self, body: &[u8]) -> Result<u32, String> {
+        let sha256 = hex_lower(&Sha256::digest(body));
+        let stage_body = |stage: &str| {
+            json!({
+                "database_id": self.database_hex,
+                "sha256": sha256,
+                "bytes": body.len(),
+                "stage": stage,
+            })
+        };
+        let begin = self
+            .post("/relay/v1/blob/put", &stage_body("begin"))
+            .await?;
+        let url = begin["upload"]["url"]
+            .as_str()
+            .ok_or("blob.put begin has no upload.url")?
+            .to_owned();
+        let headers: Vec<(String, String)> = header_pairs(&begin["upload"]["headers"])
+            .into_iter()
+            .filter(|(name, _)| !name.eq_ignore_ascii_case("content-length"))
+            .collect();
+        let is_checksum = |name: &str| name.eq_ignore_ascii_case("x-amz-checksum-sha256");
+        let checksum = headers
+            .iter()
+            .find(|(name, _)| is_checksum(name))
+            .map(|(_, value)| value.clone())
+            .ok_or("blob.put begin returned no x-amz-checksum-sha256 header")?;
+        let send = |headers: Vec<(String, String)>, data: Vec<u8>| {
+            let mut req = self.http.put(&url).body(data);
+            for (name, value) in headers {
+                req = req.header(name, value);
+            }
+            async move {
+                req.send()
+                    .await
+                    .map(|resp| resp.status())
+                    .map_err(|e| format!("blob upload: {e}"))
+            }
+        };
+        let mut other_bytes = body.to_vec();
+        other_bytes[0] ^= 0xff;
+        let mut other_checksum = headers.clone();
+        for (name, value) in &mut other_checksum {
+            if is_checksum(name) {
+                *value = format!("{}A", &checksum[..checksum.len() - 1]);
+            }
+        }
+        let without: Vec<_> = headers
+            .iter()
+            .filter(|(name, _)| !is_checksum(name))
+            .cloned()
+            .collect();
+        let mut refused = 0;
+        for (label, wrong) in [
+            ("header left out", send(without, body.to_vec()).await?),
+            ("other bytes", send(headers.clone(), other_bytes).await?),
+            ("other checksum", send(other_checksum, body.to_vec()).await?),
+        ] {
+            if !wrong.is_client_error() {
+                return Err(format!(
+                    "upload with {label} must be refused with a 4xx, got HTTP {wrong}"
+                ));
+            }
+            refused += 1;
+        }
+        let right = send(headers, body.to_vec()).await?;
+        if !right.is_success() {
+            return Err(format!("upload with the returned headers: HTTP {right}"));
+        }
+        self.post("/relay/v1/blob/put", &stage_body("commit"))
+            .await?;
+        Ok(refused)
+    }
+
     /// `blob.put` begin, the presigned upload streamed from `source`, commit.
     pub async fn blob_put_file(&self, sha256: &str, source: &Path) -> Result<(), String> {
         let file = fs::File::open(source)

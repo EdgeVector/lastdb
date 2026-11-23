@@ -222,6 +222,7 @@ async fn opt_in_steps(
             "sha256": r.sha256,
             "put_seconds": r.put_seconds,
             "get_seconds": r.get_seconds,
+            "refused_uploads": r.refused_uploads,
         }))
     } else {
         None

@@ -44,8 +44,9 @@ fn transfer_timeout(bytes: u64) -> Duration {
 
 impl RelayClient {
     /// Put the file at `source` on the relay: `blob.put` begin, the presigned
-    /// upload streamed from the file, commit. The relay hashes the upload as it
-    /// arrives and refuses it unless it is `bytes` long and has digest `sha256`.
+    /// upload streamed from the file, commit. The upload carries exactly the headers the relay
+    /// returned (among them `x-amz-checksum-sha256`, the base64 SHA-256 of the file), and the
+    /// object store or relay refuses it unless it is `bytes` long and has digest `sha256`.
     /// It also refuses a blob for a database whose birth it does not hold. A blob the
     /// relay already holds counts as put: its `begin` names no upload and nothing is sent.
     pub(super) async fn blob_put(

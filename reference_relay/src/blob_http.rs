@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use axum::body::{Body, Bytes};
 use axum::extract::{Path, Query, State};
-use axum::http::{header, StatusCode};
+use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use serde::Deserialize;
 use tokio::io::AsyncReadExt;
@@ -17,15 +17,20 @@ use crate::presign;
 /// Bytes read from disk per chunk of a download.
 const CHUNK_BYTES: usize = 64 * 1024;
 
-/// `PUT /relay/v1/blob/upload/{token}`: the body is streamed to staging.
+/// `PUT /relay/v1/blob/upload/{token}`: the body is streamed to staging. The request must carry
+/// `x-amz-checksum-sha256` with the base64 SHA-256 that `blob.put` begin returned.
 pub(crate) async fn blob_upload(
     State(state): State<Arc<AppState>>,
     Path(token): Path<String>,
+    headers: HeaderMap,
     body: Body,
 ) -> ApiResult<StatusCode> {
+    let checksum = headers
+        .get("x-amz-checksum-sha256")
+        .and_then(|value| value.to_str().ok());
     state
         .store
-        .stage_put(&token, Box::pin(body.into_data_stream()))
+        .stage_put(&token, checksum, Box::pin(body.into_data_stream()))
         .await?;
     Ok(StatusCode::OK)
 }

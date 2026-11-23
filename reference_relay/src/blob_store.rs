@@ -2,7 +2,9 @@
 //!
 //! Upload: `stage_begin` records the claimed size and digest, `stage_put`
 //! streams the request body to a staging file while hashing it, and refuses the
-//! file unless the byte count and SHA-256 match the claim. `stage_commit` then
+//! file unless the byte count and SHA-256 match the claim. Like an object store that
+//! verifies a signed `x-amz-checksum-sha256`, it also refuses an upload that does not carry
+//! that header with the base64 SHA-256 of the claim (see [`checksum_header`]). `stage_commit` then
 //! moves the verified file into `blobs/` by rename. Download opens the file and
 //! the HTTP layer reads it in chunks.
 
@@ -10,6 +12,8 @@ use std::path::PathBuf;
 
 use app_identity_crypto::hex_lower;
 use axum::body::Bytes;
+use base64::engine::general_purpose::STANDARD as BASE64;
+use base64::Engine as _;
 use futures::{Stream, StreamExt};
 use sha2::{Digest, Sha256};
 use tokio::fs;
@@ -17,6 +21,24 @@ use tokio::io::AsyncWriteExt;
 
 use crate::error::{ApiError, ApiResult};
 use crate::store::{atomic_write, now_ms, read_json, require_hex64, Store};
+
+/// The `x-amz-checksum-sha256` value of a blob: base64 of the 32 digest bytes of the
+/// lowercase hex `sha256`, which the caller has already checked with `require_hex64`.
+pub(crate) fn checksum_header(sha256: &str) -> String {
+    let nibble = |b: u8| {
+        if b.is_ascii_digit() {
+            b - b'0'
+        } else {
+            b - b'a' + 10
+        }
+    };
+    let raw: Vec<u8> = sha256
+        .as_bytes()
+        .chunks(2)
+        .map(|pair| (nibble(pair[0]) << 4) | nibble(pair[1]))
+        .collect();
+    BASE64.encode(raw)
+}
 
 impl Store {
     pub(crate) async fn stage_begin(&self, sha256: &str, bytes: u64) -> ApiResult<String> {
@@ -37,11 +59,19 @@ impl Store {
 
     /// Stream an upload body into the staging file for `token`, hashing as the
     /// bytes pass. A wrong size or digest removes the partial file and fails.
-    pub(crate) async fn stage_put<S>(&self, token: &str, mut body: S) -> ApiResult<()>
+    pub(crate) async fn stage_put<S>(
+        &self,
+        token: &str,
+        checksum: Option<&str>,
+        mut body: S,
+    ) -> ApiResult<()>
     where
         S: Stream<Item = Result<Bytes, axum::Error>> + Unpin,
     {
         let (sha256, expected) = self.staged_claim(token).await?;
+        if checksum != Some(checksum_header(&sha256).as_str()) {
+            return Err(ApiError::invalid("x-amz-checksum-sha256"));
+        }
         let part = self.root.join("staging").join(format!("{token}.part"));
         let received = receive(&part, &mut body, expected).await;
         let outcome = match received {
