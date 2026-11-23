@@ -46,7 +46,8 @@ impl RelayClient {
     /// Put the file at `source` on the relay: `blob.put` begin, the presigned
     /// upload streamed from the file, commit. The relay hashes the upload as it
     /// arrives and refuses it unless it is `bytes` long and has digest `sha256`.
-    /// It also refuses a blob for a database whose birth it does not hold.
+    /// It also refuses a blob for a database whose birth it does not hold. A blob the
+    /// relay already holds counts as put: its `begin` names no upload and nothing is sent.
     pub(super) async fn blob_put(
         &self,
         database_id: &str,
@@ -90,6 +91,12 @@ impl RelayClient {
                     error
                 }
             })?;
+        // A relay that already holds this digest answers `begin` with the digest and no
+        // `upload`: a committed blob is immutable, so there is nothing to send and nothing to
+        // commit. A retried bundle and a snapshot that uploads files again both come here.
+        if begin["upload"].is_null() && begin["sha256"].as_str() == Some(sha256) {
+            return Ok(());
+        }
         let url = begin["upload"]["url"]
             .as_str()
             .ok_or("blob.put begin has no upload.url")?;
@@ -100,6 +107,11 @@ impl RelayClient {
             .header("content-length", size)
             .body(file_body(file));
         for (name, value) in header_pairs(&begin["upload"]["headers"]) {
+            // The content-length is set above. The Exemem relay signs it and returns it among
+            // the headers, and a second content-length header makes the object store answer 400.
+            if name.eq_ignore_ascii_case("content-length") {
+                continue;
+            }
             upload = upload.header(name, value);
         }
         let status = upload
