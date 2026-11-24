@@ -8,6 +8,7 @@
 
 mod auth;
 mod blob_http;
+mod blob_reclaim;
 mod blob_store;
 mod error;
 mod gate;
@@ -37,6 +38,7 @@ use tokio::net::TcpListener;
 use tokio::sync::Mutex;
 
 use blob_http::{blob_bytes, blob_upload};
+use blob_reclaim::{blob_drop, blob_list};
 use handlers::{blob_get, blob_put, log_append, log_read, log_streams, AppState};
 use store::Store;
 use trim::log_trim;
@@ -108,6 +110,7 @@ async fn run() -> Result<(), String> {
         secret,
         grants: Mutex::new(grants),
         trim_lock: Mutex::new(()),
+        blob_lock: Mutex::new(()),
         max_blob_bytes: cli.max_blob_bytes,
         upload_bytes_per_second: cli.upload_bytes_per_second,
         upload_stall_after: cli.upload_stall_after,
@@ -121,6 +124,8 @@ async fn run() -> Result<(), String> {
         .route("/relay/v1/log/trim", post(log_trim))
         .route("/relay/v1/blob/put", post(blob_put))
         .route("/relay/v1/blob/get", post(blob_get))
+        .route("/relay/v1/blob/list", post(blob_list))
+        .route("/relay/v1/blob/drop", post(blob_drop))
         .route(
             "/relay/v1/blob/upload/{database_id}/{token}",
             put(blob_upload),

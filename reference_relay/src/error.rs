@@ -35,6 +35,13 @@ impl ApiError {
         Self::new(StatusCode::CONFLICT, "conflict", field)
     }
 
+    /// A stream that a `blob/drop` named as its condition is not as named: its head moved, or it
+    /// holds an entry above its head. `field` is `snapshot` for the snapshot stream and `heads`
+    /// for a listed one.
+    pub(crate) fn heads_moved(field: &'static str) -> Self {
+        Self::new(StatusCode::CONFLICT, "heads", field)
+    }
+
     pub(crate) fn rate_limited(field: impl Into<String>) -> Self {
         Self::new(StatusCode::TOO_MANY_REQUESTS, "rate_limited", field)
     }

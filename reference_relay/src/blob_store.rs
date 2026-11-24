@@ -4,8 +4,9 @@
 //! `stage_put` streams the request body to a unique `.part.<id>` file while hashing it, and
 //! refuses the file unless `x-amz-checksum-sha256`, byte count, and SHA-256 match the claim.
 //! `stage_commit` moves the verified file into `blobs/<sha256>` and records per-database
-//! ownership at `blobs/<database_id>/<sha256>`. Download opens the file only when that database
-//! owns the digest, and the HTTP layer streams it in chunks.
+//! ownership at `blobs/<database_id>/<sha256>`, and removes the pending records of the digest.
+//! Download opens the file only when that database owns the digest, and the HTTP layer streams
+//! it in chunks. `blob_reclaim` lists the blobs a database owns and drops them.
 
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
@@ -209,7 +210,8 @@ impl Store {
                 .map_err(|_| ApiError::invalid("data_dir"))?;
         }
         atomic_write(&marker, b"").await?;
-        let _ = fs::remove_file(staging.with_extension("meta.json")).await;
+        // No pending record of the digest outlives its commit.
+        self.clear_pending(database_id, sha256).await;
         Ok(())
     }
 
@@ -266,15 +268,15 @@ impl Store {
         Ok((file, len))
     }
 
-    fn blob_path(&self, sha256: &str) -> PathBuf {
+    pub(crate) fn blob_path(&self, sha256: &str) -> PathBuf {
         self.root.join("blobs").join(sha256)
     }
 
-    fn db_blob_marker(&self, database_id: &str, sha256: &str) -> PathBuf {
+    pub(crate) fn db_blob_marker(&self, database_id: &str, sha256: &str) -> PathBuf {
         self.root.join("blobs").join(database_id).join(sha256)
     }
 
-    fn staging_dir(&self, database_id: &str) -> PathBuf {
+    pub(crate) fn staging_dir(&self, database_id: &str) -> PathBuf {
         self.root.join("staging").join(database_id)
     }
 }

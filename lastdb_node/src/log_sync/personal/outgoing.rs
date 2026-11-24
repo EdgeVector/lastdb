@@ -6,8 +6,10 @@
 //! key and signed with the node key (`crate::personal_author`). A file that an
 //! entry names is in the spool beside it, sealed. The sender changes nothing in
 //! the store and signs nothing. It reads the entries past the acknowledged
-//! position, sends their files and then the entries, writes the head row of its
-//! own stream, and tells the spool to retire them.
+//! position, sends their files and then the entries, asks the relay for each
+//! file again (a sweep drops a file that no entry named yet, and such a file goes
+//! up again), writes the head row of its own stream, and tells the spool to
+//! retire them.
 //!
 //! An entry is the same bytes however often it is read, so a retry sends what
 //! the first try sent, and the relay counts an entry it already holds as a

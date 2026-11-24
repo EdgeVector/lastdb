@@ -12,20 +12,21 @@ On the reference relay (`reconcile_reference`), for the one database of the proo
   signature and its `prev_hash` is the hash of the entry before it (`entry_audit`, which uses the
   `mutation_log` code that the nodes and the relay use); the hash of the last entry is the head that
   the relay's `log/streams` reports; the head of A's stream is the confirmed position A keeps on disk;
-- blobs: every blob on the relay has the SHA-256 in its name; every file that a retained snapshot
-  manifest names and every file a retained entry names is there with the named length; every other
-  blob is explained as retained after a trim (the manifest of a dropped snapshot, a file that a
-  dropped snapshot named, a file of a dropped entry) and none is left unexplained;
+- blobs: every blob on the relay has the SHA-256 in its name; the relay holds one snapshot entry, and
+  its blobs are exactly the manifest of that snapshot, the files the manifest names and the files that
+  stored entries name, each with the named length. A blob that nothing names fails the proof: the
+  sweep after each snapshot drops it;
 - bytes: the length of the stored entries and the blobs, summed from the files of the relay, is what
-  the nodes' accounts say: entries put less entries released, blobs put (plus the blobs a node began
-  to upload and was cut off before it noted the end of, when the relay holds them), and the status of
-  each running node shows its own account.
+  the nodes' accounts say: entries put less entries released, blobs put less blobs released (plus the
+  blobs a node began to upload and was cut off before it noted the end of, when the relay holds them),
+  and the status of each running node shows its own account.
 
 On a deployed relay (`reconcile_deployed`), whose storage cannot be listed, the same questions go through
 the routes: `log/streams` heads equal the positions of the nodes, `log/read` of each stream from its
 floor returns a chain whose last hash is the head and whose count is what the nodes put less what trims
 released, and `blob.get` of the files of the newest snapshot, and of every file a retained entry
-names, returns the named length and SHA-256.
+names, returns the named length and SHA-256. That the relay holds no other blob is step 23
+(`personal_proof_reclaim.py`), which asks `blob/list`.
 """
 import hashlib
 import json
@@ -40,9 +41,8 @@ from personal_proof_trim import relay_post
 from record_runs import require
 
 MEBIBYTE = 1024 * 1024
-FIELDS = ("entries", "entry_bytes", "blobs", "blob_bytes", "released_entries", "released_bytes")
-# File digests that stored entries named at some point. A trim drops the entry and keeps the blob.
-SEEN_FILES = set()
+FIELDS = ("entries", "entry_bytes", "blobs", "blob_bytes", "released_entries", "released_bytes",
+          "released_blobs", "released_blob_bytes")
 
 
 def audit_binary(relay):
@@ -115,12 +115,6 @@ def hash_file(path):
     return digest.hexdigest()
 
 
-def remember(relay, database):
-    """Note the files that stored entries name, before a trim drops the entries and keeps the blobs."""
-    audit = run_audit(audit_binary(relay), "disk", str(relay.data))
-    SEEN_FILES.update(audit["named_files"])
-
-
 # Entries ----------------------------------------------------------------------------------
 
 def check_entries(relay, database, audit, streams_through):
@@ -186,66 +180,28 @@ def check_positions(devices, streams_through):
 # Blobs ------------------------------------------------------------------------------------
 
 def check_blobs(relay, audit, pending):
-    """Every blob has its digest; every named file is there; every other blob is explained. Returns the numbers."""
+    """Every blob has its digest, and the relay holds exactly what its one snapshot and its entries name."""
     directory = relay.data / "blobs"
     blobs = {path.name: path.stat().st_size for path in directory.iterdir() if path.is_file()}
     for name in blobs:
         require(hash_file(directory / name) == name, f"the blob {name[:12]} does not hash to its name")
-    named = {}
-
-    def need(digest, length, what):
-        require(digest in blobs, f"the relay lacks {what} {digest[:12]}")
-        require(blobs[digest] == length, f"{what} {digest[:12]} is {blobs[digest]} bytes on the relay, named as {length}")
-        named[digest] = what
-
-    manifests_seen = {}
-    for entry in audit["snapshots"]:
-        need(entry["manifest_sha256"], entry["manifest_bytes"], "a retained manifest")
-        listed = json.loads((directory / entry["manifest_sha256"]).read_text())["files"]
-        manifests_seen[entry["manifest_sha256"]] = listed
-        for file in listed:
-            need(file["sha256"], file["bytes"], "a file of a retained snapshot")
-    for digest in audit["named_files"]:
-        require(digest in blobs, f"the relay lacks the file {digest[:12]} of a retained entry")
-        named.setdefault(digest, "a file of a retained entry")
-    # What a trim leaves: blobs that no retained entry or manifest names.
-    explained = {"manifest of a dropped snapshot": 0, "file of a dropped snapshot": 0, "file of a dropped entry": 0}
-    left = [name for name in blobs if name not in named]
-    dropped_manifests, dropped_files = set(), set()
-    for name in left:
-        body = _manifest(directory / name)
-        if body is None:
-            continue
-        dropped_manifests.add(name)
-        for file in body["files"]:
-            require(blobs.get(file["sha256"]) == file["bytes"],
-                    f"the relay lacks or has a wrong length of the file {file['sha256'][:12]} that a dropped manifest names")
-            dropped_files.add(file["sha256"])
-    unexplained = []
-    for name in left:
-        if name in dropped_manifests:
-            explained["manifest of a dropped snapshot"] += 1
-        elif name in dropped_files:
-            explained["file of a dropped snapshot"] += 1
-        elif name in SEEN_FILES:
-            explained["file of a dropped entry"] += 1
-        else:
-            unexplained.append(name)
-    require(not unexplained, f"{len(unexplained)} blobs on the relay are named by nothing the proof knows: {unexplained[:3]}")
+    require(len(audit["snapshots"]) == 1, f"the relay holds {len(audit['snapshots'])} snapshot entries, expected the newest alone")
+    entry = audit["snapshots"][0]
+    named = {entry["manifest_sha256"]: entry["manifest_bytes"]}
+    require(entry["manifest_sha256"] in blobs, "the relay lacks the manifest of its snapshot")
+    for file in json.loads((directory / entry["manifest_sha256"]).read_text())["files"]:
+        named[file["sha256"]] = file["bytes"]
+    for digest, length in named.items():
+        require(blobs.get(digest) == length, f"the relay holds {blobs.get(digest)} bytes of {digest[:12]}, the snapshot names {length}")
+    sealed = set(audit["named_files"]) - set(named)
+    require(sealed <= set(blobs), f"the relay lacks {len(sealed - set(blobs))} files that stored entries name")
+    # What a sweep must not leave: a blob that neither the snapshot nor a stored entry names.
+    left = sorted(set(blobs) - set(named) - sealed)
+    require(not left, f"{len(left)} blobs on the relay ({sum(blobs[name] for name in left)} bytes) are named by nothing: {left[:3]}")
     cut_off = {digest: length for digest, length in pending.items() if digest in blobs}
-    return {"blobs": len(blobs), "bytes": sum(blobs.values()), "named_by_retained": len(named),
-            "retained_after_trim": explained, "unexplained": 0, "cut_off_on_the_relay": len(cut_off),
+    return {"blobs": len(blobs), "bytes": sum(blobs.values()), "named_by_the_snapshot": len(named),
+            "named_by_entries": len(sealed), "unexplained": 0, "cut_off_on_the_relay": len(cut_off),
             "cut_off_bytes": sum(cut_off.values())}
-
-
-def _manifest(path):
-    """The parsed manifest in a blob, or None when the blob is not a snapshot manifest."""
-    try:
-        body = json.loads(path.read_text())
-    except (ValueError, UnicodeDecodeError):
-        return None
-    ok = isinstance(body, dict) and "upload_id" in body and isinstance(body.get("files"), list)
-    return body if ok else None
 
 
 # Reference relay --------------------------------------------------------------------------
@@ -257,7 +213,6 @@ def reconcile_reference(relay, a, devices, label):
     total, streams_through, pending = stable_usage(devices)
     require_complete(devices)
     audit = run_audit(audit_binary(relay), "disk", str(relay.data))
-    SEEN_FILES.update(audit["named_files"])
     count, size, seen = check_entries(relay, database, audit, streams_through)
     check_heads(relay, database, a, seen)
     check_positions(devices, streams_through)
@@ -268,16 +223,18 @@ def reconcile_reference(relay, a, devices, label):
             f"(put {total['entries']}, released {total['released_entries']})")
     require(size == expect_entry_bytes, f"the stored entries weigh {size} bytes, the accounts say {expect_entry_bytes} "
             f"(put {total['entry_bytes']}, released {total['released_bytes']})")
-    expect_blobs = total["blobs"] + blobs["cut_off_on_the_relay"]
-    expect_blob_bytes = total["blob_bytes"] + blobs["cut_off_bytes"]
-    require(blobs["blobs"] == expect_blobs, f"the relay holds {blobs['blobs']} blobs, the accounts say {expect_blobs}")
-    require(blobs["bytes"] == expect_blob_bytes, f"the blobs weigh {blobs['bytes']} bytes, the accounts say {expect_blob_bytes}")
+    expect_blobs = total["blobs"] - total["released_blobs"] + blobs["cut_off_on_the_relay"]
+    expect_blob_bytes = total["blob_bytes"] - total["released_blob_bytes"] + blobs["cut_off_bytes"]
+    require(blobs["blobs"] == expect_blobs, f"the relay holds {blobs['blobs']} blobs, the accounts say {expect_blobs} "
+            f"(put {total['blobs']}, released {total['released_blobs']})")
+    require(blobs["bytes"] == expect_blob_bytes, f"the blobs weigh {blobs['bytes']} bytes, the accounts say {expect_blob_bytes} "
+            f"(put {total['blob_bytes']}, released {total['released_blob_bytes']})")
     seconds = round(time.monotonic() - started, 1)
     print(f"{label}: the relay holds {count} entries ({size} bytes) on {len(seen)} streams, each exactly from its floor "
           f"to the acknowledged head with an intact hash chain, and {blobs['blobs']} blobs ({blobs['bytes']} bytes), "
-          f"every one explained; the accounts of {len(devices)} devices say the same ({total['entries']} entries put, "
-          f"{total['released_entries']} released, {total['blobs']} blobs put, {blobs['cut_off_on_the_relay']} cut off "
-          f"and on the relay); {seconds}s", flush=True)
+          f"every one named by the snapshot or an entry; the accounts of {len(devices)} devices say the same ({total['entries']} entries put, "
+          f"{total['released_entries']} released, {total['blobs']} blobs put, {total['released_blobs']} released, "
+          f"{blobs['cut_off_on_the_relay']} cut off and on the relay); {seconds}s", flush=True)
     return {"label": label, "seconds": seconds, "streams": seen, "entries": count, "entry_bytes": size,
             "blobs": blobs, "accounts": total, "cut_off_blobs_recorded": len(pending)}
 
@@ -391,7 +348,7 @@ def reconcile_deployed(relay, a, devices, binary):
           f"{newest['writer_seq']} and its {len(listed_files)} files and {len(files)} entry files downloaded ({downloaded} bytes) "
           f"match their lengths and SHA-256; the nodes' accounts: {total['entries']} entries ({total['entry_bytes']} bytes) put, "
           f"{total['released_entries']} released ({total['released_bytes']} bytes), {total['blobs']} blobs ({total['blob_bytes']} bytes) "
-          f"put; {seconds}s", flush=True)
+          f"put, {total['released_blobs']} released ({total['released_blob_bytes']} bytes); {seconds}s", flush=True)
     return {"database_id": database, "publisher_node_key": node, "account_id": account_id(a), "streams": streams,
             "accounts": total, "cut_off_blobs": len(pending), "entries_on_the_relay": held_entries,
             "entry_bytes_read_back": held_bytes, "entry_bytes_match": held_bytes == total["entry_bytes"] - total["released_bytes"],

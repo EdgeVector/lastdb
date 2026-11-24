@@ -31,6 +31,9 @@ pub fn spawn(host: Arc<Host>, shutdown: Arc<AtomicBool>) -> tokio::task::JoinHan
     if let Some(snapshot) = super::known_snapshot(&host.home) {
         host.cloud_sync.record_snapshot(snapshot);
     }
+    if let Some(reclaim) = super::last_reclaim(&host.home) {
+        host.cloud_sync.record_reclaim(reclaim);
+    }
     tokio::spawn(
         async move {
             let histories = super::histories_for(&host);

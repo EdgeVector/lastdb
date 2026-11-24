@@ -297,7 +297,10 @@ pub(super) async fn seed_system(req: &UdsRequest, ctx: &AccessContext, host: &Ho
 
 /// `POST /api/backup/snapshot {"database": "personal"}` asks for a snapshot of the
 /// personal database now and returns the nonce of the request. `GET` with that
-/// nonce reports whether it is done.
+/// nonce reports whether it is done. With `"reclaim": true` the request is for a
+/// sweep instead (`lastdb backup reclaim`): the relay drops every stored file that
+/// the newest snapshot and the entries after it do not name. `GET` with
+/// `reclaim=<nonce>` reports on that request.
 pub(super) async fn backup_snapshot(
     req: &UdsRequest,
     ctx: &AccessContext,
@@ -308,10 +311,16 @@ pub(super) async fn backup_snapshot(
     struct Body {
         #[serde(default)]
         database: Option<String>,
+        #[serde(default)]
+        reclaim: bool,
     }
     let res = async {
         require_owner(ctx, "backup snapshot is owner-only")?;
         if req.method == "GET" {
+            if let Some(nonce) = wire::query_value(&req.target, "reclaim") {
+                return crate::log_sync::reclaim_status(host, &nonce)
+                    .map_err(|e| HostError::new(503, e));
+            }
             let nonce = wire::query_value(&req.target, "nonce").unwrap_or_default();
             if nonce.is_empty() {
                 return Err(HostError::new(400, "the nonce query parameter is required"));
@@ -321,15 +330,19 @@ pub(super) async fn backup_snapshot(
         }
         let body: Body = serde_json::from_slice(&req.body)
             .map_err(|e| HostError::new(400, format!("invalid /api/backup/snapshot body: {e}")))?;
-        let (id, nonce) = crate::log_sync::request_snapshot(host, body.database.as_deref())
-            .map_err(|e| {
-                let status = if e == "database is not owned by this node" {
-                    404
-                } else {
-                    503
-                };
-                HostError::new(status, e)
-            })?;
+        let asked = if body.reclaim {
+            crate::log_sync::request_reclaim(host, body.database.as_deref())
+        } else {
+            crate::log_sync::request_snapshot(host, body.database.as_deref())
+        };
+        let (id, nonce) = asked.map_err(|e| {
+            let status = if e == "database is not owned by this node" {
+                404
+            } else {
+                503
+            };
+            HostError::new(status, e)
+        })?;
         crate::log_sync::ensure_wake(&host.home);
         host.cloud_sync.wake();
         Ok(json!({ "database_id": id, "nonce": nonce }))

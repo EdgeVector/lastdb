@@ -21,8 +21,38 @@ mod setup;
 pub(super) use account::cloud_account_command;
 pub(crate) use dev_keys::with_publishing_credential;
 
-/// The longest a `--wait` snapshot waits. A large store uploads for a while.
+/// The longest a `--wait` snapshot or sweep waits. A large store uploads for a while.
 const SNAPSHOT_WAIT: Duration = Duration::from_secs(1800);
+
+/// One kind of request that `/api/backup/snapshot` queues for the sync loop.
+struct Queued {
+    /// True for a sweep (`"reclaim": true` in the body), false for a snapshot.
+    reclaim: bool,
+    /// The query parameter that carries the nonce when the state of the request is asked.
+    nonce: &'static str,
+    /// The name of the command in an error.
+    label: &'static str,
+    /// What is printed when the command does not wait.
+    queued: &'static str,
+    /// The error when the wait ends first.
+    late: &'static str,
+}
+
+const SNAPSHOT: Queued = Queued {
+    reclaim: false,
+    nonce: "nonce",
+    label: "backup snapshot",
+    queued: "Queued snapshot of the personal database",
+    late: "the snapshot did not reach the relay in time",
+};
+
+const RECLAIM: Queued = Queued {
+    reclaim: true,
+    nonce: "reclaim",
+    label: "backup reclaim",
+    queued: "Queued a sweep of the relay storage of the personal database; `lastdb status` shows what the relay holds after it",
+    late: "the sweep did not finish in time",
+};
 
 pub(super) fn backup_command(
     data_dir: Option<PathBuf>,
@@ -31,7 +61,10 @@ pub(super) fn backup_command(
 ) -> Result<(), String> {
     match action {
         BackupCommand::Snapshot { database, wait } => {
-            queue_snapshot(data_dir, database.or(db).as_deref(), wait)
+            queue(data_dir, database.or(db).as_deref(), wait, &SNAPSHOT)
+        }
+        BackupCommand::Reclaim { database, wait } => {
+            queue(data_dir, database.or(db).as_deref(), wait, &RECLAIM)
         }
         BackupCommand::Connect(a) => setup::run_connect(data_dir, &a),
         BackupCommand::Restore(args) => {
@@ -43,36 +76,39 @@ pub(super) fn backup_command(
     }
 }
 
-fn queue_snapshot(
+fn queue(
     data_dir: Option<PathBuf>,
     database: Option<&str>,
     wait: bool,
+    kind: &Queued,
 ) -> Result<(), String> {
     let (_home, socket) = resolve_client_home_and_socket(data_dir)?;
     require_reachable(&socket)?;
-    let raw = post_json_admin(
-        &socket,
-        "/api/backup/snapshot",
-        &serde_json::json!({ "database": database }),
-    )?;
-    let reply = parse_json_or_error(&raw, "backup snapshot")?;
+    let mut body = serde_json::json!({ "database": database });
+    if kind.reclaim {
+        body["reclaim"] = Value::Bool(true);
+    }
+    let raw = post_json_admin(&socket, "/api/backup/snapshot", &body)?;
+    let reply = parse_json_or_error(&raw, kind.label)?;
     let nonce = reply["nonce"]
         .as_str()
         .filter(|s| !s.is_empty())
-        .ok_or("backup snapshot response missing nonce")?;
+        .ok_or_else(|| format!("{} response missing nonce", kind.label))?;
     if !wait {
-        println!("Queued snapshot of the personal database");
+        println!("{}", kind.queued);
         return Ok(());
     }
-    wait_for_snapshot(&socket, nonce)
+    wait_for(&socket, nonce, kind)
 }
 
-fn wait_for_snapshot(socket: &Path, nonce: &str) -> Result<(), String> {
-    let path = format!("/api/backup/snapshot?nonce={nonce}");
+/// Wait until the daemon answered the request `nonce`, then print its report as JSON.
+fn wait_for(socket: &Path, nonce: &str, kind: &Queued) -> Result<(), String> {
+    let path = format!("/api/backup/snapshot?{}={nonce}", kind.nonce);
+    let status = format!("{} status", kind.label);
     let deadline = Instant::now() + SNAPSHOT_WAIT;
     loop {
         if let Ok(raw) = get_path_retry(socket, &path, Duration::from_secs(10)) {
-            if let Ok(reply) = parse_json_response(&raw, "backup snapshot status") {
+            if let Ok(reply) = parse_json_response(&raw, &status) {
                 if reply["ready"].as_bool() == Some(true) {
                     println!(
                         "{}",
@@ -86,7 +122,7 @@ fn wait_for_snapshot(socket: &Path, nonce: &str) -> Result<(), String> {
             }
         }
         if Instant::now() >= deadline {
-            return Err("the snapshot did not reach the relay in time".into());
+            return Err(kind.late.into());
         }
         std::thread::sleep(Duration::from_millis(200));
     }

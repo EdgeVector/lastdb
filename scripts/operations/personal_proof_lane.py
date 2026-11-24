@@ -28,7 +28,7 @@ import time
 
 from personal_proof_nodes import GAMMA, Device, Relay, require, wait
 from personal_proof_snapshot import newest_snapshot_entry, snapshot_stream, stored_seqs
-from personal_proof_status import status_lines
+from personal_proof_status import status_lines, swept
 from personal_proof_steps import gamma_create
 from personal_proof_uplink import home_with_file
 
@@ -112,6 +112,8 @@ def prove_lane(args):
         second = write_during_upload(relay, w, x, ["m1", "m2", "m3"], "during-second")
         wait("the snapshot to publish", lambda: snapshot_state(w).get("state") == "published", seconds=180)
         wait("W to upload", w.synced_up, seconds=60)
+        # The lane then asks the relay to drop what the snapshot covers, and the next turns sweep.
+        swept(w, 1)
 
         # What the snapshot says, and what the relay holds.
         seq, entry = newest_snapshot_entry(relay, w.database)
@@ -120,8 +122,9 @@ def prove_lane(args):
         head = w.spool_state()["head"]
         require(through.get(w.device_id()) == cut and head > cut,
                 f"the snapshot holds {through!r}; W was acknowledged through {cut} at the cut and signed up to {head}")
-        require(relay.stream_entries(w.database, w.device_id()) == list(range(1, head + 1)),
-                "W's stream on the relay is not every sequence number once")
+        require(relay.stream_entries(w.database, w.device_id()) == list(range(cut + 1, head + 1))
+                and relay.stream_floor(w.database, w.device_id()) == cut,
+                "W's stream on the relay is not every sequence number after the cut, once")
         require(w.checkpoint()["writer_seq"] == head, f"W confirmed {w.checkpoint()!r}")
 
         # A restore from it plus the tail equals W and X.

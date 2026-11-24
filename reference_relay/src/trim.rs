@@ -18,6 +18,7 @@ use serde_json::{json, Value};
 use crate::auth;
 use crate::error::{ApiError, ApiResult};
 use crate::gate;
+use crate::grant_index::GrantIndex;
 use crate::handlers::{parse_body, AppState, SMALL_BODY_BYTES};
 use crate::store::{read_json, require_hex64, Store};
 use crate::trim_plan::{apply, ensure_personal_logs, permits_entry, plan, TrimScope};
@@ -68,7 +69,12 @@ pub(crate) async fn log_trim(
             json!({ "done": true, "entries_deleted": 0, "released_bytes": 0 }),
         ));
     }
-    let snapshot = snapshot_entry(scope.store, &req, &writer).await?;
+    let named = SnapshotName {
+        database_id: &req.database_id,
+        device_id: &req.device_id,
+        writer_seq: req.writer_seq,
+    };
+    let snapshot = snapshot_entry(scope.store, &named, &writer).await?;
     verify_manifest_blob(scope.store, &req.database_id, &snapshot).await?;
     let through_map = check_through_monotonic(&scope, &req.device_id, &snapshot)?;
     let older = req.writer_seq - 1;
@@ -99,6 +105,15 @@ async fn check_personal_owner(
     caller: &NodeKey,
 ) -> ApiResult<()> {
     let grants = state.grants.lock().await;
+    personal_owner(&grants, db, caller)
+}
+
+/// The caller is the publisher of `db`, and `db` has no grant: it is a personal database.
+pub(crate) fn personal_owner(
+    grants: &GrantIndex,
+    db: &DatabaseId,
+    caller: &NodeKey,
+) -> ApiResult<()> {
     let birth = grants
         .birth(db)
         .ok_or_else(|| ApiError::forbidden("publisher"))?;
@@ -151,9 +166,22 @@ fn check_through_monotonic(
     Ok(through_map)
 }
 
-async fn snapshot_entry(store: &Store, req: &LogTrimBody, writer: &str) -> ApiResult<SnapshotBody> {
+/// One entry of a snapshot stream, by its place.
+pub(crate) struct SnapshotName<'a> {
+    pub(crate) database_id: &'a str,
+    pub(crate) device_id: &'a str,
+    pub(crate) writer_seq: u64,
+}
+
+/// The stored `snapshot` entry that `req` names, after a check of its signature, its kind and
+/// its writer.
+pub(crate) async fn snapshot_entry(
+    store: &Store,
+    req: &SnapshotName<'_>,
+    writer: &str,
+) -> ApiResult<SnapshotBody> {
     let (entries, _) = store
-        .read_entries(&req.database_id, writer, &req.device_id, req.writer_seq, 1)
+        .read_entries(req.database_id, writer, req.device_id, req.writer_seq, 1)
         .await?;
     let value = entries
         .into_iter()

@@ -5,6 +5,11 @@ node recorded when it published or installed that snapshot, with no call to the 
 
     Snapshot: <local time>, <N> files, <size>, on <relay origin>, covers this device through entry <seq>
 
+After a sweep (the relay dropped every stored file that the newest snapshot and the entries after it do
+not name), one more line says what the relay holds, from the `cloud_sync.reclaim` object:
+
+    Cloud storage: <N> files, <size> on the relay after the last sweep (the snapshot it kept: <N> files, <size>)
+
 A home with no snapshot says `Snapshot: none yet`. A snapshot file that is larger than the relay
 accepts is reported with what a person can do, once, and is not retried in a loop.
 """
@@ -75,11 +80,39 @@ def snapshot_lines(device):
     return [lines[i] for i in found]
 
 
+def swept(device, snapshot_seq, seconds=150):
+    """The `cloud_sync.reclaim` object of /api/status once the sweep that follows snapshot `snapshot_seq` is done.
+
+    After a snapshot is named and trimmed, the next sync turns drop every stored file that the snapshot and the
+    entries after it do not name. The object names the snapshot the last finished sweep kept.
+    """
+    def probe():
+        sync = device.sync_status()
+        reclaim = sync.get("reclaim") if isinstance(sync, dict) else None
+        return reclaim if reclaim and reclaim.get("snapshot_seq") == snapshot_seq else None
+    return wait(f"{device.name} to sweep the relay after snapshot {snapshot_seq}", probe, seconds=seconds)
+
+
+def reclaim_now(device):
+    """`lastdb backup reclaim --wait`: ask the running daemon for a sweep now. Returns its report."""
+    return device.run(["backup", "reclaim", "--wait"],
+                      env={"LASTDB_SOCKET_PATH": str(device.node.socket), "LASTDB_HOME": str(device.node.home)})
+
+
+def storage_line(reclaim):
+    """The cloud storage line of `lastdb status` for a `cloud_sync.reclaim` object."""
+    return (f"Cloud storage: {reclaim['cloud_files']} files, {size_text(reclaim['cloud_bytes'])} on the relay after the "
+            f"last sweep (the snapshot it kept: {reclaim['snapshot_files']} files, {size_text(reclaim['snapshot_bytes'])})")
+
+
 def prove_none_yet(device):
     """A fresh home: no snapshot yet, in the text and in the JSON."""
     snapshot = snapshot_object(device)
     require(snapshot["state"] == "none" and all(snapshot[name] is None for name in FIELDS[1:]), f"fresh: {snapshot!r}")
     require(snapshot_lines(device) == [NONE_YET], f"fresh status lines: {snapshot_lines(device)!r}")
+    reclaim = device.sync_status()["reclaim"]
+    require(all(value is None for value in reclaim.values()), f"fresh: a sweep is reported: {reclaim!r}")
+    require(not any(line.startswith("Cloud storage:") for line in status_lines(device)), "fresh: a cloud storage line")
     print("15. a fresh home says 'Snapshot: none yet' in `lastdb status` and state none in /api/status", flush=True)
 
 
