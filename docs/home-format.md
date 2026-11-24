@@ -72,6 +72,7 @@ be sent are files outside the store.
       snapshot-last.json       the last snapshot this device published
       snapshot-known.json      what `lastdb status` prints
       snapshot-request, -result, -error
+      snapshot-unverified      a snapshot entry is on the relay and its files are not checked yet
       reclaim-due.json         a sweep of the relay is due for one snapshot
       reclaim-last.json        what the relay held after the last sweep
       reclaim-request, -result, -error

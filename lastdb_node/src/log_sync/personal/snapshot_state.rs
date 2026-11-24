@@ -4,8 +4,9 @@
 //! the answer to the last request, `snapshot-error` why it failed, and
 //! `snapshot-last.json` the manifest and positions of the last snapshot this
 //! device published. A request for a sweep (`lastdb backup reclaim`) has the
-//! same three files under the name `reclaim`. None of them is part of the
-//! store, so a restored device starts with none.
+//! same three files under the name `reclaim`. `snapshot-unverified` exists from
+//! the append of a `snapshot` entry until the snapshot is recorded as published.
+//! None of them is part of the store, so a restored device starts with none.
 
 use std::path::Path;
 
@@ -231,6 +232,30 @@ pub(crate) fn status(host: &Host, nonce: &str) -> Result<Value, String> {
 /// The state of the sweep request `nonce`: ready with its report, failed, or neither yet.
 pub(crate) fn reclaim_status(host: &Host, nonce: &str) -> Result<Value, String> {
     RECLAIM.state(host, nonce)
+}
+
+/// The mark that a `snapshot` entry of this device is on the relay and the check of its files
+/// has not ended.
+const UNVERIFIED: &str = "snapshot-unverified";
+
+/// A `snapshot` entry of this device is on the relay, and its files are not checked yet. A sweep
+/// of another device that ran before the entry was appended may have dropped one of them, and a
+/// restore reads this snapshot alone. If the check does not end (a stop, a kill, a failed
+/// transfer), the mark stays, and the next clean turn takes a snapshot again, which uploads what
+/// the relay lacks and names a complete one.
+pub(super) fn mark_unverified(ctx: &Ctx<'_>) -> Result<(), String> {
+    disk::write_private(&file_of(&ctx.host.home, &ctx.database_id, UNVERIFIED), b"1")
+        .map_err(|_| "cannot record that the snapshot is not verified yet".to_owned())
+}
+
+/// The snapshot this device named is verified and recorded.
+pub(super) fn clear_unverified(ctx: &Ctx<'_>) {
+    let _ = disk::remove_private(&file_of(&ctx.host.home, &ctx.database_id, UNVERIFIED));
+}
+
+/// True while a snapshot this device named is not verified.
+pub(super) fn unverified(home: &Path, database_id: &str) -> bool {
+    file_of(home, database_id, UNVERIFIED).is_file()
 }
 
 pub(super) fn load_last(home: &Path, database_id: &str) -> Result<Option<Last>, String> {

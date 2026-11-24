@@ -484,7 +484,7 @@ Everything else is dropped and its bytes are released. While a new snapshot uplo
 1. Hash the files of the frozen cut.
 2. `blob.list`. Upload each manifest file the relay lacks (by digest and length), then the manifest.
 3. Sign and append the `snapshot` entry.
-4. Verify: `blob.list` again. Every manifest file and the manifest are present with the right length. One that is missing is uploaded again from the cut, which is still pinned. Only then is the snapshot recorded as published.
+4. Verify: `blob.list` again. Every manifest file and the manifest are present with the right length. One that is missing is uploaded again from the cut, which is still pinned. Only then is the snapshot recorded as published. From the append to the record a mark is on disk (`snapshot-unverified`). If the check does not end (a stop, a kill, a failed transfer), the mark stays and the next clean turn takes a snapshot again, which uploads what the relay lacks and names a complete one. A restore reads the newest snapshot alone, so an incomplete one must not stay the newest.
 5. `log.trim` to this snapshot. The relay drops the entries it covers and the older `snapshot` entries.
 6. Mark a sweep as due for this snapshot (`log-sync/<database>/reclaim-due.json`).
 

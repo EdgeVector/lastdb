@@ -28,7 +28,9 @@
 //!    the right length, and one that is gone is uploaded again from the cut, which stays pinned
 //!    until here. Only then is the snapshot recorded as published. A sweep that ran before the
 //!    entry was appended may have dropped a file that nothing named yet. A sweep after it keeps
-//!    them, because the relay drops nothing once the head of the snapshot stream moved.
+//!    them, because the relay drops nothing once the head of the snapshot stream moved. From the
+//!    append to the record a mark is on disk (`snapshot-unverified`): if the check does not end,
+//!    the next clean turn takes a snapshot again, so an incomplete one does not stay the newest.
 //! 6. Ask the relay to drop what this snapshot covers (`trim_covered`): the entries up to its
 //!    positions and the older snapshot entries. The relay then holds one snapshot. A failed or
 //!    unknown trim only leaves the relay larger.
@@ -61,8 +63,8 @@ use super::snapshot_known as known;
 use super::snapshot_lane as lane;
 use super::snapshot_manifest::{self as manifest, Manifest};
 use super::snapshot_state::{
-    fail_request, fail_request_in, finish_request, load_last, read_request, record_published, Last,
-    PublishedCut, Report,
+    clear_unverified, fail_request, fail_request_in, finish_request, load_last, mark_unverified,
+    read_request, record_published, unverified, Last, PublishedCut, Report,
 };
 use super::snapshot_upload::{
     elapsed_ms, ensure_birth, put_manifest, upload_files, verify_named, Named, TOO_LARGE,
@@ -101,7 +103,11 @@ pub(super) async fn run(
         return Ok(());
     }
     let request = read_request(home, &ctx.database_id);
-    if request.is_none() && (known::waiting(home).is_some() || !auto_due(ctx, client).await?) {
+    // A snapshot this device named and could not verify is taken again, as a due one is.
+    if request.is_none()
+        && (known::waiting(home).is_some()
+            || !(unverified(home, &ctx.database_id) || auto_due(ctx, client).await?))
+    {
         return Ok(());
     }
     let frozen = match freeze(ctx, false).await {
@@ -333,6 +339,9 @@ async fn publish_cut(
         upload_files(ctx, client, &cut, &list.files, &held).await?;
     let (sha256, length) = put_manifest(ctx, client, &list).await?;
     let entry = name(ctx, client, first, (sha256.as_str(), length), &through).await?;
+    // The relay names the snapshot from here on, and a restore reads it alone. Until its files
+    // are checked, the mark makes the next clean turn take a snapshot again.
+    mark_unverified(ctx)?;
     // The cut stays pinned until the relay holds every file of the snapshot it now names.
     let named = Named {
         list: &list,
@@ -355,6 +364,7 @@ async fn publish_cut(
             upload_ms: elapsed_ms(uploading),
         },
     )?;
+    clear_unverified(ctx);
     Ok((report, true))
 }
 
