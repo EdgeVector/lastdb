@@ -84,7 +84,7 @@ impl Tables {
         entry: Entry,
     ) -> Result<Entry, OwnedError> {
         let id = &entry.id;
-        let store = open(home, &entry, signer, true)
+        let store = open(home, &entry, &signer, true)
             .await
             .map_err(|_| OwnedError::Unavailable)?;
         if let Err(error) = self.commit_create(home, entry.clone(), Arc::clone(&store)) {
@@ -105,7 +105,7 @@ pub(super) async fn open_all(
 ) -> Result<HashMap<String, Arc<FoldDB>>, String> {
     let mut stores = HashMap::new();
     for entry in owned {
-        let store = open(home, entry, Arc::clone(signer), false).await?;
+        let store = open(home, entry, signer, false).await?;
         stores.insert(entry.id.clone(), store);
     }
     Ok(stores)
@@ -114,7 +114,7 @@ pub(super) async fn open_all(
 pub(super) async fn open(
     home: &Path,
     entry: &Entry,
-    signer: Arc<Ed25519KeyPair>,
+    signer: &Ed25519KeyPair,
     create: bool,
 ) -> Result<Arc<FoldDB>, String> {
     let id = &entry.id;
@@ -132,14 +132,10 @@ pub(super) async fn open(
         &keys,
         signer,
         fold_db::fold_db_core::factory::FoldDbOptions {
-            offline_maintenance: false,
             // An owned sibling is signed from its history (`log_sync::mirror`),
             // and nothing sends a spool for it, so it captures nothing.
             capture_accepted: false,
             capture_author: None,
-            record_log: entry
-                .whole_database()
-                .then(|| crate::host::share_identity::record_log(home, id)),
         },
     )
     .await

@@ -36,26 +36,23 @@ pub(crate) async fn receiver_store(host: &Host, id: &Id) -> Result<Arc<FoldDB>> 
     if !store_ready(&host.home, id)? {
         return Err(ShareCacheError::Unavailable);
     }
-    let store = open_receiver(host, id, share.whole_database()).await?;
+    let store = open_receiver(host, id).await?;
     open.insert(id.as_str().to_owned(), Arc::clone(&store));
     Ok(store)
 }
 
-async fn open_receiver(host: &Host, id: &Id, whole_database: bool) -> Result<Arc<FoldDB>> {
+async fn open_receiver(host: &Host, id: &Id) -> Result<Arc<FoldDB>> {
     let keys = content_keys(&host.home, id)?;
     let data = store_dirs(&host.home, id)?;
     fold_db::fold_db_core::factory::create_fold_db_with_options(
         &DatabaseConfig::local(data),
         &keys,
-        Arc::clone(&host.keypair),
+        &host.keypair,
         fold_db::fold_db_core::factory::FoldDbOptions {
-            offline_maintenance: false,
             // A member proposes from its history (`log_sync::proposal`), and
             // nothing sends a spool for a received database, so it captures nothing.
             capture_accepted: false,
             capture_author: None,
-            record_log: whole_database
-                .then(|| crate::host::share_identity::record_log(&host.home, id.as_str())),
         },
     )
     .await

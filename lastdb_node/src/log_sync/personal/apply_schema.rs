@@ -82,12 +82,13 @@ async fn drop_schema(
             ctx.host
                 .db
                 .schema_manager()
-                .drop_replay_schema(name, &id, &digest)
+                .drop_replay_schema(name, &id, &digest, &stamp)
                 .await?;
         }
         manager
             .write_replay_at_head(stream, next, async {
                 manager.observe_replay_time(stamp.ordering_ms).await?;
+                manager.accept_replay_drop_schema(name, &stamp).await?;
                 manager.accept_replay_schema(name, &stamp).await?;
                 Ok(())
             })

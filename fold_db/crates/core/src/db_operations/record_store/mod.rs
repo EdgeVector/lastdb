@@ -128,26 +128,6 @@ impl RecordStore {
             .await
     }
 
-    pub(crate) async fn applied_delete_revision(
-        &self,
-        schema: &Schema,
-        key: &KeyValue,
-    ) -> Result<Option<String>, SchemaError> {
-        let profile = schema
-            .require_record_keys()?
-            .primary
-            .range_profile()
-            .map_err(invalid)?;
-        let mut key = key.clone();
-        crate::schema::types::key_comparison::canonical_key(profile, &mut key)?;
-        let addr = self.record_address(schema, &key)?;
-        self.record_read_scope(async move {
-            let mut stamps = self.format.applied_deletes(&[&addr]).await?;
-            Ok(stamps.pop().flatten().map(|s| s.revision()))
-        })
-        .await
-    }
-
     pub(crate) fn record_span(
         &self,
         schema: &Schema,

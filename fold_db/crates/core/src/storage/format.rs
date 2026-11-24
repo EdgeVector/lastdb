@@ -186,7 +186,7 @@ pub(crate) fn alternate_bounds(
 
 pub(in crate::storage::format) mod inline_files {
     use crate::storage::{error::StorageResult, KvMutation, StorageError};
-    use lastdb_model::record_value::{FileMarker, InlineFile};
+    use lastdb_model::record_value::InlineFile;
 
     pub(in crate::storage::format) const INLINE_FILE_FAMILY: &str = "fi";
 
@@ -204,18 +204,8 @@ pub(in crate::storage::format) mod inline_files {
         KvMutation::delete(address(rec))
     }
 
-    pub(in crate::storage::format) fn address(rec: &str) -> String {
+    fn address(rec: &str) -> String {
         format!("fi:{rec}")
-    }
-
-    pub(in crate::storage::format) fn decode_for(
-        bytes: &[u8],
-        marker: &FileMarker,
-    ) -> StorageResult<InlineFile> {
-        let file = InlineFile::decode(bytes).map_err(StorageError::invalid)?;
-        (&file.marker == marker).then_some(file).ok_or_else(|| {
-            StorageError::invalid("the inline file row differs from its record marker")
-        })
     }
 }
 

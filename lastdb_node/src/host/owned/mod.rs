@@ -73,14 +73,6 @@ pub(crate) struct Entry {
     pub lease_length_ms: Option<u64>,
 }
 
-impl Entry {
-    pub(crate) fn whole_database(&self) -> bool {
-        self.spec
-            .as_ref()
-            .is_some_and(PublicationSpec::whole_database)
-    }
-}
-
 #[derive(Clone)]
 pub(crate) enum ResolvedStore {
     Owner,

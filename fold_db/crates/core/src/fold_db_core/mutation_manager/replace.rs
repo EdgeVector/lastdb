@@ -1,13 +1,13 @@
 //! Preimage loading, CAS expectation checks, and whole-record replacement construction.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use lastdb_model::portable_mutation::Stamp;
 use lastdb_model::record_replacement::{RecordMetadata, RecordReplacement};
-use lastdb_model::record_value::{InlineWrite, StoredRecord};
+use lastdb_model::record_value::{FileMarker, InlineWrite, StoredRecord};
+use serde_json::Value;
 
-use super::AuthoredMutation;
 use crate::db_operations::record_store::RecordStore;
 use crate::schema::types::{cas::CasExpectation, FileWrite, Mutation, MutationType, Schema};
 use crate::schema::SchemaError;
@@ -16,16 +16,14 @@ use crate::storage::format::records::RecordAddress;
 pub(super) async fn read_write_preimages(
     records: &RecordStore,
     addresses: &[RecordAddress],
-    mutations: &[AuthoredMutation],
+    purges: &[bool],
 ) -> Result<Vec<Option<Arc<StoredRecord>>>, SchemaError> {
     let mut stored = records.read_records(addresses).await?;
-    let misses: Vec<_> = mutations
+    let misses: Vec<_> = purges
         .iter()
         .zip(&stored)
         .enumerate()
-        .filter_map(|(i, (m, r))| {
-            (m.mutation.mutation_type == MutationType::Purge && r.is_none()).then_some(i)
-        })
+        .filter_map(|(i, (&is_purge, r))| (is_purge && r.is_none()).then_some(i))
         .collect();
     if !misses.is_empty() {
         let addrs: Vec<_> = misses.iter().map(|&i| &addresses[i]).collect();
@@ -104,20 +102,12 @@ pub(super) fn check_expectation(
     Ok(())
 }
 
-pub(super) fn replace_record(
+pub(super) fn validate_fields(
     schema: &Schema,
-    mutation: &Mutation,
-    stamp: Stamp,
-    before: Option<&StoredRecord>,
-) -> Result<StoredRecord, SchemaError> {
-    if matches!(
-        mutation.mutation_type,
-        MutationType::Delete | MutationType::Purge
-    ) {
-        return Ok(StoredRecord::erased(stamp));
-    }
+    record_fields: &HashMap<String, Value>,
+) -> Result<BTreeMap<String, Value>, SchemaError> {
     let mut fields = BTreeMap::new();
-    for (field, value) in &mutation.record_fields {
+    for (field, value) in record_fields {
         if !schema.fields.iter().flatten().any(|f| f == field) {
             return Err(SchemaError::InvalidData(format!(
                 "field '{field}' is not declared in schema '{}'",
@@ -134,30 +124,111 @@ pub(super) fn replace_record(
         }
         fields.insert(field.clone(), value.clone());
     }
-    let file = mutation.file.clone().or_else(|| {
-        (!matches!(&mutation.file_write, Some(FileWrite::Clear)))
-            .then(|| before.and_then(|r| r.file.clone()))
-            .flatten()
-    });
-    let inline_file = match &mutation.inline_write {
-        Some(InlineWrite::Put(f)) => Some(f.marker.clone()),
-        Some(InlineWrite::Clear) => None,
-        None => before.and_then(|r| r.inline_file.clone()),
-    };
+    Ok(fields)
+}
+
+pub(super) fn build_replacement(
+    schema: &Schema,
+    mutation: &Mutation,
+    before: Option<&StoredRecord>,
+) -> Result<Option<(RecordReplacement, bool)>, SchemaError> {
+    if matches!(
+        mutation.mutation_type,
+        MutationType::Delete | MutationType::Purge
+    ) {
+        return Ok(None);
+    }
+    let live_before = before.filter(|r| r.is_live());
+    let fields = validate_fields(schema, &mutation.record_fields)?;
+    let (file, inline_file, keep_file) = resolve_attachments(mutation, live_before)?;
+    if schema.file_required && file.is_none() {
+        return Err(SchemaError::InvalidData(
+            "this record requires a file".into(),
+        ));
+    }
     let replacement = RecordReplacement {
         target: mutation.target(),
         expected: mutation.expected.clone(),
         fields,
-        metadata: replacement_metadata(mutation, before),
+        metadata: replacement_metadata(mutation, live_before),
         file,
         inline_file,
     };
     replacement
         .validate(schema.require_record_keys()?)
         .map_err(SchemaError::InvalidData)?;
-    let mut stored = StoredRecord::replacement(replacement, stamp, before);
-    stamp_authors(&mut stored, mutation, before);
-    Ok(stored)
+    Ok(Some((replacement, keep_file)))
+}
+
+fn resolve_attachments(
+    mutation: &Mutation,
+    before: Option<&StoredRecord>,
+) -> Result<(Option<FileMarker>, Option<FileMarker>, bool), SchemaError> {
+    if matches!(
+        mutation.file_write,
+        Some(FileWrite::Put(_) | FileWrite::LocalPath(_))
+    ) && matches!(mutation.inline_write, Some(InlineWrite::Put(_)))
+    {
+        return Err(SchemaError::InvalidData(
+            "a record cannot carry both a file and an inline file".into(),
+        ));
+    }
+    let keep_file = mutation.file_write.is_none() && mutation.inline_write.is_none();
+    let file = match &mutation.file_write {
+        Some(FileWrite::Put(f)) => {
+            Some(mutation.file.clone().unwrap_or_else(|| f.marker().clone()))
+        }
+        Some(FileWrite::LocalPath(f)) => {
+            Some(mutation.file.clone().unwrap_or_else(|| f.marker().clone()))
+        }
+        Some(FileWrite::Clear) => {
+            if mutation.file.is_some() {
+                return Err(SchemaError::InvalidData(
+                    "a file clear cannot carry a file marker".into(),
+                ));
+            }
+            None
+        }
+        None if mutation.inline_write.is_some() => {
+            if mutation.file.is_some() {
+                return Err(SchemaError::InvalidData(
+                    "an inline file write cannot carry a file marker".into(),
+                ));
+            }
+            None
+        }
+        None => mutation
+            .file
+            .clone()
+            .or_else(|| before.and_then(|r| r.file.clone())),
+    };
+    let inline_file = match &mutation.inline_write {
+        Some(InlineWrite::Put(f)) => Some(f.marker.clone()),
+        Some(InlineWrite::Clear) => None,
+        None if mutation.file_write.is_some() => None,
+        None => before.and_then(|r| r.inline_file.clone()),
+    };
+    if file.is_some() && inline_file.is_some() {
+        return Err(SchemaError::InvalidData(
+            "a record cannot carry both a file and an inline file".into(),
+        ));
+    }
+    Ok((file, inline_file, keep_file))
+}
+
+pub(super) fn finish_record(
+    replacement: Option<(RecordReplacement, bool)>,
+    mutation: &Mutation,
+    stamp: Stamp,
+    before: Option<&StoredRecord>,
+) -> StoredRecord {
+    let Some((replacement, keep_file)) = replacement else {
+        return StoredRecord::erased(stamp);
+    };
+    let live_before = before.filter(|r| r.is_live());
+    let mut stored = StoredRecord::replacement(replacement, stamp, live_before, keep_file);
+    stamp_authors(&mut stored, mutation, live_before);
+    stored
 }
 
 /// `created_by` is set only when no live record is at the key.
@@ -183,13 +254,10 @@ pub(super) fn stamp_authors(
     record.updated_by = Some(writer);
 }
 
-fn replacement_metadata(
+pub(super) fn replacement_metadata(
     mutation: &Mutation,
     before: Option<&StoredRecord>,
 ) -> Option<RecordMetadata> {
-    // A member replace keeps the previous meta entries. A caller's map is stored
-    // only when the mutation carries one. Either way the reserved author keys
-    // are removed here. `stamp_authors` owns those values, and encode writes them.
     let copied = mutation.mutation_type == MutationType::Replace
         && mutation
             .contribution

@@ -167,13 +167,11 @@ impl SchemaCore {
     }
 
     pub(crate) fn require_queryable_schema(&self, schema_name: &str) -> Result<(), SchemaError> {
-        (!self.is_schema_blocked(schema_name)?)
-            .then_some(())
-            .ok_or_else(|| {
-                SchemaError::Blocked(format!(
-                    "Schema '{schema_name}' is blocked and cannot be queried"
-                ))
-            })
+        if self.is_schema_blocked(schema_name)? {
+            let msg = format!("Schema '{schema_name}' is blocked and cannot be queried");
+            return Err(SchemaError::Blocked(msg));
+        }
+        Ok(())
     }
 
     pub fn schema_names_owned_by(&self, owner_app: &str) -> Result<Vec<String>, SchemaError> {
@@ -196,18 +194,18 @@ impl SchemaCore {
         schema_name: &str,
         receipt_id: &[u8; 32],
         digest: &[u8; 32],
+        stamp: &crate::storage::format::metadata::ReplayStamp,
     ) -> Result<(), SchemaError> {
+        let drop_op = SchemaReplayDrop {
+            id: receipt_id,
+            digest,
+            stamp,
+        };
         let runtime = self.db_ops.native_runtime();
         runtime
-            .replay_accepted(self.drop_with_receipt(
-                schema_name,
-                Some(&SchemaReplayDrop {
-                    id: receipt_id,
-                    digest,
-                }),
-            ))
-            .await?;
-        Ok(())
+            .replay_accepted(self.drop_with_receipt(schema_name, Some(&drop_op)))
+            .await
+            .map(|_| ())
     }
 
     async fn drop_with_receipt(

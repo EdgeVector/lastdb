@@ -3,19 +3,22 @@
 //! Each record has up to three stamp rows: `winner` is the stamp of the newest
 //! write of its fields, `file-winner` of the newest write that set or cleared
 //! its file, and `inline-winner` the same for its inline file. A delete is the
-//! newest write of all three. A schema has one `winner` row for its newest put
-//! or drop.
+//! newest write of all three. A schema has `winner` for its newest put or drop
+//! and `drop-winner` for its newest drop.
 //!
 //! A local write gets its stamp in the transaction that commits it, so every
 //! row is final from the commit on. An entry of another device is compared
 //! with these rows when it arrives, in any order.
 
 use super::{read_err, Metadata};
-use crate::schema::types::SchemaError;
+use crate::schema::types::{KeyValue, SchemaError};
 use crate::storage::disk_backup::accepted::LocalEntry;
-use crate::storage::disk_pack::transaction;
+use crate::storage::disk_pack::{transaction, PackRuntime};
 use lastdb_model::hex::{hex_lower, sha256_hex};
+use lastdb_model::record_value::RecordMeta;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 type Res<T = ()> = Result<T, SchemaError>;
@@ -37,13 +40,32 @@ pub(crate) enum ReplayTarget<'a> {
     Schema(&'a str),
 }
 
-/// The parts of a record that carry a stamp of their own.
+/// The parts of a record or schema that carry a stamp of their own.
 pub(crate) const FILE_SLOT: &str = "file-winner";
 pub(crate) const INLINE_SLOT: &str = "inline-winner";
+pub(crate) const DROP_SLOT: &str = "drop-winner";
+const SAVED_FIELDS_CTX: &str = "fields";
 
 pub(crate) struct SchemaReplayDrop<'a> {
     pub(crate) id: &'a [u8; 32],
     pub(crate) digest: &'a [u8; 32],
+    pub(crate) stamp: &'a ReplayStamp,
+}
+
+/// Winning record payload held while a `file_required` record awaits its file.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct SavedReplayFields {
+    pub(crate) fields: BTreeMap<String, Value>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub(crate) alternates: BTreeMap<String, Option<KeyValue>>,
+    pub(crate) writer: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) created_by: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) meta: Option<RecordMeta>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) ordering_ms: Option<u64>,
 }
 
 impl ReplayTarget<'_> {
@@ -108,6 +130,16 @@ impl Metadata {
             None if !stage => return Err(schema_busy()),
             None => {}
         }
+        if self
+            .replay_winner(ReplayTarget::Schema(name))
+            .await?
+            .is_some_and(|held| &held >= replay.stamp)
+        {
+            return Ok(false);
+        }
+        self.accept_replay(ReplayTarget::Schema(name), replay.stamp)
+            .await?;
+        self.accept_replay_drop_schema(name, replay.stamp).await?;
         self.stage(vec![(key, Some(intent.into_bytes()))])
             .await
             .map_err(read_err)
@@ -138,10 +170,6 @@ impl Metadata {
 
     /// The entry of this device's stream that the next captured write follows.
     /// `None` at the start of the stream. `writer` is the node key in base64.
-    ///
-    /// The row is written by every captured commit. A home whose writes were
-    /// signed when they were sent has none yet: its stream then continues after
-    /// the last entry the relay acknowledged, which must be the last of the spool.
     pub(crate) async fn local_replay_head(&self, writer: &str) -> Res<Option<LocalEntry>> {
         self.require_replay_scope()?;
         let device = self.capture_device()?;
@@ -174,8 +202,6 @@ impl Metadata {
     }
 
     /// Refuse a home whose spool holds writes that an older build left unsigned.
-    /// The store calls it once when it opens, so a node does not start on such a
-    /// home: this build can neither send those writes nor sign an entry after them.
     pub(crate) async fn require_signed_spool(&self, writer: &str) -> Result<(), String> {
         let head = transaction::scope(Arc::clone(&self.runtime), self.local_replay_head(writer));
         match head.await {
@@ -211,9 +237,6 @@ impl Metadata {
 
     /// Write stamp rows without reading them first. `rows` holds a target, the
     /// slot (`None` for the winner row) and the stamp.
-    ///
-    /// Only a local commit calls this. Its stamp is above every stamp the store
-    /// holds, because the author clock is raised past every entry that is applied.
     pub(crate) async fn stage_replay_stamps<'a>(
         &self,
         rows: impl IntoIterator<Item = (ReplayTarget<'a>, Option<&'static str>, &'a ReplayStamp)>,
@@ -232,6 +255,20 @@ impl Metadata {
         stamp: &ReplayStamp,
     ) -> Res<bool> {
         self.accept_replay_slot(target, "winner", stamp).await
+    }
+
+    pub(crate) async fn accept_replay_drop_schema(
+        &self,
+        schema: &str,
+        stamp: &ReplayStamp,
+    ) -> Res<bool> {
+        self.accept_replay_slot(ReplayTarget::Schema(schema), DROP_SLOT, stamp)
+            .await
+    }
+
+    pub(crate) async fn replay_drop_winner(&self, schema: &str) -> Res<Option<ReplayStamp>> {
+        self.replay_slot_winner(ReplayTarget::Schema(schema), DROP_SLOT)
+            .await
     }
 
     pub(crate) async fn accept_replay_slot(
@@ -270,6 +307,52 @@ impl Metadata {
             .map_err(read_err)?
             .map(|bytes| serde_json::from_slice(&bytes).map_err(read_err))
             .transpose()
+    }
+
+    pub(crate) async fn saved_replay_fields(
+        &self,
+        address: &str,
+    ) -> Res<Option<SavedReplayFields>> {
+        self.require_scope().map_err(read_err)?;
+        let key = ReplayTarget::Record(address).key(SAVED_FIELDS_CTX);
+        self.store
+            .get(key.as_bytes())
+            .await
+            .map_err(read_err)?
+            .map(|bytes| serde_json::from_slice(&bytes).map_err(read_err))
+            .transpose()
+    }
+
+    pub(crate) async fn stage_saved_replay_fields(
+        &self,
+        address: &str,
+        saved: Option<&SavedReplayFields>,
+    ) -> Res {
+        let key = ReplayTarget::Record(address).key(SAVED_FIELDS_CTX);
+        let value = saved
+            .map(serde_json::to_vec)
+            .transpose()
+            .map_err(read_err)?;
+        self.stage(vec![(key, value)]).await.map_err(read_err)
+    }
+
+    pub(in crate::storage::format) async fn clear_released_record_replay(
+        runtime: &Arc<PackRuntime>,
+        record_keys: &[String],
+    ) -> Res {
+        if record_keys.is_empty() {
+            return Ok(());
+        }
+        let store = runtime.open_store(super::METADATA_NAMESPACE).await?;
+        let meta = Self::new(store, Arc::clone(runtime));
+        let mut staged = Vec::with_capacity(record_keys.len() * 4);
+        for addr in record_keys {
+            let target = ReplayTarget::Record(addr);
+            for slot in ["winner", FILE_SLOT, INLINE_SLOT, SAVED_FIELDS_CTX] {
+                staged.push((target.key(slot), None));
+            }
+        }
+        meta.stage(staged).await.map_err(read_err)
     }
 }
 

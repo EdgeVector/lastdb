@@ -15,20 +15,22 @@ pub async fn open_store(
     seed: &[u8; 32],
     capture_accepted: bool,
 ) -> Result<Arc<FoldDB>, String> {
+    if capture_accepted {
+        return Err(
+            "signed_history_materialize open_store does not supply a capture author".into(),
+        );
+    }
     let keys = E2eKeys::from_ed25519_seed(seed).map_err(|e| format!("derive store keys: {e}"))?;
-    let signer = Arc::new(
-        Ed25519KeyPair::from_secret_key(seed).map_err(|e| format!("derive store signer: {e}"))?,
-    );
+    let signer =
+        Ed25519KeyPair::from_secret_key(seed).map_err(|e| format!("derive store signer: {e}"))?;
     std::fs::create_dir_all(data_dir).map_err(|e| format!("create {}: {e}", data_dir.display()))?;
     create_fold_db_with_options(
         &DatabaseConfig::local(data_dir.to_path_buf()),
         &keys,
-        signer,
+        &signer,
         FoldDbOptions {
-            offline_maintenance: false,
-            capture_accepted,
+            capture_accepted: false,
             capture_author: None,
-            record_log: None,
         },
     )
     .await

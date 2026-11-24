@@ -1,18 +1,35 @@
-//! Batch resolution and per-schema record staging.
+//! Batch resolution, pre-signing canonicalization/validation, and per-schema record staging.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
-use super::record_log;
+use lastdb_model::portable_mutation::Stamp;
+use lastdb_model::record_replacement::RecordReplacement;
+use lastdb_model::record_value::StoredRecord;
+
 use super::replace::{
-    check_expectation, read_write_preimages, replace_record, require_contribution_definition,
+    build_replacement, check_expectation, finish_record, read_write_preimages,
+    require_contribution_definition,
 };
-use super::{AuthoredMutation, ChangedRecord, MutationManager, ResidentCommitStages};
+use super::{ChangedRecord, MutationManager, ReplayStamp};
 use crate::db_operations::record_store::RecordChange;
 use crate::schema::types::schema::DeclarativeSchemaType;
-use crate::schema::types::{KeyValue, Mutation, Schema};
+use crate::schema::types::{KeyValue, Mutation, MutationType, Schema};
 use crate::schema::{SchemaError, SchemaState};
-use crate::storage::disk_pack::{transaction, PackRuntime};
+use crate::storage::format::records::RecordAddress;
+
+pub(super) struct PreparedRecord {
+    pub(super) index: usize,
+    pub(super) address: RecordAddress,
+    pub(super) before: Option<Arc<StoredRecord>>,
+    pub(super) replacement: Option<(RecordReplacement, bool)>,
+}
+
+pub(super) struct PreparedGroup {
+    pub(super) schema: Schema,
+    pub(super) records: Vec<PreparedRecord>,
+}
 
 impl MutationManager {
     pub(super) fn prepare_mutation_batch(
@@ -75,6 +92,23 @@ impl MutationManager {
         Ok(key)
     }
 
+    pub(super) fn canonicalize_alternates(
+        schema: &Schema,
+        alternates: &mut BTreeMap<String, Option<KeyValue>>,
+    ) -> Result<(), SchemaError> {
+        let record_keys = schema.require_record_keys()?;
+        for (name, alt_key) in alternates {
+            let def = record_keys.alternates.get(name).ok_or_else(|| {
+                SchemaError::InvalidData(format!("undeclared alternate key '{name}'"))
+            })?;
+            if let Some(range) = alt_key.as_mut().and_then(|k| k.range.as_mut()) {
+                let profile = def.range_profile().map_err(SchemaError::InvalidData)?;
+                *range = crate::schema::types::key_comparison::canonical_range(profile, range)?;
+            }
+        }
+        Ok(())
+    }
+
     fn resolve_mutation_key_value(
         schema: &Schema,
         mutation: &Mutation,
@@ -87,36 +121,153 @@ impl MutationManager {
         Self::canonical_primary_key(schema, &mutation.key_value)
     }
 
-    pub(super) async fn stage_record_groups(
+    pub(super) async fn prepare_write_groups(
         &self,
-        mutations: Vec<AuthoredMutation>,
-        stages: &mut ResidentCommitStages,
-        runtime: &Arc<PackRuntime>,
-    ) -> Result<(), SchemaError> {
-        let mut grouped: Vec<(String, Vec<AuthoredMutation>)> = Vec::new();
+        mutations: &mut [Mutation],
+        keys: &[KeyValue],
+    ) -> Result<(Vec<PreparedGroup>, Duration), SchemaError> {
+        let mut grouped: Vec<(String, Vec<usize>)> = Vec::new();
         let mut seen: HashMap<String, (usize, HashSet<KeyValue>)> = HashMap::new();
-        for authored in mutations {
-            let name = &authored.mutation.schema_name;
+        for (idx, (mutation, key)) in mutations.iter().zip(keys).enumerate() {
+            let name = &mutation.schema_name;
             if !seen.contains_key(name) {
                 seen.insert(name.clone(), (grouped.len(), HashSet::new()));
                 grouped.push((name.clone(), Vec::new()));
             }
-            let (idx, keys) = seen.get_mut(name).expect("inserted schema group");
-            if !keys.insert(authored.key.clone()) {
+            let (group_idx, seen_keys) = seen.get_mut(name).expect("inserted schema group");
+            if !seen_keys.insert(key.clone()) {
                 return Err(SchemaError::InvalidData(
                     "a batch cannot replace the same record twice".into(),
                 ));
             }
-            grouped[*idx].1.push(authored);
+            grouped[*group_idx].1.push(idx);
         }
-        let mut elapsed = std::time::Duration::ZERO;
-        for (schema_name, group) in grouped {
-            let started = std::time::Instant::now();
-            self.stage_record_group(&schema_name, group, runtime)
-                .await?;
+        let mut out = Vec::with_capacity(grouped.len());
+        let mut elapsed = Duration::ZERO;
+        for (schema_name, indices) in grouped {
+            let started = Instant::now();
+            out.push(
+                self.prepare_write_group(&schema_name, &indices, mutations, keys)
+                    .await?,
+            );
             elapsed += started.elapsed();
         }
-        stages.prepare_us = u64::try_from(elapsed.as_micros()).unwrap_or(u64::MAX);
+        Ok((out, elapsed))
+    }
+
+    async fn prepare_write_group(
+        &self,
+        schema_name: &str,
+        indices: &[usize],
+        mutations: &mut [Mutation],
+        keys: &[KeyValue],
+    ) -> Result<PreparedGroup, SchemaError> {
+        let schema = self.load_schema_for_delta(schema_name).await?;
+        if let Some(adm) = indices
+            .first()
+            .and_then(|&i| mutations[i].contribution.as_ref())
+        {
+            require_contribution_definition(&schema, &adm.definition_id)?;
+        }
+        let records = self.db_ops.records();
+        let mut addrs = Vec::with_capacity(indices.len());
+        let mut purges = Vec::with_capacity(indices.len());
+        for &idx in indices {
+            let mutation = &mut mutations[idx];
+            mutation.key_value = keys[idx].clone();
+            Self::canonicalize_alternates(&schema, &mut mutation.alternates)?;
+            addrs.push(records.record_address(&schema, &mutation.key_value)?);
+            purges.push(mutation.mutation_type == MutationType::Purge);
+        }
+        let stored = read_write_preimages(records, &addrs, &purges).await?;
+        let mut prepared = Vec::with_capacity(indices.len());
+        for (&index, (address, before)) in indices.iter().zip(addrs.into_iter().zip(stored)) {
+            check_expectation(&mutations[index], before.as_deref())?;
+            let replacement = build_replacement(&schema, &mutations[index], before.as_deref())?;
+            prepared.push(PreparedRecord {
+                index,
+                address,
+                before,
+                replacement,
+            });
+        }
+        Ok(PreparedGroup {
+            schema,
+            records: prepared,
+        })
+    }
+
+    pub(super) async fn stage_prepared_groups(
+        &self,
+        groups: Vec<PreparedGroup>,
+        mutations: Vec<Mutation>,
+        stamps: Vec<Stamp>,
+        replay: Vec<Option<ReplayStamp>>,
+    ) -> Result<Duration, SchemaError> {
+        let mut items: Vec<Option<(Mutation, Stamp, Option<ReplayStamp>)>> = mutations
+            .into_iter()
+            .zip(stamps.into_iter().zip(replay))
+            .map(|(m, (s, r))| Some((m, s, r)))
+            .collect();
+        let mut elapsed = Duration::ZERO;
+        for group in groups {
+            let started = Instant::now();
+            self.stage_prepared_group(group, &mut items).await?;
+            elapsed += started.elapsed();
+        }
+        Ok(elapsed)
+    }
+
+    async fn stage_prepared_group(
+        &self,
+        group: PreparedGroup,
+        items: &mut [Option<(Mutation, Stamp, Option<ReplayStamp>)>],
+    ) -> Result<(), SchemaError> {
+        let count = group.records.len();
+        let mut addrs = Vec::with_capacity(count);
+        let mut local_replays = Vec::with_capacity(count);
+        let mut group_mutations = Vec::with_capacity(count);
+        let mut changes = Vec::with_capacity(count);
+        let mut keys = Vec::with_capacity(count);
+        for rec in group.records {
+            let (mut mutation, stamp, replay) =
+                items[rec.index].take().expect("unique prepared index");
+            let after = finish_record(rec.replacement, &mutation, stamp, rec.before.as_deref());
+            let file_write = mutation.file_write.take();
+            let inline_write = mutation.inline_write.take();
+            // Preserve slot flags before taking file_write/inline_write out of mutation.
+            let slots = super::replay::slots_from(
+                mutation.mutation_type,
+                file_write.is_some(),
+                inline_write.is_some(),
+            );
+            addrs.push(rec.address.clone());
+            local_replays.push((replay, slots));
+            keys.push(mutation.key_value.clone());
+            changes.push(RecordChange {
+                key: rec.address,
+                before: rec.before,
+                after,
+                file_write,
+                inline_write,
+            });
+            group_mutations.push(mutation);
+        }
+        self.stamp_local_records(&group.schema, &addrs, &local_replays)
+            .await?;
+        let changed: Vec<ChangedRecord<'_>> = group_mutations
+            .iter()
+            .zip(&keys)
+            .map(|(mutation, key)| ChangedRecord { mutation, key })
+            .collect();
+        self.stage_records_with_effects(&group.schema, &changed, changes)
+            .await?;
+        if group.schema.schema_type == DeclarativeSchemaType::HashRange {
+            self.db_ops
+                .schemas()
+                .record_schema_retention_hash_partitions(&group.schema.name, &keys)
+                .await?;
+        }
         Ok(())
     }
 
@@ -143,89 +294,6 @@ impl MutationManager {
             .ok_or_else(|| SchemaError::InvalidData(format!("Schema '{schema_name}' not found")))?;
         crate::schema::require_logical_layout(&schema.schema_type)?;
         Ok(schema)
-    }
-
-    async fn stage_record_group(
-        &self,
-        schema_name: &str,
-        mut mutations: Vec<AuthoredMutation>,
-        runtime: &Arc<PackRuntime>,
-    ) -> Result<(), SchemaError> {
-        let schema = self.load_schema_for_delta(schema_name).await?;
-        if let Some(adm) = mutations
-            .first()
-            .and_then(|m| m.mutation.contribution.as_ref())
-        {
-            require_contribution_definition(&schema, &adm.definition_id)?;
-        }
-        let records = self.db_ops.records();
-        let record_keys = schema.require_record_keys()?;
-        let (mut keys, mut addrs) = (
-            Vec::with_capacity(mutations.len()),
-            Vec::with_capacity(mutations.len()),
-        );
-        for AuthoredMutation { mutation, key, .. } in &mut mutations {
-            mutation.key_value = key.clone();
-            for (name, alt_key) in &mut mutation.alternates {
-                if let Some(range) = alt_key.as_mut().and_then(|k| k.range.as_mut()) {
-                    let profile = record_keys.alternates[name]
-                        .range_profile()
-                        .map_err(SchemaError::InvalidData)?;
-                    *range = crate::schema::types::key_comparison::canonical_range(profile, range)?;
-                }
-            }
-            addrs.push(records.record_address(&schema, key)?);
-            keys.push(key.clone());
-        }
-        let stored = read_write_preimages(records, &addrs, &mutations).await?;
-        self.stamp_local_records(&addrs, &mutations).await?;
-        let (mut changes, mut changed) = (
-            Vec::with_capacity(mutations.len()),
-            Vec::with_capacity(mutations.len()),
-        );
-        for (
-            AuthoredMutation {
-                mutation,
-                key,
-                stamp,
-                ..
-            },
-            (addr, before),
-        ) in mutations.iter_mut().zip(addrs.into_iter().zip(stored))
-        {
-            check_expectation(mutation, before.as_deref())?;
-            let after = replace_record(&schema, mutation, stamp.clone(), before.as_deref())?;
-            changes.push(RecordChange {
-                key: addr,
-                before,
-                after,
-                file_write: mutation.file_write.take(),
-                inline_write: mutation.inline_write.take(),
-            });
-            changed.push(ChangedRecord { mutation, key });
-        }
-        if let Some(log) = &self.record_log {
-            let notes = record_log::record_notes(&schema.name, &changes, &changed);
-            if !notes.is_empty() {
-                let commit = log.prepare(&notes)?;
-                transaction::after_commit(runtime, async move {
-                    commit().map_err(|detail| {
-                        crate::storage::StorageError::InvalidOperation(format!(
-                            "record identity was not stored: {detail}"
-                        ))
-                    })
-                })?;
-            }
-        }
-        self.stage_records_with_effects(&schema, &changed, changes)
-            .await?;
-        if schema.schema_type == DeclarativeSchemaType::HashRange {
-            self.db_ops
-                .schemas()
-                .record_schema_retention_hash_partitions(schema_name, &keys)
-                .await?;
-        }
-        Ok(())
     }
 }
 
