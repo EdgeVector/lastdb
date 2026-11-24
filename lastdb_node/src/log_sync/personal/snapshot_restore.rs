@@ -82,7 +82,7 @@ pub async fn install_newest_snapshot(
     let streams = match client.streams(&database_id, &node_hex).await {
         Ok(streams) => streams,
         // The relay does not know a database whose birth it does not hold.
-        Err(error) if error.contains("HTTP 403") => return Ok(None),
+        Err(error) if super::is_unborn_403(&error) => return Ok(None),
         Err(error) => return Err(error),
     };
     let Some(listed) = streams

@@ -28,6 +28,7 @@ pub(crate) struct AppState {
     pub(crate) public_base: String,
     pub(crate) secret: Vec<u8>,
     pub(crate) grants: Mutex<GrantIndex>,
+    pub(crate) trim_lock: Mutex<()>,
     /// The largest blob a `blob.put` begin may declare. `None` sets no limit.
     pub(crate) max_blob_bytes: Option<u64>,
     /// Proof only: read an upload body at most this many bytes a second.

@@ -9,11 +9,11 @@
 //!   and `released_bytes`). A trim also drops entries of the other devices of the owner, so the
 //!   released numbers are the relay's account of its own deletions, not a share of this device.
 //!
-//! The account has a start (`since_ms`). On a home that uploaded before this file existed (an earlier
-//! build), the first entry counted is not entry 1 of its stream, and `complete` is false: what it put
-//! before is not in the totals, and nothing here says what it holds on the relay. There is no backfill.
-//! `complete` is true when the first entry counted was entry 1, which is every home that began on a
-//! build with this file.
+//! The account has a start (`since_ms`). On a home that already uploaded before this file existed
+//! (an earlier build), `complete` is false: what it put before is not in the totals, and nothing
+//! here says what it holds on the relay. There is no backfill. `complete` is true when the home
+//! had no prior uploads when the account began, including a fresh or restored home whose first
+//! upload is a snapshot entry above sequence 1.
 //!
 //! The number is "what this device put and the relay accepted", minus what trims it requested
 //! released. It is not what the account is billed: the entries and blobs of another device are not in
@@ -26,9 +26,10 @@
 //!   (`streams`). The sender keeps a signed batch until the spool confirms it, so after a kill -9 the
 //!   same bytes are sent again, the relay answers `duplicate`, and the entry is counted then if it was
 //!   not before;
-//! - a blob is marked in `pending` before its upload begins and unmarked when the upload commits. A
-//!   blob that the relay already holds counts only when it was marked before this try: an earlier
-//!   try that was cut off after the commit. A blob another upload put is not counted again;
+//! - a blob is marked in `pending` right before `stage: "commit"` is sent and unmarked when the
+//!   commit succeeds or receives a definitive HTTP 4xx refusal. A blob that `stage: "begin"` says
+//!   the relay already holds counts only when `pending` already held it from an earlier cut-off
+//!   commit. A blob another device put is not counted again;
 //! - a kill -9 in the moment between a relay answer and the write of this file for a snapshot entry
 //!   or a trim answer, which nothing sends again, is not repaired.
 
@@ -45,6 +46,7 @@ use crate::profile::private_fs as disk;
 
 const FILE: &str = "cloud-usage.json";
 const LIMIT: usize = 4 * 1024 * 1024;
+const STATE_LIMIT: usize = 65_536;
 
 /// One writer at a time: the lane and the sync turn both put things.
 static LOCK: Mutex<()> = Mutex::new(());
@@ -56,11 +58,13 @@ struct Saved {
     /// The highest `writer_seq` counted on each device stream, by device id.
     #[serde(default)]
     streams: BTreeMap<String, u64>,
-    /// The sequence number before the first entry ever counted: 0 when the account began with entry
-    /// 1 of a stream. None until an entry is counted.
-    #[serde(default)]
+    /// Legacy field from builds that inferred completeness from the first stream sequence.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     started_after: Option<u64>,
-    /// Blobs whose upload began and did not end, by digest, with their length.
+    /// True once `usage.complete` was determined at account creation.
+    #[serde(default)]
+    complete_decided: bool,
+    /// Blobs whose commit began and did not end, by digest, with their length.
     #[serde(default)]
     pending: BTreeMap<String, u64>,
 }
@@ -75,12 +79,67 @@ fn path(home: &Path, database_id: &str) -> PathBuf {
     home.join("log-sync").join(database_id).join(FILE)
 }
 
+fn had_prior_uploads(home: &Path, database_id: &str) -> bool {
+    let registered = crate::host::owned::registered_databases(home);
+    let is_personal = if registered.is_empty() {
+        !home
+            .join("log-sync")
+            .join(database_id)
+            .join("authored.json")
+            .is_file()
+    } else {
+        registered
+            .iter()
+            .any(|db| !db.native && db.id == database_id)
+    };
+    if is_personal {
+        let state_path = home
+            .join("data")
+            .join("disk-run")
+            .join("accepted-v1")
+            .join("state.json");
+        let acked = disk::read_file_limited(&state_path, STATE_LIMIT, false)
+            .ok()
+            .flatten()
+            .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+            .and_then(|state| state["acked"].as_u64())
+            .unwrap_or(0);
+        acked > 0
+            || home
+                .join("log-sync")
+                .join(database_id)
+                .join("snapshot-last.json")
+                .is_file()
+    } else {
+        super::history_store::load_uploaded(home, database_id).unwrap_or(0) > 0
+    }
+}
+
+fn normalize(home: &Path, database_id: &str, saved: &mut Saved) {
+    if !saved.complete_decided {
+        saved.usage.complete = match saved.started_after {
+            Some(after) => after == 0,
+            None => !had_prior_uploads(home, database_id) && saved.usage.entries == 0,
+        };
+        saved.started_after = None;
+        saved.complete_decided = true;
+    }
+}
+
 fn load(home: &Path, database_id: &str) -> Result<Saved, String> {
     match disk::read_limited(&path(home, database_id), LIMIT) {
         Ok(Some(bytes)) => {
-            serde_json::from_slice(&bytes).map_err(|_| "the cloud usage record is invalid".into())
+            let mut saved: Saved = serde_json::from_slice(&bytes)
+                .map_err(|_| "the cloud usage record is invalid".to_owned())?;
+            normalize(home, database_id, &mut saved);
+            Ok(saved)
         }
-        Ok(None) => Ok(Saved::default()),
+        Ok(None) => {
+            let mut saved = Saved::default();
+            saved.usage.complete = !had_prior_uploads(home, database_id);
+            saved.complete_decided = true;
+            Ok(saved)
+        }
         Err(_) => Err("cannot read the cloud usage record".into()),
     }
 }
@@ -88,7 +147,8 @@ fn load(home: &Path, database_id: &str) -> Result<Saved, String> {
 fn store(home: &Path, database_id: &str, saved: &mut Saved) -> Result<(), String> {
     saved.usage.unconfirmed_blobs = saved.pending.len() as u64;
     saved.usage.unconfirmed_blob_bytes = saved.pending.values().sum();
-    saved.usage.complete = saved.started_after == Some(0);
+    saved.started_after = None;
+    saved.complete_decided = true;
     if saved.usage.since_ms == 0 {
         saved.usage.since_ms = fold_db::clock::unix_secs().saturating_mul(1000);
     }
@@ -132,9 +192,6 @@ impl Ledger {
             if header.writer_seq <= *counted {
                 continue;
             }
-            if saved.started_after.is_none() {
-                saved.started_after = Some(header.writer_seq - 1);
-            }
             *counted = header.writer_seq;
             saved.usage.entries += 1;
             saved.usage.entry_bytes += serde_json::to_vec(entry)
@@ -148,25 +205,48 @@ impl Ledger {
         Ok(())
     }
 
-    /// An upload of the blob `sha256` of `bytes` is about to begin. True when an earlier try of it
-    /// was cut off before it finished.
+    /// If `pending` holds `sha256` from an earlier cut-off commit and `begin` now says the relay
+    /// holds the blob, move it from `pending` into the confirmed blob totals.
+    pub(super) fn complete_pending_blob(
+        &self,
+        database_id: &str,
+        sha256: &str,
+        bytes: u64,
+    ) -> Result<(), String> {
+        let _guard = lock();
+        let Some(raw) = disk::read_limited(&path(&self.home, database_id), LIMIT)
+            .map_err(|_| "cannot read the cloud usage record".to_owned())?
+        else {
+            return Ok(());
+        };
+        let mut saved: Saved = serde_json::from_slice(&raw)
+            .map_err(|_| "the cloud usage record is invalid".to_owned())?;
+        normalize(&self.home, database_id, &mut saved);
+        if saved.pending.remove(sha256).is_none() {
+            return Ok(());
+        }
+        saved.usage.blobs += 1;
+        saved.usage.blob_bytes += bytes;
+        store(&self.home, database_id, &mut saved)
+    }
+
+    /// Record that `stage: "commit"` is about to be sent for the blob `sha256` of `bytes`.
     pub(super) fn blob_begins(
         &self,
         database_id: &str,
         sha256: &str,
         bytes: u64,
-    ) -> Result<bool, String> {
+    ) -> Result<(), String> {
         let _guard = lock();
         let mut saved = load(&self.home, database_id)?;
-        if saved.pending.contains_key(sha256) {
-            return Ok(true);
+        if !saved.pending.contains_key(sha256) {
+            saved.pending.insert(sha256.to_owned(), bytes);
+            store(&self.home, database_id, &mut saved)?;
         }
-        saved.pending.insert(sha256.to_owned(), bytes);
-        store(&self.home, database_id, &mut saved)?;
-        Ok(false)
+        Ok(())
     }
 
-    /// The blob is on the relay. `counted` is true when this device put it.
+    /// Finish a pending blob commit: count it when committed, or clear `pending` on 4xx refusal.
     pub(super) fn blob_ends(
         &self,
         database_id: &str,
@@ -202,9 +282,9 @@ impl Ledger {
 /// The totals of one database in `home`, if this device put anything.
 fn read(home: &Path, database_id: &str) -> Option<CloudUsage> {
     let bytes = disk::read_limited(&path(home, database_id), LIMIT).ok()??;
-    serde_json::from_slice::<Saved>(&bytes)
-        .ok()
-        .map(|saved| saved.usage)
+    let mut saved = serde_json::from_slice::<Saved>(&bytes).ok()?;
+    normalize(home, database_id, &mut saved);
+    Some(saved.usage)
 }
 
 /// Put the totals of every database of `home` into the status of the node.

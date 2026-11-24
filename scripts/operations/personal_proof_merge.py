@@ -19,6 +19,8 @@ c. Two devices create the same record, the earlier one with a file. Every device
    the later create and the file of the earlier one, with either device syncing first.
 d. A deletes a record that has a file, and B edits its text later. Every device holds B's text and
    no file: the delete is the newest write to the file.
+e. A sets a new file, B clears the file (`"file": null`) later, and A edits the text last. Every
+   device holds A's text and no file, with A syncing first and with B syncing first.
 """
 import hashlib
 import os
@@ -33,16 +35,17 @@ import v1_records as v1
 ZETA = "proofmarkerzeta"
 # Long enough for a turn that would change a settled record to run.
 SETTLE_SECONDS = 8
+_KEEP = object()
 
 
 def zeta_create(key, text, file=None):
     return v1.create_item(ZETA, {"hash": key}, {"id": key, "note": text}, file=file)
 
 
-def zeta_replace(key, text, file=None):
-    """A replace that names no file keeps the file of the record."""
+def zeta_replace(key, text, file=_KEEP):
+    """A replace that names no file keeps the file of the record; `file=None` clears it."""
     item = {"schema": ZETA, "op": "replace", "key": {"hash": key}, "record": {"id": key, "note": text}}
-    if file is not None:
+    if file is not _KEEP:
         item["file"] = file
     return item
 
@@ -183,6 +186,20 @@ def delete_under_a_later_edit(merge, a, b):
         merge.settled(f"d, {uploads_first.name} syncs first", key, "text-of-B", None)
 
 
+def clear_under_a_later_edit(merge, a, b):
+    """e. Clearing the file (`"file": null`) beats an earlier file write and stays cleared under a later edit."""
+    for key, uploads_first, other in (("clear-a-first", a, b), ("clear-b-first", b, a)):
+        merge.base(key, file="one")
+        merge.relay.stop()
+        a.change([zeta_replace(key, "base", file=merge.files["two"])])
+        time.sleep(1.5)
+        b.change([zeta_replace(key, "cleared-by-B", file=None)])
+        time.sleep(1.5)
+        a.change([zeta_replace(key, "text-of-A")])
+        sync_in_order(merge.relay, uploads_first, other)
+        merge.settled(f"e, {uploads_first.name} syncs first", key, "text-of-A", None)
+
+
 def prove_merge(relay, a, b, c, out):
     """22. Fields and files written on several devices at once end the same on every device."""
     merge = Merge(relay, (a, b, c), out)
@@ -191,8 +208,10 @@ def prove_merge(relay, a, b, c, out):
     file_while_an_edit_waits(merge, a, b, c)
     two_creates(merge, a, b)
     delete_under_a_later_edit(merge, a, b)
+    clear_under_a_later_edit(merge, a, b)
     wait("A, B and C to upload", lambda: a.synced_up() and b.synced_up() and c.synced_up())
     print("22. A record and its file written on two and three devices at once ended the same on every "
-          "device: the newest text, and the file of the newest write that set a file or deleted the record",
+          "device: the newest text, and the file of the newest write that set or cleared a file or deleted the record",
           flush=True)
-    return {"cases": ["file under a later edit", "file while an edit waits", "two creates", "delete under a later edit"]}
+    return {"cases": ["file under a later edit", "file while an edit waits", "two creates",
+                      "delete under a later edit", "clear under a later edit"]}

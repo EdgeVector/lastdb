@@ -98,6 +98,7 @@ pub(super) async fn run(
     client: &RelayClient,
     streams: &[RelayStream],
 ) -> Result<Applied, String> {
+    clear_orphaned_incoming(ctx);
     let others: Vec<&RelayStream> = streams
         .iter()
         .filter(|stream| {
@@ -213,16 +214,37 @@ async fn apply_entry(
         apply::skip_remote(ctx, &cursor.name, &next, header).await?;
     } else {
         let blob = fetch_file(ctx, client, data, &change).await?;
-        let result = apply::remote(ctx, &cursor.name, &next, header, change, blob.as_deref()).await;
+        let outcome =
+            apply::remote(ctx, &cursor.name, &next, header, change, blob.as_deref()).await;
         if let Some(path) = &blob {
             let _ = disk::remove_private(path);
         }
-        result?;
+        if let apply::ApplyOutcome::InvalidEntry(reason) = outcome? {
+            return freeze(ctx, cursor, reason).await;
+        }
     }
     applied.entries += 1;
     applied.through = applied.through.max(header.writer_seq);
     cursor.head = Some(next);
     Ok(())
+}
+
+/// Remove any temporary or leftover incoming blob files from an interrupted turn.
+fn clear_orphaned_incoming(ctx: &Ctx<'_>) {
+    let dir = ctx
+        .host
+        .home
+        .join("log-sync")
+        .join(&ctx.database_id)
+        .join("incoming");
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        if entry.file_type().is_ok_and(|kind| kind.is_file()) {
+            let _ = disk::remove_private(&entry.path());
+        }
+    }
 }
 
 fn invalid_file_reason(data: &DataBody, change: &Change) -> Option<&'static str> {

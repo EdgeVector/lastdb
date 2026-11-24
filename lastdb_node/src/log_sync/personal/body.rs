@@ -1,9 +1,8 @@
 //! The accepted body inside a sealed entry, and the change it describes.
 //!
-//! The spool of accepted writes records each commit as one canonical JSON body:
-//! a record write with its alternate keys, its file or inline file, or a schema
-//! put or drop. The sender seals those bytes, and a receiving device opens them
-//! and reads the same body here.
+//! Each commit is recorded in its sealed entry as one canonical JSON body: a
+//! record write with its alternate keys, its file or inline file, or a schema
+//! put or drop. A receiving device opens the envelope and reads that body here.
 
 use std::collections::BTreeMap;
 
