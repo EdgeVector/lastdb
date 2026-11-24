@@ -213,7 +213,9 @@ Request `{ "database_id", "device_id", "writer_seq" }`: the snapshot stream and 
 sequence number of one `snapshot` entry on it. Response
 `{ "done", "entries_deleted", "released_bytes" }`: how many entries this call dropped and the length of their stored copies. The node keeps both in its account of the relay (`log-sync/<database>/cloud-usage.json`); a trim also drops the entries of the owner's other devices, so the sum is the relay's own account of what it released. The account has a start (`since_ms`) and says `complete: false` on a home that uploaded before it began: nothing is backfilled, and its totals are then only what it put since.
 A call does a bounded amount of work and answers `done: false` when more is left;
-the caller repeats. A repeat is safe at any point.
+the caller repeats. A repeat is safe at any point. A call that dropped entries always
+says so: a failure after some entries went answers 200 with `done: false` and the counts
+so far, never an error that loses them. The caller adds the counts of every 200 answer.
 
 - **Who.** Only the publisher's node key (403 `forbidden`, field `publisher`).
 - **What the relay trusts.** Nothing in the request but the name of the entry. It reads

@@ -3,6 +3,8 @@
 //! Serializes trim calls through `AppState::trim_lock`, reads and verifies the named `snapshot`
 //! entry, checks its manifest blob, rejects shared databases or regressed `through` positions,
 //! re-verifies that no grants were added concurrently, and applies the per-stream trim plans.
+//! The answer always carries what the call dropped: a failure after entries went answers 200
+//! with `done: false` and the counts so far.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -88,14 +90,22 @@ pub(crate) async fn log_trim(
     plans.push(plan(&scope, &req.device_id, older, None, true).await?);
     check_personal_owner(&state, &db, &verified.node_key).await?;
 
-    let (mut deleted, mut released) = (0, 0);
+    // What a call dropped is always in its answer. A failure after entries went answers with
+    // the counts so far and `done: false`, and the caller calls again: a repeat is safe.
+    let mut dropped = (0, 0);
+    let mut done = true;
     for each in &plans {
-        let (count, bytes) = apply(&scope, each).await?;
-        deleted += count;
-        released += bytes;
+        match apply(&scope, each, &mut dropped).await {
+            Ok(()) => {}
+            Err(error) if dropped == (0, 0) => return Err(error),
+            Err(_) => {
+                done = false;
+                break;
+            }
+        }
     }
     Ok(Json(
-        json!({ "done": true, "entries_deleted": deleted, "released_bytes": released }),
+        json!({ "done": done, "entries_deleted": dropped.0, "released_bytes": dropped.1 }),
     ))
 }
 

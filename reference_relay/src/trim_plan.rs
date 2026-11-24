@@ -160,8 +160,13 @@ pub(crate) async fn plan(
     })
 }
 
-/// Drop what a plan names. Returns how many entries went and the length of their files.
-pub(crate) async fn apply(scope: &TrimScope<'_>, plan: &Plan) -> ApiResult<(u64, u64)> {
+/// Drop what a plan names. `done` counts the entries that went and the length of their files,
+/// one at a time, so a failure in the middle still leaves the count of what it dropped.
+pub(crate) async fn apply(
+    scope: &TrimScope<'_>,
+    plan: &Plan,
+    done: &mut (u64, u64),
+) -> ApiResult<()> {
     if let Some((seq, hash)) = &plan.floor {
         let rec = FloorFile {
             seq: *seq,
@@ -183,20 +188,19 @@ pub(crate) async fn apply(scope: &TrimScope<'_>, plan: &Plan) -> ApiResult<(u64,
     } else {
         plan.covered.clone()
     };
-    let (mut dropped, mut released) = (0, 0);
     for seq in &covered {
         let file = plan.dir.join(format!("{seq}.json"));
         let length = fs::metadata(&file).await.map_or(0, |meta| meta.len());
         match fs::remove_file(&file).await {
             Ok(()) => {
-                dropped += 1;
-                released += length;
+                done.0 += 1;
+                done.1 += length;
             }
             Err(e) if e.kind() == ErrorKind::NotFound => {}
             Err(_) => return Err(ApiError::invalid("data_dir")),
         }
     }
-    Ok((dropped, released))
+    Ok(())
 }
 
 async fn subdirs(dir: &Path) -> Vec<(String, PathBuf)> {
