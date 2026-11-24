@@ -20,8 +20,8 @@ the same checks run against the reference relay and against a deployed one:
 2. Not above the local store. Stored files plus stored entries are at most the local store's data files
    plus an allowance: the manifest, the stored entries, 29 bytes for each sealed file (its envelope) and
    SLACK_BYTES. The data files are the native files of the writer's store on disk and the files that its
-   records hold by path (a snapshot seals those into its own copy of the file store, so the relay holds
-   them and the store's directory does not). The native files are measured before the snapshot, when
+   records hold by path (`data/local-file-refs.json`; a snapshot seals those into its own copy of the
+   file store, so the relay holds them and the store's directory does not). The native files are measured before the snapshot, when
    two listings a second apart are equal, and again after the sweep. The larger of the two is used,
    because the store may rewrite a file between a measurement and the cut.
 3. No growth without data. From the first round to the last, the relay grew by no more than the local
@@ -90,7 +90,7 @@ def attach(device, source, key, text, first):
 
 
 def write_round(writer, other, source, number):
-    """One round. Returns what every device must hold afterwards (key -> fields), and the files the writer holds by path."""
+    """One round. Returns what every device must hold afterwards: key -> fields."""
     keys = [f"r{index:04d}" for index in range(RECORDS)]
     texts = {key: f"{number:02d}-" + os.urandom(NOTE_BYTES // 2).hex() for key in keys}
     first = number == 1
@@ -105,14 +105,13 @@ def write_round(writer, other, source, number):
         writer.change([remove(key) for key in again])
         writer.write([record(key, texts[key]) for key in again])
     expected = {key: {"id": key, "note": text} for key, text in texts.items()}
-    by_path = []
     for index in range(FILES):
-        by_path.append(attach(writer, source, f"f{index}", f"file-{number:02d}", first))
+        attach(writer, source, f"f{index}", f"file-{number:02d}", first)
         expected[f"f{index}"] = {"id": f"f{index}", "note": f"file-{number:02d}"}
     wait(f"{other.name} to hold the schema", lambda: other.has_schema(SWEEP), seconds=SYNC_SECONDS)
     attach(other, source, "o0", f"other-{number:02d}", first)
     expected["o0"] = {"id": "o0", "note": f"other-{number:02d}"}
-    return expected, by_path
+    return expected
 
 
 def holds(device, expected):
@@ -140,6 +139,15 @@ def local_files(device):
         except OSError:
             continue
     return found
+
+
+def by_path_bytes(device):
+    """The length of the files that records of this home hold by path (`data/local-file-refs.json`)."""
+    try:
+        catalog = json.loads((device.node.home / "data" / "local-file-refs.json").read_text())
+    except (OSError, ValueError):
+        return 0
+    return sum(entry["size_bytes"] for entry in catalog["files"].values())
 
 
 def settled_local(device):
@@ -243,11 +251,11 @@ def check_disk(label, relay, database, blobs):
     require(not pending, f"{label}: the relay kept {len(pending)} pending records of uploads after their commit: {pending[:3]}")
 
 
-def measure(relay, writer, label, before, by_path):
+def measure(relay, writer, label, before):
     """Ask for a sweep now, then check 1 and 2 and the node's account. Returns the numbers of the round.
 
-    `before` is the listing of the native files from before the snapshot, `by_path` the files the writer's
-    records hold by path.
+    `before` is the listing of the native files from before the snapshot. The files that the writer's
+    records hold by path are added to both measurements.
     """
     report = reclaim_now(writer)
     after = local_files(writer)
@@ -256,7 +264,7 @@ def measure(relay, writer, label, before, by_path):
     check_node(label, writer, view, stored, sealed, sealed_bytes, report)
     if not relay.deployed:
         check_disk(label, relay, writer.database, view["blobs"])
-    held = sum(path.stat().st_size for path in by_path)
+    held = by_path_bytes(writer)
     sizes = sorted((sum(before.values()) + held, sum(after.values()) + held))
     manifest = view["snapshot"]["manifest_bytes"]
     allowance = manifest + view["entry_bytes"] + ENVELOPE_OVERHEAD * len(sealed)
@@ -313,13 +321,13 @@ def cloud_rounds(relay, writer, others, phrase, out, rounds=ROUNDS):
         system_seed(writer.node, definition(SWEEP, "Hash", FIELDS, {"by_group": RANGED}, description_prefix="Personal proof "))
     devices, measured = (writer, *others), []
     for number in range(1, rounds + 1):
-        expected, by_path = write_round(writer, others[0], source, number)
+        expected = write_round(writer, others[0], source, number)
         settle(devices, expected, f"round {number}")
         released = released_blobs(writer)
         before = settled_local(writer)
         snapshot = writer.snapshot_now()
         swept(writer, snapshot["snapshot_seq"], seconds=SYNC_SECONDS)
-        numbers = measure(relay, writer, f"round {number}", before, by_path)
+        numbers = measure(relay, writer, f"round {number}", before)
         require(numbers["snapshot_seq"] == snapshot["snapshot_seq"] and numbers["sealed_files"] == 0,
                 f"round {number}: the relay holds {numbers!r} after snapshot {snapshot['snapshot_seq']}")
         # 4. The sealed files of the round's entries went, and from round 2 the manifest before.
@@ -336,7 +344,7 @@ def cloud_rounds(relay, writer, others, phrase, out, rounds=ROUNDS):
     path = attach(writer, source, "tail", "after-the-cut", True)
     expected["tail"] = {"id": "tail", "note": "after-the-cut"}
     settle(devices, expected, "the write after the last snapshot")
-    tail = measure(relay, writer, "after the last snapshot", local_files(writer), [*by_path, path])
+    tail = measure(relay, writer, "after the last snapshot", local_files(writer))
     require(tail["sealed_files"] == 1 and tail["sealed_bytes"] == FILE_BYTES + ENVELOPE_OVERHEAD,
             f"the relay holds {tail['sealed_files']} sealed files ({tail['sealed_bytes']} bytes) for one file after the cut")
     restored = restore_from_swept(relay, writer, others[-1], phrase, expected, path)

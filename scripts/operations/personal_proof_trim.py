@@ -96,22 +96,50 @@ def check_dropped(relay, database, entry):
     return tail
 
 
+# A relay answer that says the same request can succeed a moment later is asked again, as the node does
+# (`relay-protocol.md`, "What a client does with a refusal"): at most this many times, after 0.5 s doubled.
+TRANSIENT_RETRIES = 4
+
+
+def transient(status, answer):
+    """A gateway failure, `unavailable`, or a 429 whose field names a provider."""
+    return (status in (502, 503, 504) or (status == 500 and answer.get("code") == "unavailable")
+            or (status == 429 and str(answer.get("field", "")).startswith("provider.")))
+
+
 def relay_post(relay, device, database, node_hex, path, body):
-    """One signed request of A to the relay, as the node signs it. Returns (HTTP status, JSON answer)."""
+    """One signed request of A to the relay, as the node signs it. Returns (HTTP status, JSON answer).
+
+    Each try is signed again, with a new nonce and time.
+    """
     key = Ed25519PrivateKey.from_private_bytes((device.node.home / "identity.key").read_bytes())
     raw = json.dumps(body, separators=(",", ":")).encode()
-    issued, nonce = str(int(time.time())), secrets.token_hex(32)
-    message = f"POST\n{path}\n1\n{node_hex}\n{database}\n{hashlib.sha256(raw).hexdigest()}\n{issued}\n{nonce}"
-    signature = base64.urlsafe_b64encode(key.sign(message.encode())).rstrip(b"=").decode()
-    headers = {"X-LastDB-Relay-Protocol": "1", "X-LastDB-Node-Key": node_hex, "X-LastDB-Database-Id": database,
-               "X-LastDB-Device-Id": device.device_id(), "X-LastDB-Issued-At": issued, "X-LastDB-Nonce": nonce,
-               "X-LastDB-Signature": signature, "content-type": "application/json"}
-    request = urllib.request.Request(relay.url + path, data=raw, headers=headers, method="POST")
+    for tried in range(TRANSIENT_RETRIES + 1):
+        issued, nonce = str(int(time.time())), secrets.token_hex(32)
+        message = f"POST\n{path}\n1\n{node_hex}\n{database}\n{hashlib.sha256(raw).hexdigest()}\n{issued}\n{nonce}"
+        signature = base64.urlsafe_b64encode(key.sign(message.encode())).rstrip(b"=").decode()
+        headers = {"X-LastDB-Relay-Protocol": "1", "X-LastDB-Node-Key": node_hex, "X-LastDB-Database-Id": database,
+                   "X-LastDB-Device-Id": device.device_id(), "X-LastDB-Issued-At": issued, "X-LastDB-Nonce": nonce,
+                   "X-LastDB-Signature": signature, "content-type": "application/json"}
+        request = urllib.request.Request(relay.url + path, data=raw, headers=headers, method="POST")
+        try:
+            with urllib.request.urlopen(request, timeout=60) as answer:
+                return answer.status, json.loads(answer.read())
+        except urllib.error.HTTPError as error:
+            status, answer = error.code, _json_or_empty(error.read())
+        if tried == TRANSIENT_RETRIES or not transient(status, answer):
+            return status, answer
+        print(f"   the relay answered {status} {answer!r} to {path}; asking again", flush=True)
+        time.sleep(0.5 * 2 ** tried)
+    raise AssertionError("unreachable")
+
+
+def _json_or_empty(raw):
     try:
-        with urllib.request.urlopen(request, timeout=60) as answer:
-            return answer.status, json.loads(answer.read())
-    except urllib.error.HTTPError as error:
-        return error.code, json.loads(error.read() or b"{}")
+        found = json.loads(raw or b"{}")
+    except ValueError:
+        return {}
+    return found if isinstance(found, dict) else {}
 
 
 def late_repeat(relay, a, database, newest, kept):
