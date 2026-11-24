@@ -4,17 +4,20 @@
 //! acknowledge a commit that never entered it. This stream records one
 //! sealed logical entry per accepted user write before the caller ack.
 
+mod author;
 mod body;
 mod capture;
 mod disk;
 
 use disk::upload::io;
 
+pub use author::{CaptureAuthor, LocalEntry, SignedLocal};
 pub(crate) use capture::{capture_enabled, stage_records, stage_schema_drop, stage_schema_put};
 pub use disk::upload::{UploadIdentity, UploadPosition};
 pub(in crate::storage) use disk::{Log, Note};
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use crate::storage::disk_pack::PackRuntime;
 use crate::storage::error::{StorageError, StorageResult};
@@ -59,21 +62,30 @@ pub struct Status {
     pub gap: bool,
 }
 
-/// One sealed logical entry.
+/// One entry of the spool: a signed entry of the device stream, ready to send.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Entry {
-    /// Sequence, starting at 1.
+    /// Sequence, starting at 1. It is the sequence number of the signed entry.
     pub sequence: u64,
     /// Caller mutation id, or the generated schema id.
     pub mutation_id: String,
-    /// Content-key envelope of the canonical body.
-    pub envelope: Vec<u8>,
-    /// Local author milliseconds from the durable commit, when recorded.
+    /// The signed entry, as the bytes the relay stores.
+    pub signed: Vec<u8>,
+    /// Local author milliseconds from the durable commit. It is the order value of the entry.
     pub authored_at_ms: Option<u64>,
-    /// Sealed file row when the entry has an external file.
-    pub file_ciphertext: Option<Vec<u8>>,
-    /// Admitted custody path for a local file. The bytes stay outside the spool.
-    pub file_reference: Option<String>,
+    /// The sealed file that the entry names, when it names one.
+    pub file: Option<EntryFile>,
+}
+
+/// The sealed file of a spool entry. The bytes stay on disk until they are sent.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EntryFile {
+    /// Where the sealed bytes are.
+    pub path: PathBuf,
+    /// Their SHA-256, 64 lowercase hex characters. The relay names the blob by it.
+    pub sha256: String,
+    /// Their length.
+    pub bytes: u64,
 }
 
 /// One exclusive page of the sealed stream.
@@ -126,6 +138,17 @@ impl PackRuntime {
     /// Whether this store records accepted writes for cloud sync.
     pub fn captures_accepted(&self) -> bool {
         self.accepted.is_some()
+    }
+
+    /// Give the store the author of its captured writes, once.
+    pub fn name_capture_author(&self, author: Arc<dyn CaptureAuthor>) -> StorageResult<()> {
+        self.capture_author
+            .set(author)
+            .map_err(|_| StorageError::invalid("the store already has an author for its writes"))
+    }
+
+    pub(crate) fn capture_author(&self) -> Option<&Arc<dyn CaptureAuthor>> {
+        self.capture_author.get()
     }
 
     /// Apply already-published mutations to this store without recapturing them.
@@ -258,15 +281,6 @@ impl PackRuntime {
         };
         log.note_split_committed(frontier_before).map_err(storage)
     }
-}
-
-/// Open one immutable sealed file row. This is the native file-row decoder.
-pub fn open_file_row(
-    content_key: &[u8; 32],
-    marker: &lastdb_model::record_value::FileMarker,
-    row: &[u8],
-) -> Result<Vec<u8>, crate::error::FoldDbError> {
-    crate::storage::format::records::decrypt_file_row(content_key, marker, row)
 }
 
 fn idle_prefix(after: u64, limit: u32) -> Result<Page, Error> {

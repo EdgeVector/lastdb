@@ -1,7 +1,7 @@
 //! Format-driven record access, batch/alternate encoding, file sealing/reading, and schema release.
 
 use super::inline_files;
-pub(crate) use super::metadata::{decrypt_file_row, require_row};
+pub(crate) use super::metadata::decrypt_file_row;
 pub(crate) use super::schemas::{applied_deletes, release_families, ReleaseFamily, ReleaseKind};
 pub(crate) use super::{alternate_bounds, AlternateAddress, RecordAddress};
 pub use super::{AlternateEntry, RecordDeleteLedgerEntry, MAX_ALTERNATE_ENTRIES};

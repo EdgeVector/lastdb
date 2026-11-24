@@ -3,7 +3,7 @@
 mod files;
 
 use super::super::io;
-use super::super::Entry;
+use super::super::{Entry, EntryFile};
 use super::{Error, Inner, Note, Pending, PendingNote};
 use std::path::Path;
 
@@ -170,48 +170,38 @@ pub(super) fn load_entry(root: &Path, sequence: u64) -> Result<Entry, Error> {
     if note.sequence != sequence || !super::id_ok(&note.mutation_id) {
         return Err(Error::Gap);
     }
-    let envelope = files::verified_bytes(
+    let signed = files::verified_bytes(
         &dir.join("body.bin"),
         note.envelope_bytes,
         &note.envelope_sha256,
         files::body_max(),
     )?;
-    let file_ciphertext = match note.file_sha256 {
-        Some(expected) => Some(files::verified_bytes(
-            &dir.join("file.bin"),
-            note.file_bytes,
-            &expected,
-            files::file_max(),
-        )?),
+    let file = match note.file_sha256 {
+        Some(sha256) => {
+            let path = dir.join("file.bin");
+            let held = std::fs::metadata(&path).map_err(|_| Error::Gap)?;
+            if !held.is_file()
+                || held.len() != note.file_bytes
+                || note.file_bytes > files::file_max()
+            {
+                return Err(Error::Gap);
+            }
+            Some(EntryFile {
+                path,
+                sha256,
+                bytes: note.file_bytes,
+            })
+        }
         None if note.file_bytes == 0 && !dir.join("file.bin").exists() => None,
         None => return Err(Error::Gap),
     };
     Ok(Entry {
         sequence,
         mutation_id: note.mutation_id,
-        envelope,
+        signed,
         authored_at_ms: note.authored_at_ms,
-        file_ciphertext,
-        file_reference: read_reference(&dir)?,
+        file,
     })
-}
-
-fn read_reference(dir: &Path) -> Result<Option<String>, Error> {
-    match io::read_limited(&dir.join("reference.txt"), 4096)? {
-        None => Ok(None),
-        Some(bytes) => {
-            let text = std::str::from_utf8(&bytes).map_err(|_| Error::Gap)?;
-            if text.is_empty()
-                || text.len() > 4096
-                || text
-                    .bytes()
-                    .any(|byte| byte == 0 || byte == b'\n' || byte == b'\r')
-            {
-                return Err(Error::Gap);
-            }
-            Ok(Some(text.to_owned()))
-        }
-    }
 }
 
 pub(super) fn retained_bytes(root: &Path, after: u64, through: u64) -> Result<u64, Error> {

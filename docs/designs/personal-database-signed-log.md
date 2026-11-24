@@ -26,7 +26,7 @@ A restore needs only the recovery phrase and the relay. The phrase gives the nod
 ## 4. A write
 
 1. The app writes. The store validates and commits, and puts the write in the spool of accepted writes before the caller is told. The spool is the upload queue.
-2. The sync loop takes the spool entries past the acknowledged position, opens each canonical body, seals it with the database read key for the position it will have, and signs it as the next entry of this device's stream. One write is one `data` entry. A schema put or drop is an entry of the same kind. Every entry cites the birth.
+2. **Replaced on 23 November 2026.** The store now signs a write, as the next entry of the device stream, in the transaction that commits it. The spool holds the signed entry and its sealed file, the sender only sends, and `outgoing.json` and `outgoing-blobs/` are gone. [The home on disk](../home-format.md) describes it as built. What follows is the earlier design. The sync loop takes the spool entries past the acknowledged position, opens each canonical body, seals it with the database read key for the position it will have, and signs it as the next entry of this device's stream. One write is one `data` entry. A schema put or drop is an entry of the same kind. Every entry cites the birth.
 3. The loop saves the exact signed entries before it sends them (`log-sync/<database>/outgoing.json`), so a retry sends the same bytes and never signs again. It sends up to 90 entries in one append.
 4. When the relay acknowledges, the loop confirms the position on the spool, which trims it, writes the own head row, and deletes the saved entries.
 

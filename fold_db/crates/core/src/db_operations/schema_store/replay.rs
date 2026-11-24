@@ -4,7 +4,6 @@ use super::SchemaStore;
 use crate::db_operations::record_store::RangeWalk;
 use crate::schema::types::catalog_types::SchemaState;
 use crate::schema::types::{Schema, SchemaError};
-use crate::storage::disk_backup::accepted;
 use crate::storage::disk_pack::transaction;
 use crate::storage::format::metadata::SchemaReplayDrop;
 use crate::storage::format::schemas::*;
@@ -112,16 +111,7 @@ impl SchemaStore {
             if let Some(replay) = replay {
                 self.metadata.finish_schema_drop(name, replay).await?;
             } else if existed {
-                let authored_at_ms = self.local_author_ms().await?;
-                let captured = accepted::stage_schema_drop(
-                    &self.runtime,
-                    &self.content_key,
-                    name,
-                    authored_at_ms,
-                )?;
-                if captured {
-                    self.stamp_local_change(name, authored_at_ms).await?;
-                }
+                self.capture_local_change(name, None).await?;
             }
             publish()?;
             Ok(existed)

@@ -7,7 +7,7 @@ mod replay_stream;
 
 pub(crate) use changes::ChangedKey;
 pub use changes::{Change, ChangePage, CHANGES_PAGE};
-pub(crate) use files::{decrypt_file_row, require_row, seal_row};
+pub(crate) use files::{decrypt_file_row, seal_row};
 pub(in crate::storage::format) use files::{encode_files, FileChange};
 pub use replay::ReplayStamp;
 pub(crate) use replay::{ReplayTarget, SchemaReplayDrop, FILE_SLOT, INLINE_SLOT};

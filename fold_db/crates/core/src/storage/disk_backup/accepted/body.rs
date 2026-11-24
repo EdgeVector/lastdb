@@ -1,7 +1,5 @@
 //! Canonical plaintext for one accepted logical write.
 
-use super::disk::Note;
-use crate::crypto::envelope::encrypt_envelope;
 use crate::schema::types::{KeyValue, Mutation, MutationType};
 use crate::storage::error::{StorageError, StorageResult};
 use lastdb_model::hex::{hex_lower, sha256_hex};
@@ -119,7 +117,8 @@ pub(super) struct RecordParts<'a> {
     pub contribution: Option<ContributionSection<'a>>,
 }
 
-pub(super) fn seal(content_key: &[u8; 32], body: &Body<'_>) -> StorageResult<Note> {
+/// The canonical bytes of a body, and their SHA-256. The author seals and signs these bytes.
+pub(super) fn plain(body: &Body<'_>) -> StorageResult<(Vec<u8>, String)> {
     let plain = cloud_backup_protocol::v2::hash::canonical_bytes(body)
         .map_err(|_| StorageError::SerializationError("accepted body is not canonical".into()))?;
     if plain.len() > BODY_MAX {
@@ -127,22 +126,13 @@ pub(super) fn seal(content_key: &[u8; 32], body: &Body<'_>) -> StorageResult<Not
             detail: "accepted body exceeds 1 MiB".into(),
         });
     }
-    let plaintext_sha256 = sha256_hex(&plain);
-    let envelope = encrypt_envelope(content_key, &plain)
-        .map_err(|_| StorageError::EncryptionError("accepted envelope seal failed".into()))?;
     if !mutation_id_ok(body.mutation_id) {
         return Err(StorageError::InvalidOperation(
             "accepted mutation id is not a durable name".into(),
         ));
     }
-    Ok(Note {
-        mutation_id: body.mutation_id.to_owned(),
-        plaintext_sha256,
-        envelope,
-        authored_at_ms: None,
-        file: None,
-        reference: None,
-    })
+    let digest = sha256_hex(&plain);
+    Ok((plain, digest))
 }
 
 pub(super) fn file_section<'a>(

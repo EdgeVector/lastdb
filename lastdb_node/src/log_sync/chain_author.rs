@@ -8,7 +8,7 @@ use std::path::Path;
 
 use app_identity_crypto::SigningKey;
 use mutation_log::{
-    entry_hash, AcceptOutcome, AuthorCtx, DatabaseId, DeviceId, EntryHash, NodeKey, RejectReason,
+    entry_hash, AcceptOutcome, AuthorCtx, DatabaseId, EntryHash, NodeKey, RejectReason,
     SignedEntry, VerifiedHistory,
 };
 
@@ -17,12 +17,7 @@ use super::chain_error::ChainError;
 use super::history_store::{self, HistoryMap};
 use crate::host::Host;
 
-/// The key and device that sign every entry this node authors.
-pub(crate) struct AuthorIdentity {
-    pub(crate) signing_key: SigningKey,
-    pub(crate) node_key: NodeKey,
-    pub(crate) device_id: DeviceId,
-}
+pub(crate) use crate::author_identity::AuthorIdentity;
 
 /// Where an entry is authored.
 pub(super) struct Target<'a> {

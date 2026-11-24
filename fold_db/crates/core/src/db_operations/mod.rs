@@ -164,7 +164,7 @@ impl DbOperations {
         } = bind::open(store, node_key).await?;
         Ok(Self {
             runtime,
-            schema_store: SchemaStore::new(schemas, node_key, metadata.clone(), writer_id),
+            schema_store: SchemaStore::new(schemas, metadata.clone(), writer_id),
             record_store: RecordStore::new(records, node_key),
             metadata,
         })

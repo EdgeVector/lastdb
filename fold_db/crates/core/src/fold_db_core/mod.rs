@@ -27,9 +27,10 @@ pub mod factory {
         pub offline_maintenance: bool,
         /// Capture the accepted publication stream for an owned database.
         pub capture_accepted: bool,
-        /// The device id that signs the captured writes, lowercase hex. A store
-        /// that captures needs it: each captured write is stamped with it.
-        pub capture_device: Option<String>,
+        /// The author of the captured writes. A store that captures needs it:
+        /// each captured write is signed, when it commits, as the next entry of
+        /// the author's device stream.
+        pub capture_author: Option<Arc<dyn crate::storage::disk_backup::accepted::CaptureAuthor>>,
         /// Host notes for each committed record. Absent when the host keeps no notes.
         pub record_log:
             Option<std::sync::Arc<dyn crate::fold_db_core::mutation_manager::RecordWriteLog>>,
@@ -44,7 +45,7 @@ pub mod factory {
         config: &DatabaseConfig,
         e2e_keys: &E2eKeys,
         signer: Arc<Ed25519KeyPair>,
-        options: FoldDbOptions,
+        mut options: FoldDbOptions,
     ) -> FoldDbResult<Arc<FoldDB>> {
         let key = e2e_keys.encryption_key();
         let store =
@@ -57,14 +58,17 @@ pub mod factory {
         )
         .await
         .map_err(|e| FoldDbError::Config(e.to_string()))?;
-        match &options.capture_device {
-            Some(device) => db_ops
-                .native_runtime()
-                .name_capture_device(device)
-                .map_err(|e| FoldDbError::Config(e.to_string()))?,
+        match options.capture_author.take() {
+            Some(author) => {
+                let named = db_ops.native_runtime().name_capture_author(author);
+                named.map_err(|e| FoldDbError::Config(e.to_string()))?;
+                // Writes that an older build left unsigned in the spool stop the open.
+                let signed = db_ops.metadata().require_signed_spool(&writer_id).await;
+                signed.map_err(FoldDbError::Config)?;
+            }
             None if options.capture_accepted => {
                 return Err(FoldDbError::Config(
-                    "a store that captures its writes needs the device that signs them".into(),
+                    "a store that captures its writes needs the author that signs them".into(),
                 ));
             }
             None => {}

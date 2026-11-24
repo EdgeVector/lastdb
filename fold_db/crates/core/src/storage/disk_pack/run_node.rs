@@ -317,7 +317,7 @@ impl PackNamespacedStore {
             physical,
             cleanup_job,
             accepted,
-            capture_device: std::sync::OnceLock::new(),
+            capture_author: std::sync::OnceLock::new(),
             local_file_refs_lock: Mutex::default(),
             view: Arc::new(RwLock::new(view)),
             prepare_gate: Arc::default(),
