@@ -62,17 +62,19 @@ pub struct Status {
     pub gap: bool,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(in crate::storage) struct Frontiers {
+    pub total: u64,
+    pub main: u64,
+}
+
 /// One entry of the spool: a signed entry of the device stream, ready to send.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Entry {
     /// Sequence, starting at 1. It is the sequence number of the signed entry.
     pub sequence: u64,
-    /// Caller mutation id, or the generated schema id.
-    pub mutation_id: String,
     /// The signed entry, as the bytes the relay stores.
     pub signed: Vec<u8>,
-    /// Local author milliseconds from the durable commit. It is the order value of the entry.
-    pub authored_at_ms: Option<u64>,
     /// The sealed file that the entry names, when it names one.
     pub file: Option<EntryFile>,
 }
@@ -115,7 +117,7 @@ pub(in crate::storage) fn storage(error: Error) -> StorageError {
             detail: "accepted stream spool is full".into(),
         },
         Error::Conflict => {
-            StorageError::InvalidOperation("accepted mutation id changed its body".into())
+            StorageError::InvalidOperation("mutation id was already accepted into the spool".into())
         }
         Error::Gap => StorageError::BackendError("accepted stream has a gap".into()),
         Error::Snapshot => {
@@ -125,13 +127,6 @@ pub(in crate::storage) fn storage(error: Error) -> StorageError {
             StorageError::BackendError("accepted stream is unavailable".into())
         }
     }
-}
-
-pub(super) fn stopped_confirmation(
-    main: &Path,
-    identity: &UploadIdentity,
-) -> StorageResult<UploadPosition> {
-    disk::upload::stopped_confirmation(&main.join(disk::DIR), identity).map_err(storage)
 }
 
 impl PackRuntime {
@@ -225,61 +220,45 @@ impl PackRuntime {
 
     pub(in crate::storage) fn prepare_accepted(
         &self,
-        frontier_before: u64,
+        before: Frontiers,
         notes: &[disk::Note],
     ) -> StorageResult<()> {
         let Some(log) = &self.accepted else {
             return Ok(());
         };
-        log.prepare(frontier_before, notes).map_err(storage)
+        log.prepare(before, notes).map_err(storage)
     }
 
     pub(in crate::storage) fn publish_accepted(
         &self,
-        frontier_before: u64,
-        frontier_after: u64,
+        before: Frontiers,
+        after: Frontiers,
     ) -> StorageResult<()> {
         let Some(log) = &self.accepted else {
             return Ok(());
         };
-        log.publish(frontier_before, frontier_after)
-            .map_err(storage)
+        log.publish(before, after).map_err(storage)
     }
 
-    pub(in crate::storage) fn fail_accepted(&self, frontier_before: u64) {
+    pub(in crate::storage) fn fail_accepted(&self, before: Frontiers) {
         let Some(log) = &self.accepted else {
             return;
         };
-        let frontier = self.physical.current_root().frontier();
-        if frontier == frontier_before {
+        let after = self.physical.current_root().frontiers();
+        if after.main == before.main {
             let _ = log.abort();
+        } else if after.main > before.main {
+            let _ = log.publish(before, after);
         } else {
             let _ = log.force_gap();
         }
     }
 
-    pub(in crate::storage) fn mark_accepted_born(&self, frontier: u64) -> StorageResult<()> {
+    pub(in crate::storage) fn mark_accepted_born(&self, frontiers: Frontiers) -> StorageResult<()> {
         let Some(log) = &self.accepted else {
             return Ok(());
         };
-        log.mark_born(frontier).map_err(storage)
-    }
-
-    pub(in crate::storage) fn arm_accepted_split(&self) -> StorageResult<()> {
-        let Some(log) = &self.accepted else {
-            return Ok(());
-        };
-        log.arm_split().map_err(storage)
-    }
-
-    pub(in crate::storage) fn note_accepted_split(
-        &self,
-        frontier_before: u64,
-    ) -> StorageResult<()> {
-        let Some(log) = &self.accepted else {
-            return Ok(());
-        };
-        log.note_split_committed(frontier_before).map_err(storage)
+        log.mark_born(frontiers).map_err(storage)
     }
 }
 

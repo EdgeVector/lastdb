@@ -74,8 +74,44 @@ impl PendingBatch {
                 "accepted notes require an open write batch".into(),
             ));
         }
-        self.accepted.lock().expect("accepted notes").extend(notes);
+        let mut accepted = self.accepted.lock().expect("accepted notes");
+        let max_notes = crate::storage::disk_backup::accepted::NOTES_MAX;
+        if accepted.len().saturating_add(notes.len()) > max_notes {
+            let detail =
+                format!("a write that is captured for upload holds at most {max_notes} mutations");
+            return Err(self.remember_limit(StorageError::mutation_limit(detail)));
+        }
+        let mut seen: BTreeSet<&str> = accepted.iter().map(|n| n.mutation_id.as_str()).collect();
+        let mut note_bytes = 0u64;
+        let msg = "complete native mutation exceeds pending memory allowance";
+        for note in &notes {
+            if !seen.insert(note.mutation_id.as_str()) {
+                return Err(StorageError::InvalidOperation(
+                    "mutation id was already accepted into the spool".into(),
+                ));
+            }
+            note_bytes = note_bytes
+                .checked_add(note.byte_weight())
+                .ok_or_else(|| self.remember_limit(StorageError::mutation_limit(msg)))?;
+        }
+        let mut data = self.lock_mutations();
+        let cap = PENDING_MEMORY_BYTES - 256;
+        data.pending_bytes = data
+            .pending_bytes
+            .checked_add(note_bytes)
+            .filter(|&b| b <= cap)
+            .ok_or_else(|| self.remember_limit(StorageError::mutation_limit(msg)))?;
+        drop(data);
+        accepted.extend(notes);
         Ok(())
+    }
+
+    pub(in crate::storage::disk_pack) fn accepted_len(&self) -> usize {
+        self.accepted.lock().expect("accepted notes").len()
+    }
+
+    pub(in crate::storage::disk_pack) fn accepted_notes(&self) -> MutexGuard<'_, Vec<Note>> {
+        self.accepted.lock().expect("accepted notes")
     }
 
     pub(in crate::storage) fn has_accepted_notes(&self) -> bool {

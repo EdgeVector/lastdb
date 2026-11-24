@@ -15,7 +15,7 @@ use std::path::Path;
 use fold_db::storage::disk_backup::accepted::{CaptureAuthor, LocalEntry, SignedLocal};
 use mutation_log::{
     author_data, entry_hash, AuthorCtx, DataBody, DatabaseId, EntryHash, Hex32, MutationFileRef,
-    StreamHead, StreamKind, SEALED_NAMESPACE,
+    StreamHead, StreamKind, LAMPORT_LIMIT, SEALED_NAMESPACE,
 };
 
 use crate::author_identity::AuthorIdentity;
@@ -67,6 +67,9 @@ impl CaptureAuthor for PersonalAuthor {
         body: &[u8],
         file_sha256: Option<&str>,
     ) -> Result<SignedLocal, String> {
+        if order >= LAMPORT_LIMIT {
+            return Err("the order value of a write is at or past the lamport limit".into());
+        }
         let head = match previous {
             Some(held) => Some(StreamHead {
                 entry_hash: EntryHash::from_hex(&held.hash)
@@ -76,7 +79,9 @@ impl CaptureAuthor for PersonalAuthor {
             }),
             None => None,
         };
-        let seq = previous.map_or(1, |held| held.seq + 1);
+        let seq = previous
+            .map_or(Some(1), |held| held.seq.checked_add(1))
+            .ok_or_else(|| "the device stream sequence is exhausted".to_owned())?;
         let file = match file_sha256 {
             Some(sha256) => Some(MutationFileRef {
                 file_handle: "file".to_owned(),

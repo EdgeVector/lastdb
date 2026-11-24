@@ -32,8 +32,6 @@ pub(super) struct Body<'a> {
     definition_id: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     definition: Option<Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    contribution: Option<ContributionSection<'a>>,
 }
 
 #[derive(Clone, Copy, Serialize)]
@@ -60,16 +58,6 @@ pub(super) struct InlineSection<'a> {
     data: Option<&'a str>,
 }
 
-#[derive(Clone, Copy, Serialize)]
-pub(super) struct ContributionSection<'a> {
-    definition_id: &'a str,
-    writer: &'a str,
-    receipt_sha256: &'a str,
-    intent_sha256: &'a str,
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
-    schema_scope: bool,
-}
-
 pub(super) fn mutation_id_ok(id: &str) -> bool {
     !id.is_empty()
         && id.len() <= 128
@@ -78,11 +66,13 @@ pub(super) fn mutation_id_ok(id: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
 }
 
-pub(super) fn schema_id(name: &str, tag: &str) -> String {
+pub(super) fn schema_id(name: &str, tag: &str, authored_at_ms: u64) -> String {
     let mut hasher = Sha256::new();
     hasher.update(name.as_bytes());
     hasher.update([0]);
     hasher.update(tag.as_bytes());
+    hasher.update([0]);
+    hasher.update(authored_at_ms.to_be_bytes());
     format!("s{}", &hex_lower(hasher.finalize())[..40])
 }
 
@@ -95,10 +85,8 @@ pub(super) fn action_name(kind: MutationType) -> &'static str {
     }
 }
 
-pub(super) fn kind_name(mutation: &Mutation, file: bool, inline: bool) -> &'static str {
-    if mutation.contribution.is_some() {
-        "contribution"
-    } else if file {
+pub(super) fn kind_name(file: bool, inline: bool) -> &'static str {
+    if file {
         "file"
     } else if inline {
         "inline"
@@ -114,7 +102,6 @@ pub(super) struct RecordParts<'a> {
     pub file: Option<FileSection<'a>>,
     pub inline_file: Option<InlineSection<'a>>,
     pub definition_id: Option<&'a str>,
-    pub contribution: Option<ContributionSection<'a>>,
 }
 
 /// The canonical bytes of a body, and their SHA-256. The author seals and signs these bytes.
@@ -188,7 +175,6 @@ pub(super) fn record_body<'a>(mutation: &'a Mutation, parts: &'a RecordParts<'a>
         inline_file: parts.inline_file,
         definition_id: parts.definition_id,
         definition: None,
-        contribution: parts.contribution,
     }
 }
 
@@ -211,22 +197,5 @@ pub(super) fn schema_body<'a>(
         inline_file: None,
         definition_id: None,
         definition: definition.cloned(),
-        contribution: None,
-    }
-}
-
-pub(super) fn contribution<'a>(
-    definition_id: &'a str,
-    writer: &'a str,
-    receipt_sha256: &'a str,
-    intent_sha256: &'a str,
-    schema_scope: bool,
-) -> ContributionSection<'a> {
-    ContributionSection {
-        definition_id,
-        writer,
-        receipt_sha256,
-        intent_sha256,
-        schema_scope,
     }
 }

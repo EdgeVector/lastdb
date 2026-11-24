@@ -24,7 +24,7 @@ impl PackRuntime {
         if ops.is_empty() {
             return Ok(());
         }
-        let prepared = self.prepare_commit(ops, None)?;
+        let prepared = self.prepare_commit(ops, 0, None)?;
         let changed: Vec<_> = prepared
             .mutations
             .iter()
@@ -36,6 +36,7 @@ impl PackRuntime {
     pub(super) fn prepare_commit(
         &self,
         mutations: Vec<HomeMutation>,
+        note_bytes: u64,
         prev: Option<&PreparedCommit>,
     ) -> StorageResult<PreparedCommit> {
         let ns_only = mutations.iter().all(|o| {
@@ -54,7 +55,12 @@ impl PackRuntime {
             ));
         }
         let limit = self.batch_operation_limit();
-        let incoming = batch_bytes(&mutations, limit)?;
+        let incoming = batch_bytes(&mutations, limit)?
+            .checked_add(note_bytes)
+            .filter(|&b| b <= PENDING_MEMORY_BYTES)
+            .ok_or_else(|| {
+                StorageError::mutation_limit("batch exceeds pending memory allowance")
+            })?;
         let pending_bytes = if let Some(prev) = prev {
             let ok = prev
                 .mutations
@@ -95,20 +101,18 @@ impl PackRuntime {
         let PreparedCommit {
             mutations, space, ..
         } = prepared;
-        let (v2, before) = (&self.physical, self.physical.current_root().frontier());
+        let (v2, before) = (&self.physical, self.physical.current_root().frontiers());
         let notes = transaction::take_accepted_notes(reqs);
-        self.prepare_accepted(before, &notes)?;
-        let split = !notes.is_empty() && mutations.iter().any(|o| o.collection == CAS_COLLECTION);
-        if split {
-            self.arm_accepted_split()?;
+        if !notes.is_empty() && mutations.iter().all(|o| o.collection == CAS_COLLECTION) {
+            return Err(StorageError::invalid(
+                "accepted notes require a main store mutation",
+            ));
         }
+        self.prepare_accepted(before, &notes)?;
         let result = (|| {
             cas_delete::require_clear(v2)?;
             commit_split(v2, mutations)?;
-            if split {
-                self.note_accepted_split(before)?;
-            }
-            self.publish_accepted(before, v2.current_root().frontier())
+            self.publish_accepted(before, v2.current_root().frontiers())
         })();
         if let Err(error) = result {
             self.fail_accepted(before);

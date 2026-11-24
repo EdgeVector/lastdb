@@ -1,83 +1,24 @@
 //! Durable sequence beside the main run home. A gap blocks the next commit.
 
 mod recover;
+mod types;
 pub(super) mod upload;
 
-use super::{body, io, Error, Page, Status};
-use serde::{Deserialize, Serialize};
+pub(in crate::storage) use types::Note;
+pub(super) use types::{id_ok, sha_ok, spool_cap, Meta, Pending, PendingNote, State};
+
+use super::{io, Error, Frontiers, Page, Status};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 
 pub(in crate::storage) const DIR: &str = "accepted-v1";
 pub(super) const MAX_PAGE: u32 = 90;
 
-#[derive(Clone)]
-pub(in crate::storage) struct Note {
-    pub mutation_id: String,
-    pub plaintext_sha256: String,
-    pub envelope: Vec<u8>,
-    pub authored_at_ms: Option<u64>,
-    pub file: Option<Vec<u8>>,
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(super) struct State {
-    version: u16,
-    pub(super) opened_frontier: u64,
-    pub(super) head: u64,
-    pub(super) acked: u64,
-    pub(super) retained_bytes: u64,
-    /// The writes of the home from before this stream began are in no entry. A first
-    /// snapshot must cover them before any entry may be read for upload or acknowledged.
-    /// False for a home that captured from its birth, and for a restore.
-    #[serde(default)]
-    pub(super) snapshot_required: bool,
-    pub(super) gap: bool,
-    pub(super) armed: bool,
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(super) struct Pending {
-    version: u16,
-    pub(super) frontier_before: u64,
-    pub(super) notes: Vec<PendingNote>,
-}
-
-#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(super) struct PendingNote {
-    pub(super) sequence: u64,
-    pub(super) mutation_id: String,
-    pub(super) plaintext_sha256: String,
-    pub(super) envelope_sha256: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(super) authored_at_ms: Option<u64>,
-    pub(super) file_sha256: Option<String>,
-    pub(super) envelope_bytes: u64,
-    pub(super) file_bytes: u64,
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(super) struct Meta {
-    pub(super) version: u16,
-    #[serde(flatten)]
-    pub(super) note: PendingNote,
-}
-
-impl std::ops::Deref for Meta {
-    type Target = PendingNote;
-    fn deref(&self) -> &Self::Target {
-        &self.note
-    }
-}
-
 #[derive(Default)]
 struct Inner {
     state: Option<State>,
     frontier: u64,
+    main_frontier: u64,
     blocked: bool,
     /// The home held data when it opened and has no stream yet.
     history: bool,
@@ -91,17 +32,29 @@ pub(in crate::storage) struct Log {
 }
 
 impl Log {
-    pub(in crate::storage) fn open(home: &Path, frontier: u64) -> Self {
+    pub(in crate::storage) fn open(
+        home: &Path,
+        frontiers: Frontiers,
+        has_user_data: bool,
+        initializing: bool,
+    ) -> Self {
         let root = home.join(DIR);
         let mut inner = Inner {
-            frontier,
+            frontier: frontiers.total,
+            main_frontier: frontiers.main,
             ..Inner::default()
         };
-        if !root.exists() {
-            inner.history = frontier > 0;
-        }
-        let loaded = root.exists().then(|| inner.load(&root));
-        if let Some(Err(error)) = loaded {
+        let outcome = if root.exists() {
+            inner.load(&root, has_user_data)
+        } else if has_user_data {
+            inner.history = true;
+            Ok(())
+        } else if initializing {
+            Ok(())
+        } else {
+            inner.mark_born(&root, frontiers)
+        };
+        if let Err(error) = outcome {
             inner.block(&root, error);
         }
         Self {
@@ -121,6 +74,52 @@ impl Log {
             },
             |inner| inner.status(),
         )
+    }
+
+    pub(in crate::storage) fn check_healthy(&self) -> Result<(), Error> {
+        let inner = self.lock()?;
+        inner.refuse_gap()?;
+        if io::read_json::<Pending>(&self.root.join("pending.json"))?.is_some() {
+            return Err(Error::Gap);
+        }
+        Ok(())
+    }
+
+    pub(in crate::storage) fn check_admissible(
+        &self,
+        queued_notes: usize,
+        queued_bytes: u64,
+        notes: &[Note],
+    ) -> Result<(), Error> {
+        let inner = self.lock()?;
+        inner.refuse_gap()?;
+        if io::read_json::<Pending>(&self.root.join("pending.json"))?.is_some() {
+            return Err(Error::Gap);
+        }
+        let head = inner.state.as_ref().map_or(0, |s| s.head);
+        let added_notes = queued_notes
+            .checked_add(notes.len())
+            .and_then(|n| u64::try_from(n).ok())
+            .ok_or(Error::Unavailable)?;
+        head.checked_add(added_notes).ok_or(Error::Unavailable)?;
+        let mut batch_bytes = 0u64;
+        for note in notes {
+            if !id_ok(&note.mutation_id) || !sha_ok(&note.plaintext_sha256) {
+                return Err(Error::Conflict);
+            }
+            if recover::mutation_recorded(&self.root, &note.mutation_id)? {
+                return Err(Error::Conflict);
+            }
+            batch_bytes = batch_bytes
+                .checked_add(note.byte_weight())
+                .ok_or(Error::Spool)?;
+        }
+        let retained = inner.state.as_ref().map_or(0, |s| s.retained_bytes);
+        let total = retained
+            .checked_add(queued_bytes)
+            .and_then(|s| s.checked_add(batch_bytes))
+            .ok_or(Error::Spool)?;
+        (total <= spool_cap()).then_some(()).ok_or(Error::Spool)
     }
 
     pub(super) fn note_snapshot(&self, covered: u64) -> Result<(), Error> {
@@ -148,37 +147,26 @@ impl Log {
         self.lock()?.prefix(&self.root, after, limit)
     }
 
-    pub(super) fn mark_born(&self, frontier: u64) -> Result<(), Error> {
-        self.lock()?.mark_born(&self.root, frontier)
+    pub(super) fn mark_born(&self, frontiers: Frontiers) -> Result<(), Error> {
+        self.lock()?.mark_born(&self.root, frontiers)
     }
 
-    pub(super) fn prepare(&self, frontier_before: u64, notes: &[Note]) -> Result<(), Error> {
-        self.lock()?.prepare(&self.root, frontier_before, notes)
+    pub(super) fn prepare(&self, before: Frontiers, notes: &[Note]) -> Result<(), Error> {
+        self.lock()?.prepare(&self.root, before, notes)
     }
 
-    pub(super) fn publish(&self, frontier_before: u64, frontier_after: u64) -> Result<(), Error> {
-        self.lock()?
-            .publish(&self.root, frontier_before, frontier_after)
+    pub(super) fn publish(&self, before: Frontiers, after: Frontiers) -> Result<(), Error> {
+        self.lock()?.publish(&self.root, before, after)
     }
 
     pub(super) fn abort(&self) -> Result<(), Error> {
-        let mut inner = self.lock()?;
-        recover::discard(&self.root)?;
-        recover::clear_armed(&self.root, &mut inner)
+        let _inner = self.lock()?;
+        recover::discard(&self.root)
     }
 
     pub(super) fn force_gap(&self) -> Result<(), Error> {
         self.lock()?.block(&self.root, Error::Gap);
         Err(Error::Gap)
-    }
-
-    pub(super) fn arm_split(&self) -> Result<(), Error> {
-        self.lock()?.arm_split(&self.root)
-    }
-
-    pub(super) fn note_split_committed(&self, frontier_before: u64) -> Result<(), Error> {
-        self.lock()?.refuse_gap()?;
-        recover::mark_committed(&self.root, frontier_before)
     }
 
     pub(super) fn mutation_recorded(&self, id: &str) -> Result<bool, Error> {
@@ -194,7 +182,7 @@ impl Log {
 }
 
 impl Inner {
-    fn load(&mut self, root: &Path) -> Result<(), Error> {
+    fn load(&mut self, root: &Path, has_user_data: bool) -> Result<(), Error> {
         io::require_dir(root)?;
         match io::read_json::<State>(&root.join("state.json"))? {
             Some(state) => {
@@ -204,7 +192,7 @@ impl Inner {
                     return Err(Error::Gap);
                 }
             }
-            None => self.history = self.frontier > 0,
+            None => self.history = has_user_data,
         }
         recover::reconcile(root, self)?;
         recover::finish_pending(root, self)?;
@@ -288,25 +276,26 @@ impl Inner {
         self.store(root, state)
     }
 
-    fn mark_born(&mut self, root: &Path, frontier: u64) -> Result<(), Error> {
+    fn mark_born(&mut self, root: &Path, frontiers: Frontiers) -> Result<(), Error> {
         self.refuse_gap()?;
-        self.frontier = frontier;
+        self.frontier = frontiers.total;
+        self.main_frontier = frontiers.main;
         self.history = false;
         if let Some(mut state) = self.state.clone() {
             if state.head > 0 {
                 return Ok(());
             }
             state.snapshot_required = false;
-            state.opened_frontier = frontier;
-            state.armed = false;
+            state.opened_frontier = frontiers.total;
             return self.store(root, state);
         }
-        self.store(root, self.fresh(frontier, false))
+        self.store(root, self.fresh(frontiers.total, false))
     }
 
-    fn prepare(&mut self, root: &Path, frontier_before: u64, notes: &[Note]) -> Result<(), Error> {
+    fn prepare(&mut self, root: &Path, before: Frontiers, notes: &[Note]) -> Result<(), Error> {
         self.refuse_gap()?;
-        self.frontier = frontier_before;
+        self.frontier = before.total;
+        self.main_frontier = before.main;
         if notes.is_empty() {
             return Ok(());
         }
@@ -315,27 +304,28 @@ impl Inner {
             return Err(Error::Gap);
         }
         let planned = recover::plan(root, self, notes)?;
-        if planned.is_empty() {
-            return Ok(());
-        }
-        recover::write_pending(root, frontier_before, notes, &planned)
+        recover::write_pending(root, before, notes, &planned)
     }
 
-    fn publish(&mut self, root: &Path, before: u64, after: u64) -> Result<(), Error> {
+    fn publish(&mut self, root: &Path, before: Frontiers, after: Frontiers) -> Result<(), Error> {
         let Some(pending) = io::read_json::<Pending>(&root.join("pending.json"))? else {
-            self.frontier = after;
-            return recover::clear_armed(root, self);
+            self.frontier = after.total;
+            self.main_frontier = after.main;
+            return Ok(());
         };
-        if after <= before || pending.frontier_before != before {
+        let expected_main = pending
+            .main_frontier_before
+            .unwrap_or(pending.frontier_before);
+        if after.main <= before.main
+            || pending.frontier_before != before.total
+            || expected_main != before.main
+        {
             self.block(root, Error::Gap);
             return Err(Error::Gap);
         }
-        self.frontier = after;
+        self.frontier = after.total;
+        self.main_frontier = after.main;
         recover::finish_pending(root, self)
-    }
-
-    pub(super) fn arm_split(&mut self, root: &Path) -> Result<(), Error> {
-        recover::arm(root, self)
     }
 
     fn refuse_gap(&self) -> Result<(), Error> {
@@ -358,7 +348,7 @@ impl Inner {
             retained_bytes: 0,
             snapshot_required,
             gap: false,
-            armed: false,
+            _armed: false,
         }
     }
 
@@ -369,19 +359,4 @@ impl Inner {
         self.history = false;
         Ok(())
     }
-}
-
-pub(super) fn spool_cap() -> u64 {
-    lastdb_model::storage_policy::BACKUP_RESOURCES.durable_spool_bytes
-}
-
-pub(super) fn sha_ok(value: &str) -> bool {
-    value.len() == 64
-        && value
-            .bytes()
-            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-}
-
-pub(super) fn id_ok(id: &str) -> bool {
-    body::mutation_id_ok(id)
 }

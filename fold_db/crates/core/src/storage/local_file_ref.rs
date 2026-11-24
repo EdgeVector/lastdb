@@ -95,16 +95,6 @@ fn load(path: &Path) -> StorageResult<Catalog> {
     }
 }
 
-pub(super) fn has_references(runtime: &PackRuntime) -> StorageResult<bool> {
-    let _guard = catalog_lock(runtime)?;
-    let (_, node) = sidecar_path(runtime)?;
-    has_stopped_references(&node)
-}
-
-pub(super) fn has_stopped_references(node: &Path) -> StorageResult<bool> {
-    Ok(!load(&node.join("local-file-refs.json"))?.files.is_empty())
-}
-
 /// The space a snapshot needs to seal every local file reference into a private
 /// copy of the files store, or `None` when the home keeps no local reference.
 pub(super) fn snapshot_budget(node: &Path) -> StorageResult<Option<u64>> {

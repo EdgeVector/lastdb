@@ -155,19 +155,43 @@ fn account_from_seed_bytes(seed: &[u8]) -> Result<(Ed25519KeyPair, AccountId), S
     Ok((pair, account_id))
 }
 
-pub(super) fn poke_running_daemon(data_dir_explicit: bool, home: &Path) {
-    let socket = (!data_dir_explicit)
+fn daemon_socket(data_dir_explicit: bool, home: &Path) -> PathBuf {
+    (!data_dir_explicit)
         .then(|| std::env::var_os("LASTDB_SOCKET_PATH"))
         .flatten()
         .filter(|value| !value.is_empty())
         .and_then(|value| lastdb_node::profile::paths::expand_tilde_path(value).ok())
-        .unwrap_or_else(|| lastdb_node::lastdb_uds::socket_path(&home.join("data")));
+        .unwrap_or_else(|| lastdb_node::lastdb_uds::socket_path(&home.join("data")))
+}
+
+pub(super) fn poke_running_daemon(data_dir_explicit: bool, home: &Path) {
+    let socket = daemon_socket(data_dir_explicit, home);
     let _ = crate::post_json_with_timeout(
         &socket,
         lastdb_node::lastdb_uds::CLOUD_WAKE_PATH,
         &serde_json::json!({}),
         std::time::Duration::from_millis(500),
     );
+}
+
+fn wake_and_check_restart(data_dir_explicit: bool, home: &Path) -> bool {
+    let socket = daemon_socket(data_dir_explicit, home);
+    let timeout = std::time::Duration::from_millis(500);
+    let uncaptured = crate::get_path_retry(&socket, "/api/status", timeout)
+        .ok()
+        .and_then(|raw| crate::parse_json_response(&raw, "status").ok())
+        .and_then(|body| {
+            body.pointer("/status/cloud_sync/captures_accepted")?
+                .as_bool()
+        })
+        == Some(false);
+    let _ = crate::post_json_with_timeout(
+        &socket,
+        lastdb_node::lastdb_uds::CLOUD_WAKE_PATH,
+        &serde_json::json!({}),
+        timeout,
+    );
+    uncaptured
 }
 
 fn connect(
@@ -183,15 +207,19 @@ fn connect(
     let (pair, account_id) = account_from_seed_bytes(seed.as_ref())?;
     let emit = |registered: bool, api_key: Option<Zeroizing<String>>| -> Result<(), String> {
         lastdb_node::log_sync::request_wake(home);
-        poke_running_daemon(data_dir_explicit, home);
+        let restart_required = wake_and_check_restart(data_dir_explicit, home);
         let mut out = serde_json::json!({
             "schema": "lastdb.native-backup-connect.v1", "ok": true, "environment": env.as_str(),
             "account_id": account_id, "home": home, "credential_file": CLOUD_CREDENTIALS_FILE,
             "cloud_sync_off": false, "local_store_opened": false,
             "local_store_read_only": false, "database_writer_opened": false,
             "registration_attempted": registered, "credentials_saved": true,
-            "api_key_output": false, "restored_home": false, "automatic_backup_enabled": true,
+            "api_key_output": false, "restored_home": false,
+            "automatic_backup_enabled": !restart_required,
         });
+        if restart_required {
+            out["restart_required"] = serde_json::json!(true);
+        }
         attach_prod_payment_guidance(env, &account_id, api_key, &mut out, json);
         print_backup(&out, json)
     };
@@ -275,11 +303,15 @@ fn connect_existing(
     )
     .map_err(|e| e.to_string())?;
     lastdb_node::log_sync::request_wake(home);
-    poke_running_daemon(data_dir_explicit, home);
+    let restart_required = wake_and_check_restart(data_dir_explicit, home);
     let mut out = serde_json::json!({
         "ok": true, "environment": env.as_str(), "account_id": account_id,
         "credentials_saved": true, "registration_attempted": false,
+        "automatic_backup_enabled": !restart_required,
     });
+    if restart_required {
+        out["restart_required"] = serde_json::json!(true);
+    }
     attach_prod_payment_guidance(env, &account_id, Some(api_key), &mut out, json);
     print_backup(&out, json)
 }

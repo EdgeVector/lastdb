@@ -250,8 +250,9 @@ pub(crate) async fn scope<T, E: From<StorageError>>(
         .collect();
     let pub_gate = Arc::clone(&runtime.write_gate).lock_owned().await;
     let owner = Arc::clone(&runtime);
+    let prep_batch = Arc::clone(&pending);
     let (prepared, gate, pub_gate) =
-        run_blocking(move || Ok((owner.prepare_queued(ops)?, gate, pub_gate))).await?;
+        run_blocking(move || Ok((owner.prepare_queued(&prep_batch, ops)?, gate, pub_gate))).await?;
     let sequence = runtime.accept_queued(pending, prepared)?;
     drop((pub_gate, gate));
     runtime.wait_for_queue(sequence).await?;

@@ -8,31 +8,6 @@ use std::path::Path;
 
 const BODY_MAX: u64 = 2 * 1024 * 1024;
 
-#[derive(serde::Serialize, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Committed {
-    version: u16,
-    frontier_before: u64,
-}
-
-pub(super) fn write_committed(root: &Path, frontier_before: u64) -> Result<(), Error> {
-    io::write_json(
-        &root.join("committed.json"),
-        &Committed {
-            version: 1,
-            frontier_before,
-        },
-    )
-}
-
-pub(super) fn split_committed(root: &Path, frontier_before: u64) -> Result<bool, Error> {
-    Ok(
-        io::read_json::<Committed>(&root.join("committed.json"))?.is_some_and(|committed| {
-            committed.version == 1 && committed.frontier_before == frontier_before
-        }),
-    )
-}
-
 pub(super) fn read_meta(dir: &Path) -> Result<Meta, Error> {
     io::require_dir(dir)?;
     let meta = io::read_json::<Meta>(&dir.join("meta.json"))?.ok_or(Error::Gap)?;
@@ -279,7 +254,7 @@ pub(super) fn install(
             retained_bytes: retained,
             snapshot_required: snapshot,
             gap: false,
-            armed: false,
+            _armed: false,
         },
     )
 }
