@@ -39,6 +39,14 @@ on:
         type: choice
         options: ["0", "4", "8", "16", "32"]
         default: "0"
+      capture_baseline_tag:
+        description: With the next input, time captured writes on two published nightly tags instead (baseline)
+        type: string
+        default: ""
+      capture_candidate_tag:
+        description: Published nightly tag of the candidate for the captured-write timing
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -46,6 +54,7 @@ permissions:
 
 jobs:
   plan:
+    if: ${{ inputs.capture_baseline_tag == '' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
@@ -77,3 +86,47 @@ jobs:
       writer16: ${{ inputs.writer16 }}
       baseline_workers: ${{ inputs.baseline_workers }}
       candidate_workers: ${{ inputs.candidate_workers }}
+
+  capture-cost:
+    # The benchmark store captures nothing. This times the same writes on a home that syncs,
+    # where each commit also puts a signed entry in the spool, on two published builds.
+    name: what capturing a write costs the caller (reference_relay)
+    if: ${{ inputs.capture_baseline_tag != '' && inputs.capture_candidate_tag != '' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      CARGO_BUILD_JOBS: "2"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      GH_TOKEN: ${{ github.token }}
+      BASELINE_TAG: ${{ inputs.capture_baseline_tag }}
+      CANDIDATE_TAG: ${{ inputs.capture_candidate_tag }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: signed-history-shared-nodes
+          save-if: false
+      - name: Build reference_relay
+        run: cargo build --locked --release -p reference_relay --bin reference_relay
+      - name: Time the same writes on both builds, with and without capture
+        run: |
+          set -euo pipefail
+          OUT="${RUNNER_TEMP}/capture-cost"
+          mkdir -p "$OUT"
+          python3 scripts/operations/sign_cost.py \
+            --relay-bin "$PWD/target/release/reference_relay" \
+            --baseline-tag "$BASELINE_TAG" --candidate-tag "$CANDIDATE_TAG" \
+            --output "$OUT/nodes" 2>&1 | tee "$OUT/run.log"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: capture-cost-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/capture-cost/run.log
+            ${{ runner.temp }}/capture-cost/nodes/sign-cost.json
+            ${{ runner.temp }}/capture-cost/nodes/relay.stderr
+            ${{ runner.temp }}/capture-cost/nodes/*/node.log
+          retention-days: 7
+          if-no-files-found: warn

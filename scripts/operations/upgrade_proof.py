@@ -82,6 +82,36 @@ def check_sum(folder, sums, name):
     require(sha256(folder / name) == sums[name], f"{name} does not match SHA256SUMS.txt")
 
 
+def release_manifest(folder, tag):
+    """`nightly.json` of one published release, checked against `SHA256SUMS.txt`: (sums, manifest of this target)."""
+    folder.mkdir(mode=0o700, parents=True)
+    for name in ("nightly.json", "SHA256SUMS.txt"):
+        gh("release", "download", tag, "-R", REPOSITORY, "-p", name, "-D", str(folder))
+    sums = listed_sums(folder / "SHA256SUMS.txt")
+    check_sum(folder, sums, "nightly.json")
+    return sums, json.loads((folder / "nightly.json").read_text())["platforms"][TARGET]["manifest"]
+
+
+def release_binaries(folder, tag, sums, manifest):
+    """The binaries of one published release, checked against its sums and its manifest."""
+    gh("release", "download", tag, "-R", REPOSITORY, "-p", ASSET, "-D", str(folder))
+    check_sum(folder, sums, ASSET)
+    binaries = folder / "bin"
+    binaries.mkdir(mode=0o700)
+    wanted = {entry["name"]: entry for entry in manifest["binaries"]}
+    with tarfile.open(folder / ASSET, "r:gz") as archive:
+        for member in archive.getmembers():
+            name = Path(member.name).name
+            if member.isfile() and name in ("lastdb", "lastdbd"):
+                (binaries / name).write_bytes(archive.extractfile(member).read())
+                (binaries / name).chmod(0o755)
+    for name in ("lastdb", "lastdbd"):
+        require((binaries / name).is_file(), f"{ASSET} of {tag} holds no {name}")
+        require(sha256(binaries / name) == wanted[name]["sha256"], f"{name} of {tag} does not match its manifest")
+    return {"tag": tag, "source_git_oid": manifest["source_git_oid"], "version": manifest["version"],
+            "daemon": binaries / "lastdbd", "cli": binaries / "lastdb"}
+
+
 def fetch_previous(work, excluded):
     """The newest published nightly that is not the commit under test: its binaries, tag, commit and version."""
     releases = json.loads(gh("release", "list", "-R", REPOSITORY, "--limit", str(CANDIDATES),
@@ -96,32 +126,11 @@ def fetch_previous(work, excluded):
         if not {ASSET, "nightly.json", "SHA256SUMS.txt"} <= names:
             skipped.append(f"{tag} (no {ASSET})")
             continue
-        folder = work / tag
-        folder.mkdir(mode=0o700, parents=True)
-        for name in ("nightly.json", "SHA256SUMS.txt"):
-            gh("release", "download", tag, "-R", REPOSITORY, "-p", name, "-D", str(folder))
-        sums = listed_sums(folder / "SHA256SUMS.txt")
-        check_sum(folder, sums, "nightly.json")
-        manifest = json.loads((folder / "nightly.json").read_text())["platforms"][TARGET]["manifest"]
+        sums, manifest = release_manifest(work / tag, tag)
         if manifest["source_git_oid"] in excluded:
             skipped.append(f"{tag} (is the commit under test)")
             continue
-        gh("release", "download", tag, "-R", REPOSITORY, "-p", ASSET, "-D", str(folder))
-        check_sum(folder, sums, ASSET)
-        binaries = folder / "bin"
-        binaries.mkdir(mode=0o700)
-        wanted = {entry["name"]: entry for entry in manifest["binaries"]}
-        with tarfile.open(folder / ASSET, "r:gz") as archive:
-            for member in archive.getmembers():
-                name = Path(member.name).name
-                if member.isfile() and name in ("lastdb", "lastdbd"):
-                    (binaries / name).write_bytes(archive.extractfile(member).read())
-                    (binaries / name).chmod(0o755)
-        for name in ("lastdb", "lastdbd"):
-            require((binaries / name).is_file(), f"{ASSET} of {tag} holds no {name}")
-            require(sha256(binaries / name) == wanted[name]["sha256"], f"{name} of {tag} does not match its manifest")
-        return {"tag": tag, "source_git_oid": manifest["source_git_oid"], "version": manifest["version"],
-                "daemon": binaries / "lastdbd", "cli": binaries / "lastdb", "skipped": skipped}
+        return {**release_binaries(work / tag, tag, sums, manifest), "skipped": skipped}
     raise RuntimeError(f"no published nightly of {REPOSITORY} among the newest {CANDIDATES} releases has {ASSET} "
                        f"and a commit other than the one under test; skipped: {skipped}")
 
