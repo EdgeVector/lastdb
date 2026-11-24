@@ -75,7 +75,6 @@ be sent are files outside the store.
       reclaim-due.json         a sweep of the relay is due for one snapshot
       reclaim-last.json        what the relay held after the last sweep
       reclaim-request, -result, -error
-      cloud-usage.json         what this device put on the relay
       authored.json, uploaded.json, received.json, proposals.json
                                shared databases only
 ```
