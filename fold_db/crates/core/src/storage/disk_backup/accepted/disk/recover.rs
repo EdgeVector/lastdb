@@ -3,16 +3,22 @@
 mod files;
 
 use super::super::io;
-use super::super::{Entry, EntryFile};
+use super::super::{Entry, EntryFile, Frontiers};
 use super::{Error, Inner, Note, Pending, PendingNote};
+use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 
 /// How many acknowledged entries pass between two trims of the id records.
 pub(super) const TRIM_EVERY: u64 = 2_500;
 
-/// Trim the id records to the newest ones. They only keep a retried write, with the same
-/// mutation id and the same body, from entering the spool twice, and refuse an id that comes
-/// back with another body. A failed trim leaves the directory larger, never wrong.
+fn inspect_gap<T>(root: &Path, inner: &mut Inner, result: Result<T, Error>) -> Result<T, Error> {
+    if matches!(result, Err(Error::Gap)) {
+        let _ = files::gap(root, inner);
+    }
+    result
+}
+
+/// Trim the id records to the newest ones. A failed trim leaves the directory larger, never wrong.
 pub(super) fn trim_ids(root: &Path, inner: &Inner) {
     let Some(state) = inner.state.as_ref() else {
         return;
@@ -97,7 +103,7 @@ pub(super) fn reconcile(root: &Path, inner: &mut Inner) -> Result<(), Error> {
 
 pub(super) fn finish_pending(root: &Path, inner: &mut Inner) -> Result<(), Error> {
     let Some(pending) = io::read_json::<Pending>(&root.join("pending.json"))? else {
-        return clear_armed(root, inner);
+        return io::remove_file(&root.join("committed.json"));
     };
     if pending.version != 1 || !files::notes_ok(&pending.notes) {
         return files::gap(root, inner);
@@ -109,31 +115,34 @@ pub(super) fn finish_pending(root: &Path, inner: &mut Inner) -> Result<(), Error
     let acked = inner.state.as_ref().map_or(0, |state| state.acked);
     let last = pending.notes.last().map_or(0, |note| note.sequence);
     if head >= last {
-        return match files::require_installed(root, head, acked, &pending.notes) {
-            Ok(()) => files::retire_files(root),
-            Err(Error::Gap) => files::gap(root, inner),
-            Err(error) => Err(error),
-        };
+        return inspect_gap(
+            root,
+            inner,
+            files::require_installed(root, head, acked, &pending.notes),
+        )
+        .and_then(|()| files::retire_files(root));
     }
-    if inner.frontier < pending.frontier_before {
+    let before_main = pending
+        .main_frontier_before
+        .unwrap_or(pending.frontier_before);
+    if inner.main_frontier < before_main {
         return files::gap(root, inner);
     }
-    if inner.frontier == pending.frontier_before {
-        files::retire_files(root)?;
-        return clear_armed(root, inner);
-    }
-    let armed = inner.state.as_ref().is_some_and(|state| state.armed);
-    if armed && !files::split_committed(root, pending.frontier_before)? {
-        return files::gap(root, inner);
+    if inner.main_frontier == before_main {
+        if pending.notes.iter().any(|note| {
+            root.join("entries")
+                .join(files::seq_name(note.sequence))
+                .exists()
+        }) {
+            return files::gap(root, inner);
+        }
+        return files::retire_files(root);
     }
     if pending.notes[0].sequence != head + 1 {
         return files::gap(root, inner);
     }
-    match files::install(root, inner, &pending) {
-        Ok(()) => files::retire_files(root),
-        Err(Error::Gap) => files::gap(root, inner),
-        Err(error) => Err(error),
-    }
+    let installed = files::install(root, inner, &pending);
+    inspect_gap(root, inner, installed).and_then(|()| files::retire_files(root))
 }
 
 /// Read a page, stopping before the next entry would pass one in-memory file cap.
@@ -146,17 +155,11 @@ pub(super) fn read_page(
     let mut items = Vec::new();
     let mut held = 0u64;
     for sequence in (after + 1)..=last {
-        let Ok(weight) = files::entry_weight(root, sequence) else {
-            let _ = files::gap(root, inner);
-            return Err(Error::Gap);
-        };
+        let weight = inspect_gap(root, inner, files::entry_weight(root, sequence))?;
         if !items.is_empty() && held.saturating_add(weight) > files::page_budget() {
             break;
         }
-        let Ok(entry) = load_entry(root, sequence) else {
-            let _ = files::gap(root, inner);
-            return Err(Error::Gap);
-        };
+        let entry = inspect_gap(root, inner, load_entry(root, sequence))?;
         held = held.saturating_add(weight);
         items.push(entry);
     }
@@ -178,9 +181,20 @@ pub(super) fn load_entry(root: &Path, sequence: u64) -> Result<Entry, Error> {
     )?;
     let file = match note.file_sha256 {
         Some(sha256) => {
+            if !super::sha_ok(&sha256) {
+                return Err(Error::Gap);
+            }
             let path = dir.join("file.bin");
-            let held = std::fs::metadata(&path).map_err(|_| Error::Gap)?;
+            let held = match std::fs::symlink_metadata(&path) {
+                Ok(held) => held,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    return Err(Error::Gap);
+                }
+                Err(_) => return Err(Error::Unavailable),
+            };
             if !held.is_file()
+                || !crate::storage::disk_pack::admit::is_private_meta(&held)
+                || held.nlink() != 1
                 || held.len() != note.file_bytes
                 || note.file_bytes > files::file_max()
             {
@@ -192,14 +206,17 @@ pub(super) fn load_entry(root: &Path, sequence: u64) -> Result<Entry, Error> {
                 bytes: note.file_bytes,
             })
         }
-        None if note.file_bytes == 0 && !dir.join("file.bin").exists() => None,
-        None => return Err(Error::Gap),
+        None => match std::fs::symlink_metadata(dir.join("file.bin")) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound && note.file_bytes == 0 => {
+                None
+            }
+            Err(_) if note.file_bytes == 0 => return Err(Error::Unavailable),
+            _ => return Err(Error::Gap),
+        },
     };
     Ok(Entry {
         sequence,
-        mutation_id: note.mutation_id,
         signed,
-        authored_at_ms: note.authored_at_ms,
         file,
     })
 }
@@ -232,7 +249,7 @@ pub(super) fn release_acked(root: &Path, after: u64, through: u64) {
 pub(super) fn plan(root: &Path, inner: &Inner, notes: &[Note]) -> Result<Vec<PendingNote>, Error> {
     let mut next = inner.state.as_ref().map_or(0, |state| state.head);
     let mut added = 0u64;
-    let mut planned = Vec::new();
+    let mut planned = Vec::with_capacity(notes.len());
     for note in notes {
         if !super::id_ok(&note.mutation_id) || !super::sha_ok(&note.plaintext_sha256) {
             return Err(Error::Conflict);
@@ -243,18 +260,15 @@ pub(super) fn plan(root: &Path, inner: &Inner, notes: &[Note]) -> Result<Vec<Pen
         {
             return Err(Error::Conflict);
         }
-        match files::read_id(root, &note.mutation_id)? {
-            Some(existing) if existing == note.plaintext_sha256 => continue,
-            Some(_) => return Err(Error::Conflict),
-            None => {}
+        if files::read_id(root, &note.mutation_id)?.is_some() {
+            return Err(Error::Conflict);
         }
         next = next.checked_add(1).ok_or(Error::Unavailable)?;
-        let file_len = note.file.as_ref().map_or(0, Vec::len) as u64;
-        added = added
-            .checked_add(note.envelope.len() as u64)
-            .and_then(|sum| sum.checked_add(file_len))
-            .ok_or(Error::Spool)?;
+        added = added.checked_add(note.byte_weight()).ok_or(Error::Spool)?;
         planned.push(files::pending_note(next, note));
+    }
+    if planned.len() != notes.len() {
+        return Err(Error::Conflict);
     }
     let retained = inner.state.as_ref().map_or(0, |state| state.retained_bytes);
     if retained
@@ -268,7 +282,7 @@ pub(super) fn plan(root: &Path, inner: &Inner, notes: &[Note]) -> Result<Vec<Pen
 
 pub(super) fn write_pending(
     root: &Path,
-    frontier_before: u64,
+    before: Frontiers,
     notes: &[Note],
     planned: &[PendingNote],
 ) -> Result<(), Error> {
@@ -280,7 +294,8 @@ pub(super) fn write_pending(
     }
     let pending = Pending {
         version: 1,
-        frontier_before,
+        frontier_before: before.total,
+        main_frontier_before: Some(before.main),
         notes: planned.to_vec(),
     };
     if let Err(error) = io::write_json(&root.join("pending.json"), &pending) {
@@ -295,38 +310,9 @@ pub(super) fn discard(root: &Path) -> Result<(), Error> {
     files::retire_files(root)
 }
 
-pub(super) fn mark_committed(root: &Path, frontier_before: u64) -> Result<(), Error> {
-    ensure_tree(root)?;
-    files::write_committed(root, frontier_before)
-}
-
-pub(super) fn clear_armed(root: &Path, inner: &mut Inner) -> Result<(), Error> {
-    io::remove_file(&root.join("committed.json"))?;
-    let Some(state) = inner.state.clone() else {
-        return Ok(());
-    };
-    if !state.armed {
-        return Ok(());
-    }
-    let mut state = state;
-    state.armed = false;
-    inner.store(root, state)
-}
-
-pub(super) fn arm(root: &Path, inner: &mut Inner) -> Result<(), Error> {
-    inner.refuse_gap()?;
-    let mut state = inner
-        .state
-        .clone()
-        .unwrap_or_else(|| inner.fresh(inner.frontier, inner.history));
-    state.armed = true;
-    inner.store(root, state)
-}
-
 pub(super) fn persist_gap(root: &Path, inner: &mut Inner) {
     if let Some(state) = inner.state.as_mut() {
         state.gap = true;
-        state.armed = false;
         let _ = io::write_json(&root.join("state.json"), state);
         return;
     }
@@ -342,7 +328,6 @@ pub(super) fn persist_gap(root: &Path, inner: &mut Inner) {
         }
         Ok(Some(mut state)) => {
             state.gap = true;
-            state.armed = false;
             if io::write_json(&root.join("state.json"), &state).is_ok() {
                 inner.state = Some(state);
             }

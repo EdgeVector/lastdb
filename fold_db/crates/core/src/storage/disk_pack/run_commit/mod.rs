@@ -87,17 +87,94 @@ impl PackRuntime {
 
     pub(in crate::storage::disk_pack) fn prepare_queued(
         &self,
+        pending: &PendingBatch,
         ops: Vec<HomeMutation>,
     ) -> StorageResult<Option<PreparedCommit>> {
-        let q = self.lock_queue();
+        let mut q = self.lock_queue();
         if q.requests.len() >= MAX_REQUESTS {
+            q.sealed = true;
             return Err(StorageError::write_limit(
                 "accepted queue reached 1024 requests; retry after flush",
             ));
         }
-        (!ops.is_empty())
-            .then(|| self.prepare_commit(ops, q.prepared.as_ref()))
-            .transpose()
+        let note_bytes = match self.precheck_accepted_queue(&q, pending, &ops) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                if matches!(error, StorageError::WriteResourceLimit { .. }) {
+                    q.sealed |= !q.requests.is_empty();
+                }
+                return Err(error);
+            }
+        };
+        let prepared = (!ops.is_empty())
+            .then(|| self.prepare_commit(ops, note_bytes, q.prepared.as_ref()))
+            .transpose();
+        if matches!(prepared, Err(StorageError::WriteResourceLimit { .. })) {
+            q.sealed |= !q.requests.is_empty();
+        }
+        prepared
+    }
+
+    fn precheck_accepted_queue(
+        &self,
+        q: &WriteQueue,
+        pending: &PendingBatch,
+        ops: &[HomeMutation],
+    ) -> StorageResult<u64> {
+        let incoming = pending.accepted_notes();
+        let batch_bytes = incoming
+            .iter()
+            .try_fold(0u64, |sum, note| sum.checked_add(note.byte_weight()))
+            .ok_or_else(|| {
+                StorageError::mutation_limit("batch exceeds pending memory allowance")
+            })?;
+        if !incoming.is_empty() && ops.iter().all(|op| op.collection == CAS_COLLECTION) {
+            return Err(StorageError::invalid(
+                "accepted notes require a main store mutation",
+            ));
+        }
+        let Some(log) = &self.accepted else {
+            return Ok(batch_bytes);
+        };
+        if incoming.is_empty() {
+            return log
+                .check_healthy()
+                .map(|()| 0)
+                .map_err(crate::storage::disk_backup::accepted::storage);
+        }
+        let max_notes = crate::storage::disk_backup::accepted::NOTES_MAX;
+        if incoming.len() > max_notes {
+            return Err(StorageError::mutation_limit(format!(
+                "a write that is captured for upload holds at most {max_notes} mutations"
+            )));
+        }
+        let mut queued_notes = 0usize;
+        let mut queued_bytes = 0u64;
+        for (req, _) in &q.requests {
+            let held = req.accepted_notes();
+            queued_notes = queued_notes.saturating_add(held.len());
+            if queued_notes.saturating_add(incoming.len()) > max_notes {
+                return Err(StorageError::write_limit(
+                    "accepted queue reached 1024 notes; retry after flush",
+                ));
+            }
+            for note in held.iter() {
+                if incoming
+                    .iter()
+                    .any(|inc| inc.mutation_id == note.mutation_id)
+                {
+                    return Err(StorageError::InvalidOperation(
+                        "mutation id was already accepted into the spool".into(),
+                    ));
+                }
+                queued_bytes = queued_bytes
+                    .checked_add(note.byte_weight())
+                    .ok_or_else(|| StorageError::write_limit("accepted stream spool is full"))?;
+            }
+        }
+        log.check_admissible(queued_notes, queued_bytes, &incoming)
+            .map(|()| batch_bytes)
+            .map_err(crate::storage::disk_backup::accepted::storage)
     }
 
     pub(in crate::storage::disk_pack) fn accept_queued(
@@ -126,7 +203,9 @@ impl PackRuntime {
             }
             q.prepared = Some(inc);
         }
-        q.sealed |= q.requests.len() == MAX_REQUESTS;
+        let total_notes: usize = q.requests.iter().map(|(p, _)| p.accepted_len()).sum();
+        q.sealed |= q.requests.len() == MAX_REQUESTS
+            || total_notes >= crate::storage::disk_backup::accepted::NOTES_MAX;
         drop(q);
         if first {
             let rt = Arc::clone(self);
@@ -219,7 +298,7 @@ impl PackRuntime {
                     "accepted notes require a native commit",
                 ));
             }
-            self.prepare_accepted(self.physical.current_root().frontier(), &[])?;
+            self.prepare_accepted(self.physical.current_root().frontiers(), &[])?;
             let cur = self.view.read().expect("empty prefix root").root.clone();
             self.install_committed(cur, &hidden, &requests)?;
         }

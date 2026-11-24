@@ -101,6 +101,13 @@ impl V2Root {
     pub(in crate::storage) fn frontier(&self) -> u64 {
         self.main.frontier() + self.cas.frontier()
     }
+
+    pub(in crate::storage) fn frontiers(&self) -> crate::storage::disk_backup::accepted::Frontiers {
+        crate::storage::disk_backup::accepted::Frontiers {
+            total: self.frontier(),
+            main: self.main.frontier(),
+        }
+    }
 }
 
 pub(in crate::storage::disk_pack) struct V2Read {

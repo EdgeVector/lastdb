@@ -152,7 +152,7 @@ impl PackRuntime {
                 return Err(creation_refusal(msg));
             }
             if runtime.fresh_initialization_pending() {
-                runtime.mark_accepted_born(runtime.physical.current_root().frontier())?;
+                runtime.mark_accepted_born(runtime.physical.current_root().frontiers())?;
                 let path = runtime.physical.path();
                 let node = path
                     .parent()
