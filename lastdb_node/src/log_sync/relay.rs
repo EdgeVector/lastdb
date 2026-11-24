@@ -279,8 +279,8 @@ fn parse_append_counts(value: &Value, sent: u64) -> (u64, u64) {
     let stored = value["stored"].as_u64().unwrap_or(0);
     if stored >= sent {
         (stored, 0)
-    } else if value["duplicate"].as_bool() == Some(true) && stored == 0 {
-        (0, sent)
+    } else if value["duplicate"].as_bool() == Some(true) {
+        (stored, sent.saturating_sub(stored))
     } else {
         (stored, value["duplicate"].as_u64().unwrap_or(0))
     }

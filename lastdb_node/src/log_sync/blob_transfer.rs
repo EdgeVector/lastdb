@@ -158,15 +158,6 @@ impl RelayClient {
                 "stage": stage,
             })
         };
-        // The account of this device counts a blob once, when this device put it (see `usage`).
-        let cut_off = self.usage.as_ref().map_or(Ok(false), |usage| {
-            usage.blob_begins(database_id, sha256, size)
-        })?;
-        let ended = |counted: bool| {
-            self.usage.as_ref().map_or(Ok(()), |usage| {
-                usage.blob_ends(database_id, sha256, size, counted)
-            })
-        };
         let begin = self
             .post("/relay/v1/blob/put", database_id, &stage("begin"))
             .await
@@ -178,7 +169,10 @@ impl RelayClient {
                 }
             })?;
         if begin["upload"].is_null() && begin["sha256"].as_str() == Some(sha256) {
-            return ended(cut_off);
+            if let Some(usage) = &self.usage {
+                usage.complete_pending_blob(database_id, sha256, size)?;
+            }
+            return Ok(());
         }
         let url = begin["upload"]["url"]
             .as_str()
@@ -216,9 +210,34 @@ impl RelayClient {
         if !status.is_success() {
             return Err(format!("blob upload HTTP {status}"));
         }
-        self.post("/relay/v1/blob/put", database_id, &stage("commit"))
-            .await?;
-        ended(true)
+        self.commit_blob(database_id, sha256, size, &stage("commit"))
+            .await
+    }
+
+    async fn commit_blob(
+        &self,
+        database_id: &str,
+        sha256: &str,
+        size: u64,
+        body: &serde_json::Value,
+    ) -> Result<(), String> {
+        if let Some(usage) = &self.usage {
+            usage.blob_begins(database_id, sha256, size)?;
+        }
+        match self.post("/relay/v1/blob/put", database_id, body).await {
+            Ok(_) => {
+                if let Some(usage) = &self.usage {
+                    usage.blob_ends(database_id, sha256, size, true)?;
+                }
+                Ok(())
+            }
+            Err(error) => {
+                if let Some(usage) = self.usage.as_ref().filter(|_| error.contains("HTTP 4")) {
+                    usage.blob_ends(database_id, sha256, size, false)?;
+                }
+                Err(error)
+            }
+        }
     }
 
     async fn put_once(

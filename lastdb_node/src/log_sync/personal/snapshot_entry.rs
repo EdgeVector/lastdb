@@ -139,6 +139,31 @@ async fn snapshot_head(
     )))
 }
 
+/// Ensure `through` covers every stream position of the relay's current snapshot head.
+pub(super) async fn require_covers_latest(
+    ctx: &Ctx<'_>,
+    client: &RelayClient,
+    streams: &[RelayStream],
+    through: &[SnapshotThrough],
+) -> Result<Option<StreamHead>, String> {
+    let Some((head, prev_through)) = snapshot_head(ctx, client, streams).await? else {
+        return Ok(None);
+    };
+    for prev in &prev_through {
+        let covered = through
+            .iter()
+            .find(|pos| pos.device_id == prev.device_id)
+            .is_some_and(|pos| pos.writer_seq >= prev.writer_seq);
+        if !covered {
+            return Err(
+                "another device published a newer snapshot; catch up before taking a snapshot"
+                    .into(),
+            );
+        }
+    }
+    Ok(Some(head))
+}
+
 /// Sign the `snapshot` entry as the next entry of the snapshot stream.
 pub(super) async fn sign(
     ctx: &Ctx<'_>,
@@ -148,32 +173,16 @@ pub(super) async fn sign(
     manifest_bytes: u64,
     through: &[SnapshotThrough],
 ) -> Result<SignedEntry, String> {
-    let head = match snapshot_head(ctx, client, streams).await? {
-        Some((head, prev_through)) => {
-            for prev in &prev_through {
-                let covered = through
-                    .iter()
-                    .find(|pos| pos.device_id == prev.device_id)
-                    .is_some_and(|pos| pos.writer_seq >= prev.writer_seq);
-                if !covered {
-                    return Err(
-                        "another device published a newer snapshot; catch up before taking a snapshot"
-                            .into(),
-                    );
-                }
-            }
-            Some(head)
-        }
-        None => None,
-    };
-    // The order value of the entry is above every position it covers, so it
-    // follows the normal rule and a reader sees it as made after them.
+    let head = require_covers_latest(ctx, client, streams, through).await?;
+    // The order value of the entry is above every position it covers and above the
+    // previous snapshot entry, so a reader sees it as made after them.
     let floor = through
         .iter()
         .map(|position| position.order)
         .max()
         .unwrap_or(0)
-        + 1;
+        .saturating_add(1)
+        .max(head.as_ref().map_or(0, |h| h.lamport.saturating_add(1)));
     let author = AuthorCtx {
         database_id: ctx.database,
         node_key: ctx.identity.node_key,

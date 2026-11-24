@@ -26,11 +26,6 @@ type LaneMap = HashMap<PathBuf, LaneEntry>;
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 static LANES: LazyLock<Mutex<LaneMap>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 
-/// True while any snapshot upload lane is running.
-pub(super) fn busy() -> bool {
-    lock().values().any(|entry| !entry.task.is_finished())
-}
-
 /// True while `home`'s snapshot upload lane is running.
 pub(super) fn busy_for(home: &Path) -> bool {
     lock()

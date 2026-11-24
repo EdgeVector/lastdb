@@ -22,6 +22,7 @@ mod request_log;
 mod store;
 mod store_read;
 mod trim;
+mod trim_plan;
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -106,6 +107,7 @@ async fn run() -> Result<(), String> {
         public_base: format!("http://{addr}"),
         secret,
         grants: Mutex::new(grants),
+        trim_lock: Mutex::new(()),
         max_blob_bytes: cli.max_blob_bytes,
         upload_bytes_per_second: cli.upload_bytes_per_second,
         upload_stall_after: cli.upload_stall_after,

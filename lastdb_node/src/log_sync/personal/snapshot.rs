@@ -43,19 +43,21 @@ use fold_db::storage::disk_pack::snapshot::DatabaseSnapshot;
 use fold_db::storage::disk_pack::NativeCloudWorkGuard;
 use mutation_log::SnapshotThrough;
 
-use super::snapshot_entry::{require_empty_for_first, sign, through_of, trim_covered};
-use super::snapshot_known::{self as known, Taken};
+use super::snapshot_entry::{
+    require_covers_latest, require_empty_for_first, sign, through_of, trim_covered,
+};
+use super::snapshot_known as known;
 use super::snapshot_lane as lane;
 use super::snapshot_manifest::{self as manifest, Manifest};
 use super::snapshot_state::{
-    fail_request, fail_request_in, file_of, finish_request, load_last, read_request, Last, Report,
+    fail_request, fail_request_in, finish_request, load_last, read_request, record_published, Last,
+    PublishedCut, Report,
 };
 use super::snapshot_upload::{elapsed_ms, ensure_birth, put_manifest, upload_files, TOO_LARGE};
 use super::{list_streams, Ctx};
 use crate::host::cloud_sync::SnapshotState;
 use crate::host::Host;
 use crate::log_sync::relay::RelayClient;
-use crate::profile::private_fs as disk;
 
 /// A routine snapshot is taken once this many entries have been signed on this
 /// device's stream since its last snapshot. This is the one place the number is set.
@@ -292,17 +294,26 @@ async fn publish_cut(
         .as_ref()
         .filter(|last| last.manifest.files == files && last.through == through)
     {
-        return Ok((last.report.clone(), false));
+        return Ok((
+            Report {
+                uploaded_files: 0,
+                uploaded_bytes: 0,
+                capture_ms,
+                upload_ms: 0,
+                ..last.report
+            },
+            false,
+        ));
     }
     let uploading = Instant::now();
     let streams = list_streams(ctx, client).await?.unwrap_or_default();
     if first {
         require_empty_for_first(ctx, client, &streams).await?;
     }
+    require_covers_latest(ctx, client, &streams, &through).await?;
     ensure_birth(ctx, client, &streams).await?;
     let (uploaded_files, uploaded_bytes) =
         upload_files(ctx, client, &cut, &files, previous.as_ref()).await?;
-    let snapshot_bytes = files.iter().map(|file| file.bytes).sum();
     let list = Manifest {
         upload_id: uuid::Uuid::new_v4().to_string(),
         files,
@@ -320,47 +331,19 @@ async fn publish_cut(
     if stored.0 + stored.1 != 1 {
         return Err("the relay did not take the snapshot entry".into());
     }
-    // No await from here to the end of the function.
-    let own_seq = through
-        .iter()
-        .find(|position| position.device_id == ctx.identity.device_id)
-        .map_or(0, |position| position.writer_seq);
-    let report = Report {
-        snapshot_seq: entry.header().writer_seq,
-        files: list.files.len(),
-        snapshot_bytes,
-        uploaded_files,
-        uploaded_bytes,
-        streams: through.len(),
-        capture_ms,
-        upload_ms: elapsed_ms(uploading),
-    };
-    let last = Last {
-        own_seq,
-        relay: Some(known::origin(&client.base)),
-        through,
-        manifest: list,
-        report: report.clone(),
-    };
-    let bytes = serde_json::to_vec(&last).map_err(|_| "cannot encode the snapshot record")?;
-    disk::write_private(
-        &file_of(&ctx.host.home, &ctx.database_id, "snapshot-last.json"),
-        &bytes,
-    )
-    .map_err(|_| "cannot save the snapshot record".to_owned())?;
-    known::record(
+    let report = record_published(
         ctx,
-        &Taken {
-            state: SnapshotState::Published,
-            relay_base: &client.base,
-            taken_at_ms: entry.header().authored_at_ms,
-            files: last.manifest.files.len(),
-            bytes: last.manifest.bytes(),
-            manifest_sha256: &sha256,
-            snapshot_seq: report.snapshot_seq,
-            through: &last.through,
-            device: ctx.identity.device_id,
+        &client.base,
+        PublishedCut {
+            entry,
+            sha256,
+            list,
+            through,
+            uploaded_files,
+            uploaded_bytes,
+            capture_ms,
+            upload_ms: elapsed_ms(uploading),
         },
-    );
+    )?;
     Ok((report, true))
 }

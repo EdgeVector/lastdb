@@ -1,12 +1,12 @@
 //! The personal database on the signed log.
 //!
 //! Every device of one owner signs its own stream under the one node key, and
-//! the relay holds one stream for each device. A device does two things each
+//! the relay holds one stream for each device. A device does three things each
 //! turn, and these use the machinery of the store:
 //!
-//! - [`outgoing`] signs the writes of the spool of accepted writes as the next
-//!   entries of its own stream and sends them. The spool is the upload queue. It
-//!   trims when the relay acknowledges.
+//! - [`outgoing`] sends the signed entries and sealed files from the spool of
+//!   accepted writes (sealed and signed when each write commits) and retires them
+//!   when the relay acknowledges.
 //! - [`snapshot`] freezes a snapshot when one is due, and the snapshot lane uploads it while
 //!   the turns above go on.
 //! - [`incoming`] reads the other devices' streams from the head row of each,
@@ -188,6 +188,18 @@ pub(super) async fn turn(host: &Arc<Host>, client: &RelayClient) -> Option<Strin
 
 async fn run_turn(host: &Arc<Host>, client: &RelayClient) -> Result<(), String> {
     let ctx = Ctx::open(host)?;
+    if !ctx.runtime.captures_accepted() {
+        let error =
+            "local capture is off: the node must restart with a relay configured".to_owned();
+        let status = ctx.runtime.accepted_status();
+        ctx.host.cloud_sync.record_upload(
+            &ctx.database_id,
+            status.head,
+            status.acked,
+            Some(error.clone()),
+        );
+        return Err(error);
+    }
     let streams = match list_streams(&ctx, client).await {
         Ok(streams) => streams.unwrap_or_default(),
         Err(error) => {
@@ -217,8 +229,8 @@ async fn run_turn(host: &Arc<Host>, client: &RelayClient) -> Result<(), String> 
             return Err(error);
         }
     }
-    // Apply remote streams before signing and settling local writes, so remote attachments fold
-    // into the baseline before local Keep edits settle. Neither side's error stops the other.
+    // Read the other devices' streams and send this device's spool; neither side's error stops
+    // the other.
     let read = incoming::run(&ctx, client, &streams).await;
     // What the read failed with is in the status, so a device that is behind history the relay
     // dropped after a snapshot says so there and not only in a log that carries no text.
@@ -248,10 +260,7 @@ async fn list_streams(
     match client.streams(&ctx.database_id, &ctx.node_hex).await {
         Ok(streams) => Ok(Some(streams)),
         Err(error) => {
-            if error.contains("HTTP 403")
-                && !is_payment_403(&error)
-                && !has_any_stream_head(ctx).await?
-            {
+            if is_unborn_403(&error) && !has_any_stream_head(ctx).await? {
                 Ok(None)
             } else {
                 Err(error)
@@ -267,6 +276,16 @@ async fn has_any_stream_head(ctx: &Ctx<'_>) -> Result<bool, String> {
         .has_any_replay_stream_head()
         .await
         .map_err(|error| format!("the stream heads could not be checked: {error}"))
+}
+
+pub(super) fn is_unborn_403(error: &str) -> bool {
+    if !error.contains("HTTP 403") || is_payment_403(error) {
+        return false;
+    }
+    error
+        .find('{')
+        .and_then(|at| serde_json::from_str::<serde_json::Value>(&error[at..]).ok())
+        .is_some_and(|body| body["code"].as_str() == Some("forbidden"))
 }
 
 fn is_payment_403(error: &str) -> bool {
@@ -289,7 +308,8 @@ pub(super) fn pending(host: &Host) -> bool {
         || status.snapshot_required
         // A request that the running snapshot serves, or that waits behind it, does not wake the
         // loop: it would spin until the upload ends. The end of the lane is the next turn.
-        || (snapshot_state::requested(&host.home, &database_id) && !snapshot_lane::busy())
+        || (snapshot_state::requested(&host.home, &database_id)
+            && !snapshot_lane::busy_for(&host.home))
 }
 
 /// What a restore found.

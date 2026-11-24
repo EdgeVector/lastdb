@@ -86,6 +86,12 @@ pub(super) async fn skip_remote(
         .map_err(|error| failed("a record of another device could not be applied", &error))
 }
 
+/// What [`remote`] found when applying a remote entry.
+pub(super) enum ApplyOutcome {
+    Applied,
+    InvalidEntry(&'static str),
+}
+
 /// Apply an entry of another device. The record write, its winner row and the
 /// head row of the stream are one transaction, so a restart replays nothing.
 pub(super) async fn remote(
@@ -95,41 +101,47 @@ pub(super) async fn remote(
     header: &EntryHeader,
     change: Change,
     blob: Option<&Path>,
-) -> Result<(), String> {
+) -> Result<ApplyOutcome, String> {
     let manager = ctx.host.db.mutation_manager();
     let stamp = stamp_of(header);
     match change {
         Change::Record(mut record) => {
-            prepare(ctx, &mut record, header, blob)?;
+            if let Some(reason) = prepare(ctx, &mut record, header, blob)? {
+                return Ok(ApplyOutcome::InvalidEntry(reason));
+            }
             manager
                 .write_replay_at_head(stream, next, apply_record(ctx, &stamp, record.mutation))
                 .await
-                .map(|_| ())
+                .map(|_| ApplyOutcome::Applied)
                 .map_err(|error| failed("a record of another device could not be applied", &error))
         }
-        Change::Schema(schema) => {
-            apply_schema::remote_schema(ctx, stream, next, header, *schema).await
-        }
+        Change::Schema(schema) => apply_schema::remote_schema(ctx, stream, next, header, *schema)
+            .await
+            .map(|()| ApplyOutcome::Applied),
     }
 }
 
-/// Put the file bytes of a record write into the mutation. The bytes come from
-/// the sealed blob, and they must be the file the body names.
+/// Put the file bytes of a record write into the mutation. Returns an invalid-entry
+/// reason when the sealed blob does not open or does not match the signed marker;
+/// returns `Err` only for local disk or store failures.
 fn prepare(
     ctx: &Ctx<'_>,
     change: &mut RecordChange,
     header: &EntryHeader,
     blob: Option<&Path>,
-) -> Result<(), String> {
-    const BAD: &str = "the file of a record does not match its entry";
+) -> Result<Option<&'static str>, String> {
     match &change.file {
         RecordFile::Keep => {}
         RecordFile::Clear => change.mutation.file_write = Some(FileWrite::Clear),
         RecordFile::Put(marker) => {
-            let sealed = std::fs::read(blob.ok_or(BAD)?).map_err(|_| BAD.to_owned())?;
-            let plain = ctx.sealer.open(header, &sealed).ok_or(BAD)?;
+            let path = blob.ok_or_else(|| "a fetched record file is missing on disk".to_owned())?;
+            let sealed = std::fs::read(path)
+                .map_err(|error| format!("cannot read a fetched record file: {error}"))?;
+            let Some(plain) = ctx.sealer.open(header, &sealed) else {
+                return Ok(Some("a record file blob does not open"));
+            };
             if !files::is_file_of(&plain, marker) {
-                return Err(BAD.into());
+                return Ok(Some("the file of a record does not match its entry"));
             }
             let write = ctx
                 .host
@@ -137,16 +149,16 @@ fn prepare(
                 .db_ops()
                 .records()
                 .seal_record_file(&plain, marker.name.clone(), marker.media_type.clone())
-                .map_err(|_| BAD.to_owned())?;
+                .map_err(|error| format!("a record file could not be sealed: {error}"))?;
             if !matches!(&write, FileWrite::Put(sealed) if sealed.marker() == marker) {
-                return Err(BAD.into());
+                return Ok(Some("the file marker of a record is not canonical"));
             }
             change.mutation.file = Some(marker.clone());
             change.mutation.file_write = Some(write);
         }
     }
     change.mutation.inline_write = change.inline.take();
-    Ok(())
+    Ok(None)
 }
 
 /// The last-writer rule for one record entry of another device.

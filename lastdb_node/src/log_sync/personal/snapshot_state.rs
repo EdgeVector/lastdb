@@ -8,12 +8,14 @@
 
 use std::path::Path;
 
-use mutation_log::SnapshotThrough;
+use mutation_log::{SignedEntry, SnapshotThrough};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
+use super::snapshot_known::{self as known, Taken};
 use super::snapshot_manifest::Manifest;
 use super::Ctx;
+use crate::host::cloud_sync::SnapshotState;
 use crate::host::Host;
 use crate::profile::private_fs as disk;
 
@@ -179,4 +181,66 @@ fn retire_request(home: &Path, database_id: &str, nonce: &str) -> std::io::Resul
         disk::remove_private(&path)?;
     }
     Ok(())
+}
+
+pub(super) struct PublishedCut {
+    pub(super) entry: SignedEntry,
+    pub(super) sha256: String,
+    pub(super) list: Manifest,
+    pub(super) through: Vec<SnapshotThrough>,
+    pub(super) uploaded_files: usize,
+    pub(super) uploaded_bytes: u64,
+    pub(super) capture_ms: u64,
+    pub(super) upload_ms: u64,
+}
+
+/// Persist `snapshot-last.json` and update the node's known-snapshot status.
+pub(super) fn record_published(
+    ctx: &Ctx<'_>,
+    relay_base: &str,
+    published: PublishedCut,
+) -> Result<Report, String> {
+    let own_seq = published
+        .through
+        .iter()
+        .find(|position| position.device_id == ctx.identity.device_id)
+        .map_or(0, |position| position.writer_seq);
+    let report = Report {
+        snapshot_seq: published.entry.header().writer_seq,
+        files: published.list.files.len(),
+        snapshot_bytes: published.list.bytes(),
+        uploaded_files: published.uploaded_files,
+        uploaded_bytes: published.uploaded_bytes,
+        streams: published.through.len(),
+        capture_ms: published.capture_ms,
+        upload_ms: published.upload_ms,
+    };
+    let last = Last {
+        own_seq,
+        relay: Some(known::origin(relay_base)),
+        through: published.through,
+        manifest: published.list,
+        report: report.clone(),
+    };
+    let bytes = serde_json::to_vec(&last).map_err(|_| "cannot encode the snapshot record")?;
+    disk::write_private(
+        &file_of(&ctx.host.home, &ctx.database_id, "snapshot-last.json"),
+        &bytes,
+    )
+    .map_err(|_| "cannot save the snapshot record".to_owned())?;
+    known::record(
+        ctx,
+        &Taken {
+            state: SnapshotState::Published,
+            relay_base,
+            taken_at_ms: published.entry.header().authored_at_ms,
+            files: last.manifest.files.len(),
+            bytes: last.manifest.bytes(),
+            manifest_sha256: &published.sha256,
+            snapshot_seq: report.snapshot_seq,
+            through: &last.through,
+            device: ctx.identity.device_id,
+        },
+    );
+    Ok(report)
 }

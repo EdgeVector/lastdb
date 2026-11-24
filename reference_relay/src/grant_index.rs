@@ -52,6 +52,15 @@ impl GrantIndex {
             .is_some_and(|d| d.state.any_role() == Some(Role::Read))
     }
 
+    /// True when any `grant` entry (`grant#any` or member grant) has been recorded for `db`.
+    pub(crate) fn has_grants(&self, db: &DatabaseId) -> bool {
+        self.dbs.get(db).is_some_and(|d| {
+            !d.grants.is_empty()
+                || d.state.any_role().is_some()
+                || d.state.members().next().is_some()
+        })
+    }
+
     /// Record a verified birth. The first verified birth for a database wins.
     pub(crate) fn install_birth(&mut self, db: DatabaseId, birth: Birth) {
         self.dbs.entry(db).or_insert_with(|| DbGrants {
