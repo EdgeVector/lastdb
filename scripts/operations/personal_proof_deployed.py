@@ -10,7 +10,7 @@ What runs: A writes singles, batches, an alternate key and a file in three schem
 from the phrase alone and equals A; A and B edit one record apart (both offline, in both orders
 of syncing) and converge by edit time; A snapshots and writes more; C restores from the phrase
 alone, installs the snapshot and replays only the tail; C and A exchange writes; a snapshot of a
-device that forgot its last one uploads no file (the relay lists each digest); D restores from the
+device that forgot its last one uploads only the files the relay does not list; D restores from the
 newest snapshot; rounds of overwrites and snapshots leave the relay with exactly the newest snapshot,
 the entries after it and the files they name (`personal_proof_reclaim.py`). What does not run is in
 `SKIPPED`, with the reason: each needs the relay process.
@@ -23,8 +23,8 @@ import time
 from personal_proof_nodes import (
     ALPHA, BETA, ENVELOPE_OVERHEAD, FIELDS, FILE_MARK, GAMMA, NAME_MARK, SCHEMAS, DeployedRelay, converged,
     create, delete, expect, replace, wait)
-from personal_proof_deployed_trim import after_trim, before_trim
-from personal_proof_reclaim import cloud_rounds
+from personal_proof_deployed_trim import after_trim, before_trim, node_hex
+from personal_proof_reclaim import cloud_rounds, list_blobs
 from personal_proof_reconcile import reconcile_deployed
 from personal_proof_snapshot import last_record, views, write_after
 from personal_proof_status import swept
@@ -226,11 +226,13 @@ def exchange(a, c, state):
 
 # 7. A snapshot of a device that forgot its last one ----------------------------------------
 
-def snapshot_again(a, others, d, phrase, state, expected, folders):
+def snapshot_again(relay, a, others, d, phrase, state, expected, folders):
     """An incremental snapshot, then one by a device that has forgotten its last snapshot.
 
     The node asks the relay what it holds (`blob/list`) and uploads only what is missing, so the snapshot that
-    follows a lost `snapshot-last.json` uploads no file. Each snapshot replaces the one before on the relay.
+    follows a lost `snapshot-last.json` uploads exactly the files the relay did not list. (A snapshot seals the
+    files that records hold by path into a copy of the file store of its own, so those files are new each
+    time.) Each snapshot replaces the one before on the relay.
     """
     wait("A to upload", a.synced_up, seconds=SYNC_SECONDS)
     # Every running device reads up to the cut: the snapshot drops what it covers.
@@ -239,9 +241,12 @@ def snapshot_again(a, others, d, phrase, state, expected, folders):
     require(second["snapshot_seq"] == 2, f"second snapshot: {second!r}")
     swept(a, 2, seconds=SYNC_SECONDS)
     (a.log_dir() / "snapshot-last.json").unlink()
+    listed = list_blobs(relay, a, node_hex(a))
     third = a.snapshot_now()
-    require(third["snapshot_seq"] == 3 and third["uploaded_files"] == 0 and third["files"] == second["files"],
-            f"the snapshot of a device that forgot its last one: {third!r}")
+    lacked = [file for file in last_record(a)["manifest"]["files"] if listed.get(file["sha256"]) != file["bytes"]]
+    require(third["snapshot_seq"] == 3 and third["files"] == second["files"] and third["uploaded_files"] < third["files"]
+            and third["uploaded_files"] == len(lacked) and third["uploaded_bytes"] == sum(file["bytes"] for file in lacked),
+            f"the snapshot of a device that forgot its last one: {third!r}; the relay lacked {len(lacked)} of its files")
     swept(a, 3, seconds=SYNC_SECONDS)
     started = time.monotonic()
     restored = d.restore(phrase)
@@ -250,9 +255,9 @@ def snapshot_again(a, others, d, phrase, state, expected, folders):
     require(restored["devices"] >= 3, f"D found {restored['devices']} device streams, expected A, B and C")
     d.start()
     wait("D to equal A", lambda: views((d,), state, folders, expected), seconds=SYNC_SECONDS)
-    print(f"7. a snapshot by a device that forgot its last one uploaded none of its {third['files']} files (the relay "
-          f"listed them); D restored from snapshot 3 in {seconds}s, replayed nothing, {restored['devices']} device "
-          "streams listed", flush=True)
+    print(f"7. a snapshot by a device that forgot its last one uploaded {third['uploaded_files']} of its {third['files']} "
+          f"files, exactly the ones the relay did not list; D restored from snapshot 3 in {seconds}s, replayed nothing, "
+          f"{restored['devices']} device streams listed", flush=True)
     return second, third, {"restore_seconds": seconds, "devices": restored["devices"]}
 
 
@@ -286,7 +291,7 @@ def prove_deployed(relay, devices, out, entry_audit):
     report["snapshot"] = {**first, **extra, "tail_entries": tail}
     report["c_restore"] = step("C restores from the snapshot", c_restores, a, b, c, phrase, state, expected, folders, tail)
     step("C and A exchange writes", exchange, a, c, state)
-    second, third, report["d_restore"] = step("snapshot again, D restores", snapshot_again, a, (b, c), d, phrase, state,
+    second, third, report["d_restore"] = step("snapshot again, D restores", snapshot_again, relay, a, (b, c), d, phrase, state,
                                               expected, folders)
     report["second_snapshot"], report["third_snapshot"] = second, third
     report["cloud"] = step("the cloud does not grow beyond the local store", cloud_rounds, relay, a, [b, c, d], phrase, out)

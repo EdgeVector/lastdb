@@ -17,11 +17,13 @@ the same checks run against the reference relay and against a deployed one:
    each digest), the manifest, and the sealed files that stored entries name, each with its length,
    and no other file. So the stored bytes are the manifest's file bytes plus the manifest length plus
    those sealed bytes.
-2. Not above the local store. Stored files plus stored entries are at most the native files of the
-   writer's store on disk plus an allowance: the manifest, the stored entries, 29 bytes for each sealed
-   file (its envelope) and SLACK_BYTES. The local files are measured before the snapshot, when two
-   listings a second apart are equal, and again after the sweep. The larger of the two is used, because
-   the store may rewrite a file between a measurement and the cut.
+2. Not above the local store. Stored files plus stored entries are at most the local store's data files
+   plus an allowance: the manifest, the stored entries, 29 bytes for each sealed file (its envelope) and
+   SLACK_BYTES. The data files are the native files of the writer's store on disk and the files that its
+   records hold by path (a snapshot seals those into its own copy of the file store, so the relay holds
+   them and the store's directory does not). The native files are measured before the snapshot, when
+   two listings a second apart are equal, and again after the sweep. The larger of the two is used,
+   because the store may rewrite a file between a measurement and the cut.
 3. No growth without data. From the first round to the last, the relay grew by no more than the local
    files did (the last round's larger measurement less the first round's smaller one, or nothing), plus
    what the allowance grew and SLACK_BYTES.
@@ -55,8 +57,9 @@ SWEEP = "proofmarkersweep"
 ROUNDS = 4
 RECORDS, NOTE_BYTES = 200, 1500
 FILES, FILE_BYTES = 2, 120_000
-# What the store may rewrite between a measurement of its files and the cut of a snapshot, and what
-# the encoding of an entry or a manifest may differ by between two rounds.
+# What the store may rewrite between a measurement of its files and the cut of a snapshot, what the
+# snapshot's sealed copy of the files held by path adds to them, and what the encoding of an entry or
+# a manifest may differ by between two rounds.
 SLACK_BYTES = 64 * 1024
 SYNC_SECONDS = 300
 GROUP = "grp-s"
@@ -87,7 +90,7 @@ def attach(device, source, key, text, first):
 
 
 def write_round(writer, other, source, number):
-    """One round. Returns what every device must hold afterwards: key -> fields."""
+    """One round. Returns what every device must hold afterwards (key -> fields), and the files the writer holds by path."""
     keys = [f"r{index:04d}" for index in range(RECORDS)]
     texts = {key: f"{number:02d}-" + os.urandom(NOTE_BYTES // 2).hex() for key in keys}
     first = number == 1
@@ -102,13 +105,14 @@ def write_round(writer, other, source, number):
         writer.change([remove(key) for key in again])
         writer.write([record(key, texts[key]) for key in again])
     expected = {key: {"id": key, "note": text} for key, text in texts.items()}
+    by_path = []
     for index in range(FILES):
-        attach(writer, source, f"f{index}", f"file-{number:02d}", first)
+        by_path.append(attach(writer, source, f"f{index}", f"file-{number:02d}", first))
         expected[f"f{index}"] = {"id": f"f{index}", "note": f"file-{number:02d}"}
     wait(f"{other.name} to hold the schema", lambda: other.has_schema(SWEEP), seconds=SYNC_SECONDS)
     attach(other, source, "o0", f"other-{number:02d}", first)
     expected["o0"] = {"id": "o0", "note": f"other-{number:02d}"}
-    return expected
+    return expected, by_path
 
 
 def holds(device, expected):
@@ -239,8 +243,12 @@ def check_disk(label, relay, database, blobs):
     require(not pending, f"{label}: the relay kept {len(pending)} pending records of uploads after their commit: {pending[:3]}")
 
 
-def measure(relay, writer, label, before):
-    """Ask for a sweep now, then check 1 and 2 and the node's account. Returns the numbers of the round."""
+def measure(relay, writer, label, before, by_path):
+    """Ask for a sweep now, then check 1 and 2 and the node's account. Returns the numbers of the round.
+
+    `before` is the listing of the native files from before the snapshot, `by_path` the files the writer's
+    records hold by path.
+    """
     report = reclaim_now(writer)
     after = local_files(writer)
     view = relay_view(relay, writer)
@@ -248,7 +256,8 @@ def measure(relay, writer, label, before):
     check_node(label, writer, view, stored, sealed, sealed_bytes, report)
     if not relay.deployed:
         check_disk(label, relay, writer.database, view["blobs"])
-    sizes = sorted((sum(before.values()), sum(after.values())))
+    held = sum(path.stat().st_size for path in by_path)
+    sizes = sorted((sum(before.values()) + held, sum(after.values()) + held))
     manifest = view["snapshot"]["manifest_bytes"]
     allowance = manifest + view["entry_bytes"] + ENVELOPE_OVERHEAD * len(sealed)
     total = stored + view["entry_bytes"]
@@ -304,13 +313,13 @@ def cloud_rounds(relay, writer, others, phrase, out, rounds=ROUNDS):
         system_seed(writer.node, definition(SWEEP, "Hash", FIELDS, {"by_group": RANGED}, description_prefix="Personal proof "))
     devices, measured = (writer, *others), []
     for number in range(1, rounds + 1):
-        expected = write_round(writer, others[0], source, number)
+        expected, by_path = write_round(writer, others[0], source, number)
         settle(devices, expected, f"round {number}")
         released = released_blobs(writer)
         before = settled_local(writer)
         snapshot = writer.snapshot_now()
         swept(writer, snapshot["snapshot_seq"], seconds=SYNC_SECONDS)
-        numbers = measure(relay, writer, f"round {number}", before)
+        numbers = measure(relay, writer, f"round {number}", before, by_path)
         require(numbers["snapshot_seq"] == snapshot["snapshot_seq"] and numbers["sealed_files"] == 0,
                 f"round {number}: the relay holds {numbers!r} after snapshot {snapshot['snapshot_seq']}")
         # 4. The sealed files of the round's entries went, and from round 2 the manifest before.
@@ -327,7 +336,7 @@ def cloud_rounds(relay, writer, others, phrase, out, rounds=ROUNDS):
     path = attach(writer, source, "tail", "after-the-cut", True)
     expected["tail"] = {"id": "tail", "note": "after-the-cut"}
     settle(devices, expected, "the write after the last snapshot")
-    tail = measure(relay, writer, "after the last snapshot", local_files(writer))
+    tail = measure(relay, writer, "after the last snapshot", local_files(writer), [*by_path, path])
     require(tail["sealed_files"] == 1 and tail["sealed_bytes"] == FILE_BYTES + ENVELOPE_OVERHEAD,
             f"the relay holds {tail['sealed_files']} sealed files ({tail['sealed_bytes']} bytes) for one file after the cut")
     restored = restore_from_swept(relay, writer, others[-1], phrase, expected, path)
@@ -346,7 +355,7 @@ def prove_cloud(args):
     root = args.output / "relay10"
     root.mkdir()
     relay = Relay(Path(args.relay_bin), root)
-    writer, other = (Device(name, args, args.output, relay) for name in ("device-q", "device-r"))
+    writer, other = (Device(name, args, args.output, relay) for name in ("device-u", "device-v"))
     try:
         relay.start()
         phrase = writer.init()
@@ -354,7 +363,7 @@ def prove_cloud(args):
         # The relay knows the database once it holds an entry: a second device restores from it then.
         system_seed(writer.node, definition(ALPHA, "Hash", FIELDS, description_prefix="Personal proof "))
         writer.write([create(ALPHA, "first", "one")])
-        wait("Q to upload its first write", writer.synced_up, seconds=SYNC_SECONDS)
+        wait("U to upload its first write", writer.synced_up, seconds=SYNC_SECONDS)
         other.restore(phrase)
         other.start()
         return cloud_rounds(relay, writer, [other], phrase, args.output)
