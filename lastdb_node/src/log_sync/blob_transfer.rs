@@ -12,6 +12,9 @@
 //! No minimum rate is assumed.
 
 mod download;
+mod reclaim;
+
+pub(super) use reclaim::{Dropped, HeadAt, DROP_BATCH, DROP_HEADS};
 
 use std::os::unix::fs::FileExt;
 use std::path::Path;

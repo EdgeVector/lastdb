@@ -12,6 +12,11 @@
 //! head when the gap is filled. A reader that reads from seq 1 can never get
 //! past the gap, so the head is also the last entry such a read returns.
 //!
+//! An entry stored beyond a gap does not move the head, so the head alone does not say that an
+//! append stored something. Each stream also counts such entries (`beyond_rev`). A `blob/drop`
+//! reads the head and that count, refuses a stream that holds an entry above its head, and
+//! compares both again before it drops (`blob_reclaim`).
+//!
 //! A trim (`log/trim`) drops the entries of a stream up to a snapshot's position
 //! and leaves a `floor.json` file in the stream directory: the last dropped seq and
 //! its hash. The head counts from there, so the head row survives the trim and
@@ -42,6 +47,9 @@ struct StreamHead {
     floor_hash: Option<String>,
     /// Stored entries beyond `seq + 1`, keyed by seq, holding their hash.
     pending: BTreeMap<u64, String>,
+    /// How many entries were stored beyond a gap, which leaves `seq` where it was. With `seq` it
+    /// changes on every append that stores an entry, so a `blob/drop` can tell that one landed.
+    beyond_rev: u64,
 }
 
 impl StreamHead {
@@ -49,8 +57,12 @@ impl StreamHead {
         if seq <= self.seq {
             return;
         }
-        self.pending.insert(seq, hash);
+        let head = self.seq;
+        let stored = self.pending.insert(seq, hash).is_none();
         self.join_pending();
+        if stored && self.seq == head {
+            self.beyond_rev += 1;
+        }
     }
 
     /// Record that a trim dropped every entry up to `seq`, whose hash is `hash`.
@@ -81,6 +93,17 @@ impl StreamHead {
 pub(crate) struct FloorFile {
     pub(crate) seq: u64,
     pub(crate) hash: String,
+}
+
+/// What a `blob/drop` reads of a stream and compares again before it drops.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) struct HeadToken {
+    /// The contiguous head. At least 1.
+    pub(crate) seq: u64,
+    /// How many entries were stored beyond a gap so far.
+    pub(crate) beyond_rev: u64,
+    /// True while an entry is stored above the head.
+    pub(crate) beyond: bool,
 }
 
 /// One line of the `log/streams` answer.
@@ -168,6 +191,38 @@ impl Heads {
             .and_then(|devices| devices.get(device_id))
             .map(|head| head.seq)
             .filter(|seq| *seq >= 1)
+    }
+
+    /// The head of a stream as a `blob/drop` compares it. `None` while seq 1 is not stored.
+    pub(crate) fn token(
+        &self,
+        database_id: &str,
+        writer_key: &str,
+        device_id: &str,
+    ) -> Option<HeadToken> {
+        let streams = self.streams.lock().expect("heads lock");
+        streams
+            .get(&(database_id.to_owned(), writer_key.to_owned()))
+            .and_then(|devices| devices.get(device_id))
+            .filter(|head| head.seq >= 1)
+            .map(|head| HeadToken {
+                seq: head.seq,
+                beyond_rev: head.beyond_rev,
+                beyond: !head.pending.is_empty(),
+            })
+    }
+
+    /// Every device stream of one writer that holds an entry, with or without seq 1.
+    pub(crate) fn devices(&self, database_id: &str, writer_key: &str) -> Vec<String> {
+        let streams = self.streams.lock().expect("heads lock");
+        let key = (database_id.to_owned(), writer_key.to_owned());
+        streams.get(&key).map_or_else(Vec::new, |devices| {
+            devices
+                .iter()
+                .filter(|(_, head)| head.seq >= 1 || !head.pending.is_empty())
+                .map(|(device_id, _)| device_id.clone())
+                .collect()
+        })
     }
 
     /// The streams of one writer that hold seq 1, sorted by device id.

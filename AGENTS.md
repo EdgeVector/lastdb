@@ -57,6 +57,17 @@ request changes no file of the proofs. The files in scope are one list, in job `
 of the workflow: add a path there when a proof starts to depend on it. Do not merge
 around a red proof; fix the cause or the proof.
 
+The cloud matches the local store (Tom, 2026-11-24). For a personal database the relay
+holds the newest snapshot, the entries after its positions, and the files they name.
+After each snapshot the node asks the relay to drop what it covers (`log/trim`) and then
+sweeps every stored file that nothing names (`blob/list`, `blob/drop`; `lastdb backup
+reclaim` asks for a sweep now). While a new snapshot uploads, the relay holds the old and
+the new one, and at no other time. The proof (`scripts/operations/personal_proof_reclaim.py`,
+step 23 of `personal_database_proof.py`, reference relay and DEV relay) fails when the
+relay holds a file that the newest snapshot and the entries after it do not name, and when
+the cloud is above the local store plus the stated allowance. Keep that invariant: a
+change that stores a file on the relay names it in an entry or in a snapshot manifest.
+
 ## Code size limits (CI fails a PR that breaks them)
 
 Source file: 400 lines. Function: 100 lines. CI checks

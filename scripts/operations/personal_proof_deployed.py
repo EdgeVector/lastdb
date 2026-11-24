@@ -9,9 +9,11 @@ own and restores nothing of an earlier run.
 What runs: A writes singles, batches, an alternate key and a file in three schemas; B restores
 from the phrase alone and equals A; A and B edit one record apart (both offline, in both orders
 of syncing) and converge by edit time; A snapshots and writes more; C restores from the phrase
-alone, installs the snapshot and replays only the tail; C and A exchange writes; a snapshot that
-uploads every file again is accepted (the relay already holds each digest); D restores from the
-newest snapshot. What does not run is in `SKIPPED`, with the reason: each needs the relay process.
+alone, installs the snapshot and replays only the tail; C and A exchange writes; a snapshot of a
+device that forgot its last one uploads only the files the relay does not list; D restores from the
+newest snapshot; rounds of overwrites and snapshots leave the relay with exactly the newest snapshot,
+the entries after it and the files they name (`personal_proof_reclaim.py`). What does not run is in
+`SKIPPED`, with the reason: each needs the relay process.
 """
 import hashlib
 import json
@@ -21,9 +23,12 @@ import time
 from personal_proof_nodes import (
     ALPHA, BETA, ENVELOPE_OVERHEAD, FIELDS, FILE_MARK, GAMMA, NAME_MARK, SCHEMAS, DeployedRelay, converged,
     create, delete, expect, replace, wait)
-from personal_proof_deployed_trim import after_trim, before_trim
+from personal_proof_deployed_trim import after_trim, before_trim, node_hex
+from personal_proof_blobs import list_blobs
+from personal_proof_reclaim import cloud_rounds
 from personal_proof_reconcile import reconcile_deployed
 from personal_proof_snapshot import last_record, views, write_after
+from personal_proof_status import swept
 from personal_proof_steps import gamma_create, gamma_replace, gamma_view
 from record_runs import RANGED, definition, require, system_seed
 
@@ -35,10 +40,10 @@ SKIPPED = (
     ("the relay holds one signed entry for each write, by listing its files",
      "the relay's storage cannot be listed; the spool, the confirmed position and a restore are checked instead"),
     ("no key, value, schema name or marker in any byte the relay stored", "the relay's stored bytes cannot be read"),
-    ("the relay holds no entry at or before the positions of the retained older snapshot, the floors, and "
-     " the publisher's quota counter after it",
-     "the relay's storage and the account's counter cannot be read; the snapshots of this run call `log/trim`, and "
-     "the restores that follow (D restores after two trims) are checked"),
+    ("the floors of the streams and the publisher's quota counter after a trim and a sweep",
+     "the relay's storage and the account's counter cannot be read; the snapshots of this run call `log/trim` and "
+     "`blob/drop`, what the relay then holds is asked through `log/read` and `blob/list`, and the restores that "
+     "follow are checked"),
     ("restore by full replay from a relay copy with no snapshot", "the relay cannot be copied"),
     ("a restore killed at several points", "kept to the reference relay run: it adds nothing about the relay"),
     ("a deleted record stays deleted when an older edit arrives after", "kept to the reference relay run"),
@@ -159,15 +164,22 @@ def edit_apart(relay, a, b, state):
 
 # 4. Snapshot and the tail -----------------------------------------------------------------
 
-def snapshot_then_tail(a, b, state, expected, folders):
-    """A snapshots, then writes more in all three schemas. Returns the snapshot report and the entries after it."""
+def snapshot_then_tail(relay, a, b, state, expected, folders):
+    """A snapshots, then writes more in all three schemas. Returns the snapshot report and the entries after it.
+
+    The snapshot drops the entries it covers from the relay, so B reads up to the cut first. Two early
+    entries of A are read before it, and repeated after it.
+    """
     wait("A and B to upload", lambda: a.synced_up() and b.synced_up(), seconds=SYNC_SECONDS)
-    wait("A to hold what B wrote", lambda: converged((a,), state), seconds=SYNC_SECONDS)
+    wait("A and B to hold what the other wrote", lambda: converged((a, b), state), seconds=SYNC_SECONDS)
+    early = before_trim(relay, a)
     started = time.monotonic()
     first = a.snapshot_now()
     snapshot_seconds = seconds_since(started)
     require(first["snapshot_seq"] == 1 and first["uploaded_files"] == first["files"] and first["files"] >= 5,
             f"first snapshot: {first!r}")
+    swept(a, 1, seconds=SYNC_SECONDS)
+    trimmed = after_trim(relay, a, early)
     at_snapshot = a.spool_state()["head"]
     manifest = len(json.dumps(last_record(a)["manifest"], separators=(",", ":")))
     write_after(a, state, expected)
@@ -177,7 +189,7 @@ def snapshot_then_tail(a, b, state, expected, folders):
     wait("B to hold them", lambda: views((b,), state, folders, expected), seconds=SYNC_SECONDS)
     print(f"4. A snapshotted ({first['files']} files, {first['snapshot_bytes']} bytes, capture {first['capture_ms']} ms, "
           f"upload {first['upload_ms']} ms, {snapshot_seconds}s with the wait) and wrote {tail} more entries", flush=True)
-    return first, tail, {"snapshot_wall_seconds": snapshot_seconds, "manifest_bytes": manifest}
+    return first, tail, {"snapshot_wall_seconds": snapshot_seconds, "manifest_bytes": manifest, "after_trim": trimmed}
 
 
 # 5. C restores from the snapshot ----------------------------------------------------------
@@ -213,22 +225,30 @@ def exchange(a, c, state):
     print("6. C wrote and A received it; A wrote and C received it", flush=True)
 
 
-# 7. A snapshot that uploads every file again ----------------------------------------------
+# 7. A snapshot of a device that forgot its last one ----------------------------------------
 
-def snapshot_again(relay, a, d, phrase, state, expected, folders):
-    """An incremental snapshot, then one that has forgotten the last: it puts every file again.
+def snapshot_again(relay, a, others, d, phrase, state, expected, folders):
+    """An incremental snapshot, then one by a device that has forgotten its last snapshot.
 
-    The relay already holds each digest, answers `begin` with no upload, and the node counts it as stored.
+    The node asks the relay what it holds (`blob/list`) and uploads only what is missing, so the snapshot that
+    follows a lost `snapshot-last.json` uploads exactly the files the relay did not list. (A snapshot seals the
+    files that records hold by path into a copy of the file store of its own, so those files are new each
+    time.) Each snapshot replaces the one before on the relay.
     """
     wait("A to upload", a.synced_up, seconds=SYNC_SECONDS)
-    early = before_trim(relay, a)
+    # Every running device reads up to the cut: the snapshot drops what it covers.
+    wait("B and C to hold what A wrote", lambda: views(others, state, folders, expected), seconds=SYNC_SECONDS)
     second = a.snapshot_now()
-    trimmed = after_trim(relay, a, early)
     require(second["snapshot_seq"] == 2, f"second snapshot: {second!r}")
+    swept(a, 2, seconds=SYNC_SECONDS)
     (a.log_dir() / "snapshot-last.json").unlink()
+    listed = list_blobs(relay, a, node_hex(a))
     third = a.snapshot_now()
-    require(third["snapshot_seq"] == 3 and third["uploaded_files"] == third["files"],
-            f"the snapshot that puts every file again: {third!r}")
+    lacked = [file for file in last_record(a)["manifest"]["files"] if listed.get(file["sha256"]) != file["bytes"]]
+    require(third["snapshot_seq"] == 3 and third["files"] == second["files"] and third["uploaded_files"] < third["files"]
+            and third["uploaded_files"] == len(lacked) and third["uploaded_bytes"] == sum(file["bytes"] for file in lacked),
+            f"the snapshot of a device that forgot its last one: {third!r}; the relay lacked {len(lacked)} of its files")
+    swept(a, 3, seconds=SYNC_SECONDS)
     started = time.monotonic()
     restored = d.restore(phrase)
     seconds = seconds_since(started)
@@ -236,10 +256,10 @@ def snapshot_again(relay, a, d, phrase, state, expected, folders):
     require(restored["devices"] >= 3, f"D found {restored['devices']} device streams, expected A, B and C")
     d.start()
     wait("D to equal A", lambda: views((d,), state, folders, expected), seconds=SYNC_SECONDS)
-    print(f"7. a snapshot that put all {third['files']} files again was accepted (the relay already held them); D "
-          f"restored from snapshot 3 in {seconds}s, replayed nothing, {restored['devices']} device streams listed",
-          flush=True)
-    return second, third, {"restore_seconds": seconds, "devices": restored["devices"], "after_trim": trimmed}
+    print(f"7. a snapshot by a device that forgot its last one uploaded {third['uploaded_files']} of its {third['files']} "
+          f"files, exactly the ones the relay did not list; D restored from snapshot 3 in {seconds}s, replayed nothing, "
+          f"{restored['devices']} device streams listed", flush=True)
+    return second, third, {"restore_seconds": seconds, "devices": restored["devices"]}
 
 
 # Run --------------------------------------------------------------------------------------
@@ -268,13 +288,14 @@ def prove_deployed(relay, devices, out, entry_audit):
     signed = report["a_writes"]["entries"]
     report["b_restore"] = step("B restores from the phrase", b_restores, a, b, phrase, state, expected, folders, signed)
     report["edit_apart"] = step("edit apart, both orders", edit_apart, relay, a, b, state)
-    first, tail, extra = step("snapshot and tail", snapshot_then_tail, a, b, state, expected, folders)
+    first, tail, extra = step("snapshot and tail", snapshot_then_tail, relay, a, b, state, expected, folders)
     report["snapshot"] = {**first, **extra, "tail_entries": tail}
     report["c_restore"] = step("C restores from the snapshot", c_restores, a, b, c, phrase, state, expected, folders, tail)
     step("C and A exchange writes", exchange, a, c, state)
-    second, third, report["d_restore"] = step("snapshot again, D restores", snapshot_again, relay, a, d, phrase, state,
+    second, third, report["d_restore"] = step("snapshot again, D restores", snapshot_again, relay, a, (b, c), d, phrase, state,
                                               expected, folders)
     report["second_snapshot"], report["third_snapshot"] = second, third
+    report["cloud"] = step("the cloud does not grow beyond the local store", cloud_rounds, relay, a, [b, c, d], phrase, out)
     reconciled = step("reconcile the relay with the accounts", reconcile_deployed, relay, a, [a, b, c, d], entry_audit)
     report["reconcile"] = reconciled
     # What the Exemem audit reads (exemem-infra): the database, who publishes it, the account the relay bills,
@@ -286,11 +307,9 @@ def prove_deployed(relay, devices, out, entry_audit):
                          for device_id, item in sorted(reconciled["streams"].items())]
     accounts = reconciled["accounts"]
     report["usage"] = {field: accounts[field] for field in
-                       ("entries", "entry_bytes", "blobs", "blob_bytes", "released_entries", "released_bytes")}
-    report["entries_signed"] = sum(device.spool_state()["head"] for device in (a, b, c))
-    # Bytes the relay was given that it had not held: the new blobs. Entries are counted, not measured.
-    report["blob_bytes_added"] = (report["a_writes"]["file_blob_bytes"] + first["uploaded_bytes"]
-                                  + second["uploaded_bytes"] + extra["manifest_bytes"] * 3)
+                       ("entries", "entry_bytes", "blobs", "blob_bytes", "released_entries", "released_bytes",
+                        "released_blobs", "released_blob_bytes")}
+    report["entries_signed"] = sum((device.spool_state() or {"head": 0})["head"] for device in (a, b, c, d))
     report["skipped"] = [{"step": name, "reason": reason} for name, reason in SKIPPED]
     (out / "summary.json").write_text(json.dumps(report, indent=2))
     return report
@@ -298,7 +317,7 @@ def prove_deployed(relay, devices, out, entry_audit):
 
 def render(report):
     """The job summary, in Markdown: what ran, what was skipped and why, timings and bytes."""
-    snap, a, c, usage = report["snapshot"], report["a_writes"], report["c_restore"], report["usage"]
+    snap, a, c, usage, cloud = report["snapshot"], report["a_writes"], report["c_restore"], report["usage"], report["cloud"]
     lines = ["## Personal database on the deployed Exemem DEV relay", "",
              "A fresh identity for this run (seed made offline, no account or secret). Relay origin: the DEV relay of "
              "`lastdb_node/environments.json`.", "", "### Ran", "", "The relay cannot be stopped, so the edit-apart step cuts a device off by restarting it with an "
@@ -315,15 +334,20 @@ def render(report):
               f"- Restore from the snapshot (C): {c['restore_seconds']}s, {c['replayed']} entries replayed, snapshot download "
               f"{c['snapshot'].get('download_ms')} ms.",
               f"- Restore from snapshot 3 (D): {report['d_restore']['restore_seconds']}s.", "",
-              "### Added to the relay (it keeps all of it; a node cannot delete)", "",
-              f"- Blobs: about {report['blob_bytes_added']} bytes (the sealed file, the new snapshot files, three manifests).",
-              f"- Signed entries: {report['entries_signed']} data entries, plus a birth and three snapshot entries.",
+              "### Held on the relay (one snapshot, the entries after it and the files they name)", "",
+              f"- After the last round of overwrites and snapshots: {cloud['last']['relay_files']} stored files, "
+              f"{cloud['last']['relay_file_bytes']} bytes, and {cloud['last']['relay_entries']} entries "
+              f"({cloud['last']['relay_entry_bytes']} bytes); the local store of A: {cloud['last']['local_bytes']} bytes.",
+              f"- From round 1 to round {len(cloud['rounds'])} the relay went from {cloud['rounds'][0]['relay_bytes']} to "
+              f"{cloud['rounds'][-1]['relay_bytes']} bytes with data of the same size; the sweeps released "
+              f"{usage['released_blobs']} files ({usage['released_blob_bytes']} bytes).",
               "", "### What the nodes say they put on the relay (for Exemem's own audit)", "",
               f"- Database `{report['database_id']}`, publisher node key `{report['publisher_node_key']}`, billed account "
               f"`{report['account_id']}`.",
               f"- Entries put: {usage['entries']} ({usage['entry_bytes']} bytes, the JSON of each entry as sent); released by trims: "
               f"{usage['released_entries']} entries ({usage['released_bytes']} bytes).",
-              f"- Blobs put: {usage['blobs']} ({usage['blob_bytes']} bytes), counted when committed; a node cannot delete one.",
+              f"- Blobs put: {usage['blobs']} ({usage['blob_bytes']} bytes), counted when committed; released by sweeps: "
+              f"{usage['released_blobs']} ({usage['released_blob_bytes']} bytes).",
               f"- Streams: " + ", ".join(f"`{item['device_id'][:8]}` head {item['head_seq']}" for item in report["streams"]) + ".",
               "- This is what these four devices put and the relay accepted, not what the account is billed: the entries of "
               "a device that is not in this run are not in it.",

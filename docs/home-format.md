@@ -72,6 +72,11 @@ be sent are files outside the store.
       snapshot-last.json       the last snapshot this device published
       snapshot-known.json      what `lastdb status` prints
       snapshot-request, -result, -error
+      snapshot-unverified      a snapshot entry is on the relay and its files are not checked yet
+      reclaim-due.json         a sweep of the relay is due for one snapshot
+      reclaim-last.json        what the relay held after the last sweep
+      reclaim-named.json       digests a drop named whose release is not counted yet
+      reclaim-request, -result, -error
       authored.json, uploaded.json, received.json, proposals.json
                                shared databases only
 ```
@@ -173,8 +178,9 @@ The schema definitions the database uses, and their retention (TTL) state.
   `CURRENT` by rename. A read holds one `CURRENT` for its whole call. Nothing
   replays at open.
 - Eight runs of one level merge into one. Run files grow over time, and a
-  snapshot uploads only the files that the previous snapshot of the device did
-  not hold.
+  snapshot uploads only the files that the relay does not hold (it asks the
+  relay with `blob.list`). After the snapshot is named, the relay drops the
+  files that only an older snapshot named.
 - A lookup reads the footer and the top block, one index block and one data
   block. A home keeps at most 32 run readers open. A reader holds no record.
 
@@ -231,6 +237,10 @@ The schema definitions the database uses, and their retention (TTL) state.
   that states both sizes: a file the snapshot cannot carry is never accepted.
 - A restore installs the files with no store open, checks that the head rows
   equal the positions in the entry, and reads each stream after its position.
+- The relay keeps one snapshot. After a snapshot is named, the node asks the
+  relay to drop the entries it covers and the older snapshot entries, and then
+  to drop every stored file that this snapshot and the entries after it do not
+  name. The relay then holds what the store holds.
 
 ## Names
 

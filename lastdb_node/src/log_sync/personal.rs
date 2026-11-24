@@ -9,6 +9,8 @@
 //!   when the relay acknowledges.
 //! - [`snapshot`] freezes a snapshot when one is due, and the snapshot lane uploads it while
 //!   the turns above go on.
+//! - [`reclaim`] sweeps after a snapshot is named: the relay drops every stored file that the
+//!   newest snapshot and the entries after it do not name, so it holds what the store holds.
 //! - [`incoming`] reads the other devices' streams from the head row of each,
 //!   and applies every entry with the stamp that the store keeps beside each
 //!   record. The head rows live in the store, so a snapshot carries them, and a
@@ -27,6 +29,10 @@ mod body;
 mod files;
 mod incoming;
 mod outgoing;
+mod reclaim;
+mod reclaim_count;
+mod reclaim_state;
+mod reclaim_view;
 mod send;
 mod snapshot;
 mod snapshot_entry;
@@ -38,10 +44,13 @@ mod snapshot_state;
 mod snapshot_upload;
 mod verify;
 
+pub(crate) use reclaim_state::last as last_reclaim;
 pub(crate) use snapshot_known::known as known_snapshot;
 pub(super) use snapshot_lane::stop as stop_snapshot_lane;
 pub use snapshot_restore::{install_newest_snapshot, SnapshotBase};
-pub(crate) use snapshot_state::{request as request_snapshot, status as snapshot_status};
+pub(crate) use snapshot_state::{
+    reclaim_status, request as request_snapshot, request_reclaim, status as snapshot_status,
+};
 
 use std::sync::Arc;
 
@@ -238,6 +247,13 @@ async fn run_turn(host: &Arc<Host>, client: &RelayClient) -> Result<(), String> 
         .cloud_sync
         .record_download(&ctx.database_id, read.as_ref().err().cloned());
     let sent = outgoing::run(&ctx, client, &streams).await;
+    // A sweep that is due or asked for runs after the send step: the relay then drops every
+    // stored file that the newest snapshot and the entries after it do not name.
+    let swept = if sent.is_ok() {
+        reclaim::run(&ctx, client).await
+    } else {
+        Ok(())
+    };
     // A snapshot is frozen only after a clean turn: the spool is on the relay and the streams
     // are applied, so the cut holds exactly what the relay holds. Its upload then goes on in
     // the snapshot lane, and the next turns send and read as usual.
@@ -246,7 +262,7 @@ async fn run_turn(host: &Arc<Host>, client: &RelayClient) -> Result<(), String> 
     } else {
         Ok(())
     };
-    read.map(|_| ()).and(sent).and(snapped)
+    read.map(|_| ()).and(sent).and(swept).and(snapped)
 }
 
 /// The device streams of the owner on the relay. `None` when the relay does not

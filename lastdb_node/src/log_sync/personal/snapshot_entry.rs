@@ -1,8 +1,8 @@
 //! The relay side of a snapshot: the positions of a cut, the signed `snapshot` entry, and the trim.
 
 use mutation_log::{
-    author_snapshot, entry_hash, AuthorCtx, DeviceId, EntryHash, Hex32, SignedEntry, SnapshotBody,
-    SnapshotThrough, StreamHead,
+    author_snapshot, entry_hash, verify_entry_signature, AuthorCtx, DeviceId, EntryHash, Hex32,
+    SignedEntry, SnapshotBody, SnapshotThrough, StreamHead,
 };
 
 use super::Ctx;
@@ -12,22 +12,23 @@ use crate::log_sync::relay::{RelayClient, StreamHead as RelayStream};
 /// it is done, so a large backlog takes several calls. What is left goes on at the next snapshot.
 const TRIM_CALLS: usize = 64;
 
-/// Keep the two newest snapshots on the relay and drop what the older of them covers: the
-/// entries up to its positions and the snapshot entries before it. It never drops a file or a
-/// manifest. The relay reads that snapshot entry itself and checks it. A failure is
-/// logged and not an error of the snapshot: the snapshot is already named, nothing was lost,
-/// and the next snapshot asks again. A relay without the route answers 404, which is the same.
+/// Ask the relay to drop what the newest snapshot covers: the entries up to its positions and
+/// the snapshot entries before it. The relay then holds one snapshot and the entries after it.
+/// The relay reads that snapshot entry itself and checks it. A trim drops no file: the sweep
+/// (`reclaim`) drops the files that nothing names any more. A failure is logged and is not an
+/// error of the snapshot: the snapshot is already named, nothing was lost, and the next snapshot
+/// asks again.
 pub(super) async fn trim_covered(ctx: &Ctx<'_>, client: &RelayClient, newest: u64) {
-    let Some(basis) = newest.checked_sub(1).filter(|basis| *basis >= 1) else {
+    if newest == 0 {
         return;
-    };
+    }
     for _ in 0..TRIM_CALLS {
         match client
-            .trim(&ctx.database_id, &ctx.snapshot_device_hex, basis)
+            .trim(&ctx.database_id, &ctx.snapshot_device_hex, newest)
             .await
         {
             Ok(true) => {
-                tracing::info!(target: "lastdbd::log_sync", basis, "the relay dropped what the snapshot covers");
+                tracing::info!(target: "lastdbd::log_sync", newest, "the relay dropped what the snapshot covers");
                 return;
             }
             Ok(false) => {}
@@ -87,8 +88,8 @@ pub(super) async fn require_empty_for_first(
             "cannot publish an initial snapshot: the relay already holds device streams for this personal database".into(),
         );
     }
-    if let Some((_, prev_through)) = snapshot_head(ctx, client, streams).await? {
-        if !prev_through.is_empty() {
+    if let Some((_, previous)) = snapshot_head(ctx, client, streams).await? {
+        if !previous.through.is_empty() {
             return Err(
                 "cannot publish an initial snapshot: the relay already holds a snapshot covering device streams".into(),
             );
@@ -97,12 +98,14 @@ pub(super) async fn require_empty_for_first(
     Ok(())
 }
 
-/// The head of the snapshot stream on the relay, with the order value and positions of its entry.
-async fn snapshot_head(
+/// The head of the snapshot stream on the relay, with the order value and the body of its entry:
+/// the newest snapshot. The entry must be the owner's, on this stream, with the hash the relay
+/// listed.
+pub(super) async fn snapshot_head(
     ctx: &Ctx<'_>,
     client: &RelayClient,
     streams: &[RelayStream],
-) -> Result<Option<(StreamHead, Vec<SnapshotThrough>)>, String> {
+) -> Result<Option<(StreamHead, SnapshotBody)>, String> {
     let Some(listed) = streams
         .iter()
         .find(|stream| stream.device_id == ctx.snapshot_device_hex && stream.head_seq > 0)
@@ -129,13 +132,22 @@ async fn snapshot_head(
     if header.writer_seq != listed.head_seq || hash.to_hex() != listed.head_hash {
         return Err("the head of the snapshot stream differs from the listing".into());
     }
+    verify_entry_signature(entry).map_err(|error| format!("the snapshot entry: {error}"))?;
+    if header.node_key != ctx.identity.node_key
+        || header.database_id != ctx.database
+        || header.device_id != ctx.snapshot_device
+    {
+        return Err(
+            "the head of the snapshot stream is not the owner's entry of this stream".into(),
+        );
+    }
     Ok(Some((
         StreamHead {
             entry_hash: hash,
             writer_seq: listed.head_seq,
             lamport: header.lamport,
         },
-        body.through.clone(),
+        body.clone(),
     )))
 }
 
@@ -146,10 +158,10 @@ pub(super) async fn require_covers_latest(
     streams: &[RelayStream],
     through: &[SnapshotThrough],
 ) -> Result<Option<StreamHead>, String> {
-    let Some((head, prev_through)) = snapshot_head(ctx, client, streams).await? else {
+    let Some((head, previous)) = snapshot_head(ctx, client, streams).await? else {
         return Ok(None);
     };
-    for prev in &prev_through {
+    for prev in &previous.through {
         let covered = through
             .iter()
             .find(|pos| pos.device_id == prev.device_id)

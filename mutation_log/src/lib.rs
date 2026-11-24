@@ -60,6 +60,7 @@ mod history_util;
 mod ids;
 mod kinds;
 mod lease_body;
+mod named_blobs;
 mod payload;
 mod record_key;
 mod sealed;
@@ -94,6 +95,7 @@ pub use history::{EquivocationEvidence, GrantTip, LeaseView, RejectEvidence, Ver
 pub use history_util::{grant_body_of, next_lamport};
 pub use ids::{DatabaseId, DeviceId, EntryHash, Hex32, IdError, NodeKey, StreamId};
 pub use kinds::{domain, EntryKind, Grantee, Role, StreamKind};
+pub use named_blobs::named_blobs;
 pub use payload::{
     decode_record_payload, encode_record_payload, MaterializedRecord, PayloadError, RecordPayload,
     RecordPosition,

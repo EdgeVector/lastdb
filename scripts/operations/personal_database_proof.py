@@ -23,29 +23,31 @@ as its own stream and applies the other streams through the store's last-writer 
    and the spool is empty.
 21. The relay holds what the nodes say they put there, and weighs what they say (`personal_proof_reconcile.py`,
     after the trim step and at the end). Every stream holds exactly its floor to its acknowledged head with an intact
-    hash chain, every blob is accounted for, and the stored bytes equal the accounts the nodes keep. A deployed relay
-    gets the same questions through `log/streams`, `log/read` and `blob.get`.
+    hash chain, every blob is named by the one snapshot or by a stored entry, and the stored bytes equal the accounts
+    the nodes keep (put less released). A deployed relay gets the same questions through `log/streams`, `log/read`
+    and `blob.get`.
 11. The snapshot is the checkpoint. A takes a snapshot, then writes more. A home restored from the
     phrase installs the snapshot and reads only the entries after it, and equals a home restored by
     full replay from a relay with no snapshot, key by key, alternate keys and file bytes included.
 12. A restore killed at several points leaves no home or a complete one, and a rerun completes it.
-13. A second snapshot uploads only the files that changed, the newest is the one restored, and no
-    byte the relay stored holds a marker written into a record or a file.
+13. A second snapshot uploads only the files the relay lacks and replaces the first on the relay: the
+    files that only the first named are gone. The newest is the one restored, and no byte the relay
+    stored holds a marker written into a record or a file.
 14. A restored device writes and A receives it; A writes and the restored device receives it.
 15. The status names the snapshot. A fresh home says `Snapshot: none yet`. After a snapshot the line
     and the `cloud_sync.snapshot` object of `/api/status` match the snapshot just taken; a restored
     home reports the snapshot it installed. A relay that refuses a file over its limit (as Exemem
     does, HTTP 400 `invalid_request` on `bytes`) gets one try, a report that names the file and its
     size, and no loop; entries still upload.
-16. The relay drops what a snapshot covers (`log/trim`, called by the node after each snapshot for the
-    second newest) and still restores. After two snapshots the relay holds no entry at or before the
-    positions of the older one, on any stream, and keeps the birth, both snapshots and what follows.
-    A device that stopped before those positions is told it is behind and applies nothing. A restore
-    from the phrase installs the newest snapshot, replays only the entries after it, and equals A key
-    by key, also after the relay restarts. A late repeat of an append below the floor is answered as a duplicate, not stored, and a
-    read there is 410. A third snapshot drops the first snapshot entry and no
-    blob (its manifest and files stay), and a restore from the second and from the third snapshot each equal A. A, B and F are never told they
-    are behind.
+16. The relay keeps one snapshot (`log/trim` of the newest, called by the node after each snapshot, then the
+    sweep of step 23) and still restores. After two snapshots the relay holds the second snapshot entry alone and
+    no entry at or before its positions, on any stream, and keeps the birth and what follows. A device that
+    stopped before those positions is told it is behind and applies nothing. A restore from the phrase installs
+    the newest snapshot, replays only the entries after it, and equals A key by key, also after the relay
+    restarts. A late repeat of an append at and below the floor is answered as a duplicate, not stored, and a
+    read there is 410. A third snapshot drops the second snapshot entry, its manifest and the files only it
+    named, and a restore from the third equals A. Devices that read up to the cut before each snapshot are never
+    told they are behind.
 17. A relay answer that says try again is tried again. The first `log/streams` request of a relay gets
     HTTP 429 `rate_limited` (`provider.dynamo.conflict`, as when two transactions collide): a running
     daemon and a restore still succeed, and each request signs again. A quota refusal (`quota.bytes`)
@@ -61,6 +63,12 @@ as its own stream and applies the other streams through the store's last-writer 
 22. A record and its file written on several devices at once (`personal_proof_merge.py`). The newest
     text wins, and the file is the one of the newest write that set a file or deleted the record, on
     every device and whichever device syncs first.
+23. The cloud does not grow beyond the local store (`personal_proof_reclaim.py`). Rounds of overwrites, deletes
+    and new files with a snapshot each, with data of the same size: after every sweep the relay holds exactly
+    the files of the newest snapshot, its manifest and the files that entries after it name; files and entries
+    together are not above the local store's files plus the manifest and the entries; and the relay does not
+    grow from the first round to the last. `lastdb backup reclaim`, `/api/status` and `lastdb status` say what
+    the relay says.
 10. Scale: tens of thousands of writes. The peak resident memory of the daemons does not grow with
     the number of entries, the spool returns to near empty, and an idle turn reads nothing.
 
@@ -84,7 +92,8 @@ from harness import append_step_summary  # noqa: E402
 from personal_proof_load import idle_turn_reads_nothing, kill_under_load, scale  # noqa: E402
 from personal_proof_deployed import prove_deployed, render  # noqa: E402
 from personal_proof_nodes import DELTA, DeployedRelay, Relay, converged, prove_hidden, require, wait  # noqa: E402
-from personal_proof_reconcile import reconcile_reference, remember  # noqa: E402
+from personal_proof_reclaim import prove_cloud  # noqa: E402
+from personal_proof_reconcile import reconcile_reference  # noqa: E402
 from personal_proof_trim import trimmed_relay_restores  # noqa: E402
 from personal_proof_usage import AccountedDevice as Device  # noqa: E402
 from personal_proof_status import prove_none_yet, refused_snapshot, RELAY_LIMIT_BYTES  # noqa: E402
@@ -148,11 +157,9 @@ def prove(relay, relay2, relay3, relay4, a, b, c, d, e, f, g, h, j, k, m, n, p, 
     d.stop()
     report["snapshot"], folders, expected = snapshot_restore_equals_replay(relay, relay2, (a, b, e, f, g, h, j), phrase, state)
     report["restore_killed"] = kill_the_restore(g, phrase, a, state, folders, expected)
-    # A trim drops entries and keeps the blobs they name: note the files they name first.
-    remember(relay, a.database)
-    report["second_snapshot"] = second_snapshot(relay, a, b, f, h, phrase, state, folders, expected)
+    report["second_snapshot"], kept = second_snapshot(relay, a, b, f, h, phrase, state, folders, expected)
     exchange_writes(relay, a, f, state, folders, expected)
-    report["trim"] = trimmed_relay_restores(relay, relay2, a, b, c, f, g, phrase, state, folders, expected)
+    report["trim"] = trimmed_relay_restores(relay, a, b, c, f, g, phrase, state, folders, expected, kept)
     on_relay = [a, b, c, d, f, g, h, j]
     report["reconcile_after_trim"] = reconcile_reference(relay, a, on_relay, "21. after the trim")
     # The relay that refuses a large blob, with a home of its own.
@@ -166,6 +173,7 @@ def prove(relay, relay2, relay3, relay4, a, b, c, d, e, f, g, h, j, k, m, n, p, 
     report["uplink"] = prove_uplink(args)
     report["upload_retry"] = prove_upload_retry(args)
     report["lane"] = prove_lane(args)
+    report["cloud"] = prove_cloud(args)
     # Only A and B again: the homes restored for the proof are done.
     for device in (e, f, h):
         device.stop()
@@ -231,7 +239,7 @@ def main():
         return run_deployed(args)
     relay = Relay(Path(args.relay_bin), args.output)
     relay.start()
-    # The relay with no snapshot stream: a copy of the first, made when the proof asks for it.
+    # The relay with no snapshot stream: a copy of the first from before its first snapshot, given the later entries.
     relay2_root = args.output / "relay2"
     relay2_root.mkdir()
     relay2 = Relay(Path(args.relay_bin), relay2_root)

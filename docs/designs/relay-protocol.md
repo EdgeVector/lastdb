@@ -2,7 +2,8 @@
 
 Status: built. The reference relay in this repository and the Exemem relay
 (DEV and PROD) serve it. First written as a design on 2026-11-19; `log.streams`,
-the `snapshot` entry and `log.trim` were added on 2026-11-22 and 2026-11-23.
+the `snapshot` entry and `log.trim` were added on 2026-11-22 and 2026-11-23, `blob.list`
+and `blob.drop` on 2026-11-24.
 Companion to `docs/designs/cloud-api.md`. Wire:
 `docs/designs/relay-protocol.openapi.json`. What a node keeps on disk is in
 `docs/home-format.md`.
@@ -69,6 +70,8 @@ POST /relay/v1/log/streams
 POST /relay/v1/log/trim
 POST /relay/v1/blob/put
 POST /relay/v1/blob/get
+POST /relay/v1/blob/list
+POST /relay/v1/blob/drop
 ```
 
 Batching/caps match cloud-api. **Every** relay request is signed
@@ -210,7 +213,9 @@ Request `{ "database_id", "device_id", "writer_seq" }`: the snapshot stream and 
 sequence number of one `snapshot` entry on it. Response
 `{ "done", "entries_deleted", "released_bytes" }`: how many entries this call dropped and the length of their stored copies. The node keeps both in its account of the relay (`log-sync/<database>/cloud-usage.json`); a trim also drops the entries of the owner's other devices, so the sum is the relay's own account of what it released. The account has a start (`since_ms`) and says `complete: false` on a home that uploaded before it began: nothing is backfilled, and its totals are then only what it put since.
 A call does a bounded amount of work and answers `done: false` when more is left;
-the caller repeats. A repeat is safe at any point.
+the caller repeats. A repeat is safe at any point. A call that dropped entries always
+says so: a failure after some entries went answers 200 with `done: false` and the counts
+so far, never an error that loses them. The caller adds the counts of every 200 answer.
 
 - **Who.** Only the publisher's node key (403 `forbidden`, field `publisher`).
 - **What the relay trusts.** Nothing in the request but the name of the entry. It reads
@@ -222,8 +227,9 @@ the caller repeats. A repeat is safe at any point.
   same way.
 - **What goes.** For each stream in `through`: the entries from the first stored one
   up to the position. The snapshot entries before the named one. **Nothing else: a
-  trim never drops a blob.** The manifests and files of a dropped snapshot entry stay
-  on the relay (and stay billed); collecting them is a later step.
+  trim never drops a blob.** The manifest and the files of a dropped snapshot entry,
+  and the files of dropped entries, go with `blob.drop`, which the node calls after
+  the trim (see `blob.list` / `blob.drop`).
 - **What stays.** The per-stream head (so `log.streams` is unchanged and the next
   entry in order still advances the head; the relay keeps the last dropped
   sequence number and its hash as a floor), the `birth` entry, the named snapshot and the newer ones with their
@@ -248,12 +254,12 @@ the caller repeats. A repeat is safe at any point.
 - **Billing (Exemem).** The stored-bytes counter of the publisher goes down by the
   stored length of exactly the entries deleted, in the same transaction
   as each delete, so a repeated or concurrent call subtracts nothing twice.
-- **Old relays and old nodes.** A relay without the route answers 404, which the node
-  logs and ignores. A node that never calls it leaves the relay as it was.
+- **Old nodes.** A node that never calls it leaves the relay as it was.
 
-The node calls it once after each snapshot it publishes, naming the **second newest**
-snapshot, so the relay always keeps the two newest snapshots with everything after
-the older one's positions. See `signed-log-on-local-machinery.md`, section 14.
+The node calls it after each snapshot it publishes, naming **that snapshot**, so the
+relay keeps one snapshot with everything after its positions. A device that has not
+read up to those positions when the snapshot is named is behind the trim. See
+`signed-log-on-local-machinery.md`, sections 14 and 16.
 
 ### The `snapshot` entry
 
@@ -375,6 +381,90 @@ this answer for a file with a length above zero must not retry in a tight loop, 
 which file and how large it is. The node does this for snapshot files (see
 `signed-log-on-local-machinery.md`, section 12) and does not split a file.
 
+### `blob.list` / `blob.drop`
+
+After a snapshot is named and trimmed, the relay of a personal database holds the
+files and the manifest of the newest snapshot, the entries after its positions, and
+the sealed files those entries name. Every other stored file is dropped and its bytes
+are released. The relay owns what is stored and what is charged. The publisher's
+node owns what is needed. The relay reads no manifest and no file: it drops only the
+digests the publisher names, and only while the streams it was told about are as it
+was told.
+
+**`blob.list`.** Request `{ "database_id", "after"? }`, from any node that may read
+the database. Response `{ "blobs": [{ "sha256", "bytes" }], "next"? }`: the committed
+blobs, ascending by digest, at most 1,000 in a page. `next` is present when more
+follow; pass it as `after`. This listing is the truth for "is this file on the
+relay": the node uploads a snapshot file only when the listing lacks its digest and
+length, and asks again after it appended the `snapshot` entry.
+
+**`blob.drop`.** Request
+
+```json
+{
+  "database_id": "<hex64>",
+  "snapshot": {"device_id": "<hex64>", "writer_seq": 7},
+  "heads": [{"device_id": "<hex64>", "writer_seq": 99987}],
+  "sha256": ["<hex64>", "..."]
+}
+```
+
+- **Who.** Only the publisher of a personal database, like `log.trim` (403
+  `forbidden`).
+- **`snapshot`** names the head of the publisher's snapshot stream. The relay reads
+  that stored entry, checks its signature and kind, and refuses the call when a listed
+  digest is the manifest that entry names (400 `invalid_request`, field `sha256`).
+- **`heads`** are the stream heads the node saw when it computed the list: every
+  stream of the publisher that `log.streams` listed, the snapshot stream not among
+  them. At most 32, each stream once, each at an entry (400 field `heads` otherwise).
+  The list is empty only when the publisher has no other stream. A stream of the
+  publisher that the call names neither as the snapshot stream nor in `heads` is
+  refused like a head that moved (409 `heads`, field `heads`).
+- **`sha256`**: 1 to 25 digests, each once (400 field `sha256` otherwise).
+- **One step.** The relay reads the head of the snapshot stream and of each listed
+  stream once. No head, another head than named, or an entry stored above the head
+  (an entry beyond a gap, which a reader of the stream cannot see and which may name a
+  file) answers **HTTP 409, code `heads`**, field `snapshot` for the snapshot stream
+  and `heads` for a listed one, and nothing is dropped. The same answer, with field
+  `heads`, goes to a call while the publisher has a stream in the database that the
+  call does not name: a device that sent its first entry after the caller listed the
+  streams. Then, in one atomic step:
+  every one of those streams is still as read (its head, and a count of the entries
+  stored beyond a gap, which changes when such an entry is stored), each blob record
+  that exists is deleted with its pending record, and the summed bytes are released
+  from the publisher's stored bytes once. A digest with no committed record is counted
+  as `absent`, is not an error, and its pending record is left alone.
+- **After the step** the relay deletes the stored objects for good (every version; a
+  hide marker is not a delete). An object that could not be deleted is logged; it is no
+  longer charged.
+- Response `{ "dropped", "released_bytes", "absent" }`.
+
+**Why the heads are a condition.** The one danger of a drop is a file that is
+committed and not yet named: a device uploads the sealed file, then appends the
+entry. Two rules close it without a clock. The device that names a file asks for it
+again after it named it (`blob.put` begin answers at once for a committed digest) and
+uploads it when it is gone; the same holds for the files of a snapshot after its
+`snapshot` entry is appended. And the drop is one step with the heads: an entry
+appended before the drop moved a head, so the drop does nothing, and an entry appended
+after it finds its file gone and puts it back. A stream that did not exist when the
+node listed the streams has no head in the call. Its first entry makes it a stream the
+call does not name, so a drop after that entry is refused, and a drop before it is
+covered by the first rule.
+
+**Counting what a drop released.** One call is one step, so a client that asks again
+after a lost answer gets `absent` for the digests its first try dropped. The node
+does not count from such an answer: it counts a digest it named as released when the
+next `blob.list` no longer has it, with the length the earlier listing gave.
+
+**`blob.put` and the pending record.** A relay that keeps a record of an upload that
+began keeps it from begin to commit only: begin writes it only while the digest is not
+committed, and the commit deletes it in the same step that records the blob.
+
+**The reference relay** serves both routes with the same answers. It keeps no stored
+bytes counter. A drop holds the lock that `log.append` holds for its whole call, so
+the comparison of the heads and the deletes are one step. It deletes the stored file
+of a digest when no other database owns that digest.
+
 **Dedupe:** encryption with the db key plus a per-blob nonce means
 identical plaintext yields different digests — no cross-entry digest
 dedupe and no refcount. A `blob_delete` for a digest still referenced by
@@ -412,7 +502,7 @@ the grant index from verified publisher birth/grant entries in the logs.
 | Public `grant#any` reads | Any **signed** caller may read when `grant#any`/`read` is active |
 | Relay list | Publisher-signed `relays` + People |
 | Log GC | Never, except product erase via delete/deactivate and `log.trim` of a personal database |
-| Blob GC | After valid chain `blob_delete`, or product erase |
+| Blob GC | After valid chain `blob_delete`, product erase, or `blob.drop` of a personal database (the files the newest snapshot and the entries after it do not name) |
 | Bundle blob max | 64 MiB / 10_000 changes (node-enforced) |
 | Download | Presigned URL only |
 | Fork recovery | New `device_id` (frozen stream; no resolve) |
@@ -429,6 +519,7 @@ the grant index from verified publisher birth/grant entries in the logs.
 | 401 | `unauthorized` | bad or missing request signature |
 | 403 | `forbidden` | no current grant for this `node_key` / role |
 | 404 | `not_found` | missing log/blob (incl. after `blob_delete`); `log.trim` names no stored snapshot entry |
+| 409 | `heads` | `blob.drop`: a stream is not as the caller named it, or the caller did not name it (field `snapshot` or `heads`); nothing was dropped, compute the list again |
 | 410 | `trimmed` | `log.read` starts at an entry that `log.trim` dropped |
 | 426 | `upgrade_required` | `request.protocol` |
 | 429 | `rate_limited` | quota / rate limits (publisher-billed) |

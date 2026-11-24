@@ -140,7 +140,7 @@ Steps 1 to 5 are required before the primary moves. Step 6 can wait.
 ## 7. Differences to accept, and risks
 
 1. **Order is a hybrid time, not the cloud-capped time.** Section 4a. A fast clock is no longer capped by the cloud.
-2. **The relay holds the only copy of old entries.** If it lost them after a trim, the snapshot still restores the state. The relay keeps the two newest snapshots, so the loss of the newest still leaves one that restores. A device that has not read the entries a trim dropped cannot read them from the relay any more; it is told so and restores into a new home (section 14).
+2. **The relay holds the only copy of old entries.** If it lost them after a trim, the snapshot still restores the state. The relay keeps one snapshot, the newest (Tom, 2026-11-24, section 16): if its files were damaged on the provider, the local database is the only other copy until the next snapshot. A device that has not read the entries a trim dropped cannot read them from the relay any more; it is told so and restores into a new home (section 14).
 3. **One signed entry per write.** A bulk import would make many entries. The move does not, because it publishes the existing files as the first snapshot.
 4. **The primary's home.** #1843 refuses a home whose personal database id is not derived from the recovery phrase. The move maps the registry onto the derived id while the store files stay as they are (inferred that they do not embed the id). So the primary can move in place by a snapshot of its existing files, without copying every record through the write call.
 5. **Exemem.** The relay needs the stream listing, and the trim call (section 14). Its file routes use presigned uploads. Section 13 says what is proven against the deployed DEV relay.
@@ -226,7 +226,7 @@ A new entry kind in `mutation_log`, signed by the owner. The kind string is `sna
 
 ### Publishing
 
-After a clean turn, when a snapshot is requested or due, the node captures, hashes each file, uploads each file that the previous snapshot of this device did not hold (by path and digest) with the file-streaming `blob_put`, uploads the manifest, and appends the entry. A crash before the entry leaves unused blobs. A second device that signs on the snapshot stream at the same time gets a refused append and tries again on the next turn.
+After a clean turn, when a snapshot is requested or due, the node captures, hashes each file, asks the relay what it holds (`blob.list`), uploads each file the relay lacks (by digest and length) with the file-streaming `blob_put`, uploads the manifest, appends the entry, and asks the relay again that every file is there (section 16). A crash before the entry leaves unused blobs, which the next sweep drops. A second device that signs on the snapshot stream at the same time gets a refused append and tries again on the next turn.
 
 When: on request (`lastdb backup snapshot [--wait]`, route `POST /api/backup/snapshot`), and automatically when 25,000 entries (`AUTO_SNAPSHOT_ENTRIES`) have been signed on this device's stream since its last snapshot. The old build took a snapshot on request and for the first one; the retention signal of the cloud no longer exists.
 
@@ -366,10 +366,10 @@ Proven against the DEV relay, with real nodes:
 - Device B restores from the recovery phrase alone, reads one device stream, replays every entry, and holds every record, alternate key and the file.
 - A and B, each cut off from the relay, edit one record apart. The later edit wins whichever device syncs first.
 - A snapshot (`backup snapshot --wait`) names a checkpoint. After more writes, device C restores from the phrase alone, installs the snapshot, replays exactly the entries after it, finds the device streams of A and B, and equals A and B. C and A then exchange writes.
-- A snapshot that puts every file again is accepted. The relay answers `blob.put` begin for a digest it already holds with no `upload`; the node treats that as stored (before this change it failed with "blob.put begin has no upload.url"). Device D restores from that snapshot and replays nothing. A CI run without the fix failed there with that message.
+- A snapshot by a device that lost its record of the last one (`snapshot-last.json`) uploads no file: the node asks the relay what it holds (`blob.list`) and uploads only what is missing. Device D restores from that snapshot and replays nothing. The relay also answers `blob.put` begin for a digest it already holds with no `upload`, and the node treats that as stored.
 - A streamed file upload carries one `content-length`. The Exemem relay signs `content-length` and returns it among the upload headers, and the node used to add it a second time, so the object store answered HTTP 400 and the entry that names a file stayed unconfirmed. The reference relay returns no `content-length`, so only the DEV relay showed it.
 
-Not proven against it, because the relay's process, request log and disk are not readable: that the relay holds no key, value, schema name or marker, one entry per write by listing, a restore by full replay from a relay with no snapshot, idle turns reading no entry, reads of a restored home with the relay stopped, the kill before the first snapshot is named, the kill of a restore, kill -9 under load, and the scale run. These stay on the reference relay. The reference relay differs from Exemem in: a repeated `blob.put` begin (reference issues a new upload, Exemem answers with no `upload`), a 5 GB limit on one blob, billing of the publisher's account with a quota, and the presigned upload and download URLs of the object store. Neither relay refuses an entry beyond a gap (`relay-protocol.md`, `log.streams`). Storage a run adds to the DEV relay stays there, except the log entries that the trim of section 14 drops: a node cannot delete anything else.
+Not proven against it, because the relay's process, request log and disk are not readable: that the relay holds no key, value, schema name or marker, one entry per write by listing, a restore by full replay from a relay with no snapshot, idle turns reading no entry, reads of a restored home with the relay stopped, the kill before the first snapshot is named, the kill of a restore, kill -9 under load, and the scale run. These stay on the reference relay. The reference relay differs from Exemem in: a repeated `blob.put` begin (reference issues a new upload, Exemem answers with no `upload`), a 5 GB limit on one blob, billing of the publisher's account with a quota, and the presigned upload and download URLs of the object store. Neither relay refuses an entry beyond a gap (`relay-protocol.md`, `log.streams`). Of the storage a run adds to the DEV relay, the trim of section 14 drops the log entries a snapshot covers and the sweep of section 16 drops the files that nothing names. What the last snapshot of a run names stays there.
 
 ## 14. What was built for step 6: the relay drops what a snapshot covers
 
@@ -382,17 +382,17 @@ Basis: Tom, 2026-11-22: reuse the previous accepted machinery. The build before 
 | The relay holds a reclaimed position (`reclaimed_through`) and moves it only from the value the caller expects (`expected_floor`) | The relay holds a floor for each stream (the last dropped seq and its hash) and moves it in the same transaction as the delete, only from the floor it just read |
 | A snapshot names what is covered (`snapshot_id`, `snapshot_through`); the relay checks the request against the snapshot it holds | The request names one `snapshot` entry. The relay reads that stored entry, verifies its signature and takes every position from its `through` list. No position is in the request |
 | The relay reclaims a bounded number of steps for each request and the caller repeats (`max_steps`, `RECLAIM_BATCH`) | The relay drops at most 1,000 entries in one call and answers `done: false`; the node repeats |
-| Blobs are reclaimed after the log they belong to, in batches (`reclaim-blobs`) | Not reused. A trim drops log entries only and never a blob. Collecting files that no retained snapshot names is a later step that needs a lease |
+| Blobs are reclaimed after the log they belong to, in batches (`reclaim-blobs`) | A trim drops log entries only and never a blob. The files that the newest snapshot and the entries after it do not name go in the sweep of section 16, in batches of 25 (`blob.drop`), after the log they belonged to |
 | A device behind the snapshot cannot read the reclaimed entries and must upgrade (a clear failure) | A device behind gets 410 `trimmed` and must restore into a new home (a clear failure) |
-| Not reused: the local work files (`snapshot-reclaim.json`), the timers that resume cleanup, the `backup reclaim` command and its enable flag, the per-device cursor that held a reclaim until the device had read through | There is no state on the node, no timer and no flag. The relay's floor is the only state, and one call after a snapshot is the only trigger |
+| Not reused: the local work files (`snapshot-reclaim.json`), the timers that resume cleanup, the `backup reclaim` command and its enable flag, the per-device cursor that held a reclaim until the device had read through | For the trim there is no state on the node, no timer and no flag: the relay's floor is the only state, and one call after a snapshot is the only trigger. The sweep of section 16 keeps one small mark (`reclaim-due.json`) from the snapshot to the turn that finishes it, and `backup reclaim` asks for a sweep now |
 
 ### The rule
 
-- **When.** After the node has published a snapshot, once, in the same turn. A snapshot entry is `n`. If `n` is at least 2 the node calls `log.trim` naming entry `n - 1`. The relay therefore keeps the two newest snapshots (`n - 1` and `n`), with every entry after the positions of `n - 1`. The first snapshot, and a snapshot that finds nothing changed, call nothing. A call that fails is logged and is not an error of the snapshot: nothing was lost, and the next snapshot asks again with a newer entry.
-- **Why two.** A restore uses the newest snapshot. If its files cannot be read, the one before it still works, because the entries after its positions are still on the relay. Trimming on the newest would leave one checkpoint.
+- **When.** After the node has published a snapshot. A snapshot entry is `n`, and the node calls `log.trim` naming entry `n`. The relay therefore keeps one snapshot, with every entry after its positions (Tom, 2026-11-24: "just keep the latest one"; it was the two newest until then). A snapshot that finds nothing changed calls nothing. A call that fails is logged and is not an error of the snapshot: nothing was lost, and the next snapshot asks again with a newer entry.
+- **What one snapshot costs.** A restore uses the newest snapshot, and there is no older one to fall back to. A device that has not read up to the positions of a snapshot when it is named is behind the trim and restores into a new home. It had the time between two snapshots to catch up before.
 - **Who.** Only the owner's node key. The personal database only: every entry that would go must be a sealed `data` or `schema` entry (or a `snapshot` entry on the snapshot stream), else the call stops with 403 `namespace`. A shared database is never trimmed, because its members read the publisher's streams from the start.
 - **What the relay checks.** The named entry is stored, is a `snapshot` entry of the publisher on that stream, and its signature verifies. For each stream in `through`, the entry stored at the position hashes to the `entry_hash` the snapshot names, and the relay holds at least that many entries. Otherwise the call fails (400 `through`) and drops nothing from that stream.
-- **What goes.** The entries of each stream up to its position, and the snapshot entries older than `n - 1`. The `birth` entry is on its own stream and never goes. **No blob goes.** The manifests and the files of a dropped snapshot entry stay on the relay, named by nothing. Collecting them waits for a lease on the snapshot stream (`write-leases.md`, not built), because two devices that snapshot at once could otherwise make a snapshot name a file that a trim just removed.
+- **What goes.** The entries of each stream up to its position, and the snapshot entries older than `n`. The `birth` entry is on its own stream and never goes. **No blob goes in the trim.** The manifest and the files of a dropped snapshot entry, and the sealed files of dropped entries, are then named by nothing, and the sweep of section 16 drops them. A snapshot cannot come to name a file that the sweep just removed: the node asks the relay again after it appended the `snapshot` entry and uploads what is gone, and the relay drops nothing once the head of the snapshot stream moved.
 - **What stays.** The head of each stream, so `log/streams` works as before and the next entry in order still advances the head. A stream that was trimmed is listed with its real head. A device that is past the positions reads from its own head and does not notice.
 
 ### A device behind the trim
@@ -401,9 +401,9 @@ A device whose head on some stream is below the floor of that stream cannot read
 
 ### Billing (Exemem)
 
-The stored-bytes counter of the publisher (`storage_used_bytes`) goes down by exactly the stored length of the log entries that were deleted. Each batch of entries goes in one DynamoDB transaction with the floor write and one counter update. Blobs are neither deleted nor released, so they stay billed. A delete is conditional on the item existing, and the counter update on the counter being what the call read. A transaction that loses a race changes nothing, so nothing is subtracted twice, and a repeat finds the floor already moved. The counter does not go below zero.
+The stored-bytes counter of the publisher (`storage_used_bytes`) goes down by exactly the stored length of the log entries that were deleted. Each batch of entries goes in one DynamoDB transaction with the floor write and one counter update. A trim neither deletes nor releases a blob; the sweep of section 16 does, and the counter goes down by the stored length of each blob it drops, in the transaction that deletes its record. A delete is conditional on the item existing, and the counter update on the counter being what the call read. A transaction that loses a race changes nothing, so nothing is subtracted twice, and a repeat finds the floor already moved. The counter does not go below zero.
 
-### Races, for entries alone (no blob is deleted, so no file can go missing)
+### Races, for entries (the races of the files are in section 16)
 
 The question: can any ordering lose a log entry, or make a restore of a retained snapshot fail? Four orderings, with the code that decides each.
 
@@ -416,16 +416,15 @@ The question: can any ordering lose a log entry, or make a restore of a retained
 3. **A device that reads while another trims.** The reader reads each stream from its own head plus one. If that is at or below the floor the relay answers 410 `trimmed` and the reader applies nothing more and reports that it is behind (`incoming.rs` `Cursor::fill`, `relay.rs` `read`). If a trim lands between two pages of one run, the next page answers 410 the same way; the entries already applied were valid and stay. A reader whose head is at or above the floor never reads an entry that a trim can drop.
 4. **A device that appends while another trims.** Both act on one stream only above the position (the appender) and at or below it (the trimmer), on different items; the trim moves only the floor item and deletes entries at or below the position, and the append moves only the head. The Exemem transaction of a batch is conditional on the floor it read, so two trims cannot both release the same bytes.
 
-The restore of either retained snapshot reads each stream after its position, and nothing after a position is ever dropped, so it finds all it reads. I found no ordering that loses an entry. The only effect of a late call is a clear 410 for a device that is behind, and a duplicate answer for a repeated append.
+The restore of the snapshot reads each stream after its position, and nothing after a position is ever dropped, so it finds all it reads. I found no ordering that loses an entry. The only effect of a late call is a clear 410 for a device that is behind, and a duplicate answer for a repeated append.
 
 ### Left as it is
 
-- **Files that no retained snapshot names** stay on the relay and stay billed. A snapshot entry that a trim dropped keeps its manifest and files there. They are collected in a later step that comes with the lease.
 - **All-devices read.** A read of every device of a writer returns the entries that are stored and does not say that some were dropped. The node uses one-device reads; a shared database is not trimmed.
 
 ### Proof
 
-`personal_database_proof.py` step 16 runs after the snapshots of steps 11 to 14, against the reference relay: the relay holds no entry at or before the positions of the retained older snapshot, on any stream, and keeps the birth, the two newest snapshots and their files; a device that stopped before those positions gets the error above and applies nothing; a restore from the phrase installs the newest snapshot, replays only the entries after it, and equals the source key by key, alternate keys and file included, with the relay restarted in between (the floor survives a restart); a repeat of an append at and below the floor (signed as A, replayed from a pre-trim copy of the relay) is answered as a duplicate, is not stored, and a read there is 410; a third snapshot drops the first snapshot entry but **not its manifest or any of its files**, and a restore from snapshot 2 and from snapshot 3 each equal the source; B and F, which were past the positions, hold their state and never report that they are behind. Against the Exemem DEV relay the same snapshots call the route; the run proves the restores, and not the bytes the relay holds or the counter, which a node cannot read.
+`personal_database_proof.py` step 16 runs after the snapshots of steps 11 to 14, against the reference relay: the relay holds the second snapshot entry alone and no entry at or before its positions, on any stream, and keeps the birth; a device that stopped before those positions gets the error above and applies nothing; a restore from the phrase installs the newest snapshot, replays only the entries after it, and equals the source key by key, alternate keys and file included, with the relay restarted in between (the floor survives a restart); a repeat of an append at and below the floor (signed as A, with entries the proof read before the trim) is answered as a duplicate, is not stored, and a read there is 410; a third snapshot drops the second snapshot entry, its manifest and the files that only it named, and a restore from snapshot 3 equals the source; the devices that read up to each cut hold their state and never report that they are behind. Every running device reads up to the cut before the proof takes a snapshot. The full replay of step 11 runs against a copy of the relay from before the first snapshot. Against the Exemem DEV relay the same snapshots call the routes; the run proves the restores, and asks the relay what it holds through `log/read` and `blob/list` (section 16).
 
 ## 15. The snapshot upload does not hold the sync turn
 
@@ -433,7 +432,7 @@ A snapshot of a large home uploads tens of megabytes. Inside the turn, no entry 
 
 **In the turn** (`snapshot::run`): after a clean turn, when a snapshot is requested or due and no lane runs, the store freezes the files (`capture_synced_snapshot`). It still needs the spool acknowledged and the replay settled at that one instant, so it stays in the turn, and it takes the head rows in the same hold of the write gate. The turn then marks the status `in_progress` and starts the lane. Nothing else changes in the turn.
 
-**In the lane** (`snapshot::upload`, a task in `snapshot_lane.rs`): hash the pinned files, upload what the previous snapshot did not hold, upload the manifest, read the head of the snapshot stream again, sign and append the `snapshot` entry, write `snapshot-last.json` and `snapshot-known.json`, ask the relay to trim, answer the request. The lane starts from a turn and ends by itself. It has no timer and no queue.
+**In the lane** (`snapshot::upload`, a task in `snapshot_lane.rs`): hash the pinned files, ask the relay what it holds, upload what it lacks, upload the manifest, read the head of the snapshot stream again, sign and append the `snapshot` entry, ask the relay again and upload what is gone (the files stay pinned until here), write `snapshot-last.json` and `snapshot-known.json`, ask the relay to trim, mark a sweep as due, answer the request. The lane starts from a turn and ends by itself. It has no timer and no queue.
 
 **What the entry claims does not change.** `through` is read from the head rows at the freeze, and `own_seq` is taken from it. Neither reads the live store later, so entries that the turns send, and entries that they apply from other devices, after the freeze are not claimed. Those are the tail a restore replays. The pinned files do not change however many writes follow.
 
@@ -455,3 +454,90 @@ A snapshot of a large home uploads tens of megabytes. Inside the turn, no entry 
 **Status.** While the lane runs, `cloud_sync.snapshot.state` is `in_progress`, and `message` says `uploaded N of M files, X of Y bytes` (before the first file: `hashing the files`). `lastdb status` prints `Snapshot uploading: <message>` below the line of the newest snapshot. A failure puts the earlier state back, and a relay limit sets `blocked` as before. `lastdb backup snapshot --wait` keeps its meaning: it returns when the request is answered, after the entry and the trim. The first snapshot of a home that held data before it began to capture still runs inside the turn, because the spool is not sent until it is named.
 
 **Proof.** `personal_database_proof.py` step 20 (`personal_proof_lane.py`): the reference relay reads a large upload at 24 KiB/s, so a snapshot with a 500 KB file uploads for about 20 s. During it W's writes are acknowledged and read by X before the relay holds a snapshot entry; W is killed with -9 in the first upload and loses and repeats nothing; the second upload takes writes the same way; the published entry names W through the last entry acknowledged at the freeze, and W signed more after it; a home restored from it replays exactly the entries after that position and equals W and X.
+
+## 16. The cloud matches the local store: one snapshot, and a sweep
+
+Basis: Tom, 2026-11-24: "You don't have to keep 2 new ones, just keep the latest one and make sure there's a way to reclaim the previous snapshots too." "Make sure that my cloud storage matches my local storage. There can be temporary disagreements [...] we're uploading a new snapshot and keeping the old snapshot until the new one has been verified." "Add that as a CI step so that we can make sure that the cloud doesn't grow beyond what the local has."
+
+### The problem, measured
+
+On 2026-11-24 the primary's store held 184 data files, 133.8 MB. The relay held 955 files, 1,157 MB, plus 75 MB of entries. A snapshot uploads every data file that changed, compaction rewrites data files, and the relay never deleted a file: `log/trim` drops entries only. A failed snapshot upload also left its files behind for good.
+
+### The rule
+
+After a snapshot is named and verified, the relay holds exactly:
+
+1. the files and the manifest of the newest snapshot,
+2. the entries after the positions of that snapshot (with the `birth` entry and that one `snapshot` entry),
+3. the sealed files that those entries name.
+
+Everything else is dropped and its bytes are released. While a new snapshot uploads, the relay holds the old and the new one. That is the only permitted disagreement.
+
+### Who owns which fact
+
+- The relay owns what is stored and what is charged. `blob.list` is the truth for "is this file on the relay". The node does not decide what to upload from its own `snapshot-last.json`.
+- The publisher's node owns what is needed: the manifest that the newest `snapshot` entry names, and the entries after its positions, which it reads back from the relay.
+- The relay reads no manifest and no file. It drops only the digests the publisher names, and only while the streams it was told about are as it was told (`blob.drop`, `relay-protocol.md`).
+
+### The snapshot lane (`personal/snapshot.rs`)
+
+1. Hash the files of the frozen cut.
+2. `blob.list`. Upload each manifest file the relay lacks (by digest and length), then the manifest.
+3. Sign and append the `snapshot` entry.
+4. Verify: `blob.list` again. Every manifest file and the manifest are present with the right length. One that is missing is uploaded again from the cut, which is still pinned. Only then is the snapshot recorded as published. From the append to the record a mark is on disk (`snapshot-unverified`). If the check does not end (a stop, a kill, a failed transfer), the mark stays and the next clean turn takes a snapshot again, which uploads what the relay lacks and names a complete one. A restore reads the newest snapshot alone, so an incomplete one must not stay the newest.
+5. `log.trim` to this snapshot. The relay drops the entries it covers and the older `snapshot` entries.
+6. Mark a sweep as due for this snapshot (`log-sync/<database>/reclaim-due.json`).
+
+### The sweep (`personal/reclaim.rs`)
+
+It runs inside a sync turn, after the send step, when a sweep is due and the head of the relay's snapshot stream is still that snapshot, or when `lastdb backup reclaim` asked for one. It does not run while a snapshot uploads.
+
+1. `log.streams`, then `blob.list` (all pages).
+2. Read the newest `snapshot` entry and its manifest from the relay. Read every entry after the snapshot's positions, up to the listed heads, and collect every digest they name (`mutation_log::named_blobs`: the file of a data entry, the body of a bundle, the manifest of a snapshot). A read that cannot return every one of those entries (a gap, an entry out of place, a 410) stops the sweep, and nothing is dropped.
+3. Needed = manifest files + manifest + those digests. Dead = listed minus needed.
+4. Nothing is dropped unless the relay lists every file of the newest snapshot and its manifest with their lengths, checked against the listing of step 1 in this same pass. A snapshot with a missing file stops the sweep: the mark stays and says why, and the next snapshot marks again.
+5. `blob.drop` in calls of 25, with the heads of step 1 as its condition. When nothing is dead the sweep is done: the mark is removed and the totals are recorded (`reclaim-last.json`, `cloud_sync.reclaim` of `/api/status`, the `Cloud storage:` line of `lastdb status`).
+
+A snapshot this node named and has not verified (`snapshot-unverified`) is never trimmed and never gets a sweep mark: the trim and the mark come after the check of lane step 4.
+
+What a drop released is counted from what the node observes. An answer with no absent digest is the count. Any other call stays written down (`reclaim-named.json`) until the next `blob.list`: a digest this node named that the relay no longer lists was released, with the length the earlier listing gave. A client that asks again after a lost answer therefore does not lose the count.
+
+Because the sweep is a difference against a listing, it also removes the backlog: the files of every earlier snapshot, the sealed files of entries trimmed long ago, and the files of a failed upload.
+
+When the relay refuses a drop (409 `heads`), the next turn lists again. A stream that keeps an entry above its head (an entry stored beyond a gap) is refused every time. After 30 turns in a row the sweep stops trying: the mark stays and records why, the status shows it (`Cloud storage sweep waits: ...`), a waiting request fails with the reason, and it is logged once. The next snapshot marks again, and `lastdb backup reclaim` tries again.
+
+A database with more than 32 streams (the birth stream and the device streams) cannot name every head in one drop. The sweep then fails once with that reason and removes its mark.
+
+### Why the heads are a condition
+
+The one danger of a sweep is a file that is committed and not yet named: a device uploads the sealed file, then appends the entry. Two rules close it without a clock.
+
+1. The device that names a file checks after it names it. After an append whose entries name files, and after the append of a `snapshot` entry, the node asks the relay again for each file and uploads any that is gone (`personal/send.rs`, lane step 4). The spool retires the entries only after that.
+2. The drop is one step with the heads. If the entry was appended before the drop, a head moved and the drop does nothing. If it is appended after the drop, rule 1 puts the file back.
+
+A stream that did not exist when the node listed the streams has no head in the drop. The relay therefore refuses a drop (409 `heads`) while the publisher has a stream that the call does not name. If the new device's first entry was appended before the drop, the drop does nothing and the next turn lists the new stream. If it is appended after the drop, rule 1 puts the file back.
+
+### What a person can see
+
+- `lastdb status` prints `Cloud storage: <N> files, <size> on the relay after the last sweep (the snapshot it kept: <N> files, <size>)` after the snapshot line. `lastdb backup reclaim --wait` runs a sweep now and prints what the relay dropped and what it holds.
+- The account of what this device put on the relay (`cloud-usage.json`) also counts what the sweeps it asked for released (`released_blobs`, `released_blob_bytes`).
+- A restore reads the newest snapshot only. A restore that is in progress while a newer snapshot is swept can lose a file under it. It then fails, and a repeat reads the newer snapshot.
+- A device that is behind the newest snapshot's positions restores from the snapshot.
+- There is one snapshot. If its files were damaged on the provider, the local database is the only other copy until the next snapshot.
+
+### Proof
+
+`personal_database_proof.py` step 23 (`personal_proof_reclaim.py`), against the reference relay and the Exemem DEV relay: rounds of overwrites, deletes and new files with a snapshot each, with data of the same size. After each round, once the sweep is done, the proof asks the relay through its routes (`log/streams`, `log/read` of every stream from its floor, `blob/list`, `blob.get` of the manifest):
+
+- the relay holds one snapshot entry, and its stored files are exactly the files of that manifest, the manifest, and the sealed files that stored entries name, each with its length, so the stored bytes equal the manifest's file bytes plus the manifest length plus those sealed bytes;
+- stored files plus stored entries are not above the native files of the writer's store on disk plus an allowance: the manifest, the stored entries, 29 bytes for each sealed file, and 64 KiB for a file the store rewrites between the measurement and the cut;
+- from the first round to the last the relay grew by no more than the local files did, plus what that allowance grew and 64 KiB;
+- each sweep released at least the sealed files of its round, and from the second round the manifest before;
+- a `blob/drop` that the proof signs itself and that leaves one stream of the publisher out of `heads` is answered 409 `heads` and drops nothing.
+
+The report of `lastdb backup reclaim --wait`, the `cloud_sync.reclaim` object and the `Cloud storage:` line must say what the relay says. On the reference relay the proof also reads the relay's disk: every stored object is one the database owns, and no pending record of an upload is left after its commit. Step 21 (`personal_proof_reconcile.py`) fails on any blob that neither the one snapshot nor a stored entry names, and holds the stored blobs against the accounts: blobs put less blobs released.
+
+### Not in this change
+
+- Shared databases have no snapshot, so nothing trims or sweeps them.
+- No clock, no age threshold, no second snapshot, and no path for a relay without the routes: the relay is deployed before the node that needs them.

@@ -13,7 +13,8 @@ const APPEND_MAX_BYTES: usize = 3 * 1024 * 1024;
 /// Envelope overhead for `{"database_id":"...","entries":[...]}`.
 const APPEND_WRAPPER_BYTES: usize = 128;
 
-/// Send a batch: the birth when the relay lacks it, the files, then the entries in chunks.
+/// Send a batch: the birth when the relay lacks it, the files, the entries in chunks, then a
+/// second look at the files.
 pub(super) async fn send(
     ctx: &Ctx<'_>,
     client: &RelayClient,
@@ -36,6 +37,15 @@ pub(super) async fn send(
     for chunk in entry_chunks(&batch.entries)? {
         let stored = client.append(&ctx.database_id, chunk).await?;
         expect_all(stored, chunk.len())?;
+    }
+    // The device that names a file asks for it again after it named it. A sweep that ran between
+    // the upload of a file and the append of its entry dropped the file, because nothing named it
+    // yet. `blob.put` begin answers at once for a file the relay holds, and a file that is gone
+    // goes up again. The caller retires the entries from the spool only after this.
+    for file in &batch.files {
+        client
+            .blob_put(&ctx.database_id, &file.sha256, &file.path)
+            .await?;
     }
     Ok(())
 }

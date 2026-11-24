@@ -18,6 +18,53 @@ pub(crate) struct CloudSyncStatus {
     pub(crate) databases: BTreeMap<String, DatabaseSyncStatus>,
     /// The newest snapshot of the personal database that this node published or installed.
     pub(crate) snapshot: SnapshotStatus,
+    /// What the relay held of the personal database after the last sweep of this node.
+    pub(crate) reclaim: ReclaimStatus,
+}
+
+/// What the last finished sweep of this node found on the relay: the object `cloud_sync.reclaim`
+/// of `/api/status`, and the record kept on disk beside the snapshot record. A sweep drops every
+/// stored file that the newest snapshot and the entries after it do not name. Every field is
+/// `None` until a sweep of this node finished.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct ReclaimStatus {
+    /// Unix milliseconds at which the sweep ended.
+    pub(crate) swept_at_ms: Option<u64>,
+    /// The sequence number of the snapshot entry that the sweep kept.
+    pub(crate) snapshot_seq: Option<u64>,
+    /// Files in the manifest of that snapshot.
+    pub(crate) snapshot_files: Option<u64>,
+    /// Total length of those files.
+    pub(crate) snapshot_bytes: Option<u64>,
+    /// Stored files that the manifest names: its files, one for each digest.
+    pub(crate) snapshot_blobs: Option<u64>,
+    /// Total length of those stored files, as the manifest gives it.
+    pub(crate) snapshot_blob_bytes: Option<u64>,
+    /// The length of the manifest.
+    pub(crate) manifest_bytes: Option<u64>,
+    /// Stored files that the entries after the snapshot name and the manifest does not.
+    pub(crate) named_files: Option<u64>,
+    /// Total length of those files, as the relay lists them.
+    pub(crate) named_bytes: Option<u64>,
+    /// Files that the manifest or an entry names and the relay did not list.
+    pub(crate) missing_files: Option<u64>,
+    /// Entries the sweep read: every entry after the positions of the snapshot, the birth and
+    /// the snapshot entry.
+    pub(crate) entries: Option<u64>,
+    /// The length of those entries as JSON.
+    pub(crate) entry_bytes: Option<u64>,
+    /// Files the relay listed after the sweep.
+    pub(crate) cloud_files: Option<u64>,
+    /// Total length of those files.
+    pub(crate) cloud_bytes: Option<u64>,
+    /// Files the relay dropped in the turn that finished the sweep.
+    pub(crate) dropped_files: Option<u64>,
+    /// Stored bytes the relay released for them.
+    pub(crate) released_bytes: Option<u64>,
+    /// Why the sweep that is due for the newest snapshot waits. The other fields still describe
+    /// the last sweep that finished.
+    #[serde(default)]
+    pub(crate) message: Option<String>,
 }
 
 /// Where the snapshot of the personal database stands.
@@ -78,6 +125,12 @@ pub(crate) struct CloudUsage {
     pub(crate) released_entries: u64,
     /// Stored bytes the relay released for trims this device asked for.
     pub(crate) released_bytes: u64,
+    /// Files the relay dropped for sweeps this device asked for (`blob.drop`).
+    #[serde(default)]
+    pub(crate) released_blobs: u64,
+    /// Stored bytes the relay released for those files.
+    #[serde(default)]
+    pub(crate) released_blob_bytes: u64,
     /// Blobs whose upload began and has not ended: cut off by a stop, and not put again yet. The
     /// relay may hold them. They are not in `blobs`.
     pub(crate) unconfirmed_blobs: u64,
@@ -134,6 +187,7 @@ impl CloudSyncTracker {
                 last_error,
                 databases: BTreeMap::new(),
                 snapshot: SnapshotStatus::default(),
+                reclaim: ReclaimStatus::default(),
             }),
             wake_notify: Arc::new(Notify::new()),
         }
@@ -200,6 +254,17 @@ impl CloudSyncTracker {
         let mut guard = self.lock();
         guard.snapshot.state = state;
         guard.snapshot.message = message;
+    }
+
+    /// What the relay held after the sweep that just finished, or that the node kept on disk.
+    pub(crate) fn record_reclaim(&self, reclaim: ReclaimStatus) {
+        self.lock().reclaim = reclaim;
+    }
+
+    /// Say why the sweep that is due waits, or that it waits no longer, keeping the facts of the
+    /// last sweep that finished.
+    pub(crate) fn mark_reclaim(&self, message: Option<String>) {
+        self.lock().reclaim.message = message;
     }
 
     /// Drop the sticky top-level last_error after a successful sync turn.

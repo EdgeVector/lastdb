@@ -41,6 +41,7 @@ sys.path[:0] = [str(_OPS), str(_OPS.parent)]
 from harness import append_step_summary  # noqa: E402
 from existing_home_proof import snapshots_on, write_after, write_before  # noqa: E402
 from personal_proof_nodes import ALPHA, MARK, Device, Relay, converged, create, delete, expect, replace, wait  # noqa: E402
+from personal_proof_status import swept  # noqa: E402
 from personal_proof_steps import gamma_view  # noqa: E402
 from record_runs import require  # noqa: E402
 
@@ -248,8 +249,11 @@ def prove(relay, previous, devices, out, summary):
 
     # 4. The build under test takes its own snapshot; a restore installs it and replays only the tail after it.
     count = snapshots_on(relay, upgraded.database)
-    upgraded.snapshot_now()
-    require(snapshots_on(relay, upgraded.database) == count + 1, "the snapshot of the build under test is not on the relay")
+    taken = upgraded.snapshot_now()
+    # The build under test keeps one snapshot on the relay: its own replaces the previous build's.
+    require(taken["snapshot_seq"] == count + 1 and snapshots_on(relay, upgraded.database) == 1,
+            f"the snapshot of the build under test is not the one snapshot on the relay: {taken!r}")
+    swept(upgraded, taken["snapshot_seq"])
     for key in fresh[2:5]:
         upgraded.change([replace(ALPHA, key, "tail")])
         expect(state, ALPHA, key, "tail")

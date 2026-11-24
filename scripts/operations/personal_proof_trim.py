@@ -1,22 +1,24 @@
-"""Step 16 of the personal database proof: the relay drops what a snapshot covers, and still restores.
+"""Step 16 of the personal database proof: the relay keeps one snapshot, and still restores.
 
-After a snapshot, the node asks the relay to drop what the second newest snapshot covers (`log/trim`).
-The first trim of the proof ran at step 13, when A took its second snapshot. This step checks the
-relay, restores from it, and takes a third snapshot:
+After a snapshot, the node asks the relay to drop what that snapshot covers (`log/trim`) and then sweeps
+the stored files that nothing names (`blob/list`, `blob/drop`). The first two trims of the proof ran at
+steps 11 and 13, when A took its first and second snapshot. This step checks the relay, restores from
+it, and takes a third snapshot:
 
-- the relay holds no entry at or before the positions of the retained older snapshot, on any stream,
-  and keeps the birth, the two newest snapshots, and every entry after the positions;
+- the relay holds one snapshot entry, the newest, and no entry at or before its positions, on any
+  stream, and keeps the birth and every entry after the positions;
+- a late repeat of an append at and below the floor is answered as a duplicate and stored nowhere;
 - a device that stopped before those positions is told it is behind and applies nothing;
 - a restore from the recovery phrase installs the newest snapshot, replays only the entries after
   it, and equals A key by key, alternate keys and file included;
 - the relay restarts and still lists the streams, takes the next append of each device, and
   restores another home (the floor of each stream is on disk);
-- a third snapshot drops the first snapshot entry (and the entries up to the positions of the
-  second), and never a blob: the manifest and files of snapshot 1 are still on the relay. A
-  restore from the second snapshot (on a copy of the relay without the third) and a restore from
-  the third each equal A;
-- devices that were past the positions (A, B and F) read nothing wrong, and log no warning that
-  they are behind.
+- a third snapshot drops the second snapshot entry, the entries up to its own positions, and the
+  manifest and the files that only the second snapshot named. A restore from the third equals A;
+- devices that read up to the cut before each snapshot (A, B, F and the restored homes) read nothing
+  wrong, and log no warning that they are behind.
+
+Every blob the relay holds afterwards is accounted for in step 21 (`personal_proof_reconcile.py`).
 """
 import base64
 import hashlib
@@ -27,9 +29,10 @@ import time
 import urllib.error
 import urllib.request
 
-from personal_proof_nodes import ALPHA, BETA, Relay, converged, create, expect, wait
+from personal_proof_nodes import ALPHA, BETA, converged, create, expect, wait
 from personal_proof_snapshot import (
     last_record, snapshot_stream, stored_seqs, stream_dirs, stream_kind, views)
+from personal_proof_status import swept
 from record_runs import require
 
 try:
@@ -93,37 +96,64 @@ def check_dropped(relay, database, entry):
     return tail
 
 
+# A relay answer that says the same request can succeed a moment later is asked again, as the node does
+# (`relay-protocol.md`, "What a client does with a refusal"): at most this many times, after 0.5 s doubled.
+TRANSIENT_RETRIES = 4
+
+
+def transient(status, answer):
+    """A gateway failure, `unavailable`, or a 429 whose field names a provider."""
+    return (status in (502, 503, 504) or (status == 500 and answer.get("code") == "unavailable")
+            or (status == 429 and str(answer.get("field", "")).startswith("provider.")))
+
+
 def relay_post(relay, device, database, node_hex, path, body):
-    """One signed request of A to the relay, as the node signs it. Returns (HTTP status, JSON answer)."""
+    """One signed request of A to the relay, as the node signs it. Returns (HTTP status, JSON answer).
+
+    Each try is signed again, with a new nonce and time.
+    """
     key = Ed25519PrivateKey.from_private_bytes((device.node.home / "identity.key").read_bytes())
     raw = json.dumps(body, separators=(",", ":")).encode()
-    issued, nonce = str(int(time.time())), secrets.token_hex(32)
-    message = f"POST\n{path}\n1\n{node_hex}\n{database}\n{hashlib.sha256(raw).hexdigest()}\n{issued}\n{nonce}"
-    signature = base64.urlsafe_b64encode(key.sign(message.encode())).rstrip(b"=").decode()
-    headers = {"X-LastDB-Relay-Protocol": "1", "X-LastDB-Node-Key": node_hex, "X-LastDB-Database-Id": database,
-               "X-LastDB-Device-Id": device.device_id(), "X-LastDB-Issued-At": issued, "X-LastDB-Nonce": nonce,
-               "X-LastDB-Signature": signature, "content-type": "application/json"}
-    request = urllib.request.Request(relay.url + path, data=raw, headers=headers, method="POST")
+    for tried in range(TRANSIENT_RETRIES + 1):
+        issued, nonce = str(int(time.time())), secrets.token_hex(32)
+        message = f"POST\n{path}\n1\n{node_hex}\n{database}\n{hashlib.sha256(raw).hexdigest()}\n{issued}\n{nonce}"
+        signature = base64.urlsafe_b64encode(key.sign(message.encode())).rstrip(b"=").decode()
+        headers = {"X-LastDB-Relay-Protocol": "1", "X-LastDB-Node-Key": node_hex, "X-LastDB-Database-Id": database,
+                   "X-LastDB-Device-Id": device.device_id(), "X-LastDB-Issued-At": issued, "X-LastDB-Nonce": nonce,
+                   "X-LastDB-Signature": signature, "content-type": "application/json"}
+        request = urllib.request.Request(relay.url + path, data=raw, headers=headers, method="POST")
+        try:
+            with urllib.request.urlopen(request, timeout=60) as answer:
+                return answer.status, json.loads(answer.read())
+        except urllib.error.HTTPError as error:
+            status, answer = error.code, _json_or_empty(error.read())
+        if tried == TRANSIENT_RETRIES or not transient(status, answer):
+            return status, answer
+        print(f"   the relay answered {status} {answer!r} to {path}; asking again", flush=True)
+        time.sleep(0.5 * 2 ** tried)
+    raise AssertionError("unreachable")
+
+
+def _json_or_empty(raw):
     try:
-        with urllib.request.urlopen(request, timeout=60) as answer:
-            return answer.status, json.loads(answer.read())
-    except urllib.error.HTTPError as error:
-        return error.code, json.loads(error.read() or b"{}")
+        found = json.loads(raw or b"{}")
+    except ValueError:
+        return {}
+    return found if isinstance(found, dict) else {}
 
 
-def late_repeat(relay, relay2, a, database, older):
+def late_repeat(relay, a, database, newest, kept):
     """A repeat of an append of entries at and below the floor is answered as a duplicate, is not stored
-    and is not readable (410). `relay2` still holds the entries, from a copy made before the first trim."""
-    seq = positions(older)[a.device_id()]
+    and is not readable (410). `kept` holds the entries, read from the relay before the trim dropped them."""
+    seq = positions(newest)[a.device_id()]
     directory = next(path for path in stream_dirs(relay, database) if path.name == a.device_id())
     node_hex, stored = directory.parent.name, relay.stream_floor(database, a.device_id())
     require(stored == seq, f"the floor of A is {stored}, not {seq}")
     before = stored_seqs(directory)
     for repeated in (seq, seq - 3):
-        copy = relay2.data / directory.relative_to(relay.data) / f"{repeated}.json"
-        require(copy.is_file(), f"the pre-trim copy holds no entry {repeated} of A")
+        require(repeated in kept, f"the proof kept no entry {repeated} of A from before the trim")
         status, answer = relay_post(relay, a, database, node_hex, "/relay/v1/log/append",
-                                    {"database_id": database, "entries": [json.loads(copy.read_text())]})
+                                    {"database_id": database, "entries": [kept[repeated]]})
         require(status == 200 and answer.get("duplicate") is True, f"a repeat of entry {repeated}: {status} {answer!r}")
         require(not (directory / f"{repeated}.json").exists(), f"the relay stored entry {repeated} again below the floor")
         status, answer = relay_post(relay, a, database, node_hex, "/relay/v1/log/read",
@@ -162,21 +192,22 @@ def restore_equals(relay, device, phrase, state, folders, expected, snapshot_seq
     return restored
 
 
-def trimmed_relay_restores(relay, relay2, a, b, c, f, g, phrase, state, folders, expected):  # noqa: PLR0915 one scenario, in order
-    """16. The relay holds no covered entry, still restores, survives a restart, and drops the older snapshot."""
+def trimmed_relay_restores(relay, a, b, c, f, g, phrase, state, folders, expected, kept):  # noqa: PLR0915 one scenario, in order
+    """16. The relay holds one snapshot and no covered entry, still restores, survives a restart, and a third replaces it."""
     database = a.database
     wait("A, B and F to upload", lambda: a.synced_up() and b.synced_up() and f.synced_up())
     directory = snapshot_stream(relay, database)
-    require(directory is not None and stored_seqs(directory) == [1, 2],
-            f"the relay does not hold snapshots 1 and 2: {stored_seqs(directory) if directory else None}")
-    older, newest = entry_of(directory, 1), entry_of(directory, 2)
-    require(older["through"], "snapshot 1 names no position: nothing was covered")
-    dropped = sum(positions(older).values())
-    check_dropped(relay, database, older)
-    for device_id, position in positions(older).items():
+    require(directory is not None and stored_seqs(directory) == [2],
+            f"the relay does not hold snapshot 2 alone: {stored_seqs(directory) if directory else None}")
+    require(relay.stream_floor(database, directory.name) == 1, "the floor of the snapshot stream is not entry 1")
+    newest = entry_of(directory, 2)
+    require(newest["through"], "snapshot 2 names no position: nothing was covered")
+    dropped = sum(positions(newest).values())
+    check_dropped(relay, database, newest)
+    for device_id, position in positions(newest).items():
         require(relay.stream_floor(database, device_id) == position, f"the floor of {device_id[:8]} is not {position}")
 
-    late_repeat(relay, relay2, a, database, older)
+    late_repeat(relay, a, database, newest, kept)
 
     # A device behind the positions fails clearly and applies nothing.
     behind = behind_device(c, relay, phrase)
@@ -185,8 +216,8 @@ def trimmed_relay_restores(relay, relay2, a, b, c, f, g, phrase, state, folders,
     # A restore from the trimmed relay: the newest snapshot, then only what follows it.
     tail_newest = tail_after(relay, database, newest)
     first_restore = restore_equals(relay, g, phrase, state, folders, expected, 2, tail_newest)
-    print(f"16. the relay dropped {dropped} entries covered by snapshot 1 and keeps the birth, snapshots 1 and 2 "
-          f"and what follows; G restored from the phrase and replayed {tail_newest} entries and equals A; C, "
+    print(f"16. the relay dropped the {dropped} entries that snapshot 2 covers and snapshot 1, and keeps the birth, "
+          f"snapshot 2 and what follows; G restored from the phrase and replayed {tail_newest} entries and equals A; C, "
           "which stopped before the positions, was told it is behind and applied nothing", flush=True)
 
     # The relay restarts: the floors are on disk, the streams list, appends and a restore work.
@@ -202,53 +233,39 @@ def trimmed_relay_restores(relay, relay2, a, b, c, f, g, phrase, state, folders,
     print("   the relay restarted: it lists the trimmed streams, takes the next entry of A and B, and restored C",
           flush=True)
 
-    # A third snapshot: the first snapshot entry goes. No manifest and no file does.
-    first_manifest, first_files = manifest_files(relay, older)
+    # A third snapshot replaces the second: its entry, its manifest and the files only it named go.
     second_manifest, second_files = manifest_files(relay, newest)
-    only_first = (first_files | {first_manifest}) - (second_files | {second_manifest})
-    require(only_first, "snapshot 1 names no file that snapshot 2 does not: the proof cannot see a file stay")
-    require(only_first <= blob_names(relay), "the relay lacks a file of snapshot 1 before the third snapshot")
+    require((second_files | {second_manifest}) <= blob_names(relay), "the relay lacks a file of snapshot 2 before the third")
     a.write([create(ALPHA, "before-third", "one")])
     expect(state, ALPHA, "before-third", "one")
     wait("A to upload", a.synced_up)
+    # Every running device reads up to the cut: the snapshot drops what it covers.
+    wait("B, F, G and C to hold what A wrote", lambda: views((b, f, g, c), state, folders, expected))
     third = a.snapshot_now()
     require(third["snapshot_seq"] == 3, f"third snapshot: {third!r}")
+    swept(a, 3)
     directory = snapshot_stream(relay, database)
-    require(stored_seqs(directory) == [2, 3], f"the snapshot entries after the third trim: {stored_seqs(directory)}")
-    require(relay.stream_floor(database, directory.name) == 1, "the floor of the snapshot stream is not entry 1")
+    require(stored_seqs(directory) == [3], f"the snapshot entries after the third trim: {stored_seqs(directory)}")
+    require(relay.stream_floor(database, directory.name) == 2, "the floor of the snapshot stream is not entry 2")
+    newest = entry_of(directory, 3)
     held = blob_names(relay)
-    require(only_first <= held, f"the trim dropped {len(only_first - held)} blobs that only snapshot 1 named")
-    require((first_files | {first_manifest}) <= held, "the trim dropped a blob of snapshot 1")
     third_files = {file["sha256"] for file in last_record(a)["manifest"]["files"]}
-    require(third_files <= held, "the relay lacks a file of the newest snapshot")
-    require((second_files | {second_manifest}) <= held, "the relay lost a file of the second newest snapshot")
+    require((third_files | {newest["manifest_sha256"]}) <= held, "the relay lacks a file of the newest snapshot")
+    only_second = (second_files | {second_manifest}) - (third_files | {newest["manifest_sha256"]})
+    require(len(only_second) > 1, "snapshot 2 names no file that snapshot 3 does not: the proof cannot see a file go")
+    require(not only_second & held, f"the relay kept {len(only_second & held)} blobs that only snapshot 2 named")
     check_dropped(relay, database, newest)
     for device_id, position in positions(newest).items():
         require(relay.stream_floor(database, device_id) == position, f"the floor of {device_id[:8]} is not {position}")
-    tail_third = tail_after(relay, database, entry_of(directory, 3))
-    # A restore from the second snapshot: a copy of the relay that does not hold the third.
-    copy = Relay(relay.binary, relay.data.parent / "relay-snapshot-2")
-    copy.data.parent.mkdir()
-    shutil.copytree(relay.data, copy.data)
-    (copy.data / directory.relative_to(relay.data) / "3.json").unlink()
-    copy.start()
-    try:
-        tail_second = tail_after(copy, database, newest)
-        g.relay = copy
-        from_second = restore_equals(copy, g, phrase, state, folders, expected, 2, tail_second)
-    finally:
-        g.relay = relay
-        copy.stop()
-    wait("B and F to hold what A wrote", lambda: converged((b, f), state))
+    tail_third = tail_after(relay, database, newest)
     restored = restore_equals(relay, g, phrase, state, folders, expected, 3, tail_third)
     wait("A, B, F and G to hold every record", lambda: views((a, b, f, g), state, folders, expected))
-    for device in (a, b, f):
+    for device in (a, b, f, c):
         require(not told_behind(device), f"{device.name}, which was past the positions, was told it is behind")
-    print(f"   a third snapshot dropped snapshot 1 and kept its manifest and the {len(only_first) - 1} files that "
-          f"only it named; G restored from snapshot 2 ({tail_second} entries replayed) and from snapshot 3 "
-          f"({tail_third} entries replayed) and equals A each time; A, B and F were never told they are behind",
-          flush=True)
-    return {"dropped_entries": dropped, "tail_after_snapshot_2": tail_newest, "blobs_kept_of_snapshot_1": len(only_first), "restore_from_snapshot_2": {k: from_second[k] for k in ("replayed", "devices")},
+    print(f"   a third snapshot dropped snapshot 2, its manifest and the {len(only_second) - 1} files that only it "
+          f"named; G restored from snapshot 3 ({tail_third} entries replayed) and equals A; A, B, C and F were never "
+          "told they are behind", flush=True)
+    return {"dropped_entries": dropped, "tail_after_snapshot_2": tail_newest, "blobs_dropped_with_snapshot_2": len(only_second),
             "restore_after_trim": {k: first_restore[k] for k in ("replayed", "devices")},
             "restore_after_third": {k: restored[k] for k in ("replayed", "devices")}}
 

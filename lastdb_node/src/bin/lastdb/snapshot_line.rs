@@ -1,4 +1,5 @@
-//! The snapshot lines of `lastdb status`, from the `cloud_sync.snapshot` object of `/api/status`.
+//! The snapshot lines of `lastdb status`, from the `cloud_sync.snapshot` object of `/api/status`,
+//! and the cloud storage line, from `cloud_sync.reclaim`.
 
 use serde_json::Value;
 
@@ -27,6 +28,34 @@ pub(crate) fn snapshot_lines(sync: &Value) -> Vec<String> {
             .as_str()
             .unwrap_or("the relay refused it");
         lines.push(format!("Snapshot blocked: {message}"));
+    }
+    lines
+}
+
+/// The line that says what the relay held after the last sweep of this node, beside the size of
+/// the snapshot the sweep kept. A sweep drops every stored file that the newest snapshot and the
+/// entries after it do not name. No line before the first sweep. A second line says why a sweep
+/// that is due waits, when the relay refused its drops.
+pub(crate) fn storage_lines(sync: &Value) -> Vec<String> {
+    let Some(reclaim) = sync.get("reclaim") else {
+        return Vec::new();
+    };
+    let field = |name: &str| reclaim[name].as_u64();
+    let mut lines = Vec::new();
+    if let (Some(files), Some(bytes), Some(snapshot_files), Some(snapshot_bytes)) = (
+        field("cloud_files"),
+        field("cloud_bytes"),
+        field("snapshot_files"),
+        field("snapshot_bytes"),
+    ) {
+        lines.push(format!(
+            "Cloud storage: {files} files, {} on the relay after the last sweep (the snapshot it kept: {snapshot_files} files, {})",
+            size(bytes),
+            size(snapshot_bytes),
+        ));
+    }
+    if let Some(message) = reclaim["message"].as_str() {
+        lines.push(format!("Cloud storage sweep waits: {message}"));
     }
     lines
 }

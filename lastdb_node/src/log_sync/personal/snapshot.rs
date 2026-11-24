@@ -13,19 +13,31 @@
 //!    only step that needs a quiet instant, and it runs inside a sync turn. The pinned
 //!    files and the positions stay valid however many writes follow.
 //!
-//! Steps 2 to 4 are slow and run in the snapshot lane (`snapshot_lane`), so entries are still
+//! Steps 2 to 7 are slow and run in the snapshot lane (`snapshot_lane`), so entries are still
 //! sent and acknowledged and the other devices are still read while they run. The first
 //! snapshot of a home that held data before it began to capture runs them inside the turn,
 //! because the spool is not sent until that snapshot is named.
 //!
-//! 2. Hash the files, and upload each file that the previous snapshot of this device did not hold, as
-//!    a blob named by its digest, then the manifest as a blob.
-//! 3. Sign a `snapshot` entry on the snapshot stream and append it. Only now does
-//!    the relay name the snapshot. A file or manifest that is on the relay without
-//!    such an entry is unused and harmless.
-//! 4. Ask the relay to drop what the second newest snapshot covers (`trim_covered`). The relay
-//!    keeps the two newest snapshots, so a restore from either still finds every entry it
-//!    reads, and a failed or unknown trim only leaves the relay larger.
+//! 2. Hash the files of the cut.
+//! 3. Ask the relay what it holds (`blob.list`), upload each file of the manifest that it lacks
+//!    by digest and length, then the manifest. The relay is the truth for what is stored: a
+//!    record of this device is not asked.
+//! 4. Sign a `snapshot` entry on the snapshot stream and append it. Only now does the relay
+//!    name the snapshot.
+//! 5. Verify: ask the relay again. Every file of the manifest and the manifest are there with
+//!    the right length, and one that is gone is uploaded again from the cut, which stays pinned
+//!    until here. Only then is the snapshot recorded as published. A sweep that ran before the
+//!    entry was appended may have dropped a file that nothing named yet. A sweep after it keeps
+//!    them, because the relay drops nothing once the head of the snapshot stream moved. From the
+//!    append to the record a mark is on disk (`snapshot-unverified`): if the check does not end,
+//!    the next clean turn takes a snapshot again, so an incomplete one does not stay the newest.
+//! 6. Ask the relay to drop what this snapshot covers (`trim_covered`): the entries up to its
+//!    positions and the older snapshot entries. The relay then holds one snapshot. A failed or
+//!    unknown trim only leaves the relay larger.
+//! 7. Mark a sweep as due for this snapshot (`reclaim`). A sync turn then drops every stored
+//!    file that this snapshot and the entries after it do not name: the files of the snapshot
+//!    before, and the sealed files of the entries the trim dropped. While a new snapshot
+//!    uploads, the relay holds the old and the new one, and at no other time.
 //!
 //! The files are encrypted at rest by the store (the keys come from the node
 //! seed), so they are uploaded as they are. The relay sees file names, lengths
@@ -41,8 +53,9 @@ use std::time::Instant;
 
 use fold_db::storage::disk_pack::snapshot::DatabaseSnapshot;
 use fold_db::storage::disk_pack::NativeCloudWorkGuard;
-use mutation_log::SnapshotThrough;
+use mutation_log::{SignedEntry, SnapshotThrough};
 
+use super::reclaim;
 use super::snapshot_entry::{
     require_covers_latest, require_empty_for_first, sign, through_of, trim_covered,
 };
@@ -50,10 +63,12 @@ use super::snapshot_known as known;
 use super::snapshot_lane as lane;
 use super::snapshot_manifest::{self as manifest, Manifest};
 use super::snapshot_state::{
-    fail_request, fail_request_in, finish_request, load_last, read_request, record_published, Last,
-    PublishedCut, Report,
+    clear_unverified, fail_request, fail_request_in, finish_request, load_last, mark_unverified,
+    read_request, record_published, unverified, Last, PublishedCut, Report,
 };
-use super::snapshot_upload::{elapsed_ms, ensure_birth, put_manifest, upload_files, TOO_LARGE};
+use super::snapshot_upload::{
+    elapsed_ms, ensure_birth, put_manifest, upload_files, verify_named, Named, TOO_LARGE,
+};
 use super::{list_streams, Ctx};
 use crate::host::cloud_sync::SnapshotState;
 use crate::host::Host;
@@ -88,7 +103,11 @@ pub(super) async fn run(
         return Ok(());
     }
     let request = read_request(home, &ctx.database_id);
-    if request.is_none() && (known::waiting(home).is_some() || !auto_due(ctx, client).await?) {
+    // A snapshot this device named and could not verify is taken again, as a due one is.
+    if request.is_none()
+        && (known::waiting(home).is_some()
+            || !(unverified(home, &ctx.database_id) || auto_due(ctx, client).await?))
+    {
         return Ok(());
     }
     let frozen = match freeze(ctx, false).await {
@@ -132,11 +151,11 @@ async fn upload(host: Arc<Host>, base: String, frozen: Frozen, request: Option<S
     match publish_cut(&ctx, &client, frozen, false).await {
         Ok((report, fresh)) => {
             tracing::info!(target: "lastdbd::log_sync", seq = report.snapshot_seq, files = report.files, uploaded = report.uploaded_files, "snapshot published");
-            if !fresh {
-                host.cloud_sync.mark_snapshot(prior.0, prior.1);
-            }
             if fresh {
                 trim_covered(&ctx, &client, report.snapshot_seq).await;
+                reclaim::mark_due(&ctx, &client.base, report.snapshot_seq);
+            } else {
+                host.cloud_sync.mark_snapshot(prior.0, prior.1);
             }
             if let Some(nonce) = &request {
                 if let Err(error) = finish_request(&ctx, nonce, &report) {
@@ -229,6 +248,7 @@ async fn run_first_inner(ctx: &Ctx<'_>, client: &RelayClient) -> Result<Report, 
     let (report, fresh) = publish_cut(ctx, client, frozen, true).await?;
     if fresh {
         trim_covered(ctx, client, report.snapshot_seq).await;
+        reclaim::mark_due(ctx, &client.base, report.snapshot_seq);
     }
     let opened = ctx.runtime.accepted_status().opened_frontier;
     ctx.runtime
@@ -267,7 +287,7 @@ async fn freeze(ctx: &Ctx<'_>, first: bool) -> Result<Option<Frozen>, String> {
     }))
 }
 
-/// Hash, upload and name a frozen snapshot. Returns its report, and whether it is a new
+/// Hash, upload, name and verify a frozen snapshot. Returns its report, and whether it is a new
 /// snapshot (false when nothing changed since the last one, which still names the state).
 async fn publish_cut(
     ctx: &Ctx<'_>,
@@ -288,12 +308,10 @@ async fn publish_cut(
     .await
     .map_err(|_| "the snapshot inventory stopped".to_owned())??;
     let capture_ms = elapsed_ms(started);
-    let previous =
-        load_last(&ctx.host.home, &ctx.database_id)?.filter(|last| same_relay(ctx, client, last));
-    if let Some(last) = previous
-        .as_ref()
-        .filter(|last| last.manifest.files == files && last.through == through)
-    {
+    let unchanged = load_last(&ctx.host.home, &ctx.database_id)?
+        .filter(|last| same_relay(ctx, client, last))
+        .filter(|last| last.manifest.files == files && last.through == through);
+    if let Some(last) = unchanged {
         return Ok((
             Report {
                 uploaded_files: 0,
@@ -312,25 +330,26 @@ async fn publish_cut(
     }
     require_covers_latest(ctx, client, &streams, &through).await?;
     ensure_birth(ctx, client, &streams).await?;
-    let (uploaded_files, uploaded_bytes) =
-        upload_files(ctx, client, &cut, &files, previous.as_ref()).await?;
     let list = Manifest {
         upload_id: uuid::Uuid::new_v4().to_string(),
         files,
     };
-    drop(cut);
+    let held = client.blob_list(&ctx.database_id).await?;
+    let (uploaded_files, uploaded_bytes) =
+        upload_files(ctx, client, &cut, &list.files, &held).await?;
     let (sha256, length) = put_manifest(ctx, client, &list).await?;
-    let streams = list_streams(ctx, client).await?.unwrap_or_default();
-    if first {
-        require_empty_for_first(ctx, client, &streams).await?;
-    }
-    let entry = sign(ctx, client, &streams, &sha256, length, &through).await?;
-    let stored = client
-        .append(&ctx.database_id, std::slice::from_ref(&entry))
-        .await?;
-    if stored.0 + stored.1 != 1 {
-        return Err("the relay did not take the snapshot entry".into());
-    }
+    let entry = name(ctx, client, first, (sha256.as_str(), length), &through).await?;
+    // The relay names the snapshot from here on, and a restore reads it alone. Until its files
+    // are checked, the mark makes the next clean turn take a snapshot again.
+    mark_unverified(ctx)?;
+    // The cut stays pinned until the relay holds every file of the snapshot it now names.
+    let named = Named {
+        list: &list,
+        sha256: &sha256,
+        bytes: length,
+    };
+    let (again_files, again_bytes) = verify_named(ctx, client, &cut, &named).await?;
+    drop(cut);
     let report = record_published(
         ctx,
         &client.base,
@@ -339,11 +358,34 @@ async fn publish_cut(
             sha256,
             list,
             through,
-            uploaded_files,
-            uploaded_bytes,
+            uploaded_files: uploaded_files + again_files,
+            uploaded_bytes: uploaded_bytes + again_bytes,
             capture_ms,
             upload_ms: elapsed_ms(uploading),
         },
     )?;
+    clear_unverified(ctx);
     Ok((report, true))
+}
+
+/// Sign the `snapshot` entry for the manifest `(digest, length)` and append it.
+async fn name(
+    ctx: &Ctx<'_>,
+    client: &RelayClient,
+    first: bool,
+    manifest: (&str, u64),
+    through: &[SnapshotThrough],
+) -> Result<SignedEntry, String> {
+    let streams = list_streams(ctx, client).await?.unwrap_or_default();
+    if first {
+        require_empty_for_first(ctx, client, &streams).await?;
+    }
+    let entry = sign(ctx, client, &streams, manifest.0, manifest.1, through).await?;
+    let stored = client
+        .append(&ctx.database_id, std::slice::from_ref(&entry))
+        .await?;
+    if stored.0 + stored.1 != 1 {
+        return Err("the relay did not take the snapshot entry".into());
+    }
+    Ok(entry)
 }

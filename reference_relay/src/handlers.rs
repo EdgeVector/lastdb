@@ -29,6 +29,8 @@ pub(crate) struct AppState {
     pub(crate) secret: Vec<u8>,
     pub(crate) grants: Mutex<GrantIndex>,
     pub(crate) trim_lock: Mutex<()>,
+    /// A commit of a blob and a drop of blobs do not run beside each other.
+    pub(crate) blob_lock: Mutex<()>,
     /// The largest blob a `blob.put` begin may declare. `None` sets no limit.
     pub(crate) max_blob_bytes: Option<u64>,
     /// Proof only: read an upload body at most this many bytes a second.
@@ -42,7 +44,7 @@ pub(crate) struct AppState {
 }
 
 impl AppState {
-    async fn check_read(&self, db: &DatabaseId, caller: &NodeKey) -> ApiResult<()> {
+    pub(crate) async fn check_read(&self, db: &DatabaseId, caller: &NodeKey) -> ApiResult<()> {
         let grants = self.grants.lock().await;
         gate::authorize_read(&grants, db, caller)
     }
@@ -198,6 +200,7 @@ pub(crate) async fn blob_put(
     match req.stage.as_str() {
         "begin" => blob_begin(&state, &req).await,
         "commit" => {
+            let _blob_guard = state.blob_lock.lock().await;
             state
                 .store
                 .stage_commit(&req.database_id, &req.sha256, req.bytes)

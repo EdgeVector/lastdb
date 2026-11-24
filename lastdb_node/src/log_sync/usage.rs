@@ -7,7 +7,10 @@
 //! - blobs: every blob this device uploaded and committed, counted once, by its length;
 //! - released: what the relay said a `log.trim` that this device asked for dropped (`entries_deleted`
 //!   and `released_bytes`). A trim also drops entries of the other devices of the owner, so the
-//!   released numbers are the relay's account of its own deletions, not a share of this device.
+//!   released numbers are the relay's account of its own deletions, not a share of this device;
+//! - released blobs: what the relay said a `blob.drop` that this device asked for dropped (`dropped`
+//!   and `released_bytes`). A sweep drops every stored file that the newest snapshot and the entries
+//!   after it do not name, whichever device put it, so these are the relay's own deletions too.
 //!
 //! The account has a start (`since_ms`). On a home that already uploaded before this file existed
 //! (an earlier build), `complete` is false: what it put before is not in the totals, and nothing
@@ -15,8 +18,8 @@
 //! had no prior uploads when the account began, including a fresh or restored home whose first
 //! upload is a snapshot entry above sequence 1.
 //!
-//! The number is "what this device put and the relay accepted", minus what trims it requested
-//! released. It is not what the account is billed: the entries and blobs of another device are not in
+//! The number is "what this device put and the relay accepted", minus what the trims and the sweeps
+//! it requested released. It is not what the account is billed: the entries and blobs of another device are not in
 //! it, and a relay may measure stored bytes differently. A status that shows a device shows only that
 //! device's file.
 //!
@@ -275,6 +278,23 @@ impl Ledger {
         let mut saved = load(&self.home, database_id)?;
         saved.usage.released_entries += entries;
         saved.usage.released_bytes += bytes;
+        store(&self.home, database_id, &mut saved)
+    }
+
+    /// The relay answered a `blob.drop`: it dropped `blobs` stored files of `bytes` in all.
+    pub(super) fn blobs_released(
+        &self,
+        database_id: &str,
+        blobs: u64,
+        bytes: u64,
+    ) -> Result<(), String> {
+        if blobs == 0 && bytes == 0 {
+            return Ok(());
+        }
+        let _guard = lock();
+        let mut saved = load(&self.home, database_id)?;
+        saved.usage.released_blobs += blobs;
+        saved.usage.released_blob_bytes += bytes;
         store(&self.home, database_id, &mut saved)
     }
 }

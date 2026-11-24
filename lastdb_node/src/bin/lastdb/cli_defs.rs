@@ -263,6 +263,16 @@ pub(crate) enum BackupCommand {
         #[arg(long)]
         wait: bool,
     },
+    /// Sweep the relay storage of the personal database now: the relay drops every stored
+    /// file that the newest snapshot and the entries after it do not name.
+    Reclaim {
+        /// `personal` or its database id. Defaults to the personal database.
+        #[arg(long)]
+        database: Option<String>,
+        /// Return after the sweep, and print what the relay dropped and what it holds.
+        #[arg(long)]
+        wait: bool,
+    },
 }
 
 #[derive(Subcommand, Debug)]

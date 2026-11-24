@@ -1,7 +1,7 @@
 //! Install the newest snapshot of the personal database into a new home.
 //!
 //! A restore lists the owner's streams on the relay. When the snapshot stream has
-//! an entry, the newest one is read and checked: its signature is the owner's, it
+//! an entry, the newest one is read and checked (the relay keeps that one only): its signature is the owner's, it
 //! is on the snapshot stream of this database, and it cites the birth. The
 //! manifest it names is fetched and checked against the digest and length in the
 //! entry, and each file is fetched and checked against the digest and length in
@@ -108,22 +108,10 @@ pub async fn install_newest_snapshot(
         device: snapshot_device,
         birth_hash,
     };
-    match install_at(&target, listed.head_seq, Some(&listed.head_hash)).await {
-        Ok(base) => Ok(Some(base)),
-        Err(first_err) if listed.head_seq > 1 => {
-            tracing::warn!(
-                target: "lastdbd::log_sync",
-                seq = listed.head_seq,
-                %first_err,
-                "newest snapshot could not be installed; trying the retained previous snapshot"
-            );
-            install_at(&target, listed.head_seq - 1, None)
-                .await
-                .map(Some)
-                .map_err(|_| first_err)
-        }
-        Err(error) => Err(error),
-    }
+    // The relay keeps one snapshot: the newest. There is no older one to fall back to.
+    install_at(&target, listed.head_seq, Some(&listed.head_hash))
+        .await
+        .map(Some)
 }
 
 struct RestoreTarget<'a> {
@@ -234,7 +222,8 @@ fn check_entry(
     ))
 }
 
-async fn fetch_manifest(
+/// Fetch the manifest `sha256` of `bytes` bytes from the relay and check its list of files.
+pub(super) async fn fetch_manifest(
     client: &RelayClient,
     database_id: &str,
     home: &Path,
