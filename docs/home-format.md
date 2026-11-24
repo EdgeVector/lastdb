@@ -129,7 +129,9 @@ author time (the clock gives each captured write a millisecond of its own), and
 its sequence number is the one after the `signed-replay-chain` row, which is
 also its number in the spool. The commit seals the body with the database read
 key, signs the entry, writes the stamp rows and moves the chain row. Nothing
-about a write changes when it is sent. An
+about a write changes when it is sent. A home whose spool holds writes that an
+older build left unsigned does not open: the node refuses to start and names
+the remedy, which is to run the older build until it has sent them. An
 entry of another device is compared with the stamp rows when it arrives, part
 by part: the fields, the file and the inline file each take the value of their
 newest write, so the result does not depend on the order of arrival. A write

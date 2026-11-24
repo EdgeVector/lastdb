@@ -13,8 +13,10 @@
 use super::{read_err, Metadata};
 use crate::schema::types::SchemaError;
 use crate::storage::disk_backup::accepted::LocalEntry;
+use crate::storage::disk_pack::transaction;
 use lastdb_model::hex::{hex_lower, sha256_hex};
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 type Res<T = ()> = Result<T, SchemaError>;
 
@@ -163,10 +165,23 @@ impl Metadata {
             }
             None if spool.head == 0 => Ok(None),
             _ => Err(SchemaError::Blocked(
-                "the spool holds writes that were not signed when they were made; \
-                 the build that made them must send them first"
+                "the spool holds writes that an older build made and did not send, and this \
+                 build cannot send them; start the build that made them, wait until it has \
+                 sent them, then start this build"
                     .into(),
             )),
+        }
+    }
+
+    /// Refuse a home whose spool holds writes that an older build left unsigned.
+    /// The store calls it once when it opens, so a node does not start on such a
+    /// home: this build can neither send those writes nor sign an entry after them.
+    pub(crate) async fn require_signed_spool(&self, writer: &str) -> Result<(), String> {
+        let head = transaction::scope(Arc::clone(&self.runtime), self.local_replay_head(writer));
+        match head.await {
+            Ok(_) => Ok(()),
+            Err(SchemaError::Blocked(why)) => Err(why),
+            Err(other) => Err(other.to_string()),
         }
     }
 

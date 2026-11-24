@@ -59,10 +59,13 @@ pub mod factory {
         .await
         .map_err(|e| FoldDbError::Config(e.to_string()))?;
         match options.capture_author.take() {
-            Some(author) => db_ops
-                .native_runtime()
-                .name_capture_author(author)
-                .map_err(|e| FoldDbError::Config(e.to_string()))?,
+            Some(author) => {
+                let named = db_ops.native_runtime().name_capture_author(author);
+                named.map_err(|e| FoldDbError::Config(e.to_string()))?;
+                // Writes that an older build left unsigned in the spool stop the open.
+                let signed = db_ops.metadata().require_signed_spool(&writer_id).await;
+                signed.map_err(FoldDbError::Config)?;
+            }
             None if options.capture_accepted => {
                 return Err(FoldDbError::Config(
                     "a store that captures its writes needs the author that signs them".into(),
