@@ -1,34 +1,29 @@
-//! Format-driven record access, batch/alternate encoding, file sealing/reading, and schema release.
+//! Format-driven record access, file sealing/reading, staging, and schema release.
 
-use super::inline_files;
+mod encode;
+
 pub(crate) use super::metadata::decrypt_file_row;
 pub(crate) use super::schemas::{applied_deletes, release_families, ReleaseFamily, ReleaseKind};
 pub(crate) use super::{alternate_bounds, AlternateAddress, RecordAddress};
 pub use super::{AlternateEntry, RecordDeleteLedgerEntry, MAX_ALTERNATE_ENTRIES};
 
-use super::metadata::{encode_files, record_value_error, seal_row, FileChange};
+use super::metadata::{encode_files, seal_row, Metadata};
 use super::{
     read::ReadStore, CAS_COLLECTION, DELETE_AUDIT_FAMILY, MAIN_NAMESPACE, SCHEMA_RELEASE_ROWS,
 };
 use crate::error::FoldDbError;
 use crate::schema::types::{FileWrite, FileWriteIssuer, LocalFileReference, Schema, SchemaError};
 use crate::storage::current_keys::families::record_file_path;
-use crate::storage::disk_pack::{
-    record_warm::WrittenRecord, run_blocking, transaction, PackKvStore, PackRuntime,
-};
+use crate::storage::disk_pack::{run_blocking, transaction, PackKvStore, PackRuntime};
 use crate::storage::error::StorageResult;
 use crate::storage::{local_file_ref, KvMutation, StorageError};
-use lastdb_model::field_key_codec::FieldKeyCodec;
-use lastdb_model::field_key_id::alternate_field_key_id;
 use lastdb_model::kind_partition::anchored;
 use lastdb_model::portable_mutation::{Position, Stamp};
 use lastdb_model::record_space::RECORD_PREFIX;
 use lastdb_model::record_value::{FileMarker, InlineWrite, StoredRecord};
-use std::collections::{BTreeSet, HashSet};
+use std::collections::BTreeSet;
 use std::path::Path;
 use std::sync::Arc;
-
-type EncodedBatch = (Vec<KvMutation>, Vec<FileChange>, Vec<WrittenRecord>);
 
 fn inv(msg: impl Into<String>) -> SchemaError {
     SchemaError::InvalidData(msg.into())
@@ -99,20 +94,6 @@ impl RecordFormat {
         rows.iter()
             .map(|row| row.as_deref().map(applied_deletes::decode).transpose())
             .collect()
-    }
-
-    pub(crate) async fn open_inline_file(
-        &self,
-        key: &str,
-        file_marker: &FileMarker,
-    ) -> Result<Option<Vec<u8>>, FoldDbError> {
-        let Some(row) = self.main.get(inline_files::address(key).as_bytes()).await? else {
-            return Ok(None);
-        };
-        inline_files::decode_for(&row, file_marker)?
-            .bytes()
-            .map(Some)
-            .map_err(FoldDbError::Database)
     }
 
     pub(crate) fn seal_record_file(
@@ -210,30 +191,25 @@ impl RecordFormat {
         if stored.len() != keys.len() {
             return Err(inv("schema release read batch is incomplete"));
         }
-        let (mut deletes, mut retired) = (Vec::new(), BTreeSet::new());
-        for (key_bytes, value) in keys.into_iter().zip(stored) {
-            let Some(value) = value else { continue };
-            if matches!(family.kind, ReleaseKind::Records) {
-                let key =
-                    std::str::from_utf8(&key_bytes).map_err(|e| inv(format!("bad key: {e}")))?;
-                if key.starts_with(RECORD_PREFIX) {
-                    let record =
-                        StoredRecord::decode(&value).map_err(|e| inv(format!("bad {key}: {e}")))?;
-                    if let Some(version) = record.file_version {
-                        retired.insert(record_file_path(key, &version)?);
-                    }
-                }
-            }
-            deletes.push(KvMutation::delete(key_bytes));
-        }
-        if deletes.is_empty() {
+        let batch = collect_released_rows(keys, stored, family.kind)?;
+        if batch.deletes.is_empty() {
             return Ok(0);
         }
-        let count = deletes.len() as u64;
-        self.main.batch_mutate(deletes).await?;
-        let retired: Vec<Vec<u8>> = retired.into_iter().map(String::into_bytes).collect();
-        if !retired.is_empty() {
-            self.runtime.stage_record_file_deletes(&retired)?;
+        let count = batch.deletes.len() as u64;
+        self.main.batch_mutate(batch.deletes).await?;
+        Metadata::clear_released_record_replay(&self.runtime, &batch.released).await?;
+        if !batch.retired.is_empty() {
+            let removals: Vec<String> = batch.retired.into_iter().collect();
+            let retired_bytes: Vec<Vec<u8>> =
+                removals.iter().map(|s| s.as_bytes().to_vec()).collect();
+            self.runtime.stage_record_file_deletes(&retired_bytes)?;
+            after_commit_sidecar(
+                &self.runtime,
+                local_file_ref::SidecarPlan {
+                    additions: Vec::new(),
+                    removals,
+                },
+            )?;
         }
         Ok(count)
     }
@@ -250,7 +226,7 @@ impl RecordFormat {
         if schema.file_required && missing {
             return Err(inv("this record requires a file"));
         }
-        let (main, files, written) = encode_batch(schema, changes, &self.content_key)?;
+        let (main, files, written) = encode::encode_batch(schema, changes, &self.content_key)?;
         let (puts, deletes, refs) = encode_files(&self.issuer, &self.content_key, files)?;
         self.main.batch_mutate(main).await?;
         if !puts.is_empty() {
@@ -260,18 +236,7 @@ impl RecordFormat {
             self.runtime.stage_record_file_deletes(&deletes)?;
         }
         self.runtime.stage_written_records(written);
-        if !refs.is_empty() {
-            let runtime = Arc::clone(&self.runtime);
-            transaction::after_commit(&self.runtime, async move {
-                if let Err(error) =
-                    run_blocking(move || local_file_ref::apply(&runtime, refs)).await
-                {
-                    tracing::error!(%error, "local file reference catalog update failed after commit");
-                }
-                Ok(())
-            })?;
-        }
-        Ok(())
+        after_commit_sidecar(&self.runtime, refs)
     }
 
     fn require_scope(&self) -> Result<(), SchemaError> {
@@ -281,110 +246,64 @@ impl RecordFormat {
     }
 }
 
-fn encode_alternates(
-    schema: &Schema,
-    changes: &[RecordChange],
-    node_key: &[u8; 32],
-) -> Result<Vec<KvMutation>, SchemaError> {
-    let defs = schema.require_record_keys()?;
-    if defs.alternates.is_empty() {
-        return Ok(Vec::new());
-    }
-    let mut pointers = Vec::new();
-    for change in changes {
-        let before = change.before.as_ref().filter(|record| record.is_live());
-        let after = change.after.is_live().then_some(&change.after);
-        for (name, def) in &defs.alternates {
-            let old = before.and_then(|record| record.alternates.get(name)?.as_ref());
-            let new = after.and_then(|record| record.alternates.get(name)?.as_ref());
-            if old == new {
-                continue;
-            }
-            let field_key = alternate_field_key_id(schema, name);
-            let codec = FieldKeyCodec::from_node_key(
-                node_key,
-                &field_key,
-                def.range_profile().map_err(inv)?,
-            );
-            let address = |value| {
-                AlternateAddress::new(&codec, &field_key, value, &change.key).map(|a| a.encoded)
-            };
-            if let Some(old) = old {
-                pointers.push(KvMutation::delete(address(old)?));
-            }
-            if let Some(new) = new {
-                let entry = AlternateEntry {
-                    primary: change.key.key.clone(),
-                    matched: new.clone(),
-                };
-                let bytes =
-                    serde_json::to_vec(&entry).map_err(|_| inv("encode alternate entry"))?;
-                pointers.push(KvMutation::put(address(new)?, bytes));
-            }
-            if pointers.len() > MAX_ALTERNATE_ENTRIES {
-                return Err(inv("alternate change batch exceeds 4096 entries"));
-            }
-        }
-    }
-    Ok(pointers)
+#[derive(Default)]
+struct ReleasedBatch {
+    deletes: Vec<KvMutation>,
+    retired: BTreeSet<String>,
+    released: Vec<String>,
 }
 
-fn encode_batch(
-    schema: &Schema,
-    changes: Vec<RecordChange>,
-    node_key: &[u8; 32],
-) -> Result<EncodedBatch, SchemaError> {
-    let alternates = encode_alternates(schema, &changes, node_key)?;
-    let count = changes.len();
-    let mut seen = HashSet::with_capacity(count);
-    if !changes
-        .iter()
-        .all(|change| seen.insert(change.key.as_str()))
-    {
-        return Err(inv("a record batch repeats a record address"));
+fn after_commit_sidecar(
+    runtime: &Arc<PackRuntime>,
+    refs: local_file_ref::SidecarPlan,
+) -> Result<(), SchemaError> {
+    if refs.is_empty() {
+        return Ok(());
     }
-    let mut main = Vec::with_capacity(count + alternates.len());
-    let (mut files, mut written) = (Vec::with_capacity(count), Vec::with_capacity(count));
-    for change in changes {
-        if change.after.is_live() && change.after.key != change.key.key {
-            return Err(inv("record payload differs from its bound primary address"));
+    let rt = Arc::clone(runtime);
+    transaction::after_commit(runtime, async move {
+        if let Err(error) = run_blocking(move || local_file_ref::apply(&rt, refs)).await {
+            tracing::error!(%error, "local file reference catalog update failed after commit");
         }
-        let before = change.before.filter(|record| record.is_live());
-        let after = Arc::new(change.after);
-        files.push(FileChange {
-            address: change.key.clone(),
-            before,
-            after: Arc::clone(&after),
-            write: change.file_write,
-        });
-        let encoded_key = change.key.encoded;
-        if after.is_live() {
-            match &change.inline_write {
-                Some(InlineWrite::Put(file))
-                    if after.inline_file.as_ref() == Some(&file.marker) =>
-                {
-                    main.push(inline_files::put(&encoded_key, file)?);
+        Ok(())
+    })
+    .map_err(SchemaError::from)
+}
+
+fn collect_released_rows(
+    keys: Vec<Vec<u8>>,
+    stored: Vec<Option<Vec<u8>>>,
+    kind: ReleaseKind,
+) -> Result<ReleasedBatch, SchemaError> {
+    let mut out = ReleasedBatch::default();
+    for (key_bytes, value) in keys.into_iter().zip(stored) {
+        let Some(value) = value else { continue };
+        match kind {
+            ReleaseKind::Records => {
+                let key =
+                    std::str::from_utf8(&key_bytes).map_err(|e| inv(format!("bad key: {e}")))?;
+                if key.starts_with(RECORD_PREFIX) {
+                    let record =
+                        StoredRecord::decode(&value).map_err(|e| inv(format!("bad {key}: {e}")))?;
+                    if let Some(version) = record.file_version {
+                        out.retired.insert(record_file_path(key, &version)?);
+                    }
+                    out.released.push(key.to_owned());
                 }
-                Some(InlineWrite::Clear) if after.inline_file.is_none() => {
-                    main.push(inline_files::delete(&encoded_key));
-                }
-                None => {}
-                Some(_) => return Err(inv("the inline file write differs from the record marker")),
             }
-            let value = after
-                .encode_uncapped()
-                .map_err(|e| record_value_error(&e))?;
-            written.push(WrittenRecord::new(&encoded_key, after, &value));
-            main.push(KvMutation::put(encoded_key, value));
-        } else {
-            let delete_marker = applied_deletes::encode(&encoded_key, &after.stamp)?;
-            main.extend([
-                inline_files::delete(&encoded_key),
-                delete_marker,
-                KvMutation::delete(encoded_key),
-            ]);
+            ReleaseKind::AppliedDeletes => {
+                let key =
+                    std::str::from_utf8(&key_bytes).map_err(|e| inv(format!("bad key: {e}")))?;
+                if let Some(rec) = key
+                    .strip_prefix("ad:")
+                    .filter(|r| r.starts_with(RECORD_PREFIX))
+                {
+                    out.released.push(rec.to_owned());
+                }
+            }
+            ReleaseKind::Alternates | ReleaseKind::InlineFiles => {}
         }
+        out.deletes.push(KvMutation::delete(key_bytes));
     }
-    main.extend(alternates);
-    Ok((main, files, written))
+    Ok(out)
 }

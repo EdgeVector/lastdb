@@ -63,31 +63,6 @@ pub struct InlineFile {
 }
 
 impl InlineFile {
-    pub fn new(
-        bytes: &[u8],
-        name: Option<String>,
-        media_type: Option<String>,
-    ) -> Result<Self, String> {
-        if bytes.len() > MAX_INLINE_FILE_BYTES {
-            return Err(format!(
-                "an inline file is {} bytes; maximum is {MAX_INLINE_FILE_BYTES}; store a larger file as the record's blob file",
-                bytes.len()
-            ));
-        }
-        let file = Self {
-            marker: FileMarker {
-                name,
-                media_type,
-                size_bytes: bytes.len() as u64,
-                sha256: crate::keys::canonical::hex::sha256_hex(bytes),
-            },
-            data: STANDARD.encode(bytes),
-        };
-        file.is_well_formed().then_some(file).ok_or_else(|| {
-            format!("an inline file name or media type exceeds {MAX_INLINE_LABEL_BYTES} bytes")
-        })
-    }
-
     pub fn bytes(&self) -> Result<Vec<u8>, String> {
         let bytes = STANDARD
             .decode(self.data.as_bytes())
@@ -194,10 +169,11 @@ impl StoredRecord {
         value: RecordReplacement,
         stamp: RecordStamp,
         before: Option<&Self>,
+        keep_file: bool,
     ) -> Self {
         let file_version = value.file.as_ref().map(|marker| {
             before
-                .filter(|r| r.file.as_ref() == Some(marker))
+                .filter(|r| keep_file && r.file.as_ref() == Some(marker))
                 .and_then(|r| r.file_version.clone())
                 .unwrap_or_else(|| stamp.position.clone())
         });
@@ -334,67 +310,4 @@ impl StoredRecord {
     }
 }
 
-pub mod author_clock {
-    const NANOS_PER_MILLI: u64 = 1_000_000;
-
-    #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-    pub struct MutationAuthorClockState {
-        pub physical_nanos: u64,
-        pub logical_counter: u64,
-    }
-
-    impl MutationAuthorClockState {
-        pub fn advance_local_batch(
-            &mut self,
-            now_nanos: u64,
-            count: usize,
-        ) -> Option<(std::ops::RangeInclusive<u64>, u64)> {
-            let add = u64::try_from(count.checked_sub(1)?).ok()?;
-            let counter = self.logical_counter.checked_add(1)?;
-            let first = self.physical_nanos.max(now_nanos);
-            let last = first.checked_add(add)?;
-            self.physical_nanos = last;
-            self.logical_counter = counter;
-            Some((first..=last, counter))
-        }
-
-        /// Reserve `count` times, one millisecond apart, the first in a later
-        /// millisecond than every time this clock gave before. Returns the first
-        /// time and the batch counter.
-        ///
-        /// A write that is captured for the signed log takes its order value from
-        /// the millisecond of its time. The order values of one device must rise
-        /// with every entry, so each captured write gets a millisecond of its own.
-        pub fn advance_local_batch_spaced(
-            &mut self,
-            now_nanos: u64,
-            count: usize,
-        ) -> Option<(u64, u64)> {
-            let add = u64::try_from(count.checked_sub(1)?)
-                .ok()?
-                .checked_mul(NANOS_PER_MILLI)?;
-            let counter = self.logical_counter.checked_add(1)?;
-            let after = (self.physical_nanos / NANOS_PER_MILLI)
-                .checked_add(1)?
-                .checked_mul(NANOS_PER_MILLI)?;
-            let first = after.max(now_nanos);
-            let last = first.checked_add(add)?;
-            self.physical_nanos = last;
-            self.logical_counter = counter;
-            Some((first, counter))
-        }
-
-        pub fn observe_remote(&mut self, physical_nanos: u64, logical_counter: u64) {
-            self.physical_nanos = self.physical_nanos.max(physical_nanos);
-            self.logical_counter = self.logical_counter.max(logical_counter);
-        }
-    }
-
-    #[must_use]
-    pub fn mutation_author_clock_key(device_id: &str) -> String {
-        format!(
-            "mutation_author_clock:{}",
-            crate::keys::canonical::hex::sha256_hex(device_id)
-        )
-    }
-}
+pub use crate::author_clock;

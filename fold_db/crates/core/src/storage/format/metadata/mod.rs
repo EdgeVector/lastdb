@@ -10,7 +10,9 @@ pub use changes::{Change, ChangePage, CHANGES_PAGE};
 pub(crate) use files::{decrypt_file_row, seal_row};
 pub(in crate::storage::format) use files::{encode_files, FileChange};
 pub use replay::ReplayStamp;
-pub(crate) use replay::{ReplayTarget, SchemaReplayDrop, FILE_SLOT, INLINE_SLOT};
+pub(crate) use replay::{
+    ReplayTarget, SavedReplayFields, SchemaReplayDrop, DROP_SLOT, FILE_SLOT, INLINE_SLOT,
+};
 pub use replay_stream::ReplayStreamHead;
 
 use super::METADATA_NAMESPACE;
@@ -140,11 +142,19 @@ impl Metadata {
     /// milliseconds. A captured schema change uses it as its order value, so a
     /// schema put or drop sits above everything this device has written or
     /// seen, in a millisecond of its own.
-    pub(crate) async fn stage_local_author_ms(&self, writer: &str) -> Result<u64, SchemaError> {
+    pub(crate) async fn stage_local_author_ms(
+        &self,
+        writer: &str,
+        previous_order: Option<u64>,
+    ) -> Result<u64, SchemaError> {
+        let exhausted = || schema_inv("mutation author-clock range exhausted");
         let mut state = self.author_clock(writer).await?.unwrap_or_default();
+        if let Some(prev) = previous_order {
+            state.floor_above_order(prev).ok_or_else(exhausted)?;
+        }
         let (first, _) = state
             .advance_local_batch_spaced(crate::platform::clock::unix_nanos(), 1)
-            .ok_or_else(|| schema_inv("mutation author-clock range exhausted"))?;
+            .ok_or_else(exhausted)?;
         self.stage_author_clock(writer, &state).await?;
         Ok(first / 1_000_000)
     }
@@ -188,6 +198,7 @@ impl Metadata {
     pub(crate) async fn stage_local_stamps(
         &self,
         records: &[ChangedKey<'_>],
+        imported_ms: &[Option<u64>],
     ) -> StorageResult<Vec<Stamp>> {
         self.require_scope()?;
         if records.is_empty() {
@@ -204,7 +215,7 @@ impl Metadata {
                 .as_deref(),
         )?;
         let mut stamps = Vec::with_capacity(records.len());
-        for _ in records {
+        for (_, &imported) in records.iter().zip(imported_ms) {
             let sequence = state
                 .progress
                 .applied_through
@@ -214,9 +225,10 @@ impl Metadata {
                 .clock_floor_ms
                 .unwrap_or(0)
                 .max(state.progress.applied_through_ms.unwrap_or(0));
-            let authored_at_ms = now_ms.max(floor);
+            let local_ms = now_ms.max(floor);
+            let authored_at_ms = imported.unwrap_or(local_ms);
             state.progress.applied_through = sequence;
-            state.progress.applied_through_ms = Some(authored_at_ms);
+            state.progress.applied_through_ms = Some(local_ms);
             stamps.push(Stamp {
                 authored_at_ms,
                 position: Position {

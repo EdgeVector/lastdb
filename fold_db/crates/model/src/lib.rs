@@ -1,5 +1,6 @@
 //! Pure LastDB data model: records, schemas, keys, mutations, and canonical framing.
 
+pub mod author_clock;
 pub mod field_key_codec;
 pub mod keys;
 pub mod portable_mutation;

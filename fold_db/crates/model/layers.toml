@@ -11,6 +11,7 @@ modules = [
 name = "model"
 doc = "The key codecs and value limits, schema types, keys, mutations, and the logical layout rules, with the pure functions over them."
 modules = [
+  "author_clock",
   "field_key_codec",
   "portable_mutation",
   "record_value",

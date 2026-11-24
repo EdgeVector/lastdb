@@ -21,7 +21,6 @@ mod logging;
 pub(crate) mod ops;
 pub(crate) mod owned;
 mod recovery;
-pub(crate) mod share_identity;
 pub use logging::init_daemon_logging;
 
 const SHUTDOWN_FLUSH_READY_FILE: &str = ".shutdown_flush_ready";
@@ -48,6 +47,16 @@ pub fn write_shutdown_flush_receipt(home: &Path, pid: u32, start_ts: u64) -> std
     f.write_all(&bytes).and_then(|()| f.sync_all())?;
     std::fs::rename(&tmp, home.join(SHUTDOWN_FLUSH_READY_FILE))?;
     std::fs::File::open(home)?.sync_all()
+}
+
+fn clear_prior_shutdown_proof(home: &Path) -> Result<(), String> {
+    match std::fs::remove_file(home.join(SHUTDOWN_FLUSH_READY_FILE)) {
+        Ok(()) => std::fs::File::open(home)
+            .and_then(|d| d.sync_all())
+            .map_err(|e| format!("could not clear prior shutdown proof: {e}")),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(format!("could not clear prior shutdown proof: {e}")),
+    }
 }
 
 pub struct Host {
@@ -98,13 +107,7 @@ impl Host {
     async fn boot_inner(home: &Path, signed_restore: bool) -> Result<Self, String> {
         recovery::ensure_node_home(home)
             .map_err(|e| format!("failed to create node home {}: {e}", home.display()))?;
-        match std::fs::remove_file(home.join(SHUTDOWN_FLUSH_READY_FILE)) {
-            Ok(()) => std::fs::File::open(home)
-                .and_then(|d| d.sync_all())
-                .map_err(|e| format!("could not clear prior shutdown proof: {e}"))?,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-            Err(e) => return Err(format!("could not clear prior shutdown proof: {e}")),
-        }
+        clear_prior_shutdown_proof(home)?;
         let data_dir = home.join("data");
         std::fs::create_dir_all(&data_dir)
             .map_err(|e| format!("failed to create data dir {}: {e}", data_dir.display()))?;
@@ -147,15 +150,13 @@ impl Host {
             None
         };
         let opts = fold_db::fold_db_core::factory::FoldDbOptions {
-            offline_maintenance: false,
             capture_accepted,
             capture_author,
-            record_log: None,
         };
         let db = fold_db::fold_db_core::factory::create_fold_db_with_options(
             &DatabaseConfig::local(data_dir),
             &e2e_keys,
-            Arc::clone(&keypair),
+            &keypair,
             opts,
         )
         .await

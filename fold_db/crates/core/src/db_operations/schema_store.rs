@@ -4,7 +4,7 @@ use crate::schema::types::catalog_types::SchemaState;
 use crate::schema::types::{Schema, SchemaError};
 use crate::storage::disk_backup::accepted;
 use crate::storage::disk_pack::transaction;
-use crate::storage::format::metadata::{Metadata, ReplayTarget};
+use crate::storage::format::metadata::{Metadata, ReplayTarget, DROP_SLOT};
 use crate::storage::format::read::ReadStore;
 use crate::storage::format::schemas::*;
 use lastdb_model::record_space::record_space_uuid;
@@ -208,10 +208,11 @@ impl SchemaStore {
         if !accepted::capture_enabled(&self.runtime) {
             return Ok(());
         }
-        // The author time comes from the clock that stamps record writes, so the
-        // change sits above everything this device has written or seen.
-        let order = self.metadata.stage_local_author_ms(&self.writer_id).await?;
         let previous = self.metadata.local_replay_head(&self.writer_id).await?;
+        let order = self
+            .metadata
+            .stage_local_author_ms(&self.writer_id, previous.as_ref().map(|p| p.order))
+            .await?;
         let staged = match definition {
             Some(definition) => accepted::stage_schema_put(
                 &self.runtime,
@@ -228,9 +229,12 @@ impl SchemaStore {
         let stamp = self
             .metadata
             .local_replay_stamp(&self.writer_id, head.seq, head.order)?;
-        self.metadata
-            .stage_replay_stamps([(ReplayTarget::Schema(schema), None, &stamp)])
-            .await?;
+        let target = ReplayTarget::Schema(schema);
+        let mut rows = vec![(target, None, &stamp)];
+        if definition.is_none() {
+            rows.push((target, Some(DROP_SLOT), &stamp));
+        }
+        self.metadata.stage_replay_stamps(rows).await?;
         self.metadata.stage_local_replay_head(&head).await
     }
 }

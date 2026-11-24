@@ -18,35 +18,44 @@ pub mod factory {
     use crate::error::{FoldDbError, FoldDbResult};
     use crate::fold_db_core::FoldDB;
     use crate::security::Ed25519KeyPair;
-    use crate::storage::{config::DatabaseConfig, disk_pack::PackNamespacedStore};
+    use crate::storage::{
+        config::DatabaseConfig, disk_backup::accepted, disk_pack::PackNamespacedStore,
+    };
     use std::sync::Arc;
 
     /// Local construction inputs.
     #[derive(Default)]
     pub struct FoldDbOptions {
-        pub offline_maintenance: bool,
         /// Capture the accepted publication stream for an owned database.
         pub capture_accepted: bool,
         /// The author of the captured writes. A store that captures needs it:
         /// each captured write is signed, when it commits, as the next entry of
         /// the author's device stream.
-        pub capture_author: Option<Arc<dyn crate::storage::disk_backup::accepted::CaptureAuthor>>,
-        /// Host notes for each committed record. Absent when the host keeps no notes.
-        pub record_log:
-            Option<std::sync::Arc<dyn crate::fold_db_core::mutation_manager::RecordWriteLog>>,
+        pub capture_author: Option<Arc<dyn accepted::CaptureAuthor>>,
     }
 
     /// Creates a fully initialized FoldDB instance based on the database configuration.
-    #[allow(
-        clippy::needless_pass_by_value,
-        reason = "host and share callers pass Arc<Ed25519KeyPair>"
-    )]
     pub async fn create_fold_db_with_options(
         config: &DatabaseConfig,
         e2e_keys: &E2eKeys,
-        signer: Arc<Ed25519KeyPair>,
+        signer: &Ed25519KeyPair,
         mut options: FoldDbOptions,
     ) -> FoldDbResult<Arc<FoldDB>> {
+        if options.capture_accepted && options.capture_author.is_none() {
+            return Err(FoldDbError::Config(
+                "a store that captures its writes needs the author that signs them".into(),
+            ));
+        }
+        if !options.capture_accepted && options.capture_author.is_some() {
+            return Err(FoldDbError::Config(
+                "capture_author cannot be supplied when capture_accepted is false".into(),
+            ));
+        }
+        if !options.capture_accepted && accepted::has_spool(&config.path)? {
+            return Err(FoldDbError::Config(
+                "refusing to open a store with an accepted spool without capture_accepted".into(),
+            ));
+        }
         let key = e2e_keys.encryption_key();
         let store =
             PackNamespacedStore::open_keyed(&config.path, Some(&key), options.capture_accepted)?;
@@ -58,22 +67,19 @@ pub mod factory {
         )
         .await
         .map_err(|e| FoldDbError::Config(e.to_string()))?;
-        match options.capture_author.take() {
-            Some(author) => {
-                let named = db_ops.native_runtime().name_capture_author(author);
-                named.map_err(|e| FoldDbError::Config(e.to_string()))?;
-                // Writes that an older build left unsigned in the spool stop the open.
-                let signed = db_ops.metadata().require_signed_spool(&writer_id).await;
-                signed.map_err(FoldDbError::Config)?;
-            }
-            None if options.capture_accepted => {
-                return Err(FoldDbError::Config(
-                    "a store that captures its writes needs the author that signs them".into(),
-                ));
-            }
-            None => {}
+        if let Some(author) = options.capture_author.take() {
+            db_ops
+                .native_runtime()
+                .name_capture_author(author)
+                .map_err(|e| FoldDbError::Config(e.to_string()))?;
+            // Writes that an older build left unsigned in the spool stop the open.
+            db_ops
+                .metadata()
+                .require_signed_spool(&writer_id)
+                .await
+                .map_err(FoldDbError::Config)?;
         }
-        let fold_db = FoldDB::initialize(Arc::new(db_ops), writer_id, options)
+        let fold_db = FoldDB::initialize(Arc::new(db_ops), writer_id)
             .await
             .map_err(|e| map_boot_decrypt_error(e.to_string()))?;
         Ok(Arc::new(fold_db))
@@ -122,7 +128,6 @@ impl FoldDB {
     pub(crate) async fn initialize(
         db_ops: Arc<DbOperations>,
         writer_id: String,
-        options: factory::FoldDbOptions,
     ) -> Result<Self, StorageError> {
         let schema_manager = Arc::new(
             SchemaCore::new(Arc::clone(&db_ops))
@@ -145,7 +150,6 @@ impl FoldDB {
             Arc::clone(&db_ops),
             Arc::clone(&schema_manager),
             writer_id,
-            options.record_log,
         ));
         info!("Created MutationManager for mutation operations");
         info!(target: "fold_node::database", "native writes complete on disk before acknowledgment");
@@ -171,22 +175,6 @@ impl FoldDB {
 
     pub fn mutation_manager(&self) -> &MutationManager {
         &self.mutation_manager
-    }
-
-    pub async fn applied_delete_revision(
-        &self,
-        schema_name: &str,
-        key: &KeyValue,
-    ) -> Result<Option<String>, SchemaError> {
-        let Some(schema) = self.schema_manager.resolve_schema(schema_name).await? else {
-            return Ok(None);
-        };
-        self.schema_manager.require_queryable_schema(&schema.name)?;
-        crate::schema::require_logical_layout(&schema.schema_type)?;
-        self.db_ops
-            .records()
-            .applied_delete_revision(&schema, key)
-            .await
     }
 
     pub async fn absent_erase_targets(
@@ -358,34 +346,6 @@ impl FoldDB {
                         FoldDbError::InProgress(
                             "the record's file is not on this device and could not be downloaded: no cloud backup is configured on this node".into(),
                         )
-                    })?;
-                Ok(Some((marker.clone(), bytes)))
-            })
-            .await
-    }
-
-    pub async fn read_record_inline_file(
-        &self,
-        schema_name: &str,
-        key: &KeyValue,
-        revision: Option<&str>,
-    ) -> Result<Option<(FileMarker, Vec<u8>)>, FoldDbError> {
-        self.db_ops
-            .read_scope()
-            .await?
-            .run_result(async {
-                let (rk, record) = self.read_file_record(schema_name, key, revision).await?;
-                let Some(marker) = record.as_ref().and_then(|r| r.inline_file.as_ref()) else {
-                    return Ok(None);
-                };
-                let bytes = self
-                    .db_ops
-                    .records()
-                    .format
-                    .open_inline_file(&rk, marker)
-                    .await?
-                    .ok_or_else(|| {
-                        FoldDbError::Database("record inline file bytes are missing".into())
                     })?;
                 Ok(Some((marker.clone(), bytes)))
             })
