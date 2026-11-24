@@ -163,7 +163,8 @@ pub(super) async fn pull_received_shares(
             );
         }
         // A lease closing may have excluded direct changes of this device.
-        if let Err(err) = super::super::lease_resign::resign_excluded(host, share.id.as_str()) {
+        if let Err(err) = super::super::lease_resign::resign_excluded(host, share.id.as_str()).await
+        {
             tracing::warn!(
                 target: "lastdbd::log_sync",
                 id = %share.id.as_str(),

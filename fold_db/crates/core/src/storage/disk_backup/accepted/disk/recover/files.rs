@@ -8,6 +8,20 @@ use std::path::Path;
 
 const BODY_MAX: u64 = 2 * 1024 * 1024;
 
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LegacyCommitted {
+    version: u16,
+    frontier_before: u64,
+}
+
+pub(super) fn legacy_split_committed(root: &Path, frontier_before: u64) -> Result<bool, Error> {
+    Ok(
+        io::read_json::<LegacyCommitted>(&root.join("committed.json"))?
+            .is_some_and(|c| c.version == 1 && c.frontier_before == frontier_before),
+    )
+}
+
 pub(super) fn read_meta(dir: &Path) -> Result<Meta, Error> {
     io::require_dir(dir)?;
     let meta = io::read_json::<Meta>(&dir.join("meta.json"))?.ok_or(Error::Gap)?;
@@ -254,7 +268,7 @@ pub(super) fn install(
             retained_bytes: retained,
             snapshot_required: snapshot,
             gap: false,
-            _armed: false,
+            armed: false,
         },
     )
 }

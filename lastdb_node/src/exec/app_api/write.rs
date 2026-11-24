@@ -5,24 +5,22 @@
 //! is still at it. A mutation whose condition does not hold refuses the list
 //! and names that mutation.
 
+mod delete_alternates;
+
 use std::collections::{BTreeMap, HashMap};
 
 use fold_db::access::AccessContext;
 use fold_db::record_replacement::RecordTarget;
-use fold_db::schema::types::{CasExpectation, FileWrite, KeyValue, Mutation, MutationType, Query};
-use schema_types::record_keys::{RecordKeyDefinition, RecordKeyKind};
-use schema_types::FieldValueType;
+use fold_db::schema::types::{CasExpectation, FileWrite, KeyValue, Mutation, MutationType};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
 use super::refusal::{conflict_error, name_conflict, WrittenKey, ABSENT};
 use super::write_file::LinkedFile;
-use super::{bad, fail, key_filter, ok, require_exact_name, require_write};
+use super::{bad, fail, ok, require_exact_name, require_write};
 use crate::exec::mutation::commit_mutations;
-use crate::exec::query::{execute_query, QueryResponseFormat};
 use crate::exec::reply::HostError;
 use crate::exec::schema_routes::resolve_schema_name;
-use crate::exec::wire::QueryRequest;
 use crate::host::Host;
 use crate::lastdb_uds::uds_http::{UdsRequest, UdsResponse};
 
@@ -107,34 +105,50 @@ async fn write(req: &UdsRequest, host: &Host) -> Result<Value, HostError> {
     run(host, items).await
 }
 
-pub(super) async fn run(host: &Host, items: Vec<WriteItem>) -> Result<Value, HostError> {
+pub(super) async fn run(host: &Host, mut items: Vec<WriteItem>) -> Result<Value, HostError> {
     for (index, item) in items.iter().enumerate() {
         require_write(&item.schema).map_err(|error| error.at(index))?;
     }
     let database = items.first().and_then(|item| item.database.clone());
-    let _shared_lock = super::write_signed::lock_owned_shared(host, database.as_deref()).await;
-    let (body, signed) = super::database::write_in(database.as_deref(), host, async {
+    let _shared_lock = super::write_signed::lock_shared_write(host, database.as_deref()).await;
+    let (mut revisions, signed) = super::database::write_in(database.as_deref(), host, async {
         let shared = super::write_signed::is_shared_target(host, database.as_deref());
-        for (index, item) in items.iter().enumerate() {
+        for (index, item) in items.iter_mut().enumerate() {
             require_exact_name(host, &item.schema).map_err(|error| error.at(index))?;
+            if let Some(canonical) =
+                resolve_schema_name(host, &item.schema).map_err(|error| error.at(index))?
+            {
+                item.schema = canonical;
+            }
             if shared {
                 let has_file = !matches!(item.file, FileInput::Absent);
                 super::write_signed::check_shared_item(index, has_file, &item.key)?;
             }
         }
         let store = host.records();
-        let signed = super::write_signed::plan(
-            &store,
-            items.iter().map(|item| super::write_signed::SignedInput {
-                schema: item.schema.as_str(),
-                key: &item.key,
-                op: mutation_type(item.op),
-                record: item.record.as_ref(),
-                alternates: &item.alternates,
-            }),
-        );
-        let located = located_keys(host, &items)?;
-        let prepared = prepare(host, items).await?;
+        let signed = if shared {
+            super::write_signed::plan(
+                &store,
+                items.iter().map(|item| super::write_signed::SignedInput {
+                    schema: item.schema.as_str(),
+                    key: &item.key,
+                    op: mutation_type(item.op),
+                    record: item.record.as_ref(),
+                    alternates: &item.alternates,
+                }),
+            )
+        } else {
+            Vec::new()
+        };
+        let located = located_keys(&items);
+        let mut prepared = prepare(host, items).await?;
+        if shared {
+            let writer =
+                mutation_log::NodeKey::from_bytes(host.keypair.public_key_bytes()).to_hex();
+            for mutation in &mut prepared.mutations {
+                mutation.writer = Some(writer.clone());
+            }
+        }
         let receipt = commit_mutations(host, prepared.mutations)
             .await
             .map_err(|error| name_conflict(error, &located))?;
@@ -148,16 +162,14 @@ pub(super) async fn run(host: &Host, items: Vec<WriteItem>) -> Result<Value, Hos
             .iter()
             .map(|id| json!(receipt.record_revisions.get(id)))
             .collect();
-        Ok((
-            json!({ "written": revisions.len(), "revisions": revisions }),
-            signed,
-        ))
+        Ok((revisions, signed))
     })
     .await?;
     // Owned databases, leased received databases, and the personal database:
     // mirror onto the signed log while holding `_shared_lock`.
-    super::write_signed::mirror_committed(host, database.as_deref(), signed).await?;
-    Ok(body)
+    super::write_signed::mirror_committed(host, database.as_deref(), &signed, &mut revisions)
+        .await?;
+    Ok(json!({ "written": revisions.len(), "revisions": revisions }))
 }
 
 struct Prepared {
@@ -173,7 +185,7 @@ async fn prepare(host: &Host, items: Vec<WriteItem>) -> Result<Prepared, HostErr
         // record's addresses. When no record is there, a shape-valid stand-in
         // lets the commit report that absence with the other conditions.
         let alternates = if item.op == Op::Delete {
-            match stored_alternates(host, &item).await {
+            match delete_alternates::stored_alternates(host, &item).await {
                 Ok(found) => found,
                 Err(error) if error.reason == Some(ABSENT) => {
                     return Err(conflict_error(index, ABSENT));
@@ -205,18 +217,14 @@ async fn prepare(host: &Host, items: Vec<WriteItem>) -> Result<Prepared, HostErr
     Ok(Prepared { mutations, linked })
 }
 
-fn located_keys(host: &Host, items: &[WriteItem]) -> Result<Vec<WrittenKey>, HostError> {
-    let mut located = Vec::with_capacity(items.len());
-    for (index, item) in items.iter().enumerate() {
-        let schema = resolve_schema_name(host, &item.schema)
-            .map_err(|error| error.at(index))?
-            .unwrap_or_else(|| item.schema.clone());
-        located.push(WrittenKey {
-            schema,
+fn located_keys(items: &[WriteItem]) -> Vec<WrittenKey> {
+    items
+        .iter()
+        .map(|item| WrittenKey {
+            schema: item.schema.clone(),
             key: item.key.to_storage_key(),
-        });
-    }
-    Ok(located)
+        })
+        .collect()
 }
 
 fn parse(req: &UdsRequest) -> Result<Vec<WriteItem>, HostError> {
@@ -250,107 +258,6 @@ fn parse(req: &UdsRequest) -> Result<Vec<WriteItem>, HostError> {
         }
     }
     Ok(parsed.mutations)
-}
-
-async fn stored_alternates(host: &Host, item: &WriteItem) -> Result<Alternates, HostError> {
-    let filter = key_filter(&item.key)?;
-    let request = QueryRequest {
-        query: Query::new_with_filter(item.schema.clone(), Some(filter)),
-        limit: Some(2),
-        offset: None,
-        cursor: None,
-        response_format: QueryResponseFormat::Values,
-    };
-    let page = execute_query(host, request).await?;
-    let rows = page["results"]
-        .as_array()
-        .ok_or_else(|| HostError::internal("write read is incomplete"))?;
-    match rows.as_slice() {
-        [] => absent_addresses(host, item),
-        [row] => serde_json::from_value(row["alternates"].clone())
-            .map_err(|_| HostError::internal("stored alternates are invalid")),
-        _ => Err(bad(
-            "the key names more than one record; a hash and range schema needs key.range",
-        )),
-    }
-}
-
-/// No live record at this key. A shape-valid stand-in lets the commit report
-/// `absent`. When none fits, this keyed read has already shown that absence.
-fn absent_addresses(host: &Host, item: &WriteItem) -> Result<Alternates, HostError> {
-    let Some(name) = resolve_schema_name(host, &item.schema)? else {
-        return Ok(Alternates::new());
-    };
-    let Some(schema) = host.records().schema_manager().get_schema_metadata(&name)? else {
-        return Ok(Alternates::new());
-    };
-    let Some(keys) = schema.record_keys.as_ref() else {
-        return Ok(Alternates::new());
-    };
-    let mut alternates = Alternates::new();
-    for (alternate, definition) in &keys.alternates {
-        let Some(address) = stand_in_address(definition, &item.key) else {
-            return Err(HostError::new(409, "no record holds the key").with_reason(ABSENT));
-        };
-        alternates.insert(alternate.clone(), address);
-    }
-    Ok(alternates)
-}
-
-/// `Some(None)` is an alternate the schema allows to be missing.
-/// `None` means no address fits the declared shape.
-fn stand_in_address(
-    definition: &RecordKeyDefinition,
-    primary: &KeyValue,
-) -> Option<Option<KeyValue>> {
-    if definition.allow_absent {
-        return Some(None);
-    }
-    let hash = primary.hash.clone().filter(|hash| !hash.is_empty())?;
-    stand_in_ranges(definition, primary)
-        .into_iter()
-        .find(|range| {
-            definition
-                .validate_coordinates(Some(hash.as_str()), range.as_deref())
-                .is_ok()
-        })
-        .map(|range| {
-            Some(KeyValue {
-                hash: Some(hash),
-                range,
-            })
-        })
-}
-
-fn stand_in_ranges(definition: &RecordKeyDefinition, primary: &KeyValue) -> Vec<Option<String>> {
-    if definition.kind == RecordKeyKind::Hash {
-        return vec![None];
-    }
-    let mut ranges = Vec::new();
-    if let Some(sample) = sample_range(definition.range_type.as_ref()) {
-        ranges.push(Some(sample));
-    }
-    if let Some(range) = primary.range.clone().filter(|range| !range.is_empty()) {
-        ranges.push(Some(range));
-    }
-    if let Some(hash) = primary.hash.clone().filter(|hash| !hash.is_empty()) {
-        ranges.push(Some(hash));
-    }
-    ranges
-}
-
-fn sample_range(range_type: Option<&FieldValueType>) -> Option<String> {
-    Some(
-        match range_type? {
-            FieldValueType::String => "-",
-            FieldValueType::Integer => "0",
-            FieldValueType::Boolean => "false",
-            FieldValueType::Date => "1970-01-01",
-            FieldValueType::DateTime => "1970-01-01T00:00:00Z",
-            _ => return None,
-        }
-        .to_owned(),
-    )
 }
 
 fn mutation_type(op: Op) -> MutationType {

@@ -20,31 +20,37 @@ pub(super) struct SignedInput<'a> {
     pub(super) alternates: &'a signed_history_materialize::Alternates,
 }
 
+/// The 64-hex database id when `selector` names an owned shareable database or
+/// a received signed-log share.
+fn shared_database_id(host: &Host, selector: Option<&str>) -> Option<String> {
+    let selector = selector?;
+    if let Ok(entry) = crate::host::owned::find_shareable_database(&host.home, selector) {
+        return Some(entry.id);
+    }
+    if let Ok(Some(share)) = crate::registered_share::resolve(&host.home, selector) {
+        if share.signed_log {
+            return Some(share.id.as_str().to_owned());
+        }
+    }
+    None
+}
+
 /// Hold the per-database async write lock across commit + mirror for an owned
-/// shareable database so `incorporate::resolve_owned` cannot interleave.
-pub(super) async fn lock_owned_shared(
+/// shareable database or a received signed-log share so `pull::rematerialize`
+/// and `incorporate::resolve_owned` cannot interleave.
+pub(super) async fn lock_shared_write(
     host: &Host,
     selector: Option<&str>,
 ) -> Option<tokio::sync::OwnedMutexGuard<()>> {
-    let selector = selector?;
-    let entry = crate::host::owned::find_shareable_database(&host.home, selector).ok()?;
-    let lock = crate::log_sync::histories_for(host).write_lock(&entry.id);
+    let id = shared_database_id(host, selector)?;
+    let lock = crate::log_sync::histories_for(host).write_lock(&id);
     Some(lock.lock_owned().await)
 }
 
 /// True when `selector` names an owned shareable database or a received
 /// signed-log share.
 pub(super) fn is_shared_target(host: &Host, selector: Option<&str>) -> bool {
-    let Some(selector) = selector else {
-        return false;
-    };
-    if crate::host::owned::find_shareable_database(&host.home, selector).is_ok() {
-        return true;
-    }
-    matches!(
-        crate::registered_share::resolve(&host.home, selector),
-        Ok(Some(share)) if share.signed_log
-    )
+    shared_database_id(host, selector).is_some()
 }
 
 /// Refuse features that signed-history shared databases cannot carry.
@@ -124,12 +130,21 @@ async fn mirror_received(
     host: &Host,
     selector: Option<&str>,
     signed: &[OwnedMutation],
+    revisions: &mut [Value],
 ) -> Result<(), HostError> {
     let Some(selector) = selector else {
         return Ok(());
     };
     match crate::log_sync::mirror_received_write(host, selector, signed).await {
-        Ok(_) => Ok(()),
+        Ok(Some(live)) => {
+            for (slot, found) in revisions.iter_mut().zip(live) {
+                if let Some(rev) = found {
+                    *slot = Value::String(rev);
+                }
+            }
+            Ok(())
+        }
+        Ok(None) => Ok(()),
         Err(error) => {
             let reply = error.reply();
             let refusal = HostError::new(reply.status, reply.message);
@@ -152,10 +167,11 @@ async fn mirror_received(
 pub(super) async fn mirror_committed(
     host: &Host,
     selector: Option<&str>,
-    signed: Vec<OwnedMutation>,
+    signed: &[OwnedMutation],
+    revisions: &mut [Value],
 ) -> Result<(), HostError> {
     let Some(target) = write_target(host, selector) else {
-        return mirror_received(host, selector, &signed).await;
+        return mirror_received(host, selector, signed, revisions).await;
     };
     if target.personal {
         // The commit already put the write in the spool of accepted writes, which
@@ -163,7 +179,7 @@ pub(super) async fn mirror_committed(
         request_wake(&host.home);
         return Ok(());
     }
-    let Err(error) = mirror_owned_write(host, &target.id, &signed) else {
+    let Err(error) = mirror_owned_write(host, &target.id, signed) else {
         return Ok(());
     };
     tracing::warn!(
@@ -172,7 +188,7 @@ pub(super) async fn mirror_committed(
         "owned write was not mirrored to the signed log"
     );
     if let Some(store) = crate::log_sync::owned_store(host, &target.id) {
-        crate::log_sync::revert_unsigned(host, &target.id, &store, &keys_of(&signed)).await;
+        crate::log_sync::revert_unsigned(host, &target.id, &store, &keys_of(signed)).await;
     }
     Err(HostError::new(
         503,

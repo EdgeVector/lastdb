@@ -12,7 +12,6 @@ use crate::schema::types::author_clock::MAX_ORDERING_MS;
 use crate::schema::types::{KeyValue, Mutation, MutationType, Schema};
 use crate::schema::SchemaError;
 use crate::storage::disk_backup::accepted::LocalEntry;
-use crate::storage::disk_pack::transaction;
 use crate::storage::format::metadata::{ReplayStamp, ReplayTarget, FILE_SLOT, INLINE_SLOT};
 use crate::storage::format::records::RecordAddress;
 use lastdb_model::record_value::StoredRecord;
@@ -162,18 +161,6 @@ impl MutationManager {
             .metadata()
             .replay_winner(ReplayTarget::Schema(schema))
             .await
-    }
-
-    /// Read the greatest applied schema put or drop stamp in a fresh read scope.
-    pub async fn read_replay_schema_winner(
-        &self,
-        schema: &str,
-    ) -> Result<Option<ReplayStamp>, SchemaError> {
-        transaction::scope(
-            self.db_ops.native_runtime(),
-            self.replay_schema_winner(schema),
-        )
-        .await
     }
 
     /// Stage a greater schema put or drop stamp in the current replay scope.

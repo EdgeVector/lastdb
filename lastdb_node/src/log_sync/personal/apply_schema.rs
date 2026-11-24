@@ -77,14 +77,11 @@ async fn drop_schema(
     let id: [u8; 32] = identity.finalize().into();
     let digest: [u8; 32] = digest.into();
     let done = async {
-        let winner = manager.read_replay_schema_winner(name).await?;
-        if winner.as_ref().is_none_or(|held| &stamp > held) {
-            ctx.host
-                .db
-                .schema_manager()
-                .drop_replay_schema(name, &id, &digest, &stamp)
-                .await?;
-        }
+        ctx.host
+            .db
+            .schema_manager()
+            .drop_replay_schema(name, &id, &digest, &stamp)
+            .await?;
         manager
             .write_replay_at_head(stream, next, async {
                 manager.observe_replay_time(stamp.ordering_ms).await?;

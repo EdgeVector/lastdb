@@ -15,7 +15,7 @@ use crate::storage::format::{
     CAS_KEY_LABEL, CREATION_INTENT, CURRENT_KEY_FORMAT_KEY, CURRENT_KEY_FORMAT_VALUE,
     HOME_KEY_LABEL, MAIN_NAMESPACE, METADATA_NAMESPACE, NODE_MARKER, RECORDS_COLLECTION,
     RECORD_NODE_BYTES, RECORD_PROFILE, RETIRED_SHARED_DIR, RETIRED_SHARED_NODE_BYTES,
-    SCHEMAS_NAMESPACE, SCHEMA_STATES_NAMESPACE, STAGED_NODE_MARKER,
+    STAGED_NODE_MARKER,
 };
 use lastdb_model::field_key_codec::current_key_format;
 use lastdb_model::kind_partition::exact_prefix_bounds;
@@ -309,7 +309,9 @@ impl PackNamespacedStore {
         let cleanup_job = Arc::new(CleanupJob::open(&physical));
         let initializing_now = path.join(CREATION_INTENT).try_exists()?;
         let accepted = if capture_accepted {
-            let user_data = !initializing_now && has_user_data(&physical, &current)?;
+            let user_data = !initializing_now
+                && !Log::has_state(physical.path())
+                && super::user_data::has_user_data(&physical, &current)?;
             Some(Log::open(
                 physical.path(),
                 current.frontiers(),
@@ -345,44 +347,4 @@ impl PackNamespacedStore {
         runtime.spawn_merges();
         Ok(Self { runtime })
     }
-}
-
-fn has_user_data(v2: &physical::V2Home, root: &physical::V2Root) -> StorageResult<bool> {
-    if root.cas.frontier() > 0 {
-        return Ok(true);
-    }
-    let mut main = v2.home.read_root(&root.main, ReadBudget::new(8 << 20, 64));
-    for col in [SCHEMAS_NAMESPACE, SCHEMA_STATES_NAMESPACE] {
-        let mut range = main.administrative_range(col, b"", &[0xff]).map_err(map)?;
-        if !range.next_page(1).map_err(map)?.records.is_empty() {
-            return Ok(true);
-        }
-    }
-    let mut records = main
-        .administrative_range(RECORDS_COLLECTION, b"", &[0xff])
-        .map_err(map)?;
-    if records
-        .next_page(2)
-        .map_err(map)?
-        .records
-        .iter()
-        .any(|(key, _)| key != CURRENT_KEY_FORMAT_KEY)
-    {
-        return Ok(true);
-    }
-    let fresh_author = initial_local_author(v2.home.identity())?;
-    let proof_key = native_routing::encode(content_key_proof::KEY);
-    let mut meta = main
-        .administrative_range(METADATA_NAMESPACE, b"", &[0xff])
-        .map_err(map)?;
-    for (key, value) in meta.next_page(3).map_err(map)?.records {
-        if key == LOCAL_AUTHOR_KEY {
-            if value != fresh_author {
-                return Ok(true);
-            }
-        } else if key != proof_key {
-            return Ok(true);
-        }
-    }
-    Ok(false)
 }

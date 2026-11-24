@@ -17,7 +17,7 @@ pub(super) async fn submit_signed(
     let Some(id) = req.header("Idempotency-Key").and_then(mutation_id) else {
         return error_response(400, "a shared write requires a UUID Idempotency-Key", ctx);
     };
-    match crate::log_sync::submit_share_write(host, share, &id, &req.body).await {
+    match crate::log_sync::submit_share_write(host, share, &id, &req.body, None).await {
         Ok(sequence) => accepted("submitted", &id, sequence),
         Err(error) => contribution_failure(&error, ctx),
     }
@@ -72,19 +72,23 @@ pub(super) async fn change_record(
     if let Err(error) = super::app_api::require_change_grant(&req.body) {
         return render(Err(error), ctx);
     }
-    let propose = match share {
-        None => false,
+    let (propose, held_lock) = match share {
+        None => (false, None),
         Some(share) if !share.whole_database() => {
             return error_response(403, "this share is read-only", ctx);
         }
-        // A change this node already queued stays a proposal, whatever the lease says now.
-        Some(share) => match crate::log_sync::share_write_submitted(host, share, &id) {
-            Ok(queued) => queued || !super::app_api::direct_write_allowed(host, share),
+        // A change this node already queued stays a proposal, whatever the lease
+        // says now. Holding `submit_lock` closes the race across lease arrival.
+        Some(share) => match crate::log_sync::share_write_submitted(host, share, &id).await {
+            Ok((queued, guard)) => (
+                queued || !super::app_api::direct_write_allowed(host, share),
+                Some(guard),
+            ),
             Err(error) => return contribution_failure(&error, ctx),
         },
     };
     if let (true, Some(share)) = (propose, share) {
-        return queue(host, share, &id, &req.body, ctx).await;
+        return queue(host, share, &id, &req.body, held_lock, ctx).await;
     }
     match apply(host, selector, &req.body).await {
         Ok(()) => json_ok(&json!({
@@ -97,9 +101,10 @@ pub(super) async fn change_record(
                 && share
                     .is_some_and(|share| !super::app_api::direct_write_allowed(host, share)) =>
         {
-            match share {
-                Some(share) => queue(host, share, &id, &req.body, ctx).await,
-                None => render(Err(error), ctx),
+            if let Some(share) = share {
+                queue(host, share, &id, &req.body, held_lock, ctx).await
+            } else {
+                render(Err(error), ctx)
             }
         }
         Err(error) => render(Err(error), ctx),
@@ -111,9 +116,10 @@ async fn queue(
     share: &RegisteredShare,
     id: &uuid::Uuid,
     body: &[u8],
+    held_lock: Option<tokio::sync::OwnedMutexGuard<()>>,
     ctx: &AccessContext,
 ) -> UdsResponse {
-    match crate::log_sync::submit_share_write(host, share, id, body).await {
+    match crate::log_sync::submit_share_write(host, share, id, body, held_lock).await {
         Ok(sequence) => accepted("pending", id, sequence),
         Err(error) => contribution_failure(&error, ctx),
     }

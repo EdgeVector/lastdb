@@ -113,11 +113,12 @@ pub fn resolve_alternates(
 /// Make FoldDB hold exactly the winners of `history`.
 ///
 /// A winner already stored with equal fields, equal alternates, and the same
-/// authors is left alone. History records are whole-record last-writer-wins, so
-/// the winner's writer is both `created_by` and `updated_by` on every node. An
-/// empty value deletes the record. A live winner whose namespace has no declared
-/// schema fails closed. A tombstone for an undeclared namespace is skipped so a
-/// tombstone-only namespace does not block restore.
+/// `created_by` and `updated_by` is left alone. History records are
+/// whole-record last-writer-wins: `winner.creator` (the earliest accepted write
+/// to the key) is `created_by` and `winner.author` is `updated_by` on every
+/// node. An empty value deletes the record. A live winner whose namespace has
+/// no declared schema fails closed. A tombstone for an undeclared namespace is
+/// skipped so a tombstone-only namespace does not block restore.
 pub async fn apply_history(store: &FoldDB, history: &VerifiedHistory) -> Result<(), String> {
     for ((namespace, record_key), winner) in history.records() {
         apply_winner(store, namespace, record_key, winner).await?;
@@ -142,6 +143,7 @@ async fn apply_winner(
     let key = key_value(store, namespace, record_key)?;
     let current = read_at(store, namespace, &key).await?;
     let decoded = decode_record_value(&winner.value)?;
+    let creator = winner.creator.to_hex();
     let author = winner.author.to_hex();
     let (kind, expected, fields, alternates) = match (&current, decoded) {
         (None, None) => return Ok(()),
@@ -158,7 +160,7 @@ async fn apply_winner(
             let alts = resolve_alternates(store, namespace, rec.alternates)?;
             if old.fields == rec.fields
                 && old.alternates == alts
-                && old.created_by.as_deref() == Some(author.as_str())
+                && old.created_by.as_deref() == Some(creator.as_str())
                 && old.updated_by.as_deref() == Some(author.as_str())
             {
                 return Ok(());
@@ -187,7 +189,7 @@ async fn apply_winner(
     );
     mutation.writer = Some(author.clone());
     if carries_authors {
-        mutation.copied_authorship = Some((Some(author.clone()), Some(author)));
+        mutation.copied_authorship = Some((Some(creator), Some(author)));
     }
     store
         .mutation_manager()

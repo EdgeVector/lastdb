@@ -21,7 +21,6 @@ use serde_json::Value;
 use super::birth::{self, BirthMaterial};
 use super::chain_author;
 use super::chain_author::AuthorIdentity;
-use super::device;
 use super::history_store;
 use super::materialize;
 use super::wake;
@@ -61,7 +60,6 @@ pub fn mirror_owned_write(
     let store = materialize::store_for(host, database_id)
         .ok_or_else(|| "no FoldDB store is open for this database".to_owned())?;
     let identity = chain_author::identity_of(host).map_err(|e| e.reply().message.to_owned())?;
-    let _ = device::device_id(&host.home)?;
     let database = DatabaseId::from_hex(database_id).map_err(|_| "database_id is not hex32")?;
     let ctx = MirrorCtx {
         database,

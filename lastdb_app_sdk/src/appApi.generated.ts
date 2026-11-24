@@ -389,6 +389,7 @@ export interface DatabasesListRequest {
   app_id?: never;
   grantee?: never;
   role?: never;
+  length_ms?: never;
   mutation?: never;
   idempotency_key?: never;
   mutationId?: never;
@@ -411,6 +412,7 @@ export interface DatabasesCreateRequest {
   app_id?: never;
   grantee?: never;
   role?: never;
+  length_ms?: never;
   mutation?: never;
   idempotency_key?: never;
   mutationId?: never;
@@ -433,6 +435,7 @@ export interface DatabasesAcceptLinkRequest {
   app_id?: never;
   grantee?: never;
   role?: never;
+  length_ms?: never;
   mutation?: never;
   idempotency_key?: never;
   mutationId?: never;
@@ -453,6 +456,7 @@ export interface DatabasesSchemasRequest {
   app_id?: never;
   grantee?: never;
   role?: never;
+  length_ms?: never;
   mutation?: never;
   idempotency_key?: never;
   mutationId?: never;
@@ -475,6 +479,7 @@ export interface DatabasesDeclareRequest {
   include_definition_ids?: never;
   grantee?: never;
   role?: never;
+  length_ms?: never;
   mutation?: never;
   idempotency_key?: never;
   mutationId?: never;
@@ -497,6 +502,7 @@ export interface DatabasesGrantRequest {
   intent?: never;
   retention?: never;
   app_id?: never;
+  length_ms?: never;
   mutation?: never;
   idempotency_key?: never;
   mutationId?: never;
@@ -519,6 +525,7 @@ export interface DatabasesRevokeRequest {
   retention?: never;
   app_id?: never;
   role?: never;
+  length_ms?: never;
   mutation?: never;
   idempotency_key?: never;
   mutationId?: never;
@@ -540,6 +547,7 @@ export interface DatabasesGrantsRequest {
   app_id?: never;
   grantee?: never;
   role?: never;
+  length_ms?: never;
   mutation?: never;
   idempotency_key?: never;
   mutationId?: never;
@@ -561,6 +569,7 @@ export interface DatabasesHeadsRequest {
   app_id?: never;
   grantee?: never;
   role?: never;
+  length_ms?: never;
   mutation?: never;
   idempotency_key?: never;
   mutationId?: never;
@@ -582,6 +591,7 @@ export interface DatabasesRelaysRequest {
   app_id?: never;
   grantee?: never;
   role?: never;
+  length_ms?: never;
   mutation?: never;
   idempotency_key?: never;
   mutationId?: never;
@@ -591,6 +601,52 @@ export interface DatabasesRelaysRequest {
 export interface DatabasesBootstrapRelayRequest {
   action: 'bootstrap_relay';
   database?: DatabaseSelector;
+  name?: never;
+  kind?: never;
+  sharingMode?: never;
+  link?: never;
+  include_full?: never;
+  include_definition_ids?: never;
+  schema?: never;
+  intent?: never;
+  retention?: never;
+  app_id?: never;
+  grantee?: never;
+  role?: never;
+  length_ms?: never;
+  mutation?: never;
+  idempotency_key?: never;
+  mutationId?: never;
+}
+
+/** Read the newest write lease this node holds for the database, its folded role, and for an owned database any configured leaseLengthMs. No cloud account is 409 no_cloud_account and is final. Still enrolling waits, then 503 enrolling with Retry-After. Enrolled but unconfirmed is 503 busy. */
+export interface DatabasesLeaseRequest {
+  action: 'lease';
+  database?: DatabaseSelector;
+  name?: never;
+  kind?: never;
+  sharingMode?: never;
+  link?: never;
+  include_full?: never;
+  include_definition_ids?: never;
+  schema?: never;
+  intent?: never;
+  retention?: never;
+  app_id?: never;
+  grantee?: never;
+  role?: never;
+  length_ms?: never;
+  mutation?: never;
+  idempotency_key?: never;
+  mutationId?: never;
+}
+
+/** Set (whole-number milliseconds between 10000 and 7776000000) or clear (null) the write-lease length of an owned shareable database, and wake sync. */
+export interface DatabasesLeaseLengthRequest {
+  action: 'lease_length';
+  database?: DatabaseSelector;
+  /** Minimum 0. */
+  length_ms: number | null;
   name?: never;
   kind?: never;
   sharingMode?: never;
@@ -624,12 +680,13 @@ export interface DatabasesShareLinkRequest {
   app_id?: never;
   grantee?: never;
   role?: never;
+  length_ms?: never;
   mutation?: never;
   idempotency_key?: never;
   mutationId?: never;
 }
 
-/** POST /api/databases/{id}/submissions. idempotency_key becomes the Idempotency-Key header. The node appends the proposal to the pending log and does not write a record. The service authorization refusal (code unauthorized, or HTTP 401 or 403 other than payment.subscription) is 403 permission_denied and the message is "this member cannot submit this shared mutation", with no Retry-After. An append that is not confirmed is 503 busy, the message is "shared mutation was not confirmed", and Retry-After says when to retry. */
+/** POST /api/databases/{id}/submissions. idempotency_key becomes the Idempotency-Key header. The node signs the proposal on this member stream, appends it to the local log, and does not write a record. A folded role other than submit or write is 403 permission_denied and the message is "this member cannot submit this shared mutation", with no Retry-After. An append that is not confirmed is 503 busy, the message is "shared mutation was not confirmed", and Retry-After says when to retry. */
 export interface DatabasesSubmitRequest {
   action: 'submit';
   database?: DatabaseSelector;
@@ -648,6 +705,7 @@ export interface DatabasesSubmitRequest {
   app_id?: never;
   grantee?: never;
   role?: never;
+  length_ms?: never;
   mutationId?: never;
 }
 
@@ -670,6 +728,7 @@ export interface DatabasesChangeRequest {
   app_id?: never;
   grantee?: never;
   role?: never;
+  length_ms?: never;
   mutationId?: never;
 }
 
@@ -689,30 +748,56 @@ export interface DatabasesStatusRequest {
   app_id?: never;
   grantee?: never;
   role?: never;
+  length_ms?: never;
   mutation?: never;
   idempotency_key?: never;
 }
 
 /** One action. A field from another action is invalid_request. */
-export type DatabasesRequest = DatabasesListRequest | DatabasesCreateRequest | DatabasesAcceptLinkRequest | DatabasesSchemasRequest | DatabasesDeclareRequest | DatabasesGrantRequest | DatabasesRevokeRequest | DatabasesGrantsRequest | DatabasesHeadsRequest | DatabasesRelaysRequest | DatabasesBootstrapRelayRequest | DatabasesShareLinkRequest | DatabasesSubmitRequest | DatabasesChangeRequest | DatabasesStatusRequest;
+export type DatabasesRequest = DatabasesListRequest | DatabasesCreateRequest | DatabasesAcceptLinkRequest | DatabasesSchemasRequest | DatabasesDeclareRequest | DatabasesGrantRequest | DatabasesRevokeRequest | DatabasesGrantsRequest | DatabasesHeadsRequest | DatabasesRelaysRequest | DatabasesBootstrapRelayRequest | DatabasesLeaseRequest | DatabasesLeaseLengthRequest | DatabasesShareLinkRequest | DatabasesSubmitRequest | DatabasesChangeRequest | DatabasesStatusRequest;
 
-/** The last publish attempt for one received database. It is kept in memory and is absent again after a restart. at is RFC 3339 UTC. status is the HTTP status when the service answered, or a string when the turn stopped before that answer: access_unknown, no_credentials, gap, spool_position_mismatch, empty_page, writer_tip, upload_identity, upload_position, reader_stopped, writer_stopped, confirm_failed, prepare_failed, queue_unreadable, spool_position, batch_invalid, entry_too_large, undo_failed, policy_unknown, local_store_unavailable, capture_disabled, payment_required, writer_sequence_unknown, or upload_unconfirmed. access_unknown means the self-access view was unknown or stale. no_credentials means the node had no usable cloud credentials for the share. policy_unknown, local_store_unavailable, and capture_disabled mean the node stopped for a local reason before it asked the cloud. payment_required means the account is unpaid. writer_sequence_unknown means the node lost its saved upload position and the cloud no longer keeps the delivered entries that show this device's last writer sequence, so the node does not guess one. status is null when the attempt failed before a status and the node had usable credentials. */
+/** The newest write lease held in this database's signed history. covers says whether the lease names this node. directWrites says whether this node signs direct entries now (role is write and now is before directWritesUntilMs). */
+export interface DatabasesLease {
+  /** 64 lowercase hex characters. */
+  entryHash: string;
+  /** Integer. Minimum 0. */
+  authoredAtMs: number;
+  /** Integer. Minimum 0. */
+  expiresAtMs: number;
+  /** Integer. Minimum 0. */
+  closesAtMs: number;
+  covers: boolean;
+  directWrites: boolean;
+  /** Minimum 0. */
+  directWritesUntilMs: number | null;
+}
+
+/** Folded access of this node on a received signed-log database. Omitted when no history is held or the key has no active grant. */
+export interface DatabasesSelfAccess {
+  role: 'read' | 'submit' | 'write';
+  lease?: DatabasesLease;
+}
+
+/** The last relay upload attempt for one received database. It is kept in memory and is absent again after a restart. at is RFC 3339 UTC with second precision. outcome is confirmed when the relay accepted the append batch, refused on HTTP 401 or 403, or unconfirmed otherwise. status is the HTTP status when the relay answered, no_credentials when the node had no usable cloud credentials, or null when the attempt failed before a status. */
 export interface DatabasesPublishAttempt {
   at: string;
   outcome: 'confirmed' | 'refused' | 'unconfirmed';
   status: number | string | null;
 }
 
-/** How many of this member's accepted local writes are still on the spool, and the last append attempt. pending is null until this process has seen the spool. Owned databases omit this object. */
+/** How many signed log entries of this member are past the upload cursor, and the last relay append attempt. pending is null until a path in this process reads the log. Owned databases omit this object. */
 export interface DatabasesPublish {
-  /** Spool head minus the prefix the service has confirmed. Null when this process has not seen the spool, including after a restart. Zero when the registration is not a signed log. */
+  /** Signed log entries past uploaded.json. Null until this process has read the log, including after a restart. Zero when the registration is not a signed log. */
   pending: null | number;
   /** Null until a publish attempt, and null again after a restart. */
   lastAttempt: null | DatabasesPublishAttempt;
 }
 
-/** One database from list. A received database includes publish. An owned database omits it. */
+/** One database from list, create, or accept. A received database includes publish, and includes selfAccess when this node holds its signed history and has an active role. An owned shareable database includes leaseLengthMs when a lease length is set. */
 export interface DatabasesListItem {
+  /** Integer. Minimum 1. */
+  leaseLengthMs?: number;
+  selfAccess?: DatabasesSelfAccess;
   publish?: DatabasesPublish;
   [key: string]: unknown;
 }
@@ -728,7 +813,7 @@ export interface DatabasesListReply {
 export interface DatabasesDatabaseReply {
   ok: boolean;
   user_hash: string;
-  database: { [key: string]: unknown };
+  database: DatabasesListItem;
   [key: string]: unknown;
 }
 
@@ -767,10 +852,10 @@ export interface DatabasesGrantReply {
 export interface DatabasesGrantMember {
   /** 64 lowercase hex characters. */
   nodeKey: string;
-  role: 'read' | 'submit' | 'write';
+  role: 'read' | 'submit' | 'write' | 'revoked';
 }
 
-/** The folded grants. A revoked member is absent. any is present only for public read. entryHash and writerSeq name the latest signed grant. */
+/** The folded grants. Explicitly revoked members appear with role revoked; never-granted keys are absent. any is present only for public read. entryHash and writerSeq name the latest signed grant. */
 export interface DatabasesGrantsReply {
   ok: boolean;
   user_hash: string;
@@ -814,6 +899,28 @@ export interface DatabasesBootstrapRelayReply {
   [key: string]: unknown;
 }
 
+/** The lease view of an owned or received database. leaseLengthMs is present on an owned database that configured one. */
+export interface DatabasesLeaseReply {
+  ok: boolean;
+  user_hash: string;
+  databaseId: string;
+  role: null | 'read' | 'submit' | 'write';
+  /** Integer. Minimum 1. */
+  leaseLengthMs?: number;
+  lease: null | DatabasesLease;
+  [key: string]: unknown;
+}
+
+/** The updated lease length of an owned shareable database, or null when cleared. */
+export interface DatabasesLeaseLengthReply {
+  ok: boolean;
+  user_hash: string;
+  databaseId: string;
+  /** Minimum 0. */
+  leaseLengthMs: number | null;
+  [key: string]: unknown;
+}
+
 /** The owner open-material envelope. link is one opaque token People can wrap as a consent code, not a URL. */
 export interface DatabasesShareLinkReply {
   ok: boolean;
@@ -850,7 +957,7 @@ export interface DatabasesStatusReply {
 }
 
 /** Success JSON for an action other than submit. submit answers 202. change answers 200 applied or 202 pending. */
-export type DatabasesReply = DatabasesListReply | DatabasesDatabaseReply | DatabasesSchemasReply | DatabasesDeclareReply | DatabasesGrantReply | DatabasesGrantsReply | DatabasesHeadsReply | DatabasesRelaysReply | DatabasesBootstrapRelayReply | DatabasesShareLinkReply | DatabasesChangeReply | DatabasesStatusReply;
+export type DatabasesReply = DatabasesListReply | DatabasesDatabaseReply | DatabasesSchemasReply | DatabasesDeclareReply | DatabasesGrantReply | DatabasesGrantsReply | DatabasesHeadsReply | DatabasesRelaysReply | DatabasesBootstrapRelayReply | DatabasesLeaseReply | DatabasesLeaseLengthReply | DatabasesShareLinkReply | DatabasesChangeReply | DatabasesStatusReply;
 
 /** Maximum items 256. */
 export type ManifestNameList = string[];

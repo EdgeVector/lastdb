@@ -95,12 +95,6 @@ pub(in crate::exec) async fn execute_apps_declare_schema_route(
             HostError::new(400, format!("invalid /api/apps/declare-schema body: {e}"))
         })?;
         if let Some(ret) = b.retention {
-            if !ctx.is_owner {
-                return Err(HostError::new(
-                    403,
-                    "a schema retention can be declared only on the owner socket",
-                ));
-            }
             ret.ttl().map_err(|e| HostError::new(400, e))?;
         }
         let SchemaSyncIntent::CatalogSync = b.intent;

@@ -888,6 +888,27 @@
           "database": {"$ref": "#/components/schemas/DatabaseSelector"}
         }
       },
+      "DatabasesLeaseRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["action"],
+        "description": "Read the newest write lease this node holds for the database, its folded role, and for an owned database any configured leaseLengthMs. No cloud account is 409 no_cloud_account and is final. Still enrolling waits, then 503 enrolling with Retry-After. Enrolled but unconfirmed is 503 busy.",
+        "properties": {
+          "action": {"const": "lease"},
+          "database": {"$ref": "#/components/schemas/DatabaseSelector"}
+        }
+      },
+      "DatabasesLeaseLengthRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["action", "length_ms"],
+        "description": "Set (whole-number milliseconds between 10000 and 7776000000) or clear (null) the write-lease length of an owned shareable database, and wake sync.",
+        "properties": {
+          "action": {"const": "lease_length"},
+          "database": {"$ref": "#/components/schemas/DatabaseSelector"},
+          "length_ms": {"type": ["integer", "null"], "minimum": 0}
+        }
+      },
       "DatabasesShareLinkRequest": {
         "type": "object",
         "additionalProperties": false,
@@ -902,7 +923,7 @@
         "type": "object",
         "additionalProperties": false,
         "required": ["action", "mutation", "idempotency_key"],
-        "description": "POST /api/databases/{id}/submissions. idempotency_key becomes the Idempotency-Key header. The node appends the proposal to the pending log and does not write a record. The service authorization refusal (code unauthorized, or HTTP 401 or 403 other than payment.subscription) is 403 permission_denied and the message is \"this member cannot submit this shared mutation\", with no Retry-After. An append that is not confirmed is 503 busy, the message is \"shared mutation was not confirmed\", and Retry-After says when to retry.",
+        "description": "POST /api/databases/{id}/submissions. idempotency_key becomes the Idempotency-Key header. The node signs the proposal on this member stream, appends it to the local log, and does not write a record. A folded role other than submit or write is 403 permission_denied and the message is \"this member cannot submit this shared mutation\", with no Retry-After. An append that is not confirmed is 503 busy, the message is \"shared mutation was not confirmed\", and Retry-After says when to retry.",
         "properties": {
           "action": {"const": "submit"},
           "database": {"$ref": "#/components/schemas/DatabaseSelector"},
@@ -946,17 +967,52 @@
           {"$ref": "#/components/schemas/DatabasesHeadsRequest"},
           {"$ref": "#/components/schemas/DatabasesRelaysRequest"},
           {"$ref": "#/components/schemas/DatabasesBootstrapRelayRequest"},
+          {"$ref": "#/components/schemas/DatabasesLeaseRequest"},
+          {"$ref": "#/components/schemas/DatabasesLeaseLengthRequest"},
           {"$ref": "#/components/schemas/DatabasesShareLinkRequest"},
           {"$ref": "#/components/schemas/DatabasesSubmitRequest"},
           {"$ref": "#/components/schemas/DatabasesChangeRequest"},
           {"$ref": "#/components/schemas/DatabasesStatusRequest"}
         ]
       },
+      "DatabasesLease": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "entryHash",
+          "authoredAtMs",
+          "expiresAtMs",
+          "closesAtMs",
+          "covers",
+          "directWrites",
+          "directWritesUntilMs"
+        ],
+        "description": "The newest write lease held in this database's signed history. covers says whether the lease names this node. directWrites says whether this node signs direct entries now (role is write and now is before directWritesUntilMs).",
+        "properties": {
+          "entryHash": {"type": "string", "description": "64 lowercase hex characters."},
+          "authoredAtMs": {"type": "integer", "minimum": 0},
+          "expiresAtMs": {"type": "integer", "minimum": 0},
+          "closesAtMs": {"type": "integer", "minimum": 0},
+          "covers": {"type": "boolean"},
+          "directWrites": {"type": "boolean"},
+          "directWritesUntilMs": {"type": ["integer", "null"], "minimum": 0}
+        }
+      },
+      "DatabasesSelfAccess": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["role"],
+        "description": "Folded access of this node on a received signed-log database. Omitted when no history is held or the key has no active grant.",
+        "properties": {
+          "role": {"type": "string", "enum": ["read", "submit", "write"]},
+          "lease": {"$ref": "#/components/schemas/DatabasesLease"}
+        }
+      },
       "DatabasesPublishAttempt": {
         "type": "object",
         "additionalProperties": false,
         "required": ["at", "outcome", "status"],
-        "description": "The last publish attempt for one received database. It is kept in memory and is absent again after a restart. at is RFC 3339 UTC. status is the HTTP status when the service answered, or a string when the turn stopped before that answer: access_unknown, no_credentials, gap, spool_position_mismatch, empty_page, writer_tip, upload_identity, upload_position, reader_stopped, writer_stopped, confirm_failed, prepare_failed, queue_unreadable, spool_position, batch_invalid, entry_too_large, undo_failed, policy_unknown, local_store_unavailable, capture_disabled, payment_required, writer_sequence_unknown, or upload_unconfirmed. access_unknown means the self-access view was unknown or stale. no_credentials means the node had no usable cloud credentials for the share. policy_unknown, local_store_unavailable, and capture_disabled mean the node stopped for a local reason before it asked the cloud. payment_required means the account is unpaid. writer_sequence_unknown means the node lost its saved upload position and the cloud no longer keeps the delivered entries that show this device's last writer sequence, so the node does not guess one. status is null when the attempt failed before a status and the node had usable credentials.",
+        "description": "The last relay upload attempt for one received database. It is kept in memory and is absent again after a restart. at is RFC 3339 UTC with second precision. outcome is confirmed when the relay accepted the append batch, refused on HTTP 401 or 403, or unconfirmed otherwise. status is the HTTP status when the relay answered, no_credentials when the node had no usable cloud credentials, or null when the attempt failed before a status.",
         "properties": {
           "at": {"type": "string"},
           "outcome": {"type": "string", "enum": ["confirmed", "refused", "unconfirmed"]},
@@ -967,10 +1023,10 @@
         "type": "object",
         "additionalProperties": false,
         "required": ["pending", "lastAttempt"],
-        "description": "How many of this member's accepted local writes are still on the spool, and the last append attempt. pending is null until this process has seen the spool. Owned databases omit this object.",
+        "description": "How many signed log entries of this member are past the upload cursor, and the last relay append attempt. pending is null until a path in this process reads the log. Owned databases omit this object.",
         "properties": {
           "pending": {
-            "description": "Spool head minus the prefix the service has confirmed. Null when this process has not seen the spool, including after a restart. Zero when the registration is not a signed log.",
+            "description": "Signed log entries past uploaded.json. Null until this process has read the log, including after a restart. Zero when the registration is not a signed log.",
             "oneOf": [
               {"type": "null"},
               {"type": "integer", "minimum": 0}
@@ -988,8 +1044,10 @@
       "DatabasesListItem": {
         "type": "object",
         "additionalProperties": true,
-        "description": "One database from list. A received database includes publish. An owned database omits it.",
+        "description": "One database from list, create, or accept. A received database includes publish, and includes selfAccess when this node holds its signed history and has an active role. An owned shareable database includes leaseLengthMs when a lease length is set.",
         "properties": {
+          "leaseLengthMs": {"type": "integer", "minimum": 1},
+          "selfAccess": {"$ref": "#/components/schemas/DatabasesSelfAccess"},
           "publish": {"$ref": "#/components/schemas/DatabasesPublish"}
         }
       },
@@ -1011,7 +1069,7 @@
         "properties": {
           "ok": {"type": "boolean"},
           "user_hash": {"type": "string"},
-          "database": {"type": "object", "additionalProperties": true}
+          "database": {"$ref": "#/components/schemas/DatabasesListItem"}
         }
       },
       "DatabasesSchemasReply": {
@@ -1058,14 +1116,14 @@
         "required": ["nodeKey", "role"],
         "properties": {
           "nodeKey": {"type": "string", "description": "64 lowercase hex characters."},
-          "role": {"type": "string", "enum": ["read", "submit", "write"]}
+          "role": {"type": "string", "enum": ["read", "submit", "write", "revoked"]}
         }
       },
       "DatabasesGrantsReply": {
         "type": "object",
         "additionalProperties": true,
         "required": ["ok", "user_hash", "databaseId", "members"],
-        "description": "The folded grants. A revoked member is absent. any is present only for public read. entryHash and writerSeq name the latest signed grant.",
+        "description": "The folded grants. Explicitly revoked members appear with role revoked; never-granted keys are absent. any is present only for public read. entryHash and writerSeq name the latest signed grant.",
         "properties": {
           "ok": {"type": "boolean"},
           "user_hash": {"type": "string"},
@@ -1117,6 +1175,42 @@
           "user_hash": {"type": "string"},
           "databaseId": {"type": "string"},
           "url": {"type": "string"}
+        }
+      },
+      "DatabasesLeaseReply": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["ok", "user_hash", "databaseId", "role", "lease"],
+        "description": "The lease view of an owned or received database. leaseLengthMs is present on an owned database that configured one.",
+        "properties": {
+          "ok": {"type": "boolean"},
+          "user_hash": {"type": "string"},
+          "databaseId": {"type": "string"},
+          "role": {
+            "oneOf": [
+              {"type": "null"},
+              {"type": "string", "enum": ["read", "submit", "write"]}
+            ]
+          },
+          "leaseLengthMs": {"type": "integer", "minimum": 1},
+          "lease": {
+            "oneOf": [
+              {"type": "null"},
+              {"$ref": "#/components/schemas/DatabasesLease"}
+            ]
+          }
+        }
+      },
+      "DatabasesLeaseLengthReply": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["ok", "user_hash", "databaseId", "leaseLengthMs"],
+        "description": "The updated lease length of an owned shareable database, or null when cleared.",
+        "properties": {
+          "ok": {"type": "boolean"},
+          "user_hash": {"type": "string"},
+          "databaseId": {"type": "string"},
+          "leaseLengthMs": {"type": ["integer", "null"], "minimum": 0}
         }
       },
       "DatabasesShareLinkReply": {
@@ -1176,6 +1270,8 @@
           {"$ref": "#/components/schemas/DatabasesHeadsReply"},
           {"$ref": "#/components/schemas/DatabasesRelaysReply"},
           {"$ref": "#/components/schemas/DatabasesBootstrapRelayReply"},
+          {"$ref": "#/components/schemas/DatabasesLeaseReply"},
+          {"$ref": "#/components/schemas/DatabasesLeaseLengthReply"},
           {"$ref": "#/components/schemas/DatabasesShareLinkReply"},
           {"$ref": "#/components/schemas/DatabasesChangeReply"},
           {"$ref": "#/components/schemas/DatabasesStatusReply"}
