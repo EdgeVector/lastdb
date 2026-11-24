@@ -101,9 +101,51 @@ pub(super) fn reconcile(root: &Path, inner: &mut Inner) -> Result<(), Error> {
     Ok(())
 }
 
+fn clear_legacy_armed(root: &Path, inner: &mut Inner) -> Result<(), Error> {
+    io::remove_file(&root.join("committed.json"))?;
+    let Some(mut state) = inner.state.as_ref().filter(|state| state.armed).cloned() else {
+        return Ok(());
+    };
+    state.armed = false;
+    inner.store(root, state)
+}
+
+fn pending_committed(root: &Path, inner: &mut Inner, pending: &Pending) -> Result<bool, Error> {
+    let any_placed = pending.notes.iter().any(|note| {
+        root.join("entries")
+            .join(files::seq_name(note.sequence))
+            .exists()
+    });
+    if let Some(before_main) = pending.main_frontier_before {
+        if inner.main_frontier < before_main || (inner.main_frontier == before_main && any_placed) {
+            return files::gap(root, inner).map(|()| false);
+        }
+        return Ok(inner.main_frontier > before_main);
+    }
+    if inner.frontier < pending.frontier_before
+        || (inner.frontier == pending.frontier_before && any_placed)
+    {
+        return files::gap(root, inner).map(|()| false);
+    }
+    if inner.frontier == pending.frontier_before {
+        return Ok(false);
+    }
+    let armed = inner.state.as_ref().is_some_and(|state| state.armed);
+    if armed
+        && !inspect_gap(
+            root,
+            inner,
+            files::legacy_split_committed(root, pending.frontier_before),
+        )?
+    {
+        return files::gap(root, inner).map(|()| false);
+    }
+    Ok(true)
+}
+
 pub(super) fn finish_pending(root: &Path, inner: &mut Inner) -> Result<(), Error> {
     let Some(pending) = io::read_json::<Pending>(&root.join("pending.json"))? else {
-        return io::remove_file(&root.join("committed.json"));
+        return clear_legacy_armed(root, inner);
     };
     if pending.version != 1 || !files::notes_ok(&pending.notes) {
         return files::gap(root, inner);
@@ -120,23 +162,11 @@ pub(super) fn finish_pending(root: &Path, inner: &mut Inner) -> Result<(), Error
             inner,
             files::require_installed(root, head, acked, &pending.notes),
         )
-        .and_then(|()| files::retire_files(root));
+        .and_then(|()| files::retire_files(root))
+        .and_then(|()| clear_legacy_armed(root, inner));
     }
-    let before_main = pending
-        .main_frontier_before
-        .unwrap_or(pending.frontier_before);
-    if inner.main_frontier < before_main {
-        return files::gap(root, inner);
-    }
-    if inner.main_frontier == before_main {
-        if pending.notes.iter().any(|note| {
-            root.join("entries")
-                .join(files::seq_name(note.sequence))
-                .exists()
-        }) {
-            return files::gap(root, inner);
-        }
-        return files::retire_files(root);
+    if !pending_committed(root, inner, &pending)? {
+        return files::retire_files(root).and_then(|()| clear_legacy_armed(root, inner));
     }
     if pending.notes[0].sequence != head + 1 {
         return files::gap(root, inner);
@@ -313,6 +343,7 @@ pub(super) fn discard(root: &Path) -> Result<(), Error> {
 pub(super) fn persist_gap(root: &Path, inner: &mut Inner) {
     if let Some(state) = inner.state.as_mut() {
         state.gap = true;
+        state.armed = false;
         let _ = io::write_json(&root.join("state.json"), state);
         return;
     }
@@ -328,6 +359,7 @@ pub(super) fn persist_gap(root: &Path, inner: &mut Inner) {
         }
         Ok(Some(mut state)) => {
             state.gap = true;
+            state.armed = false;
             if io::write_json(&root.join("state.json"), &state).is_ok() {
                 inner.state = Some(state);
             }

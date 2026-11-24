@@ -310,6 +310,8 @@ async fn rematerialize(
     if accepted == 0 && !retry {
         return Ok(());
     }
+    let lock = histories.write_lock(db.database_id);
+    let _guard = lock.lock().await;
     let history = histories.snapshot(db.database_id)?;
     if history.owner().is_none() {
         return Ok(());

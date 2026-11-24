@@ -24,20 +24,27 @@ struct Redo {
 /// Sign again each excluded change of this device that is not yet a proposal.
 /// Returns how many proposals were signed. A member that may no longer propose
 /// signs none.
-pub(super) fn resign_excluded(host: &Host, database_id: &str) -> Result<usize, String> {
+pub(super) async fn resign_excluded(host: &Host, database_id: &str) -> Result<usize, String> {
     let identity = chain_author::identity_of(host).map_err(|e| e.reply().message.to_owned())?;
     let redo = super::histories_for(host)
         .with_mut(database_id, |history| excluded_changes(history, &identity))?;
     if redo.is_empty() {
         return Ok(0);
     }
+    let lock = proposal::proposal_submit_lock(&host.home, database_id);
+    let _guard = lock.lock().await;
     let mut ledger = proposal::load_ledger(&host.home, database_id).map_err(|e| e.to_string())?;
     let mut signed = 0;
+    let mut finish = Ok(());
     for item in redo {
         if ledger.contains_key(&item.id) {
             continue;
         }
         let digest = proposal::hex_digest(&item.envelope);
+        if let Err(error) = proposal::fits_proposal_ledger(&ledger, &item.id, &digest) {
+            finish = Err(error.to_string());
+            break;
+        }
         match proposal::author_proposal(
             host,
             database_id,
@@ -54,16 +61,26 @@ pub(super) fn resign_excluded(host: &Host, database_id: &str) -> Result<usize, S
                         body_sha256: digest,
                     },
                 );
-                proposal::store_ledger(&host.home, database_id, &ledger)
-                    .map_err(|e| e.to_string())?;
+                if let Err(error) = proposal::store_ledger(&host.home, database_id, &ledger) {
+                    finish = Err(error.to_string());
+                    break;
+                }
                 signed += 1;
             }
             // The role no longer lets this member propose. Nothing more to do.
             Err(ContributionError::Forbidden) => break,
-            Err(error) => return Err(error.to_string()),
+            Err(error) => {
+                finish = Err(error.to_string());
+                break;
+            }
         }
     }
-    Ok(signed)
+    if signed > 0 {
+        if let Ok(pending) = super::history_store::pending_count(&host.home, database_id) {
+            super::publish_state::note_pending(database_id, pending);
+        }
+    }
+    finish.map(|()| signed)
 }
 
 fn excluded_changes(history: &VerifiedHistory, me: &AuthorIdentity) -> Vec<Redo> {

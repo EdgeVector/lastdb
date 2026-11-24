@@ -4,7 +4,7 @@ This page describes the home of a LastDB node as it is on disk: the files, the
 rows inside the store, and which of them travel in a snapshot. It describes
 what is built. It is not a design for work in progress.
 
-Written 2026-11-23 from main `0dd6be839`. The code is the authority:
+Written 2026-11-24 from main `870f485`. The code is the authority:
 `fold_db/crates/core/src/storage/format.rs` declares the format, and
 `vendor/laststore/README.md` describes the run files. When this page and the
 code differ, the code wins. Fix the page.
@@ -39,7 +39,11 @@ be sent are files outside the store.
 <home>/
   identity.key               the node seed, 32 bytes. Never leaves the device.
   cloud-credentials.json     the saved relay connection (Exemem)
-  databases/registry.json    the databases on this node: id, name, kind
+  databases/
+    registry.json            the owned databases on this node: id, name, kind, spec, lease length
+    <id>/data/               each owned sibling database's store (same run/cas layout, no sockets)
+  managed-shares/
+    <id>/                    a received database registration, snapshot-absent, and log/ store
   data/
     laststore-pack-node-v1   [S] 37 bytes: format=15, home=disk-run, cas=disk-cas
     disk-run/                    the record store, one laststore run home
@@ -49,10 +53,11 @@ be sent are files outside the store.
       LOCK                       owner lock
       accepted-v1/               the spool. Not in a snapshot.
         state.json                 head, acknowledged position, flags
+        pending.json               in-flight commit staging record: frontier_before, main_frontier_before, notes
         cloud-upload.json          upload progress paired with the spool
         entries/                   signed entries the relay has not acknowledged, with their sealed files
         ids/                       one file per recent mutation id
-        staging/
+        staging/                   staged entry files while a commit is in flight
     disk-cas/                [S] the file blob store, the same shape as disk-run
     local-file-refs.json         files that records hold by path
     app-grants.json              local app grants
@@ -61,6 +66,9 @@ be sent are files outside the store.
     device-id                  the device id of this installation
     wake                       wakes the sync loop
     <database id>/
+      birth.json               birth salt, signature, and author time for an owned shareable database
+      cloud-usage.json         cumulative relay request and byte counts for the database
+      incoming/                sealed blobs downloaded while applying another device's stream
       snapshot-last.json       the last snapshot this device published
       snapshot-known.json      what `lastdb status` prints
       snapshot-request, -result, -error
@@ -87,7 +95,7 @@ in a snapshot.
 |---|---|---|
 | `rk:` | One whole record. At most 64 KiB. | The record. Read by key. |
 | `ak:` | One alternate entry: an alternate key and the primary key it points to. | Finds the same record by another key. Holds no copy of the record. |
-| `ad:` | The stamp of a delete that won. | An older edit that arrives later does not bring the record back. |
+| `ad:` | The stamp of an applied delete. | Lets a later purge check the deleted record's tombstone revision. Sync ordering uses the `signed-replay-*` rows in `metadata`, not `ad:`. |
 | `fi:` | An inline file, at most 64 KiB. | A small file travels with its record. |
 | `dellog` | The delete audit ledger. | Who erased what, by key fingerprint. |
 | `layout:keys` | `typed-ranges` | The key encoding of this home. |
@@ -111,11 +119,15 @@ relay are the ones named by content (the SHA-256 of the stored bytes).
 | Key | Value | Purpose |
 |---|---|---|
 | `signed-replay-winner:record:<hash>` | `ordering_ms`, `writer_key`, `writer_device`, `writer_seq` | The stamp of the newest write of a record's fields. An incoming entry replaces the fields only if its stamp is higher. |
+| `signed-replay-fields:record:<hash>` | `fields`, `alternates`, `writer`, `created_by`, `meta`, `ordering_ms` | Winning record payload held while a `file_required` record awaits its file. |
 | `signed-replay-file-winner:record:<hash>`, `-inline-winner:record:<hash>` | `ordering_ms`, `writer_key`, `writer_device`, `writer_seq` | The stamp of the newest write that set or cleared a record's file, or its inline file. A delete is a write of both. |
 | `signed-replay-winner:schema:<hash>` | `ordering_ms`, `writer_key`, `writer_device`, `writer_seq` | The stamp of the newest schema put or drop. |
+| `signed-replay-drop-winner:schema:<hash>` | `ordering_ms`, `writer_key`, `writer_device`, `writer_seq` | The stamp of the newest schema drop, so an entry older than that drop stays superseded even after the schema is recreated. |
+| `signed-replay-drop:schema:<hash>` | `<receipt id>:<digest>` | Marks an in-progress paged schema drop so an interrupted drop resumes under the same receipt and blocks conflicting edits until removal finishes. |
 | `signed-replay-chain:<device id>` | `seq`, `hash`, `order` | The newest entry of this device's stream, written by the commit that signed it. The next commit signs the entry after it. It can be ahead of this device's `signed-replay-head` row by the entries the relay has not acknowledged. |
 | `signed-replay-head:<node key>:<device id>` | `seq`, `hash`, `order`, `frozen` | The last entry of one device stream that this node applied, and for its own stream the last entry the relay acknowledged. |
-| `signed-replay-receipt:` | The digest of an applied schema drop. | The store's paged removal needs it. |
+| `signed-replay-receipt:<receipt id>` | The digest of a completed schema drop. | Makes the store's paged schema removal idempotent once finished. |
+| `mutation_author_clock:<writer id>` | Physical nanosecond floor and logical counter. | Stamps local writes and rises past every remote entry applied here. |
 | `changes:<stream>:<seq>` | One changed key. The newest 250,000. | The local changes list for apps. It is not the cloud log. |
 | `portable-local-author` | The local author stream. | Numbers local writes. The changes list reuses its numbers. |
 | `__content_key_proof_v1` | A sealed constant. | Proves the content key at open. |
@@ -136,7 +148,12 @@ entry of another device is compared with the stamp rows when it arrives, part
 by part: the fields, the file and the inline file each take the value of their
 newest write, so the result does not depend on the order of arrival. A write
 that names no file does not change the file. In a schema that requires a file,
-a record whose file is cleared this way is removed.
+when winning fields arrive before the record's file, `signed-replay-fields:record:<hash>`
+holds that payload until a winning file arrives (materializing the record and
+clearing the saved row) or a newer write or delete supersedes it; a record
+whose file is cleared is removed while its winning fields stay saved for any
+later winning file. Record entries older than `signed-replay-drop-winner:schema:<hash>`
+stay superseded even if a later schema put recreates the schema.
 
 A snapshot is refused while the spool holds an entry the relay did not
 acknowledge.
@@ -177,17 +194,28 @@ The schema definitions the database uses, and their retention (TTL) state.
   limit of the spool (1 GiB).
 - A home captures exactly when something sends the spool: it has a relay, it
   already has a spool, or it is a restore.
+- Before a captured commit publishes to `main`, `prepare` writes staged entry
+  files in `staging/` and `pending.json` (`frontier_before`,
+  `main_frontier_before`, `notes`). On reopen, `finish_pending` compares the
+  `main` run frontier against `main_frontier_before` (falling back to the
+  combined `frontier_before`, `state.armed`, and `committed.json` only when
+  reopening a legacy `pending.json` written without `main_frontier_before`) to
+  install committed entries into `entries/` or discard uncommitted staging. New
+  commits write neither `committed.json` nor `state.armed`.
 - `state.json` holds the head and the acknowledged position. An acknowledgement
   trims the bodies. `gap` blocks the next commit. `snapshot_required` means the
   home held data before it began to capture: nothing is read for upload until
   a first snapshot covers that data.
 - One commit captures at most 1024 mutations.
-- `ids/` keeps the newest 10,000 mutation ids with the hash of each body, and
-  the id of every entry not yet acknowledged. A repeated write with the same id
-  and body is not entered twice. The same id with another body is refused.
+- `ids/` keeps the newest 10,000 mutation ids with the plaintext SHA-256 of
+  each body, plus the id of every entry not yet acknowledged. Any commit that
+  reuses a recorded mutation id or repeats an id within the same batch is
+  refused before advancing the stream.
 - The sequence number of the signed entry is the number of the spool entry.
-  A schema change that the spool already holds under its id gets no second
-  entry and no place in the stream.
+  Each captured schema put or drop derives its mutation id from the schema
+  name, definition identity (or `drop`), and `authored_at_ms`, so repeated
+  `put -> drop -> put` or `drop` transitions each receive their own spool entry
+  and stream sequence, while a duplicate schema mutation id is refused.
 
 ## What a snapshot is
 

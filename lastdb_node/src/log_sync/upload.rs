@@ -43,6 +43,7 @@ pub(super) async fn upload_log(
                 .map_or((0, 0), |found| {
                     (found.log_len as u64, found.uploaded as u64)
                 });
+            publish_state::note_pending(database_id, head.saturating_sub(confirmed));
             host.cloud_sync
                 .record_upload(database_id, head, confirmed, Some(message));
             return None;
@@ -53,12 +54,14 @@ pub(super) async fn upload_log(
         .map_or((0, 0), |found| {
             (found.log_len as u64, found.uploaded as u64)
         });
+    let pending = head.saturating_sub(confirmed);
+    publish_state::note_pending(database_id, pending);
     match result {
         Ok(uploaded) => {
             host.cloud_sync
                 .record_upload(database_id, head, confirmed, None);
             if uploaded {
-                publish_state::note_confirmed(database_id, head - confirmed);
+                publish_state::note_confirmed(database_id, pending);
             }
             None
         }
@@ -192,14 +195,24 @@ fn cannot_deposit(host: &Host, database_id: &str) -> Option<String> {
     }
     let found = history_store::pending(&host.home, database_id, 1).ok()?;
     let first = found.batch.first()?;
-    Some(format!(
-        "{} entries of this device stream are not uploaded, from entry {}: this node's role is \
-         read or removed, and the relay takes entries only from a member that holds write or \
-         submit. Entries after them wait behind them. Pulling and other databases are not \
-         affected. They are uploaded when the publisher grants this node write or submit again.",
-        found.log_len - found.uploaded,
-        first.header().writer_seq
-    ))
+    let count = found.log_len - found.uploaded;
+    let seq = first.header().writer_seq;
+    Some(if count == 1 {
+        format!(
+            "1 entry of this device stream is not uploaded, from entry {seq}: this node's role is \
+             read or removed, and the relay takes entries only from a member that holds write or \
+             submit. Entries after it wait behind it. Pulling and other databases are not \
+             affected. It is uploaded when the publisher grants this node write or submit again."
+        )
+    } else {
+        format!(
+            "{count} entries of this device stream are not uploaded, from entry {seq}: this node's \
+             role is read or removed, and the relay takes entries only from a member that holds \
+             write or submit. Entries after them wait behind them. Pulling and other databases are \
+             not affected. They are uploaded when the publisher grants this node write or submit \
+             again."
+        )
+    })
 }
 
 /// What the sync status says when the relay refuses a member's entries. A

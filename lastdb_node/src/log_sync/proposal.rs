@@ -7,8 +7,10 @@
 //! it, or signs that it is not accepted.
 
 mod ledger;
+mod parse;
 
-use std::collections::BTreeMap;
+use std::path::Path;
+use std::sync::Arc;
 
 use cloud_backup_protocol::Id;
 use mutation_log::{author_data, data_record, NodeKey, Role, StreamKind, VerifiedHistory};
@@ -17,14 +19,12 @@ use sha2::{Digest as _, Sha256};
 
 use ledger::{fits_ledger, submit_lock};
 pub(super) use ledger::{load_ledger, store_ledger, Submitted};
+use parse::{canonicalize_proposed, envelope, parse, Proposed};
 
 use super::chain_author::{self, Target};
 use super::chain_error::ChainError;
 use crate::host::Host;
 use crate::registered_share::{self, RegisteredShare};
-
-const BODY_MAX: usize = 64 * 1024;
-const NAMESPACE_MAX: usize = 128;
 
 /// Share-write contribution failures, in the owner route's terms.
 #[derive(Debug)]
@@ -50,139 +50,6 @@ impl std::fmt::Display for ContributionError {
     }
 }
 
-struct Proposed {
-    namespace: String,
-    hash: String,
-    range: Option<String>,
-    record_key: String,
-    mutation_type: String,
-    expected: Value,
-    record: Option<Value>,
-    alternates: signed_history_materialize::Alternates,
-}
-
-/// Map the owner submission document onto the history record convention.
-fn parse(body: &[u8]) -> Result<Proposed, ContributionError> {
-    let Ok(Value::Object(doc)) = serde_json::from_slice::<Value>(body) else {
-        return Err(ContributionError::Invalid);
-    };
-    let text = |value: Option<&Value>| value.and_then(Value::as_str).map(str::to_owned);
-    let namespace = text(doc.get("schema")).ok_or(ContributionError::Invalid)?;
-    let key = doc.get("key_value").and_then(Value::as_object);
-    let hash = text(key.and_then(|key| key.get("hash"))).ok_or(ContributionError::Invalid)?;
-    let range = match key.and_then(|key| key.get("range")) {
-        None | Some(Value::Null) => None,
-        Some(range) => Some(text(Some(range)).ok_or(ContributionError::Invalid)?),
-    };
-    let record_key =
-        mutation_log::join_record_key(&hash, range.as_deref()).ok_or(ContributionError::Invalid)?;
-    let carries_file = doc.get("file").is_some_and(|file| !file.is_null());
-    let mutation_type = text(doc.get("mutation_type")).ok_or(ContributionError::Invalid)?;
-    if namespace.is_empty()
-        || namespace.len() > NAMESPACE_MAX
-        || record_key.is_empty()
-        || record_key.len() > usize::from(u16::MAX)
-        || carries_file
-        || !matches!(mutation_type.as_str(), "create" | "replace" | "delete")
-    {
-        return Err(ContributionError::Invalid);
-    }
-    let expected = doc
-        .get("expected")
-        .ok_or(ContributionError::Invalid)?
-        .clone();
-    let (record, alternates) = if mutation_type == "delete" {
-        if doc
-            .get("alternates")
-            .is_some_and(|v| !v.is_null() && v.as_object().is_none_or(|m| !m.is_empty()))
-        {
-            return Err(ContributionError::Invalid);
-        }
-        (None, BTreeMap::new())
-    } else {
-        let Some(record @ Value::Object(_)) = doc.get("record") else {
-            return Err(ContributionError::Invalid);
-        };
-        let alts = match doc.get("alternates") {
-            None | Some(Value::Null) => BTreeMap::new(),
-            Some(val) => {
-                serde_json::from_value(val.clone()).map_err(|_| ContributionError::Invalid)?
-            }
-        };
-        (Some(record.clone()), alts)
-    };
-    Ok(Proposed {
-        namespace,
-        hash,
-        range,
-        record_key,
-        mutation_type,
-        expected,
-        record,
-        alternates,
-    })
-}
-
-async fn canonicalize_proposed(
-    host: &Host,
-    share: &RegisteredShare,
-    proposed: &mut Proposed,
-) -> Result<(), ContributionError> {
-    let id =
-        Id::try_from(share.id.as_str().to_owned()).map_err(|_| ContributionError::Unavailable)?;
-    let store = registered_share::receiver_store(host, &id)
-        .await
-        .map_err(|_| ContributionError::Unavailable)?;
-    let declared = store
-        .schema_manager()
-        .get_schema_metadata(&proposed.namespace)
-        .map_err(|_| ContributionError::Unavailable)?
-        .is_some();
-    if !declared {
-        return Ok(());
-    }
-    proposed.record_key = signed_history_materialize::canonical_record_key(
-        &store,
-        &proposed.namespace,
-        &proposed.hash,
-        proposed.range.as_deref(),
-    )
-    .map_err(|_| ContributionError::Invalid)?;
-    if proposed.mutation_type != "delete" {
-        proposed.alternates = signed_history_materialize::resolve_alternates(
-            &store,
-            &proposed.namespace,
-            std::mem::take(&mut proposed.alternates),
-        )
-        .map_err(|_| ContributionError::Invalid)?;
-    }
-    Ok(())
-}
-
-/// The publisher decision envelope that goes into the signed proposal.
-fn envelope(proposed: &Proposed, expected: Value) -> Result<Vec<u8>, ContributionError> {
-    let mut envelope = serde_json::Map::new();
-    envelope.insert(
-        "mutation_type".into(),
-        Value::String(proposed.mutation_type.clone()),
-    );
-    envelope.insert("expected".into(), expected);
-    if let Some(record) = &proposed.record {
-        envelope.insert("record".into(), record.clone());
-    }
-    if !proposed.alternates.is_empty() {
-        let alts =
-            serde_json::to_value(&proposed.alternates).map_err(|_| ContributionError::Invalid)?;
-        envelope.insert("alternates".into(), alts);
-    }
-    let value =
-        serde_json::to_vec(&Value::Object(envelope)).map_err(|_| ContributionError::Invalid)?;
-    if value.len() > BODY_MAX {
-        return Err(ContributionError::Invalid);
-    }
-    Ok(value)
-}
-
 /// Name the expected record state in history terms.
 async fn history_expected(
     host: &Host,
@@ -190,8 +57,11 @@ async fn history_expected(
     proposed: &Proposed,
 ) -> Result<Value, ContributionError> {
     let kind = proposed.expected.get("type").and_then(Value::as_str);
-    if kind == Some("absent") {
+    if proposed.mutation_type == "create" && kind == Some("absent") {
         return Ok(proposed.expected.clone());
+    }
+    if !matches!(proposed.mutation_type.as_str(), "replace" | "delete") {
+        return Err(ContributionError::Invalid);
     }
     let (Some("revision"), Some(revision)) = (
         kind,
@@ -234,12 +104,16 @@ pub(crate) async fn submit(
     share: &RegisteredShare,
     mutation_id: &uuid::Uuid,
     body: &[u8],
+    held_lock: Option<tokio::sync::OwnedMutexGuard<()>>,
 ) -> Result<u64, ContributionError> {
     let database_id = share.id.as_str();
     let mut proposed = parse(body)?;
     let digest = hex_digest(body);
-    let lock = submit_lock(&host.home, database_id);
-    let _guard = lock.lock().await;
+    let _guard = if let Some(guard) = held_lock {
+        guard
+    } else {
+        submit_lock(&host.home, database_id).lock_owned().await
+    };
     let mut ledger = load_ledger(&host.home, database_id)?;
     let key = mutation_id.to_string();
     if let Some(done) = ledger.get(&key) {
@@ -275,14 +149,30 @@ pub(crate) async fn submit(
     Ok(authored.writer_seq)
 }
 
-/// True when this node already signed a proposal for `mutation_id`.
-pub(crate) fn has_submitted(
+/// Check under `submit_lock` whether this node already signed a proposal for
+/// `mutation_id`, returning the guard so the caller's decision cannot race.
+pub(crate) async fn has_submitted(
     host: &Host,
     share: &RegisteredShare,
     mutation_id: &uuid::Uuid,
-) -> Result<bool, ContributionError> {
+) -> Result<(bool, tokio::sync::OwnedMutexGuard<()>), ContributionError> {
+    let guard = submit_lock(&host.home, share.id.as_str())
+        .lock_owned()
+        .await;
     let ledger = load_ledger(&host.home, share.id.as_str())?;
-    Ok(ledger.contains_key(&mutation_id.to_string()))
+    Ok((ledger.contains_key(&mutation_id.to_string()), guard))
+}
+
+pub(super) fn fits_proposal_ledger(
+    ledger: &ledger::Ledger,
+    key: &str,
+    digest: &str,
+) -> Result<(), ContributionError> {
+    fits_ledger(ledger, key, digest)
+}
+
+pub(super) fn proposal_submit_lock(home: &Path, database_id: &str) -> Arc<tokio::sync::Mutex<()>> {
+    submit_lock(home, database_id)
 }
 
 /// Sign `value` as a proposal on this node's member stream.

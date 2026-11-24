@@ -20,6 +20,9 @@ pub(in crate::exec) fn parse_change(body: &[u8], database: &str) -> Result<Chang
     let Ok(Value::Object(mut doc)) = serde_json::from_slice::<Value>(body) else {
         return Err(bad("the change document must be a JSON object"));
     };
+    if doc.get("type").and_then(Value::as_str) != Some("mutation") {
+        return Err(bad("type must be mutation"));
+    }
     if doc.get("file").is_some_and(|file| !file.is_null()) {
         return Err(bad("the change call does not take a file"));
     }
@@ -31,11 +34,14 @@ pub(in crate::exec) fn parse_change(body: &[u8], database: &str) -> Result<Chang
         _ => return Err(bad("mutation_type must be create, replace or delete")),
     };
     let schema = match doc.remove("schema") {
-        Some(Value::String(schema)) if !schema.is_empty() => schema,
+        Some(Value::String(schema)) if !schema.is_empty() && schema.len() <= 128 => schema,
         _ => return Err(bad("schema is required")),
     };
     let key: KeyValue = serde_json::from_value(doc.remove("key_value").unwrap_or(Value::Null))
         .map_err(|_| bad("key_value must be an object with hash and range"))?;
+    if key.hash.as_deref().is_none_or(str::is_empty) {
+        return Err(bad("key_value.hash is required"));
+    }
     let expected = doc.remove("expected").unwrap_or(Value::Null);
     let revision = match (op, expected.get("type").and_then(Value::as_str)) {
         (Op::Create, Some("absent")) => None,

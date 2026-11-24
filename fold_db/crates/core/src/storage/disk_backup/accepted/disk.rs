@@ -32,6 +32,15 @@ pub(in crate::storage) struct Log {
 }
 
 impl Log {
+    pub(in crate::storage) fn has_state(home: &Path) -> bool {
+        home.join(DIR)
+            .join("state.json")
+            .symlink_metadata()
+            .is_ok_and(|meta| {
+                meta.is_file() && crate::storage::disk_pack::admit::is_private_meta(&meta)
+            })
+    }
+
     pub(in crate::storage) fn open(
         home: &Path,
         frontiers: Frontiers,
@@ -313,12 +322,9 @@ impl Inner {
             self.main_frontier = after.main;
             return Ok(());
         };
-        let expected_main = pending
-            .main_frontier_before
-            .unwrap_or(pending.frontier_before);
         if after.main <= before.main
             || pending.frontier_before != before.total
-            || expected_main != before.main
+            || pending.main_frontier_before != Some(before.main)
         {
             self.block(root, Error::Gap);
             return Err(Error::Gap);
@@ -348,7 +354,7 @@ impl Inner {
             retained_bytes: 0,
             snapshot_required,
             gap: false,
-            _armed: false,
+            armed: false,
         }
     }
 

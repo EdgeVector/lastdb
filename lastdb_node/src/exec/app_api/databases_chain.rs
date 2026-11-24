@@ -37,9 +37,6 @@ pub(super) fn run(
     ctx: &AccessContext,
     host: &Host,
 ) -> Result<UdsResponse, HostError> {
-    if !ctx.is_owner {
-        return Err(HostError::new(404, "Not Found"));
-    }
     let reply = match action {
         "grant" => grant(body, host),
         "revoke" => revoke(body, host),

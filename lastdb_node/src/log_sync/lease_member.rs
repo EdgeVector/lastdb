@@ -80,29 +80,29 @@ pub(crate) fn may_write_direct(host: &Host, database_id: &str) -> bool {
 }
 
 /// Sign the entries of a write to a received database, when `selector` names
-/// one. `Ok(false)` means it names no received signed-log database.
+/// one. `Ok(None)` means it names no received signed-log database.
 ///
 /// The write is already in the store. When an entry cannot be signed (the
 /// lease ended in between, or the log was not confirmed), the keys go back to
-/// what the history says. When all are signed, the store is brought to the
-/// history so the record carries the same author on every node.
+/// what the history says; if that revert fails, 503 is returned so `change`
+/// never queues a proposal over an un-reverted commit. When all are signed, the
+/// store is brought to the history and the live stored revisions are returned.
 pub(crate) async fn mirror_received(
     host: &Host,
     selector: &str,
     signed: &[OwnedMutation],
-) -> Result<bool, ChainError> {
+) -> Result<Option<Vec<Option<String>>>, ChainError> {
     let Ok(Some(share)) = crate::registered_share::resolve(&host.home, selector) else {
-        return Ok(false);
+        return Ok(None);
     };
     if !share.signed_log {
-        return Ok(false);
+        return Ok(None);
     }
     let database_id = share.id.as_str();
-    let outcome = sign_all(host, database_id, signed);
     let store = crate::registered_share::receiver_store(host, &share.id)
         .await
         .map_err(|_| ChainError::Unconfirmed)?;
-    match outcome {
+    match sign_all(host, &store, database_id, signed) {
         Ok(()) => {
             let applied = match super::histories_for(host).snapshot(database_id) {
                 Ok(history) => super::materialize::apply_history_records(&store, &history).await,
@@ -117,20 +117,76 @@ pub(crate) async fn mirror_received(
                 );
                 super::histories_for(host).mark_materialize_retry(database_id);
             }
-            Ok(true)
+            Ok(Some(live_revisions(&store, signed).await))
         }
         Err(error) => {
-            let keys: Vec<(String, String)> = signed
-                .iter()
-                .map(|item| (item.schema.clone(), item.record_key.clone()))
-                .collect();
-            super::materialize::revert_unsigned(host, database_id, &store, &keys).await;
+            if let Err(revert_error) = try_revert_unsigned(host, database_id, &store, signed).await
+            {
+                tracing::warn!(
+                    target: "lastdbd::log_sync",
+                    id = %database_id,
+                    error = %revert_error,
+                    "an unsigned write could not be reverted to the history"
+                );
+                super::histories_for(host).mark_materialize_retry(database_id);
+                return Err(ChainError::Unconfirmed);
+            }
             Err(error)
         }
     }
 }
 
-fn sign_all(host: &Host, database_id: &str, signed: &[OwnedMutation]) -> Result<(), ChainError> {
+async fn live_revisions(
+    store: &fold_db::fold_db_core::FoldDB,
+    signed: &[OwnedMutation],
+) -> Vec<Option<String>> {
+    let mut out = Vec::with_capacity(signed.len());
+    for item in signed {
+        let rev = signed_history_materialize::read_revision(store, &item.schema, &item.record_key)
+            .await
+            .ok()
+            .flatten();
+        out.push(rev);
+    }
+    out
+}
+
+async fn try_revert_unsigned(
+    host: &Host,
+    database_id: &str,
+    store: &fold_db::fold_db_core::FoldDB,
+    signed: &[OwnedMutation],
+) -> Result<(), String> {
+    let keys: Vec<(String, String)> = signed
+        .iter()
+        .map(|item| (item.schema.clone(), item.record_key.clone()))
+        .collect();
+    let history = super::histories_for(host).snapshot(database_id)?;
+    signed_history_materialize::reconcile_keys(store, &history, &keys).await
+}
+
+fn sign_all(
+    host: &Host,
+    store: &fold_db::fold_db_core::FoldDB,
+    database_id: &str,
+    signed: &[OwnedMutation],
+) -> Result<(), ChainError> {
+    let mut encoded = Vec::with_capacity(signed.len());
+    for item in signed {
+        let declared = store
+            .schema_manager()
+            .get_schema_metadata(&item.schema)
+            .map_err(|_| ChainError::Unconfirmed)?
+            .is_some();
+        if !declared {
+            return Err(ChainError::Invalid(
+                "schema is not declared on this database",
+            ));
+        }
+        let value = encode_value(item)
+            .map_err(|_| ChainError::Invalid("the write does not carry its record fields"))?;
+        encoded.push((item, value));
+    }
     let identity = chain_author::identity_of(host)?;
     let target = Target {
         home: &host.home,
@@ -138,9 +194,7 @@ fn sign_all(host: &Host, database_id: &str, signed: &[OwnedMutation]) -> Result<
         identity: &identity,
     };
     let histories = super::histories_for(host);
-    for item in signed {
-        let value = encode_value(item)
-            .map_err(|_| ChainError::Invalid("the write does not carry its record fields"))?;
+    for (item, value) in encoded {
         chain_author::author_member(&histories, &target, |mut ctx, history| {
             // Entries that wait for a dependency mean the stream tip is not known.
             if history.pending_len() > 0 {

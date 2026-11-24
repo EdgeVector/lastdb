@@ -32,8 +32,8 @@ pub(in crate::storage::disk_backup::accepted) struct State {
     #[serde(default)]
     pub(in crate::storage::disk_backup::accepted) snapshot_required: bool,
     pub(in crate::storage::disk_backup::accepted) gap: bool,
-    #[serde(rename = "armed", default, skip_serializing)]
-    pub(in crate::storage::disk_backup::accepted) _armed: bool,
+    #[serde(default, skip_serializing)]
+    pub(in crate::storage::disk_backup::accepted) armed: bool,
 }
 
 #[derive(Serialize, Deserialize)]
