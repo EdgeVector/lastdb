@@ -26,11 +26,17 @@
 //! a head moved, or the stream holds an entry above its head, which a reader cannot see. The next
 //! turn lists again. A stream that keeps such an entry is refused every time, so after
 //! [`REFUSED_TURNS`] turns in a row the sweep stops, keeps its mark, and says why in the status.
+//!
+//! A sweep drops nothing while the relay does not list every file of the newest snapshot and its
+//! manifest with their lengths. Each pass checks that against its own listing, whoever published
+//! the snapshot. A snapshot this node named and has not verified is never trimmed or swept for:
+//! the trim and the mark come after the check of the snapshot lane.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{LazyLock, Mutex};
 
+use super::reclaim_count::Counter;
 use super::reclaim_state as state;
 pub(super) use super::reclaim_state::mark_due;
 use super::reclaim_view::{manifest_of, read_tail, Seen};
@@ -62,14 +68,16 @@ static REFUSALS: LazyLock<Mutex<HashMap<PathBuf, u32>>> =
 enum Pass {
     /// Nothing is left to drop. This is what the relay holds.
     Clean(Box<ReclaimStatus>),
-    /// The relay dropped this many files and released this many bytes. List again.
-    Dropped(u64, u64),
+    /// The relay dropped files. List again.
+    Dropped,
     /// The relay refused a drop: a stream is not as this pass listed it.
     Refused,
     /// The snapshot the sweep was due for is no longer the newest one on this relay.
     NotDue,
     /// The database has more streams than one drop can name.
     TooManyStreams,
+    /// The relay does not list this many files of the newest snapshot. Nothing was dropped.
+    Incomplete(usize),
 }
 
 /// How the sweep of one turn ended.
@@ -82,6 +90,8 @@ enum Swept {
     Refused,
     /// The snapshot the sweep was due for is no longer the newest one on this relay.
     NotDue,
+    /// The relay does not list this many files of the newest snapshot. Nothing was dropped.
+    Incomplete(usize),
 }
 
 /// Run the sweep when one is due or asked for. The caller is a sync turn, after its send step.
@@ -121,6 +131,13 @@ pub(super) async fn run(ctx: &Ctx<'_>, client: &RelayClient) -> Result<(), Strin
             refused(ctx, due, request.as_deref());
             Ok(())
         }
+        Ok(Swept::Incomplete(files)) => {
+            let reason = format!(
+                "the relay does not list {files} files of the newest snapshot, so the sweep dropped nothing. Take a snapshot with `lastdb backup snapshot`; the sweep runs after it"
+            );
+            stop(ctx, due, request.as_deref(), &reason);
+            Ok(())
+        }
         Err(error) => {
             if let Some(nonce) = &request {
                 RECLAIM.fail(home, database_id, nonce, &error);
@@ -145,12 +162,18 @@ fn refused(ctx: &Ctx<'_>, due: Option<state::Due>, request: Option<&str>) {
         return;
     }
     refusals().remove(home);
-    tracing::warn!(target: "lastdbd::log_sync", turns, "the sweep stopped: the relay refused every drop");
+    stop(ctx, due, request, REFUSED);
+}
+
+/// The sweep stops trying: it is logged once, a request learns why, and the mark stays with the
+/// reason, which the status of the node shows. The next snapshot marks again.
+fn stop(ctx: &Ctx<'_>, due: Option<state::Due>, request: Option<&str>, reason: &str) {
+    tracing::warn!(target: "lastdbd::log_sync", %reason, "the sweep stopped");
     if let Some(nonce) = request {
-        RECLAIM.fail(home, &ctx.database_id, nonce, REFUSED);
+        RECLAIM.fail(&ctx.host.home, &ctx.database_id, nonce, reason);
     }
     if let Some(due) = due {
-        state::hold(ctx, due, REFUSED);
+        state::hold(ctx, due, reason);
     }
 }
 
@@ -167,20 +190,18 @@ async fn sweep(
     due: Option<&state::Due>,
     asked: bool,
 ) -> Result<Swept, String> {
-    let (mut dropped, mut released) = (0u64, 0u64);
+    let mut counter = Counter::open(ctx, client)?;
     for _ in 0..PASSES {
-        match pass(ctx, client, due, asked).await? {
+        match pass(ctx, &mut counter, due, asked).await? {
             Pass::Clean(mut status) => {
-                status.dropped_files = Some(dropped);
-                status.released_bytes = Some(released);
+                status.dropped_files = Some(counter.files);
+                status.released_bytes = Some(counter.bytes);
                 return Ok(Swept::Done(status));
             }
-            Pass::Dropped(files, bytes) => {
-                dropped += files;
-                released += bytes;
-            }
+            Pass::Dropped => {}
             Pass::Refused => return Ok(Swept::Refused),
             Pass::NotDue => return Ok(Swept::NotDue),
+            Pass::Incomplete(files) => return Ok(Swept::Incomplete(files)),
             Pass::TooManyStreams => {
                 // A mark that can never be served must not fail every turn.
                 state::clear_due(&ctx.host.home, &ctx.database_id);
@@ -193,13 +214,16 @@ async fn sweep(
     Ok(Swept::Again)
 }
 
-/// One pass: list, compute what nothing names, and drop it.
+/// One pass: list, compute what nothing names, and drop it. Nothing is dropped unless the relay
+/// lists every file of the newest snapshot and its manifest with their lengths, checked here
+/// against this listing.
 async fn pass(
     ctx: &Ctx<'_>,
-    client: &RelayClient,
+    counter: &mut Counter<'_>,
     due: Option<&state::Due>,
     asked: bool,
 ) -> Result<Pass, String> {
+    let client = counter.client;
     let streams = client.streams(&ctx.database_id, &ctx.node_hex).await?;
     let Some((head, snapshot)) = snapshot_head(ctx, client, &streams).await? else {
         if asked {
@@ -225,6 +249,7 @@ async fn pass(
         return Ok(Pass::TooManyStreams);
     }
     let listed = client.blob_list(&ctx.database_id).await?;
+    counter.settle(&listed)?;
     let list = manifest_of(ctx, client, &snapshot).await?;
     let tail = read_tail(ctx, client, &streams, &snapshot).await?;
     let seen = Seen {
@@ -245,6 +270,10 @@ async fn pass(
         .filter(|digest| !seen.needs(digest.as_str()))
         .cloned()
         .collect();
+    let lacking = seen.lacking();
+    if lacking > 0 {
+        return Ok(Pass::Incomplete(lacking));
+    }
     if dead.is_empty() {
         return Ok(Pass::Clean(Box::new(seen.status())));
     }
@@ -252,16 +281,15 @@ async fn pass(
         device_id: ctx.snapshot_device_hex.clone(),
         writer_seq: head.writer_seq,
     };
-    let (mut dropped, mut released) = (0, 0);
     for batch in dead.chunks(DROP_BATCH) {
-        let Some(answer) = client
+        counter.naming(batch, &listed)?;
+        let answer = client
             .blob_drop(&ctx.database_id, &at, &heads, batch)
-            .await?
-        else {
+            .await?;
+        counter.answered(batch, answer)?;
+        if answer.is_none() {
             return Ok(Pass::Refused);
-        };
-        dropped += answer.dropped;
-        released += answer.released_bytes;
+        }
     }
-    Ok(Pass::Dropped(dropped, released))
+    Ok(Pass::Dropped)
 }

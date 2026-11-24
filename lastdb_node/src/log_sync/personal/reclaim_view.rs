@@ -131,6 +131,17 @@ impl Seen<'_> {
             || self.tail.named.contains(digest)
     }
 
+    /// How many files of the snapshot the relay does not list with their length: its manifest
+    /// and the files the manifest names. A sweep drops nothing while this is above zero.
+    pub(super) fn lacking(&self) -> usize {
+        let lacks = |digest: &str, bytes: u64| self.listed.get(digest) != Some(&bytes);
+        self.files
+            .iter()
+            .filter(|(digest, bytes)| lacks(digest, **bytes))
+            .count()
+            + usize::from(lacks(&self.manifest_sha256, self.manifest_bytes))
+    }
+
     /// What the relay holds, for a pass that found nothing to drop.
     pub(super) fn status(&self) -> ReclaimStatus {
         // The files the entries name and the snapshot does not, with their length on the relay.
@@ -143,14 +154,7 @@ impl Seen<'_> {
             })
             .map(|digest| self.listed.get(digest).copied())
             .collect();
-        let lacks = |digest: &str, bytes: u64| self.listed.get(digest) != Some(&bytes);
-        let missing = named.iter().filter(|held| held.is_none()).count()
-            + self
-                .files
-                .iter()
-                .filter(|(digest, bytes)| lacks(digest, **bytes))
-                .count()
-            + usize::from(lacks(&self.manifest_sha256, self.manifest_bytes));
+        let missing = named.iter().filter(|held| held.is_none()).count() + self.lacking();
         ReclaimStatus {
             swept_at_ms: Some(fold_db::clock::unix_millis()),
             snapshot_seq: Some(self.snapshot_seq),

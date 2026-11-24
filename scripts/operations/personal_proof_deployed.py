@@ -24,7 +24,8 @@ from personal_proof_nodes import (
     ALPHA, BETA, ENVELOPE_OVERHEAD, FIELDS, FILE_MARK, GAMMA, NAME_MARK, SCHEMAS, DeployedRelay, converged,
     create, delete, expect, replace, wait)
 from personal_proof_deployed_trim import after_trim, before_trim, node_hex
-from personal_proof_reclaim import cloud_rounds, list_blobs
+from personal_proof_blobs import list_blobs
+from personal_proof_reclaim import cloud_rounds
 from personal_proof_reconcile import reconcile_deployed
 from personal_proof_snapshot import last_record, views, write_after
 from personal_proof_status import swept

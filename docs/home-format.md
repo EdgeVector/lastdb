@@ -75,6 +75,7 @@ be sent are files outside the store.
       snapshot-unverified      a snapshot entry is on the relay and its files are not checked yet
       reclaim-due.json         a sweep of the relay is due for one snapshot
       reclaim-last.json        what the relay held after the last sweep
+      reclaim-named.json       digests a drop named whose release is not counted yet
       reclaim-request, -result, -error
       authored.json, uploaded.json, received.json, proposals.json
                                shared databases only

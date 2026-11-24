@@ -31,7 +31,9 @@ the same checks run against the reference relay and against a deployed one:
    named, and from the second round on the manifest of the snapshot before.
 
 After the last round the writer attaches one more file. A sweep asked with `lastdb backup reclaim --wait`
-keeps it: it is the one sealed file on the relay. A home restored from the recovery phrase then installs
+keeps it: it is the one sealed file on the relay. A `blob/drop` that the proof signs itself and that leaves
+one stream of the publisher out of `heads` is answered 409 `heads` and drops nothing
+(`personal_proof_blobs.py`). A home restored from the recovery phrase then installs
 the last snapshot, replays that one entry and equals the writer, file included.
 
 The node's own account must say what the relay says: the report of `lastdb backup reclaim --wait`, the
@@ -45,6 +47,7 @@ import os
 from pathlib import Path
 import shutil
 
+from personal_proof_blobs import list_blobs, omitted_stream_refused
 from personal_proof_deployed_trim import node_hex
 from personal_proof_nodes import ALPHA, ENVELOPE_OVERHEAD, FIELDS, Device, Relay, create, wait
 from personal_proof_reconcile import get_blob, read_stream, uploaded
@@ -169,22 +172,6 @@ def released_blobs(device):
 
 
 # What the relay holds, through its routes -------------------------------------------------
-
-def list_blobs(relay, device, node):
-    """`blob/list`, every page: digest -> length. The pages ascend by digest and hold at most 1,000."""
-    found, after = {}, None
-    while True:
-        body = {"database_id": device.database, **({"after": after} if after else {})}
-        status, answer = relay_post(relay, device, device.database, node, "/relay/v1/blob/list", body)
-        require(status == 200, f"blob/list: {status} {answer!r}")
-        digests = [item["sha256"] for item in answer["blobs"]]
-        require(len(digests) <= 1000 and digests == sorted(set(digests)) and (not after or not digests or digests[0] > after),
-                "a page of blob/list is not at most 1,000 digests in ascending order after the last page")
-        found.update({item["sha256"]: item["bytes"] for item in answer["blobs"]})
-        after = answer.get("next")
-        if after is None:
-            return found
-
 
 def relay_view(relay, device):
     """What the relay holds of the database of `device`: its one snapshot, its entries and its stored files."""
@@ -347,6 +334,7 @@ def cloud_rounds(relay, writer, others, phrase, out, rounds=ROUNDS):
     tail = measure(relay, writer, "after the last snapshot", local_files(writer))
     require(tail["sealed_files"] == 1 and tail["sealed_bytes"] == FILE_BYTES + ENVELOPE_OVERHEAD,
             f"the relay holds {tail['sealed_files']} sealed files ({tail['sealed_bytes']} bytes) for one file after the cut")
+    omitted_stream_refused(relay, writer, relay_view(relay, writer))
     restored = restore_from_swept(relay, writer, others[-1], phrase, expected, path)
     print(f"23. {rounds} rounds of overwrites, deletes and new files with a snapshot each: after every sweep the relay "
           f"holds exactly the newest snapshot, the entries after it and the files they name; it grew by "

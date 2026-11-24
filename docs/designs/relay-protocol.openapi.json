@@ -1396,7 +1396,7 @@
             }
           },
           "409": {
-            "description": "a named stream is not as named: field `snapshot` for the snapshot stream, `heads` for a listed stream. Nothing was dropped",
+            "description": "a named stream is not as named (field `snapshot` for the snapshot stream, `heads` for a listed stream), or the publisher has a stream that the call does not name (field `heads`). Nothing was dropped",
             "content": {
               "application/json": {
                 "schema": {
@@ -1419,7 +1419,7 @@
             "nodeSignature": []
           }
         ],
-        "description": "Requires nodeSignature from the publisher. `snapshot` names the head of the snapshot stream; the relay reads that stored entry, checks its signature and kind, and refuses a list that holds the manifest it names. `heads` are the stream heads the caller saw (the snapshot stream is not among them). One call is one step: every named stream still ends at the named entry and holds no entry above it, each blob record that exists goes with its pending record, and the summed bytes are released once. A digest with no committed record is counted as `absent`. When a stream is not as named nothing is dropped and the answer is 409 `heads`."
+        "description": "Requires nodeSignature from the publisher. `snapshot` names the head of the snapshot stream; the relay reads that stored entry, checks its signature and kind, and refuses a list that holds the manifest it names. `heads` are the stream heads the caller saw (the snapshot stream is not among them). One call is one step: every named stream still ends at the named entry and holds no entry above it, the publisher has no stream that the call does not name, each blob record that exists goes with its pending record, and the summed bytes are released once. A digest with no committed record is counted as `absent`. When a stream is not as named, or a stream of the publisher is not named, nothing is dropped and the answer is 409 `heads`."
       }
     }
   },

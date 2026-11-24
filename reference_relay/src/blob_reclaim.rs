@@ -125,7 +125,9 @@ fn check_drop_body(req: &BlobDropBody) -> ApiResult<()> {
 /// The order is the order of the Exemem relay. (1) Read the head of the snapshot stream and of
 /// each listed stream once: no head, or another head than named, is 409 `heads`. (2) A stream
 /// that holds an entry above its head is 409 `heads` too, because such an entry may name a file
-/// and the reader of the stream cannot see it. (3) In one step, every head is still as read
+/// and the reader of the stream cannot see it. So is a stream of the publisher that the call
+/// names neither as the snapshot stream nor in `heads` (field `heads`): a device that appeared
+/// after the caller listed the streams. (3) In one step, every head is still as read
 /// (sequence and the count of entries stored beyond a gap), each blob the database holds goes
 /// with its pending record, and a digest it does not hold is counted as absent and its pending
 /// record is left alone. Here the step is one because `log/append` holds the grant index for
@@ -160,6 +162,17 @@ pub(crate) async fn blob_drop(
             .filter(|token| token.seq == at.writer_seq && !token.beyond)
             .ok_or_else(|| ApiError::heads_moved(field))?;
         tokens.push((at, field, token));
+    }
+    // A stream of the publisher that the caller did not name: an entry on it may name a file of
+    // the list, and no condition would see it.
+    let unnamed = state
+        .store
+        .heads
+        .devices(&req.database_id, &writer)
+        .iter()
+        .any(|device| tokens.iter().all(|(at, _, _)| at.device_id != *device));
+    if unnamed {
+        return Err(ApiError::heads_moved("heads"));
     }
     let snapshot = snapshot_entry(
         &state.store,

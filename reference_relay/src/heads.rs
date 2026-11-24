@@ -212,6 +212,19 @@ impl Heads {
             })
     }
 
+    /// Every device stream of one writer that holds an entry, with or without seq 1.
+    pub(crate) fn devices(&self, database_id: &str, writer_key: &str) -> Vec<String> {
+        let streams = self.streams.lock().expect("heads lock");
+        let key = (database_id.to_owned(), writer_key.to_owned());
+        streams.get(&key).map_or_else(Vec::new, |devices| {
+            devices
+                .iter()
+                .filter(|(_, head)| head.seq >= 1 || !head.pending.is_empty())
+                .map(|(device_id, _)| device_id.clone())
+                .collect()
+        })
+    }
+
     /// The streams of one writer that hold seq 1, sorted by device id.
     pub(crate) fn list(&self, database_id: &str, writer_key: &str) -> Vec<ListedStream> {
         let streams = self.streams.lock().expect("heads lock");

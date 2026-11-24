@@ -30,6 +30,7 @@ mod files;
 mod incoming;
 mod outgoing;
 mod reclaim;
+mod reclaim_count;
 mod reclaim_state;
 mod reclaim_view;
 mod send;

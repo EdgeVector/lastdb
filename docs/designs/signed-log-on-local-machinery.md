@@ -495,7 +495,12 @@ It runs inside a sync turn, after the send step, when a sweep is due and the hea
 1. `log.streams`, then `blob.list` (all pages).
 2. Read the newest `snapshot` entry and its manifest from the relay. Read every entry after the snapshot's positions, up to the listed heads, and collect every digest they name (`mutation_log::named_blobs`: the file of a data entry, the body of a bundle, the manifest of a snapshot). A read that cannot return every one of those entries (a gap, an entry out of place, a 410) stops the sweep, and nothing is dropped.
 3. Needed = manifest files + manifest + those digests. Dead = listed minus needed.
-4. `blob.drop` in calls of 25, with the heads of step 1 as its condition. When nothing is dead the sweep is done: the mark is removed and the totals are recorded (`reclaim-last.json`, `cloud_sync.reclaim` of `/api/status`, the `Cloud storage:` line of `lastdb status`).
+4. Nothing is dropped unless the relay lists every file of the newest snapshot and its manifest with their lengths, checked against the listing of step 1 in this same pass. A snapshot with a missing file stops the sweep: the mark stays and says why, and the next snapshot marks again.
+5. `blob.drop` in calls of 25, with the heads of step 1 as its condition. When nothing is dead the sweep is done: the mark is removed and the totals are recorded (`reclaim-last.json`, `cloud_sync.reclaim` of `/api/status`, the `Cloud storage:` line of `lastdb status`).
+
+A snapshot this node named and has not verified (`snapshot-unverified`) is never trimmed and never gets a sweep mark: the trim and the mark come after the check of lane step 4.
+
+What a drop released is counted from what the node observes. An answer with no absent digest is the count. Any other call stays written down (`reclaim-named.json`) until the next `blob.list`: a digest this node named that the relay no longer lists was released, with the length the earlier listing gave. A client that asks again after a lost answer therefore does not lose the count.
 
 Because the sweep is a difference against a listing, it also removes the backlog: the files of every earlier snapshot, the sealed files of entries trimmed long ago, and the files of a failed upload.
 
@@ -510,7 +515,7 @@ The one danger of a sweep is a file that is committed and not yet named: a devic
 1. The device that names a file checks after it names it. After an append whose entries name files, and after the append of a `snapshot` entry, the node asks the relay again for each file and uploads any that is gone (`personal/send.rs`, lane step 4). The spool retires the entries only after that.
 2. The drop is one step with the heads. If the entry was appended before the drop, a head moved and the drop does nothing. If it is appended after the drop, rule 1 puts the file back.
 
-A stream that did not exist when the node listed the streams has no head to condition on. Its first entry is covered by rule 1 only. The window is the few seconds of one sweep, for the first file write of a new device.
+A stream that did not exist when the node listed the streams has no head in the drop. The relay therefore refuses a drop (409 `heads`) while the publisher has a stream that the call does not name. If the new device's first entry was appended before the drop, the drop does nothing and the next turn lists the new stream. If it is appended after the drop, rule 1 puts the file back.
 
 ### What a person can see
 
@@ -527,7 +532,8 @@ A stream that did not exist when the node listed the streams has no head to cond
 - the relay holds one snapshot entry, and its stored files are exactly the files of that manifest, the manifest, and the sealed files that stored entries name, each with its length, so the stored bytes equal the manifest's file bytes plus the manifest length plus those sealed bytes;
 - stored files plus stored entries are not above the native files of the writer's store on disk plus an allowance: the manifest, the stored entries, 29 bytes for each sealed file, and 64 KiB for a file the store rewrites between the measurement and the cut;
 - from the first round to the last the relay grew by no more than the local files did, plus what that allowance grew and 64 KiB;
-- each sweep released at least the sealed files of its round, and from the second round the manifest before.
+- each sweep released at least the sealed files of its round, and from the second round the manifest before;
+- a `blob/drop` that the proof signs itself and that leaves one stream of the publisher out of `heads` is answered 409 `heads` and drops nothing.
 
 The report of `lastdb backup reclaim --wait`, the `cloud_sync.reclaim` object and the `Cloud storage:` line must say what the relay says. On the reference relay the proof also reads the relay's disk: every stored object is one the database owns, and no pending record of an upload is left after its commit. Step 21 (`personal_proof_reconcile.py`) fails on any blob that neither the one snapshot nor a stored entry names, and holds the stored blobs against the accounts: blobs put less blobs released.
 

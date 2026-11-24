@@ -23,10 +23,12 @@ pub(in crate::log_sync) struct HeadAt {
 /// What one `blob.drop` did.
 #[derive(Clone, Copy, Debug, Default, Deserialize)]
 pub(in crate::log_sync) struct Dropped {
-    /// Stored files the relay dropped.
+    /// Stored files the relay dropped in this call.
     pub(in crate::log_sync) dropped: u64,
     /// The bytes it released for them.
     pub(in crate::log_sync) released_bytes: u64,
+    /// Digests of the call that the relay did not hold: dropped earlier, or never there.
+    pub(in crate::log_sync) absent: u64,
 }
 
 #[derive(Deserialize)]
@@ -76,8 +78,10 @@ impl RelayClient {
 
     /// Ask the relay to drop the blobs `sha256` (at most [`DROP_BATCH`]) on the condition that
     /// the head of the snapshot stream is `snapshot` and every stream in `heads` still ends where
-    /// it is named. `None` when a head moved: the relay dropped nothing, and the caller computes
-    /// its list again. The relay refuses the manifest that the snapshot entry names.
+    /// it is named. `None` when a stream was not as named: the relay dropped nothing, and the
+    /// caller computes its list again. The relay refuses the manifest that the snapshot entry
+    /// names. The caller keeps the account of what was released (`personal::reclaim_count`): the
+    /// client asks again by itself after a lost answer, and the second answer then says `absent`.
     pub(in crate::log_sync) async fn blob_drop(
         &self,
         database_id: &str,
@@ -96,11 +100,8 @@ impl RelayClient {
             Err(error) if heads_moved(&error) => return Ok(None),
             Err(error) => return Err(error),
         };
-        let dropped: Dropped = serde_json::from_value(value)
-            .map_err(|_| "relay blob.drop returned an invalid answer".to_owned())?;
-        if let Some(usage) = &self.usage {
-            usage.blobs_released(database_id, dropped.dropped, dropped.released_bytes)?;
-        }
-        Ok(Some(dropped))
+        serde_json::from_value(value)
+            .map(Some)
+            .map_err(|_| "relay blob.drop returned an invalid answer".to_owned())
     }
 }

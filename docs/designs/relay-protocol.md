@@ -415,13 +415,18 @@ length, and asks again after it appended the `snapshot` entry.
 - **`heads`** are the stream heads the node saw when it computed the list: every
   stream of the publisher that `log.streams` listed, the snapshot stream not among
   them. At most 32, each stream once, each at an entry (400 field `heads` otherwise).
-  The list may be empty.
+  The list is empty only when the publisher has no other stream. A stream of the
+  publisher that the call names neither as the snapshot stream nor in `heads` is
+  refused like a head that moved (409 `heads`, field `heads`).
 - **`sha256`**: 1 to 25 digests, each once (400 field `sha256` otherwise).
 - **One step.** The relay reads the head of the snapshot stream and of each listed
   stream once. No head, another head than named, or an entry stored above the head
   (an entry beyond a gap, which a reader of the stream cannot see and which may name a
   file) answers **HTTP 409, code `heads`**, field `snapshot` for the snapshot stream
-  and `heads` for a listed one, and nothing is dropped. Then, in one atomic step:
+  and `heads` for a listed one, and nothing is dropped. The same answer, with field
+  `heads`, goes to a call while the publisher has a stream in the database that the
+  call does not name: a device that sent its first entry after the caller listed the
+  streams. Then, in one atomic step:
   every one of those streams is still as read (its head, and a count of the entries
   stored beyond a gap, which changes when such an entry is stored), each blob record
   that exists is deleted with its pending record, and the summed bytes are released
@@ -440,8 +445,14 @@ uploads it when it is gone; the same holds for the files of a snapshot after its
 `snapshot` entry is appended. And the drop is one step with the heads: an entry
 appended before the drop moved a head, so the drop does nothing, and an entry appended
 after it finds its file gone and puts it back. A stream that did not exist when the
-node listed the streams has no head to condition on, and its first entry is covered by
-the first rule alone.
+node listed the streams has no head in the call. Its first entry makes it a stream the
+call does not name, so a drop after that entry is refused, and a drop before it is
+covered by the first rule.
+
+**Counting what a drop released.** One call is one step, so a client that asks again
+after a lost answer gets `absent` for the digests its first try dropped. The node
+does not count from such an answer: it counts a digest it named as released when the
+next `blob.list` no longer has it, with the length the earlier listing gave.
 
 **`blob.put` and the pending record.** A relay that keeps a record of an upload that
 began keeps it from begin to commit only: begin writes it only while the digest is not
@@ -506,7 +517,7 @@ the grant index from verified publisher birth/grant entries in the logs.
 | 401 | `unauthorized` | bad or missing request signature |
 | 403 | `forbidden` | no current grant for this `node_key` / role |
 | 404 | `not_found` | missing log/blob (incl. after `blob_delete`); `log.trim` names no stored snapshot entry |
-| 409 | `heads` | `blob.drop`: a stream is not as the caller named it (field `snapshot` or `heads`); nothing was dropped, compute the list again |
+| 409 | `heads` | `blob.drop`: a stream is not as the caller named it, or the caller did not name it (field `snapshot` or `heads`); nothing was dropped, compute the list again |
 | 410 | `trimmed` | `log.read` starts at an entry that `log.trim` dropped |
 | 426 | `upgrade_required` | `request.protocol` |
 | 429 | `rate_limited` | quota / rate limits (publisher-billed) |
