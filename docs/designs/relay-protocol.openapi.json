@@ -165,6 +165,24 @@
                 }
               }
             }
+          },
+          "409": {
+            "description": "conflicting entry at an existing writer_seq",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "conflict": {
+                    "value": {
+                      "code": "conflict",
+                      "field": "entries.writer_seq"
+                    }
+                  }
+                }
+              }
+            }
           }
         },
         "security": [
@@ -1521,6 +1539,7 @@
               "invalid_request",
               "not_found",
               "conflict",
+              "heads",
               "rate_limited",
               "upgrade_required",
               "trimmed",
@@ -1879,7 +1898,8 @@
         "type": "object",
         "required": [
           "done",
-          "entries_deleted"
+          "entries_deleted",
+          "released_bytes"
         ],
         "additionalProperties": false,
         "properties": {
@@ -2008,6 +2028,7 @@
         "required": [
           "blobs"
         ],
+        "additionalProperties": false,
         "properties": {
           "blobs": {
             "type": "array",
@@ -2018,6 +2039,7 @@
                 "sha256",
                 "bytes"
               ],
+              "additionalProperties": false,
               "properties": {
                 "sha256": {
                   "type": "string",
@@ -2122,6 +2144,7 @@
           "released_bytes",
           "absent"
         ],
+        "additionalProperties": false,
         "properties": {
           "dropped": {
             "type": "integer",

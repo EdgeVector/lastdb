@@ -5,14 +5,16 @@
 //! answer cannot say who dropped the absent ones. The client asks again by itself after an
 //! answer that was lost or said to try again, and when the first try had already dropped the
 //! files, the second finds them absent and reports nothing. So a call is written down before it
-//! is sent (`reclaim-named.json`: each digest with the length the listing gave it). It is taken
-//! off again when the relay answered that it dropped all of them, or that it dropped nothing
-//! because a stream was not as named. What is left is settled by the next `blob.list`: a digest
-//! this node named that the relay no longer lists was released, with the length the earlier
-//! listing gave it. That also covers a call with no answer at all, and a kill in the middle.
+//! is sent (`reclaim-named.json`: each digest with the length the listing gave it, beside the
+//! running totals of an unfinished multi-turn sweep). A digest is taken off again when the relay
+//! answered that it dropped all of them, or that it dropped nothing because a stream was not as
+//! named. What is left is settled by the next `blob.list`: a digest this node named that the
+//! relay no longer lists was released, with the length the earlier listing gave it.
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+use serde::{Deserialize, Serialize};
 
 use super::snapshot_state::file_of;
 use super::Ctx;
@@ -23,6 +25,39 @@ use crate::profile::private_fs as disk;
 const NAMED: &str = "reclaim-named.json";
 const LIMIT: usize = 1024 * 1024;
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SavedCount {
+    named: BTreeMap<String, u64>,
+    #[serde(default)]
+    files: u64,
+    #[serde(default)]
+    bytes: u64,
+}
+
+#[derive(Serialize)]
+struct SavedCountRef<'a> {
+    named: &'a BTreeMap<String, u64>,
+    files: u64,
+    bytes: u64,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum StoredCount {
+    Current(SavedCount),
+    Legacy(BTreeMap<String, u64>),
+}
+
+fn decode_stored(bytes: &[u8]) -> Result<(BTreeMap<String, u64>, u64, u64), String> {
+    let parsed: StoredCount = serde_json::from_slice(bytes)
+        .map_err(|_| "the record of named drops is invalid".to_owned())?;
+    Ok(match parsed {
+        StoredCount::Current(saved) => (saved.named, saved.files, saved.bytes),
+        StoredCount::Legacy(named) => (named, 0, 0),
+    })
+}
+
 /// The digests whose release is not counted yet, and what this sweep counted so far.
 pub(super) struct Counter<'a> {
     pub(super) client: &'a RelayClient,
@@ -30,7 +65,7 @@ pub(super) struct Counter<'a> {
     path: PathBuf,
     /// Digests a drop named, with their listed length, until their release is settled.
     named: BTreeMap<String, u64>,
-    /// Files this sweep counted as released.
+    /// Files this sweep counted as released across its turns.
     pub(super) files: u64,
     /// Their length.
     pub(super) bytes: u64,
@@ -39,10 +74,9 @@ pub(super) struct Counter<'a> {
 impl<'a> Counter<'a> {
     pub(super) fn open(ctx: &'a Ctx<'_>, client: &'a RelayClient) -> Result<Self, String> {
         let path = file_of(&ctx.host.home, &ctx.database_id, NAMED);
-        let named = match disk::read_limited(&path, LIMIT) {
-            Ok(Some(bytes)) => serde_json::from_slice(&bytes)
-                .map_err(|_| "the record of named drops is invalid".to_owned())?,
-            Ok(None) => BTreeMap::new(),
+        let (named, files, bytes) = match disk::read_limited(&path, LIMIT) {
+            Ok(Some(raw)) => decode_stored(&raw)?,
+            Ok(None) => (BTreeMap::new(), 0, 0),
             Err(_) => return Err("cannot read the record of named drops".into()),
         };
         Ok(Self {
@@ -50,9 +84,14 @@ impl<'a> Counter<'a> {
             database_id: &ctx.database_id,
             path,
             named,
-            files: 0,
-            bytes: 0,
+            files,
+            bytes,
         })
+    }
+
+    /// True when no named digests wait to be settled against `blob.list`.
+    pub(super) fn is_empty(&self) -> bool {
+        self.named.is_empty()
     }
 
     /// A new listing of the relay: every digest that waits and is no longer listed was released.
@@ -60,13 +99,14 @@ impl<'a> Counter<'a> {
         if self.named.is_empty() {
             return Ok(());
         }
-        let gone: Vec<u64> = self
+        let (gone_files, gone_bytes) = self
             .named
             .iter()
             .filter(|(digest, _)| !listed.contains_key(digest.as_str()))
-            .map(|(_, bytes)| *bytes)
-            .collect();
-        self.count(gone.len() as u64, gone.iter().sum())?;
+            .fold((0u64, 0u64), |(files, total), (_, bytes)| {
+                (files.saturating_add(1), total.saturating_add(*bytes))
+            });
+        self.count(gone_files, gone_bytes)?;
         self.named.clear();
         self.save()
     }
@@ -102,9 +142,36 @@ impl<'a> Counter<'a> {
         self.save()
     }
 
+    /// Clear cumulative sweep totals once the sweep finishes (`Clean` or `NotDue`).
+    pub(super) fn finish(&mut self) -> Result<(), String> {
+        self.files = 0;
+        self.bytes = 0;
+        self.save()
+    }
+
+    /// Clear cumulative sweep totals when a sweep stops, keeping any unsettled `named` digests.
+    pub(super) fn reset_totals(home: &Path, database_id: &str) {
+        let path = file_of(home, database_id, NAMED);
+        let Ok(Some(raw)) = disk::read_limited(&path, LIMIT) else {
+            return;
+        };
+        let Ok((named, _, _)) = decode_stored(&raw) else {
+            return;
+        };
+        if named.is_empty() {
+            let _ = disk::remove_private(&path);
+        } else if let Ok(bytes) = serde_json::to_vec(&SavedCountRef {
+            named: &named,
+            files: 0,
+            bytes: 0,
+        }) {
+            let _ = disk::write_private(&path, &bytes);
+        }
+    }
+
     fn count(&mut self, files: u64, bytes: u64) -> Result<(), String> {
-        self.files += files;
-        self.bytes += bytes;
+        self.files = self.files.saturating_add(files);
+        self.bytes = self.bytes.saturating_add(bytes);
         match &self.client.usage {
             Some(usage) => usage.blobs_released(self.database_id, files, bytes),
             None => Ok(()),
@@ -112,11 +179,15 @@ impl<'a> Counter<'a> {
     }
 
     fn save(&self) -> Result<(), String> {
-        let saved = if self.named.is_empty() {
+        let saved = if self.named.is_empty() && self.files == 0 && self.bytes == 0 {
             disk::remove_private(&self.path)
         } else {
-            let bytes = serde_json::to_vec(&self.named)
-                .map_err(|_| "cannot encode the record of named drops".to_owned())?;
+            let bytes = serde_json::to_vec(&SavedCountRef {
+                named: &self.named,
+                files: self.files,
+                bytes: self.bytes,
+            })
+            .map_err(|_| "cannot encode the record of named drops".to_owned())?;
             disk::write_private(&self.path, &bytes)
         };
         saved.map_err(|_| "cannot save the record of named drops".to_owned())

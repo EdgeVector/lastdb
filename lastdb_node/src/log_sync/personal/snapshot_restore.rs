@@ -32,6 +32,7 @@ use crate::log_sync::chain_author::AuthorIdentity;
 use crate::log_sync::device;
 use crate::log_sync::relay::RelayClient;
 use crate::personal_identity;
+use crate::profile::private_fs as disk;
 
 /// A snapshot whose files are installed in a home that has no store open yet.
 pub struct SnapshotBase {
@@ -226,15 +227,25 @@ fn check_entry(
 pub(super) async fn fetch_manifest(
     client: &RelayClient,
     database_id: &str,
-    home: &Path,
+    dir: &Path,
     sha256: &str,
     bytes: u64,
 ) -> Result<Manifest, String> {
-    let dest = home.join(".snapshot-manifest");
+    if bytes == 0 || bytes > MANIFEST_LIMIT {
+        return Err("the snapshot entry names a manifest of an unusable length".into());
+    }
+    let dest = dir.join(".snapshot-manifest");
     client.blob_get(database_id, sha256, bytes, &dest).await?;
-    let read = std::fs::read(&dest).map_err(|error| error.to_string());
-    let _ = std::fs::remove_file(&dest);
-    let list: Manifest = serde_json::from_slice(&read?).map_err(|_| "the manifest is invalid")?;
+    let limit = usize::try_from(MANIFEST_LIMIT).unwrap_or(usize::MAX);
+    let raw = tokio::task::spawn_blocking(move || {
+        let read = disk::read_limited(&dest, limit);
+        let _ = disk::remove_private(&dest);
+        read.map_err(|error| error.to_string())?
+            .ok_or_else(|| "the downloaded manifest disappeared".to_owned())
+    })
+    .await
+    .map_err(|_| "reading the manifest stopped".to_owned())??;
+    let list: Manifest = serde_json::from_slice(&raw).map_err(|_| "the manifest is invalid")?;
     manifest::validate(&list.files)?;
     Ok(list)
 }

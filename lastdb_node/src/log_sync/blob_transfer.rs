@@ -13,6 +13,7 @@
 
 mod download;
 mod reclaim;
+mod url_guard;
 
 pub(super) use reclaim::{Dropped, HeadAt, DROP_BATCH, DROP_HEADS};
 
@@ -22,11 +23,12 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use reqwest::header::{HeaderName, HeaderValue};
 use serde_json::json;
 use tokio::fs;
 use tokio::io::AsyncSeekExt;
 
-use super::relay::{header_pairs, RelayClient, STALL_TIMEOUT};
+use super::relay::{RelayClient, STALL_TIMEOUT};
 
 /// Bytes read from the file per chunk of an upload.
 const CHUNK_BYTES: usize = 64 * 1024;
@@ -86,7 +88,7 @@ pub(super) fn upload_backoff(tried: u32) -> Duration {
 }
 
 pub(super) fn is_retryable_store_status(status: reqwest::StatusCode) -> bool {
-    matches!(status.as_u16(), 500 | 502 | 503 | 504)
+    matches!(status.as_u16(), 408 | 429 | 500 | 502 | 503 | 504)
 }
 
 /// What the kernel may still hold unsent when the transport has taken the last byte of a body, and
@@ -180,24 +182,37 @@ impl RelayClient {
         let url = begin["upload"]["url"]
             .as_str()
             .ok_or("blob.put begin has no upload.url")?;
+        url_guard::validate_presigned_url(&self.base, url)?;
+        let headers = url_guard::presigned_headers(&begin["upload"]["headers"], true)?;
         let file = Arc::new(file.into_std().await);
+        self.upload_with_retries(url, &headers, &file, start, size)
+            .await?;
+        self.commit_blob(database_id, sha256, size, &stage("commit"))
+            .await
+    }
+
+    async fn upload_with_retries(
+        &self,
+        url: &str,
+        headers: &[(HeaderName, HeaderValue)],
+        file: &Arc<std::fs::File>,
+        start: u64,
+        size: u64,
+    ) -> Result<(), String> {
         let mut tried = 0;
-        let status = loop {
+        let (status, final_url) = loop {
             tried += 1;
-            match self
-                .put_once(url, &begin["upload"]["headers"], &file, start, size)
-                .await
-            {
-                Ok(status) if tried < UPLOAD_TRIES && is_retryable_store_status(status) => {
+            match self.put_once(url, headers, file, start, size).await {
+                Ok((status, _)) if tried < UPLOAD_TRIES && is_retryable_store_status(status) => {
                     tracing::warn!(
                         target: "lastdbd::log_sync",
                         status = status.as_u16(),
                         tried,
-                        "blob upload received transient 5xx; sending the file again"
+                        "blob upload received transient store status; sending the file again"
                     );
                     tokio::time::sleep(upload_backoff(tried)).await;
                 }
-                Ok(status) => break status,
+                Ok(done) => break done,
                 Err(error) if tried < UPLOAD_TRIES => {
                     tracing::warn!(
                         target: "lastdbd::log_sync",
@@ -210,11 +225,14 @@ impl RelayClient {
                 Err(error) => return Err(error),
             }
         };
+        if status.is_redirection() {
+            return Err(format!("blob upload unexpected redirect HTTP {status}"));
+        }
+        url_guard::validate_presigned_url(&self.base, &final_url)?;
         if !status.is_success() {
             return Err(format!("blob upload HTTP {status}"));
         }
-        self.commit_blob(database_id, sha256, size, &stage("commit"))
-            .await
+        Ok(())
     }
 
     async fn commit_blob(
@@ -246,11 +264,11 @@ impl RelayClient {
     async fn put_once(
         &self,
         url: &str,
-        headers: &serde_json::Value,
+        headers: &[(HeaderName, HeaderValue)],
         file: &Arc<std::fs::File>,
         start: u64,
         size: u64,
-    ) -> Result<reqwest::StatusCode, String> {
+    ) -> Result<(reqwest::StatusCode, String), String> {
         let taken = Arc::new(AtomicU64::new(0));
         let body = file_body(Arc::clone(file), start, size, Arc::clone(&taken));
         let mut upload = self
@@ -258,10 +276,7 @@ impl RelayClient {
             .put(url)
             .header("content-length", size)
             .body(body);
-        for (name, value) in header_pairs(headers) {
-            if name.eq_ignore_ascii_case("content-length") {
-                continue;
-            }
+        for (name, value) in headers {
             upload = upload.header(name, value);
         }
         let started = Instant::now();
@@ -269,14 +284,15 @@ impl RelayClient {
             sent = upload.send() => sent,
             message = stalled(&taken, size, url) => return Err(message),
         };
-        sent.map(|response| response.status()).map_err(|e| {
-            format!(
-                "blob upload: {} after {} s with {} of {size} bytes sent",
-                describe(e, url),
-                started.elapsed().as_secs(),
-                taken.load(Ordering::Relaxed)
-            )
-        })
+        sent.map(|response| (response.status(), response.url().as_str().to_owned()))
+            .map_err(|e| {
+                format!(
+                    "blob upload: {} after {} s with {} of {size} bytes sent",
+                    describe(e, url),
+                    started.elapsed().as_secs(),
+                    taken.load(Ordering::Relaxed)
+                )
+            })
     }
 }
 

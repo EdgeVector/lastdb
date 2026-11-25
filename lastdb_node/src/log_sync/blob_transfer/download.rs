@@ -1,16 +1,19 @@
 //! Presigned blob download (`blob.get`) with bounded retries and SHA-256 verification.
 
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
 use app_identity_crypto::hex_lower;
 use futures::StreamExt;
-use serde_json::{json, Value};
+use reqwest::header::{HeaderName, HeaderValue};
+use serde_json::json;
 use sha2::{Digest, Sha256};
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
 
-use super::{describe, is_retryable_store_status, upload_backoff, UPLOAD_TRIES};
-use crate::log_sync::relay::{header_pairs, RelayClient};
+use super::{describe, is_retryable_store_status, upload_backoff, url_guard, UPLOAD_TRIES};
+use crate::log_sync::relay::RelayClient;
+use crate::profile::private_fs as disk;
 
 enum DownloadError {
     Retryable(String),
@@ -28,9 +31,13 @@ impl RelayClient {
         expect_size: u64,
         dest: &Path,
     ) -> Result<(), String> {
+        mutation_log::Hex32::from_hex(sha256)
+            .map_err(|_| "blob digest is not 64 lowercase hex characters".to_owned())?;
         let body = json!({ "database_id": database_id, "sha256": sha256 });
         let meta = self.post("/relay/v1/blob/get", database_id, &body).await?;
         let url = meta["url"].as_str().ok_or("blob.get has no url")?;
+        url_guard::validate_presigned_url(&self.base, url)?;
+        let headers = url_guard::presigned_headers(&meta["headers"], false)?;
         if meta["bytes"].as_u64().is_some_and(|n| n != expect_size) {
             return Err(format!("blob.get size differs from its entry for {sha256}"));
         }
@@ -39,7 +46,7 @@ impl RelayClient {
         loop {
             tried += 1;
             match self
-                .get_once(url, &meta["headers"], &part, sha256, expect_size)
+                .get_once(url, &headers, &part, sha256, expect_size)
                 .await
             {
                 Ok(()) => {
@@ -48,7 +55,7 @@ impl RelayClient {
                         .map_err(|e| format!("blob file: {e}"));
                 }
                 Err(DownloadError::Retryable(error)) if tried < UPLOAD_TRIES => {
-                    let _ = fs::remove_file(&part).await;
+                    cleanup_part(&part).await;
                     tracing::warn!(
                         target: "lastdbd::log_sync",
                         %error,
@@ -58,7 +65,7 @@ impl RelayClient {
                     tokio::time::sleep(upload_backoff(tried)).await;
                 }
                 Err(DownloadError::Retryable(error) | DownloadError::Fatal(error)) => {
-                    let _ = fs::remove_file(&part).await;
+                    cleanup_part(&part).await;
                     return Err(error);
                 }
             }
@@ -68,19 +75,26 @@ impl RelayClient {
     async fn get_once(
         &self,
         url: &str,
-        headers: &Value,
+        headers: &[(HeaderName, HeaderValue)],
         part: &Path,
         sha256: &str,
         expect_size: u64,
     ) -> Result<(), DownloadError> {
         let mut download = self.download.get(url);
-        for (name, value) in header_pairs(headers) {
+        for (name, value) in headers {
             download = download.header(name, value);
         }
         let response = download.send().await.map_err(|e| {
             DownloadError::Retryable(format!("blob download: {}", describe(e, url)))
         })?;
         let status = response.status();
+        if status.is_redirection() {
+            return Err(DownloadError::Fatal(format!(
+                "blob download unexpected redirect HTTP {status}"
+            )));
+        }
+        url_guard::validate_presigned_url(&self.base, response.url().as_str())
+            .map_err(DownloadError::Fatal)?;
         if !status.is_success() {
             let msg = format!("blob download HTTP {status}");
             return if is_retryable_store_status(status) {
@@ -94,7 +108,28 @@ impl RelayClient {
 }
 
 fn part_path(dest: &Path, sha256: &str) -> PathBuf {
-    dest.with_file_name(format!(".{sha256}.part"))
+    let suffix = uuid::Uuid::new_v4().simple();
+    dest.with_file_name(format!(".{sha256}.{suffix}.part"))
+}
+
+fn open_part(part: PathBuf) -> std::io::Result<std::fs::File> {
+    if let Some(parent) = part.parent().filter(|p| !p.as_os_str().is_empty()) {
+        std::fs::create_dir_all(parent)?;
+    }
+    disk::remove_private(&part)?;
+    let file = std::fs::OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(&part)?;
+    file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+    Ok(file)
+}
+
+async fn cleanup_part(part: &Path) {
+    let path = part.to_path_buf();
+    let _ = tokio::task::spawn_blocking(move || disk::remove_private(&path)).await;
 }
 
 /// Stream `response` into `part` (private file mode), then check size and digest.
@@ -105,19 +140,12 @@ async fn write_verified(
     expect_size: u64,
     url: &str,
 ) -> Result<(), DownloadError> {
-    if let Some(parent) = part.parent() {
-        fs::create_dir_all(parent)
-            .await
-            .map_err(|e| DownloadError::Fatal(format!("blob file: {e}")))?;
-    }
-    let mut file = fs::OpenOptions::new()
-        .create(true)
-        .truncate(true)
-        .write(true)
-        .mode(0o600)
-        .open(part)
+    let target = part.to_path_buf();
+    let std_file = tokio::task::spawn_blocking(move || open_part(target))
         .await
+        .map_err(|e| DownloadError::Fatal(format!("blob file: {e}")))?
         .map_err(|e| DownloadError::Fatal(format!("blob file: {e}")))?;
+    let mut file = fs::File::from_std(std_file);
     let mut hasher = Sha256::new();
     let mut count = 0u64;
     let mut chunks = response.bytes_stream();
