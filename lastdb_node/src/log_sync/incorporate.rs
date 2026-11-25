@@ -370,8 +370,11 @@ fn decline(
         identity,
     };
     chain_author::author_publisher(histories, &target, |mut ctx, history| {
-        history.cite_publisher_streams(&mut ctx);
+        if let Some((hash, lamport)) = history.birth_entry() {
+            ctx.cite(hash, lamport);
+        }
         cite_proposal(&mut ctx, proposal).map_err(|_| ChainError::Unconfirmed)?;
+        history.cite_publisher_streams(&mut ctx);
         author_heads(&ctx, &identity.signing_key, history.publisher_stream_tips())
             .map_err(|_| ChainError::Unconfirmed)
     })

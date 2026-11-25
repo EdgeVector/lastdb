@@ -239,27 +239,6 @@ pub(crate) fn apply(runtime: &PackRuntime, plan: SidecarPlan) -> StorageResult<(
     Ok(fs::rename(&tmp, &path)?)
 }
 
-pub(crate) fn remember(
-    runtime: &PackRuntime,
-    cas_key: &str,
-    path: &Path,
-    sha256: &str,
-    size_bytes: u64,
-) -> StorageResult<()> {
-    apply(
-        runtime,
-        SidecarPlan {
-            additions: vec![SidecarAddition {
-                cas_key: cas_key.into(),
-                path: path.to_path_buf(),
-                sha256: sha256.into(),
-                size_bytes,
-            }],
-            removals: Vec::new(),
-        },
-    )
-}
-
 /// The referenced path of a record file, and whether a regular file of the
 /// recorded size is still there. The bytes are not read, so a same-size edit
 /// is seen only by a reader that checks the hash.

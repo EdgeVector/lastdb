@@ -20,7 +20,7 @@ use crate::grant_index::GrantIndex;
 use crate::presign;
 use crate::request_log::EntriesReturned;
 use crate::store::{now_ms, require_hex64, Store};
-use crate::store_read::{read_position, LogReadBody, ReadPosition};
+use crate::store_read::{read_limit, read_position, LogReadBody, ReadPosition};
 
 /// Shared process state.
 pub(crate) struct AppState {
@@ -107,7 +107,7 @@ pub(crate) async fn log_read(
     state
         .check_log_read(&db, &caller, writer_key, all_devices)
         .await?;
-    let limit = req.limit.unwrap_or(90) as usize;
+    let limit = read_limit(req.limit)?;
     let (entries, cursor) = match position {
         ReadPosition::Device {
             writer_key,
@@ -142,6 +142,9 @@ pub(crate) async fn log_read(
     let mut out = json!({ "entries": entries });
     if let Some(c) = cursor {
         out["cursor"] = Value::String(c);
+    }
+    if json_bytes(&out)? > crate::PLATFORM_PAYLOAD_MAX_BYTES {
+        return Err(ApiError::batch_too_large("entries"));
     }
     let mut response = Json(out).into_response();
     response.extensions_mut().insert(returned);
@@ -217,20 +220,23 @@ async fn blob_begin(state: &AppState, req: &BlobPutBody) -> ApiResult<Json<Value
     if state.max_blob_bytes.is_some_and(|limit| req.bytes > limit) {
         return Err(ApiError::invalid("bytes"));
     }
-    if state
-        .store
-        .has_blob(&req.database_id, &req.sha256, req.bytes)
-        .await?
-    {
-        return Ok(Json(json!({
-            "stage": "begin",
-            "sha256": req.sha256,
-        })));
-    }
-    let token = state
-        .store
-        .stage_begin(&req.database_id, &req.sha256, req.bytes)
-        .await?;
+    let token = {
+        let _blob_guard = state.blob_lock.lock().await;
+        if state
+            .store
+            .has_blob(&req.database_id, &req.sha256, req.bytes)
+            .await?
+        {
+            return Ok(Json(json!({
+                "stage": "begin",
+                "sha256": req.sha256,
+            })));
+        }
+        state
+            .store
+            .stage_begin(&req.database_id, &req.sha256, req.bytes)
+            .await?
+    };
     let (url, expires_at_ms) = presign::make_put_url(
         &state.public_base,
         &state.secret,
@@ -265,7 +271,10 @@ pub(crate) async fn blob_get(
     let db = gate::parse_id(&req.database_id, "database_id")?;
     state.check_read(&db, &caller).await?;
     require_hex64(&req.sha256, "sha256")?;
-    let (bytes, _) = state.store.blob_meta(&req.database_id, &req.sha256).await?;
+    let (bytes, _) = {
+        let _blob_guard = state.blob_lock.lock().await;
+        state.store.blob_meta(&req.database_id, &req.sha256).await?
+    };
     if bytes == 0 {
         return Err(ApiError::not_found("blob.sha256"));
     }
@@ -318,10 +327,13 @@ fn fit_response(
     ) else {
         return Err(ApiError::invalid("entries"));
     };
+    let next_seq = seq
+        .checked_add(1)
+        .ok_or_else(|| ApiError::invalid("entries"))?;
     entries.truncate(cut);
     Ok((
         entries,
-        Some(format!("{prefix}{node_key}:{device_id}:{}", seq + 1)),
+        Some(format!("{prefix}{node_key}:{device_id}:{next_seq}")),
     ))
 }
 
@@ -338,18 +350,21 @@ pub(crate) fn parse_body<T: serde::de::DeserializeOwned>(body: &[u8]) -> ApiResu
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct LogAppendBody {
     database_id: String,
     entries: Vec<Value>,
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct LogStreamsBody {
     database_id: String,
     writer_key: String,
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct BlobPutBody {
     database_id: String,
     stage: String,
@@ -358,6 +373,7 @@ struct BlobPutBody {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct BlobGetBody {
     database_id: String,
     sha256: String,

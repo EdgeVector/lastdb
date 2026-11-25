@@ -116,9 +116,11 @@ impl Store {
     }
 
     /// Stream an upload body into a unique `.part.<id>` file for `(database_id, token)`, hashing
-    /// as the bytes pass. Only a complete, digest-verified upload is renamed to `token`.
+    /// as the bytes pass. Only a complete, digest-verified upload whose staging claim still holds
+    /// is renamed to `token`.
     pub(crate) async fn stage_put<S>(
         &self,
+        blob_lock: &tokio::sync::Mutex<()>,
         database_id: &str,
         token: &str,
         checksum: Option<&str>,
@@ -127,7 +129,10 @@ impl Store {
     where
         S: Stream<Item = Result<Bytes, axum::Error>> + Unpin,
     {
-        let (sha256, expected) = self.staged_claim(database_id, token).await?;
+        let (sha256, expected) = {
+            let _blob_guard = blob_lock.lock().await;
+            self.staged_claim(database_id, token).await?
+        };
         if checksum != Some(checksum_header(&sha256).as_str()) {
             return Err(ApiError::invalid("x-amz-checksum-sha256"));
         }
@@ -142,11 +147,22 @@ impl Store {
         if digest != sha256 {
             return Err(ApiError::invalid("sha256"));
         }
-        fs::rename(&part, dir.join(token))
-            .await
-            .map_err(|_| ApiError::invalid("data_dir"))?;
+        let _blob_guard = blob_lock.lock().await;
+        if self.staged_claim(database_id, token).await.is_ok() {
+            fs::rename(&part, dir.join(token))
+                .await
+                .map_err(|_| ApiError::invalid("data_dir"))?;
+            guard.disarm();
+            return Ok(());
+        }
+        let committed = self.has_blob(database_id, &sha256, expected).await?;
+        let _ = fs::remove_file(&part).await;
         guard.disarm();
-        Ok(())
+        if committed {
+            Ok(())
+        } else {
+            Err(ApiError::not_found("upload.token"))
+        }
     }
 
     /// The `(sha256, bytes)` that `stage_begin` recorded for `(database_id, token)`.

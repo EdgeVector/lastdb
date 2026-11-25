@@ -46,13 +46,20 @@ impl Log {
         if inner.blocked || inner.head != 0 || started {
             return Ok(());
         }
-        let Some(seq) = store::chain_seq(physical, chain_key)?.filter(|&seq| seq > 0) else {
-            return Ok(());
-        };
         let opened = inner.state.as_ref().map_or_else(
             || physical.current_root().frontiers().total,
             |state| state.opened_frontier,
         );
+        let Some(seq) = store::chain_seq(physical, chain_key)?.filter(|&seq| seq > 0) else {
+            if (inner.history || inner.state.as_ref().is_none_or(|s| s.snapshot_required))
+                && store::has_any_stream_head(physical)?
+            {
+                inner.state = Some(fresh(opened, false));
+                inner.history = false;
+                inner.unsaved = true;
+            }
+            return Ok(());
+        };
         inner.state = Some(State {
             version: STATE_VERSION,
             opened_frontier: opened,
@@ -176,9 +183,13 @@ impl Log {
         }
         let moved = through - after;
         let mut trimmed = 0;
-        if inner.since_trim.saturating_add(moved) >= TRIM_EVERY && through > IDS_KEPT {
+        let mut did_trim = false;
+        let trim_due = inner.since_trim.saturating_add(moved) >= TRIM_EVERY
+            || inner.ids > IDS_KEPT + TRIM_EVERY;
+        if trim_due && through > IDS_KEPT {
             let trim = store::trim_id_ops(physical, through - IDS_KEPT)?;
             trimmed = trim.len() as u64 / 2;
+            did_trim = trimmed < store::TRIM_MAX as u64;
             ops.extend(trim);
         }
         state.acked = through;
@@ -187,6 +198,7 @@ impl Log {
         change.released = released;
         change.acknowledged = moved;
         change.trimmed = trimmed;
+        change.did_trim = did_trim;
         change.remove = remove;
         Ok(change)
     }
@@ -230,10 +242,11 @@ impl Log {
         } else {
             inner.retained = inner.retained.saturating_sub(change.released);
             inner.ids = inner.ids.saturating_sub(change.trimmed);
-            inner.since_trim = inner.since_trim.saturating_add(change.acknowledged);
-            if inner.since_trim >= TRIM_EVERY {
-                inner.since_trim = 0;
-            }
+            inner.since_trim = if change.did_trim {
+                0
+            } else {
+                inner.since_trim.saturating_add(change.acknowledged)
+            };
             inner.head = inner.head.max(inner.state.as_ref().map_or(0, |s| s.acked));
         }
         let (acked, head) = (inner.state.as_ref().map_or(0, |s| s.acked), inner.head);

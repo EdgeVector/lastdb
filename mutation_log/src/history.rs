@@ -33,6 +33,13 @@ pub struct RejectEvidence {
     pub entry: SignedEntry,
 }
 
+#[derive(Clone, Debug)]
+struct SchemaDecl {
+    pos: crate::payload::RecordPosition,
+    entry: EntryHash,
+    bytes: Vec<u8>,
+}
+
 /// Local verified history for one `database_id`.
 #[derive(Clone, Debug)]
 pub struct VerifiedHistory {
@@ -58,6 +65,8 @@ pub struct VerifiedHistory {
     schemas: BTreeMap<String, Vec<u8>>,
     /// Winning position and entry hash of each declared schema definition.
     schema_positions: BTreeMap<String, (crate::payload::RecordPosition, EntryHash)>,
+    /// Accepted schema declarations per namespace, ordered by position.
+    schema_decls: BTreeMap<String, BTreeMap<PosKey, SchemaDecl>>,
     /// Latest publisher relay URLs.
     relays: Vec<String>,
     /// Winning position of `relays`.
@@ -103,6 +112,7 @@ impl VerifiedHistory {
             records: BTreeMap::new(),
             schemas: BTreeMap::new(),
             schema_positions: BTreeMap::new(),
+            schema_decls: BTreeMap::new(),
             relays: Vec::new(),
             relays_position: None,
             publisher_heads: Vec::new(),

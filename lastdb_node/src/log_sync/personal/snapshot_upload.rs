@@ -9,8 +9,9 @@ use std::time::Instant;
 use fold_db::storage::disk_pack::snapshot::DatabaseSnapshot;
 use sha2::{Digest, Sha256};
 
+use super::snapshot_entry::snapshot_head;
 use super::snapshot_manifest::{FileEntry, Manifest};
-use super::snapshot_state::file_of;
+use super::snapshot_state::{file_of, Last};
 use super::Ctx;
 use crate::host::cloud_sync::SnapshotState;
 use crate::log_sync::blob_transfer::SIZE_REFUSED;
@@ -19,6 +20,54 @@ use crate::profile::private_fs as disk;
 
 /// Starts the error of a snapshot that cannot be published until the relay takes larger files.
 pub(super) const TOO_LARGE: &str = "snapshot cannot be published";
+
+/// Outcome of verifying a locally unchanged snapshot against the relay's live head and blobs.
+pub(super) enum UnchangedCheck {
+    /// Relay head and `blob.list` confirm the manifest and every file in `last`.
+    Verified,
+    /// Relay lacks the snapshot head or one of its blobs; reuse any `blob.list` map already read.
+    NeedsPublish(Option<BTreeMap<String, u64>>),
+}
+
+/// Confirm on the relay that `last` is still the head of the snapshot stream and every blob it
+/// names (manifest and files) is stored at its expected byte length.
+pub(super) async fn check_unchanged(
+    ctx: &Ctx<'_>,
+    client: &RelayClient,
+    streams: &[RelayStream],
+    last: &Last,
+) -> Result<UnchangedCheck, String> {
+    let Some((head, body)) = snapshot_head(ctx, client, streams).await? else {
+        return Ok(UnchangedCheck::NeedsPublish(None));
+    };
+    let raw = serde_json::to_vec(&last.manifest).map_err(|_| "cannot encode the manifest")?;
+    let sha256 = app_identity_crypto::hex_lower(&Sha256::digest(&raw));
+    let len = raw.len() as u64;
+    let head_matches = head.writer_seq == last.report.snapshot_seq
+        && body.manifest_sha256.to_hex() == sha256
+        && body.manifest_bytes == len
+        && body.through == last.through;
+    if !head_matches {
+        return Ok(UnchangedCheck::NeedsPublish(None));
+    }
+    let held = client.blob_list(&ctx.database_id).await?;
+    let complete = held.get(&sha256) == Some(&len)
+        && last
+            .manifest
+            .files
+            .iter()
+            .all(|file| held.get(&file.sha256) == Some(&file.bytes));
+    if complete {
+        Ok(UnchangedCheck::Verified)
+    } else {
+        Ok(UnchangedCheck::NeedsPublish(Some(held)))
+    }
+}
+
+/// True when `log/append` definitively refused the entry without storing it.
+pub(super) fn definitive_append_rejection(error: &str) -> bool {
+    error.contains("HTTP 400") || error.contains("HTTP 403") || error.contains("HTTP 409")
+}
 
 /// The relay takes a blob only for a database whose birth it holds.
 pub(super) async fn ensure_birth(
@@ -42,11 +91,74 @@ pub(super) async fn ensure_birth(
     }
 }
 
+/// Upload missing files of `cut` and `list`, append the `snapshot` entry, and re-verify on the
+/// relay. On failure returns `(error, committed_any)`.
+pub(super) async fn upload_and_name(
+    ctx: &Ctx<'_>,
+    client: &RelayClient,
+    cut: &DatabaseSnapshot,
+    list: &Manifest,
+    through: &[mutation_log::SnapshotThrough],
+    (first, cached_held): (bool, Option<&BTreeMap<String, u64>>),
+) -> Result<(mutation_log::SignedEntry, String, usize, u64), (String, bool)> {
+    let mut committed_any = false;
+    let ((uploaded_files, uploaded_bytes), (sha256, length)) =
+        stage_cut_blobs(ctx, client, cut, list, cached_held, &mut committed_any)
+            .await
+            .map_err(|e| (e, committed_any))?;
+    let entry = super::snapshot_entry::append_snapshot(
+        ctx,
+        client,
+        first,
+        (sha256.as_str(), length),
+        through,
+    )
+    .await
+    .map_err(|e| (e, committed_any))?;
+    let named = Named {
+        list,
+        sha256: &sha256,
+        bytes: length,
+    };
+    let (again_files, again_bytes) = verify_named(ctx, client, cut, &named)
+        .await
+        .map_err(|e| (e, committed_any))?;
+    Ok((
+        entry,
+        sha256,
+        uploaded_files + again_files,
+        uploaded_bytes + again_bytes,
+    ))
+}
+
+/// Upload missing files of `cut` and `list` to the relay, setting `*committed_any = true` once
+/// at least one blob commit succeeds.
+async fn stage_cut_blobs(
+    ctx: &Ctx<'_>,
+    client: &RelayClient,
+    cut: &DatabaseSnapshot,
+    list: &Manifest,
+    cached_held: Option<&BTreeMap<String, u64>>,
+    committed_any: &mut bool,
+) -> Result<((usize, u64), (String, u64)), String> {
+    let fetched;
+    let held = if let Some(held) = cached_held {
+        held
+    } else {
+        fetched = client.blob_list(&ctx.database_id).await?;
+        &fetched
+    };
+    let uploaded = upload_files(ctx, client, cut, &list.files, held, committed_any).await?;
+    let manifest = put_manifest(ctx, client, list, committed_any).await?;
+    Ok((uploaded, manifest))
+}
+
 /// Upload the manifest as a blob. Returns its digest and length.
-pub(super) async fn put_manifest(
+async fn put_manifest(
     ctx: &Ctx<'_>,
     client: &RelayClient,
     list: &Manifest,
+    committed_any: &mut bool,
 ) -> Result<(String, u64), String> {
     let bytes = serde_json::to_vec(list).map_err(|_| "cannot encode the manifest")?;
     let sha256 = app_identity_crypto::hex_lower(&Sha256::digest(&bytes));
@@ -55,18 +167,20 @@ pub(super) async fn put_manifest(
     let result = client.blob_put(&ctx.database_id, &sha256, &path).await;
     let _ = disk::remove_private(&path);
     result?;
+    *committed_any = true;
     Ok((sha256, bytes.len() as u64))
 }
 
 /// Upload each file of the cut that the relay does not hold with that digest and length, as a
 /// blob named by its digest. `held` is what `blob.list` answered: the relay, not a record of
 /// this device, says what is there. Returns how many files and bytes went up.
-pub(super) async fn upload_files(
+async fn upload_files(
     ctx: &Ctx<'_>,
     client: &RelayClient,
     cut: &DatabaseSnapshot,
     files: &[FileEntry],
     held: &BTreeMap<String, u64>,
+    committed_any: &mut bool,
 ) -> Result<(usize, u64), String> {
     let todo: Vec<&FileEntry> = files
         .iter()
@@ -86,6 +200,7 @@ pub(super) async fn upload_files(
     progress(0, 0);
     for entry in &todo {
         put_file(ctx, client, cut, entry).await?;
+        *committed_any = true;
         uploaded_files += 1;
         uploaded_bytes += entry.bytes;
         progress(uploaded_files, uploaded_bytes);
@@ -121,10 +236,10 @@ async fn put_file(
 }
 
 /// The manifest of a snapshot whose entry is on the relay, with its digest and length.
-pub(super) struct Named<'a> {
-    pub(super) list: &'a Manifest,
-    pub(super) sha256: &'a str,
-    pub(super) bytes: u64,
+struct Named<'a> {
+    list: &'a Manifest,
+    sha256: &'a str,
+    bytes: u64,
 }
 
 /// Ask the relay again, after the `snapshot` entry is appended: every file of the manifest and
@@ -133,7 +248,7 @@ pub(super) struct Named<'a> {
 /// the cut, which is still pinned. A sweep that runs after the entry keeps them: the entry names
 /// the manifest, and the relay drops nothing once the head of the snapshot stream moved. Returns
 /// how many files and bytes went up again.
-pub(super) async fn verify_named(
+async fn verify_named(
     ctx: &Ctx<'_>,
     client: &RelayClient,
     cut: &DatabaseSnapshot,
@@ -150,7 +265,8 @@ pub(super) async fn verify_named(
         bytes += entry.bytes;
     }
     if held.get(named.sha256) != Some(&named.bytes) {
-        let (sha256, length) = put_manifest(ctx, client, named.list).await?;
+        let mut ignored = false;
+        let (sha256, length) = put_manifest(ctx, client, named.list, &mut ignored).await?;
         if sha256 != named.sha256 || length != named.bytes {
             return Err("the manifest changed after its snapshot entry was signed".into());
         }

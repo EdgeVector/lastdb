@@ -250,7 +250,7 @@ async fn run_turn(host: &Arc<Host>, client: &RelayClient) -> Result<(), String> 
     // A sweep that is due or asked for runs after the send step: the relay then drops every
     // stored file that the newest snapshot and the entries after it do not name.
     let swept = if sent.is_ok() {
-        reclaim::run(&ctx, client).await
+        reclaim::run(&ctx, client, &streams).await
     } else {
         Ok(())
     };
@@ -313,8 +313,7 @@ fn is_payment_403(error: &str) -> bool {
         || error.contains(crate::cloud::PAYMENT_REQUIRED_MESSAGE)
 }
 
-/// True while the spool holds something the relay has not acknowledged. The loop
-/// keeps waking while this is true.
+/// True while the spool, a snapshot request, or a sweep holds work for the sync loop.
 pub(super) fn pending(host: &Host) -> bool {
     let status = host.db.db_ops().native_runtime().accepted_status();
     let Ok(database_id) = host.owned.owner().map(|owner| owner.id) else {
@@ -322,10 +321,11 @@ pub(super) fn pending(host: &Host) -> bool {
     };
     status.head > status.acked
         || status.snapshot_required
-        // A request that the running snapshot serves, or that waits behind it, does not wake the
-        // loop: it would spin until the upload ends. The end of the lane is the next turn.
-        || (snapshot_state::requested(&host.home, &database_id)
-            && !snapshot_lane::busy_for(&host.home))
+        // A request or sweep that waits behind a running snapshot does not wake the loop: it
+        // would spin until the upload ends. The end of the lane is the next turn.
+        || (!snapshot_lane::busy_for(&host.home)
+            && (snapshot_state::requested(&host.home, &database_id)
+                || reclaim::pending(&host.home, &database_id)))
 }
 
 /// What a restore found.
@@ -354,11 +354,11 @@ pub async fn restore_personal_database(
     relay_url: &str,
     base: Option<&SnapshotBase>,
 ) -> Result<RestoreReport, String> {
-    let client = RelayClient::for_host(host, relay_url)?;
     let ctx = Ctx::open(host)?;
     if let Some(base) = base {
         snapshot_restore::adopt(&ctx, base).await?;
     }
+    let client = RelayClient::for_host(host, relay_url)?;
     let streams = list_streams(&ctx, &client)
         .await?
         .ok_or("the relay holds no personal database for this recovery phrase")?;

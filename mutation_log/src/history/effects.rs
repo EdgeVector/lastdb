@@ -50,26 +50,26 @@ impl VerifiedHistory {
         position: RecordPosition,
     ) {
         let namespace = body.namespace.clone();
-        match self.schema_positions.get(&namespace).copied() {
-            None => {
-                self.schema_positions
-                    .insert(namespace.clone(), (position, hash));
-                self.schemas.insert(namespace, body.definition.clone());
-            }
-            Some((held_pos, held_hash)) => {
-                let held_def = self.schemas.get(&namespace).map_or(&[][..], Vec::as_slice);
-                let (win_pos, win_hash, win_def, other_def) = if position.beats(held_pos) {
-                    (position, hash, body.definition.as_slice(), held_def)
-                } else {
-                    (held_pos, held_hash, held_def, body.definition.as_slice())
-                };
-                let next_def = crate::schema_merge::merge_schema_definitions(win_def, other_def)
-                    .unwrap_or_else(|| win_def.to_vec());
-                self.schema_positions
-                    .insert(namespace.clone(), (win_pos, win_hash));
-                self.schemas.insert(namespace, next_def);
-            }
-        }
+        let decls = self.schema_decls.entry(namespace.clone()).or_default();
+        decls.insert(
+            super::lease::pos_key(position),
+            super::SchemaDecl {
+                pos: position,
+                entry: hash,
+                bytes: body.definition.clone(),
+            },
+        );
+        let Some(winner) = decls.values().next_back() else {
+            return;
+        };
+        let (win_pos, win_hash) = (winner.pos, winner.entry);
+        let next_def = crate::schema_merge::fold_schema_declarations(
+            decls.values().rev().map(|decl| decl.bytes.as_slice()),
+        )
+        .unwrap_or_default();
+        self.schema_positions
+            .insert(namespace.clone(), (win_pos, win_hash));
+        self.schemas.insert(namespace, next_def);
     }
 
     fn apply_data_effect(

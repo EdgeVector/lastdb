@@ -48,7 +48,8 @@ pub(crate) async fn log_trim(
         return Err(ApiError::invalid("writer_seq"));
     }
     let _trim_guard = state.trim_lock.lock().await;
-    check_personal_owner(&state, &db, &verified.node_key).await?;
+    let grants = state.grants.lock().await;
+    personal_owner(&grants, &db, &verified.node_key)?;
     let writer = verified.node_key.to_hex();
     let scope = TrimScope {
         store: &state.store,
@@ -88,7 +89,6 @@ pub(crate) async fn log_trim(
         plans.push(plan(&scope, &dev, pos.writer_seq, Some(&hash), false).await?);
     }
     plans.push(plan(&scope, &req.device_id, older, None, true).await?);
-    check_personal_owner(&state, &db, &verified.node_key).await?;
 
     // What a call dropped is always in its answer. A failure after entries went answers with
     // the counts so far and `done: false`, and the caller calls again: a repeat is safe.
@@ -104,18 +104,10 @@ pub(crate) async fn log_trim(
             }
         }
     }
+    drop(grants);
     Ok(Json(
         json!({ "done": done, "entries_deleted": dropped.0, "released_bytes": dropped.1 }),
     ))
-}
-
-async fn check_personal_owner(
-    state: &AppState,
-    db: &DatabaseId,
-    caller: &NodeKey,
-) -> ApiResult<()> {
-    let grants = state.grants.lock().await;
-    personal_owner(&grants, db, caller)
 }
 
 /// The caller is the publisher of `db`, and `db` has no grant: it is a personal database.
@@ -161,7 +153,10 @@ fn check_through_monotonic(
     let mut through_map = BTreeMap::new();
     for pos in &snapshot.through {
         let dev = pos.device_id.to_hex();
-        if dev == snapshot_device || through_map.insert(dev, pos.writer_seq).is_some() {
+        if pos.writer_seq == 0
+            || dev == snapshot_device
+            || through_map.insert(dev, pos.writer_seq).is_some()
+        {
             return Err(ApiError::invalid("through"));
         }
     }

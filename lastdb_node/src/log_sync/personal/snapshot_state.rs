@@ -94,6 +94,13 @@ pub(super) const RECLAIM: RequestFiles = RequestFiles {
     what: "reclaim",
 };
 
+fn is_valid_nonce(nonce: &str) -> bool {
+    nonce.len() == 32
+        && nonce
+            .bytes()
+            .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+}
+
 impl RequestFiles {
     /// The nonce of the request that waits, if any.
     pub(super) fn waiting(&self, home: &Path, database_id: &str) -> Option<String> {
@@ -101,6 +108,7 @@ impl RequestFiles {
             .ok()
             .flatten()
             .and_then(|bytes| String::from_utf8(bytes).ok())
+            .filter(|nonce| is_valid_nonce(nonce))
     }
 
     /// Ask now. Returns the database id and the nonce that names the request.
@@ -221,7 +229,7 @@ pub(crate) fn request_reclaim(
 
 /// True while a request waits for its snapshot.
 pub(super) fn requested(home: &Path, database_id: &str) -> bool {
-    file_of(home, database_id, SNAPSHOT.request).is_file()
+    read_request(home, database_id).is_some()
 }
 
 /// The state of the snapshot request `nonce`: ready with its report, failed, or neither yet.
@@ -255,7 +263,10 @@ pub(super) fn clear_unverified(ctx: &Ctx<'_>) {
 
 /// True while a snapshot this device named is not verified.
 pub(super) fn unverified(home: &Path, database_id: &str) -> bool {
-    file_of(home, database_id, UNVERIFIED).is_file()
+    disk::read_limited(&file_of(home, database_id, UNVERIFIED), 16)
+        .ok()
+        .flatten()
+        .is_some()
 }
 
 pub(super) fn load_last(home: &Path, database_id: &str) -> Result<Option<Last>, String> {

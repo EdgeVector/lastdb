@@ -14,6 +14,22 @@ const PER_FIELD_MAPS: [&str; 7] = [
     "field_declarations",
 ];
 
+/// Fold declarations ordered from highest position to lowest: the highest
+/// position supplies the base schema and overlapping field definitions, while
+/// compatible earlier declarations contribute additional fields in descending
+/// position priority.
+pub(crate) fn fold_schema_declarations<'a>(
+    mut newest_first: impl Iterator<Item = &'a [u8]>,
+) -> Option<Vec<u8>> {
+    let mut acc = newest_first.next()?.to_vec();
+    for older in newest_first {
+        if let Some(merged) = merge_schema_definitions(&acc, older) {
+            acc = merged;
+        }
+    }
+    Some(acc)
+}
+
 /// Union fields added concurrently in `other` into `winner` when both schemas
 /// share identical `name`, `schema_type`, `record_keys`, `file_required`, and
 /// overlapping field types. Returns `None` when incompatible or when `winner`

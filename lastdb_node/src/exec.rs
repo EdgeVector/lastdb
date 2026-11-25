@@ -66,10 +66,41 @@ pub(in crate::exec) async fn with_handler_timeout_budget<F: Future<Output = UdsR
             timeout_secs = budget.as_secs(),
             "uds handler deadline exceeded; returning 503"
         );
-        error_response(
-            503,
-            "node is busy: handler deadline exceeded; retry after 1s",
+        render(
+            Err(HostError::new(
+                503,
+                "node is busy: handler deadline exceeded; retry after 1s",
+            )
+            .with_retry_after(1)),
             ctx,
+        )
+    })
+}
+
+async fn with_data_route_timeout_budget<F: Future<Output = UdsResponse>>(
+    route: DataRoute,
+    ctx: &AccessContext,
+    fut: F,
+) -> UdsResponse {
+    let budget = data_route_budget(route);
+    let is_v1 = matches!(
+        route,
+        DataRoute::V1Read | DataRoute::V1Write | DataRoute::V1Changes | DataRoute::V1Databases
+    );
+    if !is_v1 {
+        return with_handler_timeout_budget(ctx, budget, fut).await;
+    }
+    tokio::time::timeout(budget, fut).await.unwrap_or_else(|_| {
+        tracing::warn!(
+            timeout_secs = budget.as_secs(),
+            "uds v1 handler deadline exceeded; returning 503"
+        );
+        app_api::fail(
+            &HostError::new(
+                503,
+                "node is busy: handler deadline exceeded; retry after 1s",
+            )
+            .with_retry_after(1),
         )
     })
 }
@@ -98,7 +129,7 @@ pub(in crate::exec) async fn execute_data_route_with_timeout(
     ctx: &AccessContext,
     host: &Host,
 ) -> UdsResponse {
-    with_handler_timeout_budget(ctx, data_route_budget(route), async {
+    with_data_route_timeout_budget(route, ctx, async {
         let fut: ErasedRoute<'_> = match route {
             DataRoute::ListSchemas => return schema_routes::list_schemas(req, ctx, host),
             DataRoute::GetSchema => return schema_routes::get_schema(req, ctx, host),

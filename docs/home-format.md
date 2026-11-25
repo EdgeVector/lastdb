@@ -27,9 +27,10 @@ How a write leaves the home and reaches the relay is in
 
 A restored home must know exactly which entries its files already hold, so the
 position of every stream is a row in the store, written in the same
-transaction as the record it belongs to. A restored home must not carry
-anything that belongs to the old device's stream, so the things that wait to
-be sent are files outside the store.
+transaction as the record it belongs to. The spool's records also live in
+`disk-run` so each commit writes its entry atomically with the record; a
+restore deletes those inherited spool records before opening its own device
+stream, while `accepted-files/` and `log-sync/` stay outside the snapshot.
 
 ## The layout
 
@@ -65,19 +66,23 @@ be sent are files outside the store.
       incoming/                sealed blobs downloaded while applying another device's stream
       snapshot-last.json       the last snapshot this device published
       snapshot-known.json      what `lastdb status` prints
+      snapshot-manifest, .snapshot-manifest
+                               transient manifest upload / restore scratch files
       snapshot-request, -result, -error
       snapshot-unverified      a snapshot entry is on the relay and its files are not checked yet
       reclaim-due.json         a sweep of the relay is due for one snapshot
       reclaim-last.json        what the relay held after the last sweep
-      reclaim-named.json       digests a drop named whose release is not counted yet
+      reclaim-named.json       `named` digest-to-length map plus multi-turn sweep `files` and `bytes` totals (legacy bare digest maps still accepted); retained while a multi-turn sweep continues and deleted when the sweep completes or stops with no unsettled digest
       reclaim-request, -result, -error
       authored.json, uploaded.json, received.json, proposals.json
                                shared databases only
 ```
 
-The spool sits inside `disk-run/` and is still not part of the store. A
-snapshot names the marker, and the descriptor, `CURRENT` and run files of both
-run homes. It names nothing else.
+`accepted-files/` sits inside `disk-run/` beside `runs/` and is not part of a
+snapshot; the spool's `accepted_*` collections live in `disk-run` runs and are
+cleared on restore before the new device signs. A snapshot names the marker,
+and the descriptor, `CURRENT` and run files of both run homes. It names nothing
+else.
 
 Every key comes from the node seed in `identity.key`, which is also what the
 recovery phrase encodes: the node key, the personal database id, the read key

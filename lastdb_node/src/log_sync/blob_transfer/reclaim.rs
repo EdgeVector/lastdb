@@ -46,6 +46,9 @@ fn heads_moved(error: &str) -> bool {
     error.contains("HTTP 409") && body.is_some_and(|body| body["code"] == "heads")
 }
 
+/// Maximum total blobs accepted across all pages of one `blob.list` scan.
+const MAX_LISTED_BLOBS: usize = 1_000_000;
+
 impl RelayClient {
     /// Every committed blob of the database on the relay, all pages: digest to length.
     pub(in crate::log_sync) async fn blob_list(
@@ -62,17 +65,28 @@ impl RelayClient {
             let value = self.post("/relay/v1/blob/list", database_id, &body).await?;
             let page: Vec<Listed> = serde_json::from_value(value["blobs"].clone())
                 .map_err(|_| "relay blob.list returned an invalid list".to_owned())?;
+            validate_blob_page(&page, after.as_deref())?;
+            if found.len().saturating_add(page.len()) > MAX_LISTED_BLOBS {
+                return Err("relay blob.list exceeded 1000000 blobs".into());
+            }
+            let last_digest = page.last().map(|blob| blob.sha256.clone());
             for blob in page {
                 found.insert(blob.sha256, blob.bytes);
             }
-            let Some(next) = value["next"].as_str() else {
-                return Ok(found);
+            let next = match value.get("next") {
+                None | Some(Value::Null) => return Ok(found),
+                Some(Value::String(s)) => s,
+                Some(_) => return Err("relay blob.list returned an invalid next cursor".into()),
             };
-            // The pages ascend by digest, so a relay that does not move forward would never end.
-            if after.as_deref().is_some_and(|last| next <= last) {
-                return Err("relay blob.list did not move to the next page".into());
+            mutation_log::Hex32::from_hex(next)
+                .map_err(|_| "relay blob.list returned an invalid next cursor".to_owned())?;
+            let Some(last) = last_digest else {
+                return Err("relay blob.list returned a next cursor for an empty page".into());
+            };
+            if next != &last {
+                return Err("relay blob.list next cursor does not match the last digest".into());
             }
-            after = Some(next.to_owned());
+            after = Some(last);
         }
     }
 
@@ -88,20 +102,36 @@ impl RelayClient {
         snapshot: &HeadAt,
         heads: &[HeadAt],
         sha256: &[String],
-    ) -> Result<Option<Dropped>, String> {
+    ) -> Result<Option<(Dropped, bool)>, String> {
         let body = json!({
             "database_id": database_id,
             "snapshot": snapshot,
             "heads": heads,
             "sha256": sha256,
         });
-        let value = match self.post("/relay/v1/blob/drop", database_id, &body).await {
-            Ok(value) => value,
+        let (value, retried) = match self
+            .post_tracked("/relay/v1/blob/drop", database_id, &body)
+            .await
+        {
+            Ok(pair) => pair,
             Err(error) if heads_moved(&error) => return Ok(None),
             Err(error) => return Err(error),
         };
         serde_json::from_value(value)
-            .map(Some)
+            .map(|dropped| Some((dropped, retried)))
             .map_err(|_| "relay blob.drop returned an invalid answer".to_owned())
     }
+}
+
+fn validate_blob_page(page: &[Listed], after: Option<&str>) -> Result<(), String> {
+    let mut prev = after;
+    for blob in page {
+        mutation_log::Hex32::from_hex(&blob.sha256)
+            .map_err(|_| "relay blob.list returned an invalid blob digest".to_owned())?;
+        if prev.is_some_and(|floor| blob.sha256.as_str() <= floor) {
+            return Err("relay blob.list returned digests out of ascending order".into());
+        }
+        prev = Some(&blob.sha256);
+    }
+    Ok(())
 }

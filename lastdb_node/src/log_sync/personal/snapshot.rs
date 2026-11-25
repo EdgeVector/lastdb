@@ -53,21 +53,21 @@ use std::time::Instant;
 
 use fold_db::storage::disk_pack::snapshot::DatabaseSnapshot;
 use fold_db::storage::disk_pack::NativeCloudWorkGuard;
-use mutation_log::{SignedEntry, SnapshotThrough};
+use mutation_log::SnapshotThrough;
 
 use super::reclaim;
 use super::snapshot_entry::{
-    require_covers_latest, require_empty_for_first, sign, through_of, trim_covered,
+    require_covers_latest, require_empty_for_first, through_of, trim_covered,
 };
 use super::snapshot_known as known;
 use super::snapshot_lane as lane;
 use super::snapshot_manifest::{self as manifest, Manifest};
 use super::snapshot_state::{
-    clear_unverified, fail_request, fail_request_in, finish_request, load_last, mark_unverified,
-    read_request, record_published, unverified, Last, PublishedCut, Report,
+    clear_unverified, fail_request, fail_request_in, finish_request, load_last, read_request,
+    record_published, unverified, Last, PublishedCut, Report,
 };
 use super::snapshot_upload::{
-    elapsed_ms, ensure_birth, put_manifest, upload_files, verify_named, Named, TOO_LARGE,
+    check_unchanged, elapsed_ms, ensure_birth, upload_and_name, UnchangedCheck, TOO_LARGE,
 };
 use super::{list_streams, Ctx};
 use crate::host::cloud_sync::SnapshotState;
@@ -309,23 +309,34 @@ async fn publish_cut(
     .await
     .map_err(|_| "the snapshot inventory stopped".to_owned())??;
     let capture_ms = elapsed_ms(started);
-    let unchanged = load_last(&ctx.host.home, &ctx.database_id)?
-        .filter(|last| same_relay(ctx, client, last))
-        .filter(|last| last.manifest.files == files && last.through == through);
-    if let Some(last) = unchanged {
-        return Ok((
-            Report {
-                uploaded_files: 0,
-                uploaded_bytes: 0,
-                capture_ms,
-                upload_ms: 0,
-                ..last.report
-            },
-            false,
-        ));
-    }
     let uploading = Instant::now();
     let streams = list_streams(ctx, client).await?.unwrap_or_default();
+    let mut cached_held = None;
+    if let Some(last) = load_last(&ctx.host.home, &ctx.database_id)?
+        .filter(|last| same_relay(ctx, client, last))
+        .filter(|last| last.manifest.files == files && last.through == through)
+    {
+        match check_unchanged(ctx, client, &streams, &last).await? {
+            UnchangedCheck::Verified => {
+                clear_unverified(ctx);
+                return Ok((
+                    Report {
+                        uploaded_files: 0,
+                        uploaded_bytes: 0,
+                        capture_ms,
+                        upload_ms: 0,
+                        ..last.report
+                    },
+                    false,
+                ));
+            }
+            UnchangedCheck::NeedsPublish(held) => cached_held = held,
+        }
+    }
+    let existing_snap_seq = streams
+        .iter()
+        .find(|s| s.device_id == ctx.snapshot_device_hex)
+        .map_or(0, |s| s.head_seq);
     if first {
         require_empty_for_first(ctx, client, &streams).await?;
     }
@@ -335,21 +346,24 @@ async fn publish_cut(
         upload_id: uuid::Uuid::new_v4().to_string(),
         files,
     };
-    let held = client.blob_list(&ctx.database_id).await?;
-    let (uploaded_files, uploaded_bytes) =
-        upload_files(ctx, client, &cut, &list.files, &held).await?;
-    let (sha256, length) = put_manifest(ctx, client, &list).await?;
-    let entry = name(ctx, client, first, (sha256.as_str(), length), &through).await?;
-    // The relay names the snapshot from here on, and a restore reads it alone. Until its files
-    // are checked, the mark makes the next clean turn take a snapshot again.
-    mark_unverified(ctx)?;
-    // The cut stays pinned until the relay holds every file of the snapshot it now names.
-    let named = Named {
-        list: &list,
-        sha256: &sha256,
-        bytes: length,
+    let (entry, sha256, uploaded_files, uploaded_bytes) = match upload_and_name(
+        ctx,
+        client,
+        &cut,
+        &list,
+        &through,
+        (first, cached_held.as_ref()),
+    )
+    .await
+    {
+        Ok(done) => done,
+        Err((error, committed_any)) => {
+            if committed_any && existing_snap_seq > 0 {
+                reclaim::mark_due(ctx, &client.base, existing_snap_seq);
+            }
+            return Err(error);
+        }
     };
-    let (again_files, again_bytes) = verify_named(ctx, client, &cut, &named).await?;
     drop(cut);
     let report = record_published(
         ctx,
@@ -359,34 +373,12 @@ async fn publish_cut(
             sha256,
             list,
             through,
-            uploaded_files: uploaded_files + again_files,
-            uploaded_bytes: uploaded_bytes + again_bytes,
+            uploaded_files,
+            uploaded_bytes,
             capture_ms,
             upload_ms: elapsed_ms(uploading),
         },
     )?;
     clear_unverified(ctx);
     Ok((report, true))
-}
-
-/// Sign the `snapshot` entry for the manifest `(digest, length)` and append it.
-async fn name(
-    ctx: &Ctx<'_>,
-    client: &RelayClient,
-    first: bool,
-    manifest: (&str, u64),
-    through: &[SnapshotThrough],
-) -> Result<SignedEntry, String> {
-    let streams = list_streams(ctx, client).await?.unwrap_or_default();
-    if first {
-        require_empty_for_first(ctx, client, &streams).await?;
-    }
-    let entry = sign(ctx, client, &streams, manifest.0, manifest.1, through).await?;
-    let stored = client
-        .append(&ctx.database_id, std::slice::from_ref(&entry))
-        .await?;
-    if stored.0 + stored.1 != 1 {
-        return Err("the relay did not take the snapshot entry".into());
-    }
-    Ok(entry)
 }

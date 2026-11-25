@@ -99,6 +99,9 @@ fn renew(
             return Err(ChainError::Conflict(NOT_DUE));
         }
         tip.set(grant_tip(history));
+        if let Some((hash, lamport)) = history.birth_entry() {
+            ctx.cite(hash, lamport);
+        }
         if let Some(lease) = history.latest_lease() {
             ctx.cite(lease.entry_hash, lease.lamport);
         }
