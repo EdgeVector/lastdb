@@ -102,20 +102,23 @@ impl RelayClient {
         snapshot: &HeadAt,
         heads: &[HeadAt],
         sha256: &[String],
-    ) -> Result<Option<Dropped>, String> {
+    ) -> Result<Option<(Dropped, bool)>, String> {
         let body = json!({
             "database_id": database_id,
             "snapshot": snapshot,
             "heads": heads,
             "sha256": sha256,
         });
-        let value = match self.post("/relay/v1/blob/drop", database_id, &body).await {
-            Ok(value) => value,
+        let (value, retried) = match self
+            .post_tracked("/relay/v1/blob/drop", database_id, &body)
+            .await
+        {
+            Ok(pair) => pair,
             Err(error) if heads_moved(&error) => return Ok(None),
             Err(error) => return Err(error),
         };
         serde_json::from_value(value)
-            .map(Some)
+            .map(|dropped| Some((dropped, retried)))
             .map_err(|_| "relay blob.drop returned an invalid answer".to_owned())
     }
 }

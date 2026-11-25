@@ -97,9 +97,7 @@ pub mod error {
         Schema(SchemaError),
         Database(String),
         Config(String),
-        Serialization(String),
         SecurityError(String),
-        InProgress(String),
     }
 
     impl fmt::Display for FoldDbError {
@@ -108,9 +106,7 @@ pub mod error {
                 Self::Schema(err) => write!(f, "Schema error: {err}"),
                 Self::Database(msg) => write!(f, "Database error: {msg}"),
                 Self::Config(msg) => write!(f, "Configuration error: {msg}"),
-                Self::Serialization(msg) => write!(f, "Serialization error: {msg}"),
                 Self::SecurityError(msg) => write!(f, "Security error: {msg}"),
-                Self::InProgress(msg) => write!(f, "operation in progress: {msg}"),
             }
         }
     }

@@ -25,7 +25,7 @@ const ALL: &[u8] = &[0xff];
 /// Records read in one page of a range.
 const PAGE: usize = 1024;
 /// Id records one trim removes at most.
-const TRIM_MAX: usize = 4_096;
+pub(super) const TRIM_MAX: usize = 4_096;
 
 pub(super) fn seq_key(sequence: u64) -> String {
     format!("{sequence:020}")
@@ -55,7 +55,7 @@ fn delete(collection: &str, key: String) -> HomeMutation {
 }
 
 fn budget() -> ReadBudget {
-    ReadBudget::new(64 << 20, 8_192)
+    ReadBudget::new(256 << 20, 8_192)
 }
 
 /// Point reads of the committed root, in the order of `keys`.
@@ -195,6 +195,23 @@ pub(super) fn chain_seq(physical: &V2Home, chain_key: &str) -> Result<Option<u64
             .map_err(|_| Error::Gap),
         None => Ok(None),
     }
+}
+
+/// True when `metadata` holds any `signed-replay-head:` row from an incoming signed-log stream.
+pub(super) fn has_any_stream_head(physical: &V2Home) -> Result<bool, Error> {
+    let namespace = crate::storage::format::METADATA_NAMESPACE;
+    let mut found = false;
+    range(
+        physical,
+        namespace,
+        b"signed-replay-head:",
+        b"signed-replay-head;",
+        |_, _| {
+            found = true;
+            Ok(false)
+        },
+    )?;
+    Ok(found)
 }
 
 /// How many id records the store holds.

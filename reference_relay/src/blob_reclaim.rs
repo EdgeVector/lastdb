@@ -57,7 +57,10 @@ pub(crate) async fn blob_list(
     if let Some(after) = req.after.as_deref() {
         require_hex64(after, "after")?;
     }
-    let mut listed = state.store.blobs_of(&req.database_id).await?;
+    let mut listed = {
+        let _blob_guard = state.blob_lock.lock().await;
+        state.store.blobs_of(&req.database_id).await?
+    };
     if let Some(after) = req.after.as_deref() {
         listed.retain(|(sha256, _)| sha256.as_str() > after);
     }
@@ -95,6 +98,9 @@ struct BlobDropBody {
 fn check_drop_body(req: &BlobDropBody) -> ApiResult<()> {
     require_hex64(&req.database_id, "database_id")?;
     require_hex64(&req.snapshot.device_id, "snapshot")?;
+    if req.snapshot.writer_seq == 0 {
+        return Err(ApiError::invalid("snapshot"));
+    }
     let mut devices = BTreeSet::new();
     let heads_fit = req.heads.len() <= MAX_HEADS
         && req.heads.iter().all(|head| {

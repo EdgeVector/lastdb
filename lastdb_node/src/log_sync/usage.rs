@@ -139,7 +139,11 @@ fn load(home: &Path, database_id: &str, spool_acked: u64) -> Result<Saved, Strin
 
 fn store(home: &Path, database_id: &str, saved: &mut Saved) -> Result<(), String> {
     saved.usage.unconfirmed_blobs = saved.pending.len() as u64;
-    saved.usage.unconfirmed_blob_bytes = saved.pending.values().sum();
+    saved.usage.unconfirmed_blob_bytes = saved
+        .pending
+        .values()
+        .copied()
+        .fold(0u64, u64::saturating_add);
     saved.started_after = None;
     saved.complete_decided = true;
     if saved.usage.since_ms == 0 {
@@ -187,10 +191,11 @@ impl Ledger {
                 continue;
             }
             *counted = header.writer_seq;
-            saved.usage.entries += 1;
-            saved.usage.entry_bytes += serde_json::to_vec(entry)
+            let entry_len = serde_json::to_vec(entry)
                 .map_err(|_| "cannot measure an entry")?
                 .len() as u64;
+            saved.usage.entries = saved.usage.entries.saturating_add(1);
+            saved.usage.entry_bytes = saved.usage.entry_bytes.saturating_add(entry_len);
             changed = true;
         }
         if changed {
@@ -219,8 +224,8 @@ impl Ledger {
         if saved.pending.remove(sha256).is_none() {
             return Ok(());
         }
-        saved.usage.blobs += 1;
-        saved.usage.blob_bytes += bytes;
+        saved.usage.blobs = saved.usage.blobs.saturating_add(1);
+        saved.usage.blob_bytes = saved.usage.blob_bytes.saturating_add(bytes);
         store(&self.home, database_id, &mut saved)
     }
 
@@ -252,8 +257,8 @@ impl Ledger {
         let mut saved = load(&self.home, database_id, self.spool_acked)?;
         saved.pending.remove(sha256);
         if counted {
-            saved.usage.blobs += 1;
-            saved.usage.blob_bytes += bytes;
+            saved.usage.blobs = saved.usage.blobs.saturating_add(1);
+            saved.usage.blob_bytes = saved.usage.blob_bytes.saturating_add(bytes);
         }
         store(&self.home, database_id, &mut saved)
     }
@@ -267,8 +272,8 @@ impl Ledger {
         }
         let _guard = lock();
         let mut saved = load(&self.home, database_id, self.spool_acked)?;
-        saved.usage.released_entries += entries;
-        saved.usage.released_bytes += bytes;
+        saved.usage.released_entries = saved.usage.released_entries.saturating_add(entries);
+        saved.usage.released_bytes = saved.usage.released_bytes.saturating_add(bytes);
         store(&self.home, database_id, &mut saved)
     }
 
@@ -284,8 +289,8 @@ impl Ledger {
         }
         let _guard = lock();
         let mut saved = load(&self.home, database_id, self.spool_acked)?;
-        saved.usage.released_blobs += blobs;
-        saved.usage.released_blob_bytes += bytes;
+        saved.usage.released_blobs = saved.usage.released_blobs.saturating_add(blobs);
+        saved.usage.released_blob_bytes = saved.usage.released_blob_bytes.saturating_add(bytes);
         store(&self.home, database_id, &mut saved)
     }
 }

@@ -109,6 +109,7 @@ impl Inner {
             released: 0,
             acknowledged: 0,
             trimmed: 0,
+            did_trim: false,
             remove: Vec::new(),
             clears: false,
         })

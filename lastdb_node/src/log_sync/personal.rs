@@ -354,11 +354,11 @@ pub async fn restore_personal_database(
     relay_url: &str,
     base: Option<&SnapshotBase>,
 ) -> Result<RestoreReport, String> {
-    let client = RelayClient::for_host(host, relay_url)?;
     let ctx = Ctx::open(host)?;
     if let Some(base) = base {
         snapshot_restore::adopt(&ctx, base).await?;
     }
+    let client = RelayClient::for_host(host, relay_url)?;
     let streams = list_streams(&ctx, &client)
         .await?
         .ok_or("the relay holds no personal database for this recovery phrase")?;

@@ -1,14 +1,14 @@
 //! FoldDB Core — embedded database coordinator, file readers, and lifecycle.
 
 use lastdb_model::record_space::record_space_uuid;
-use lastdb_model::record_value::{FileMarker, StoredRecord};
-use std::{path::Path, sync::Arc};
+use lastdb_model::record_value::StoredRecord;
+use std::sync::Arc;
 use tracing::info;
 
 use crate::db_operations::{DbOperations, SchemaRecordKey, SchemaRecordKeysReport};
 use crate::error::FoldDbError;
 use crate::schema::{types::KeyValue, types::SchemaError, SchemaCore};
-use crate::storage::{current_keys::families::record_file_path, StorageError};
+use crate::storage::StorageError;
 
 pub mod factory {
     //! Native local FoldDB construction and at-rest encryption binding.
@@ -251,43 +251,6 @@ impl FoldDB {
             })
             .await
             .map_err(FoldDbError::Schema)
-    }
-
-    pub async fn remember_local_file(
-        &self,
-        schema_name: &str,
-        key: &KeyValue,
-        path: &Path,
-        marker: &FileMarker,
-    ) -> Result<(), FoldDbError> {
-        self.db_ops
-            .read_scope()
-            .await?
-            .run_result(async {
-                let (rk, record) = self.read_file_record(schema_name, key).await?;
-                let record = record.ok_or_else(|| {
-                    FoldDbError::Database("local file reference has no record".into())
-                })?;
-                let (Some(stored), Some(ver)) = (&record.file, &record.file_version) else {
-                    return Err(FoldDbError::Database(
-                        "local file reference has no file version".into(),
-                    ));
-                };
-                if stored != marker {
-                    return Err(FoldDbError::Database(
-                        "local file reference does not match the committed marker".into(),
-                    ));
-                }
-                crate::storage::local_file_ref::remember(
-                    &self.db_ops.native_runtime(),
-                    &record_file_path(&rk, ver)?,
-                    path,
-                    &marker.sha256,
-                    marker.size_bytes,
-                )
-                .map_err(FoldDbError::from)
-            })
-            .await
     }
 
     async fn read_file_record(

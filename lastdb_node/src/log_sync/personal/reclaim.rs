@@ -354,13 +354,14 @@ async fn drop_batches(
         writer_seq: snapshot_seq,
     };
     for batch in dead.chunks(DROP_BATCH) {
-        counter.naming(batch, listed)?;
+        let had_prior = counter.naming(batch, listed)?;
         let answer = counter
             .client
             .blob_drop(&ctx.database_id, &at, heads, batch)
             .await?;
-        counter.answered(batch, answer)?;
-        if answer.is_none() {
+        let refused = answer.is_none();
+        counter.answered(batch, answer, had_prior)?;
+        if refused {
             return Ok(Pass::Refused(snapshot_seq));
         }
     }

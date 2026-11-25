@@ -142,8 +142,7 @@ impl From<FoldDbError> for HostError {
     fn from(err: FoldDbError) -> Self {
         match err {
             FoldDbError::Schema(s) => Self::from(s),
-            FoldDbError::Config(m) | FoldDbError::Serialization(m) => Self::new(400, m),
-            FoldDbError::InProgress(m) => Self::new(503, m),
+            FoldDbError::Config(m) => Self::new(400, m),
             other => Self::internal(other.to_string()),
         }
     }

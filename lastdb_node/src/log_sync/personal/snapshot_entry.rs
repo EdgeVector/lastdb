@@ -177,7 +177,7 @@ pub(super) async fn require_covers_latest(
 }
 
 /// Sign the `snapshot` entry as the next entry of the snapshot stream.
-pub(super) async fn sign(
+async fn sign(
     ctx: &Ctx<'_>,
     client: &RelayClient,
     streams: &[RelayStream],
@@ -210,4 +210,37 @@ pub(super) async fn sign(
         through: through.to_vec(),
     };
     author_snapshot(&author, &ctx.identity.signing_key, body).map_err(|error| error.to_string())
+}
+
+/// Sign the `snapshot` entry for `manifest` `(digest, length)` and append it, marking
+/// `snapshot-unverified` before sending so an uncertain failure still triggers re-verification.
+pub(super) async fn append_snapshot(
+    ctx: &Ctx<'_>,
+    client: &RelayClient,
+    first: bool,
+    manifest: (&str, u64),
+    through: &[SnapshotThrough],
+) -> Result<SignedEntry, String> {
+    let streams = super::list_streams(ctx, client).await?.unwrap_or_default();
+    if first {
+        require_empty_for_first(ctx, client, &streams).await?;
+    }
+    let entry = sign(ctx, client, &streams, manifest.0, manifest.1, through).await?;
+    super::snapshot_state::mark_unverified(ctx)?;
+    let stored = match client
+        .append(&ctx.database_id, std::slice::from_ref(&entry))
+        .await
+    {
+        Ok(stored) => stored,
+        Err(error) => {
+            if super::snapshot_upload::definitive_append_rejection(&error) {
+                super::snapshot_state::clear_unverified(ctx);
+            }
+            return Err(error);
+        }
+    };
+    if stored.0 + stored.1 != 1 {
+        return Err("the relay did not take the snapshot entry".into());
+    }
+    Ok(entry)
 }

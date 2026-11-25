@@ -111,29 +111,36 @@ impl<'a> Counter<'a> {
         self.save()
     }
 
-    /// Write down the digests of a drop before it is sent.
+    /// Write down the digests of a drop before it is sent, returning whether any digest in `batch`
+    /// was already pending from an earlier unfinished attempt on this node.
     pub(super) fn naming(
         &mut self,
         batch: &[String],
         listed: &BTreeMap<String, u64>,
-    ) -> Result<(), String> {
+    ) -> Result<bool, String> {
+        let had_prior = batch.iter().any(|digest| self.named.contains_key(digest));
         for digest in batch {
             let bytes = listed.get(digest).copied().unwrap_or(0);
             self.named.insert(digest.clone(), bytes);
         }
-        self.save()
+        self.save()?;
+        Ok(had_prior)
     }
 
     /// The relay answered the drop of `batch`: `None` when it refused it and dropped nothing.
     pub(super) fn answered(
         &mut self,
         batch: &[String],
-        answer: Option<Dropped>,
+        answer: Option<(Dropped, bool)>,
+        had_prior: bool,
     ) -> Result<(), String> {
         match answer {
-            // Some were gone before this try. The next listing says what was released.
-            Some(dropped) if dropped.absent > 0 => return Ok(()),
-            Some(dropped) => self.count(dropped.dropped, dropped.released_bytes)?,
+            // A retry or an earlier unfinished turn of this node may have dropped the absent ones;
+            // wait for the next `blob.list` to settle what went.
+            Some((dropped, retried)) if dropped.absent > 0 && (retried || had_prior) => {
+                return Ok(());
+            }
+            Some((dropped, _)) => self.count(dropped.dropped, dropped.released_bytes)?,
             None => {}
         }
         for digest in batch {

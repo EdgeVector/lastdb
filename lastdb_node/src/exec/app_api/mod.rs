@@ -101,7 +101,7 @@ fn error_value(error: &HostError) -> Value {
     )]))
 }
 
-fn fail(error: &HostError) -> UdsResponse {
+pub(in crate::exec) fn fail(error: &HostError) -> UdsResponse {
     let status = normalize(error.status);
     if status == 500 {
         tracing::error!(target: "lastdb_node::exec", status = error.status, "app api error: {}", error.message);

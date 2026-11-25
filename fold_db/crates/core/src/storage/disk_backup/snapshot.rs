@@ -77,6 +77,9 @@ impl PackRuntime {
             return Ok(());
         };
         let status = log.status();
+        if status.gap {
+            return Ok(());
+        }
         if !status.snapshot_required {
             // Nothing is owed. A cut left by a kill between the accepted first snapshot and
             // its removal is removed now.

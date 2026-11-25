@@ -74,6 +74,7 @@ pub(in crate::storage) struct Change {
     released: u64,
     acknowledged: u64,
     trimmed: u64,
+    did_trim: bool,
     remove: Vec<PathBuf>,
     clears: bool,
 }

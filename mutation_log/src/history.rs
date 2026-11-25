@@ -58,6 +58,9 @@ pub struct VerifiedHistory {
     schemas: BTreeMap<String, Vec<u8>>,
     /// Winning position and entry hash of each declared schema definition.
     schema_positions: BTreeMap<String, (crate::payload::RecordPosition, EntryHash)>,
+    /// Accepted schema declarations per namespace, ordered by position.
+    schema_decls:
+        BTreeMap<String, BTreeMap<PosKey, (crate::payload::RecordPosition, EntryHash, Vec<u8>)>>,
     /// Latest publisher relay URLs.
     relays: Vec<String>,
     /// Winning position of `relays`.
@@ -103,6 +106,7 @@ impl VerifiedHistory {
             records: BTreeMap::new(),
             schemas: BTreeMap::new(),
             schema_positions: BTreeMap::new(),
+            schema_decls: BTreeMap::new(),
             relays: Vec::new(),
             relays_position: None,
             publisher_heads: Vec::new(),

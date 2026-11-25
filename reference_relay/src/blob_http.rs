@@ -24,6 +24,7 @@ const CHUNK_BYTES: usize = 64 * 1024;
 const PROOF_MIN_BYTES: u64 = 256 * 1024;
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct SignedQuery {
     e: u64,
     s: String,
@@ -74,7 +75,13 @@ pub(crate) async fn blob_upload(
     });
     state
         .store
-        .stage_put(&database_id, &token, checksum, Box::pin(chunks))
+        .stage_put(
+            &state.blob_lock,
+            &database_id,
+            &token,
+            checksum,
+            Box::pin(chunks),
+        )
         .await?;
     Ok(StatusCode::OK)
 }
@@ -100,7 +107,10 @@ pub(crate) async fn blob_bytes(
     Query(q): Query<SignedQuery>,
 ) -> ApiResult<Response> {
     presign::check_get(&state.secret, &database_id, &sha256, q.e, &q.s, now_ms())?;
-    let (file, len) = state.store.open_blob(&database_id, &sha256).await?;
+    let (file, len) = {
+        let _blob_guard = state.blob_lock.lock().await;
+        state.store.open_blob(&database_id, &sha256).await?
+    };
     let chunks = futures::stream::unfold(file, read_chunk);
     Ok((
         StatusCode::OK,

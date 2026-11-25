@@ -4,7 +4,8 @@ import threading
 import time
 
 from personal_proof_nodes import (
-    BATCH, EPSILON, FIELDS, DELTA, IDS_BOUND, MEBIBYTE, MEMORY_BOUND_BYTES, MEMORY_GROWTH_BYTES, SCALE_WAIT_SECONDS, wait)
+    BATCH, DELTA, EPSILON, FIELDS, IDS_BOUND, IDS_TRIM_EVERY, MEBIBYTE, MEMORY_BOUND_BYTES, MEMORY_GROWTH_BYTES,
+    SCALE_WAIT_SECONDS, wait)
 from personal_proof_deployed_trim import head_of, node_hex
 from record_runs import definition, require, system_seed
 import v1_records as v1
@@ -161,7 +162,7 @@ def scale(relay, a, b, writes):
     # The id records of accepted writes do not grow with the writes: a retry of a write older than
     # the newest IDS_KEPT is taken as a new write, which is what the node can promise.
     ids, accepted = a.id_records(), a.spool_state()["head"]
-    require(ids <= IDS_BOUND and (accepted <= IDS_BOUND or ids < accepted // 2),
+    require(ids <= IDS_BOUND and (accepted <= IDS_BOUND or ids < accepted - IDS_TRIM_EVERY),
             f"A holds {ids} id records for {accepted} accepted writes (bound {IDS_BOUND})")
     report["id_records"] = {"records": ids, "accepted_writes": accepted, "bound": IDS_BOUND}
     mark = len(relay.lines())

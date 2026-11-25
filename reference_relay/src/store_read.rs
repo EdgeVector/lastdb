@@ -150,6 +150,7 @@ impl Store {
 }
 
 #[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct LogReadBody {
     pub(crate) database_id: String,
     pub(crate) writer_key: Option<String>,
@@ -157,6 +158,15 @@ pub(crate) struct LogReadBody {
     pub(crate) from_seq: Option<u64>,
     pub(crate) cursor: Option<String>,
     pub(crate) limit: Option<u64>,
+}
+
+pub(crate) fn read_limit(limit: Option<u64>) -> ApiResult<usize> {
+    match limit {
+        None => Ok(MAX_BATCH),
+        Some(0) => Err(ApiError::invalid("limit")),
+        Some(n) if n > MAX_BATCH as u64 => Err(ApiError::batch_too_large("limit")),
+        Some(n) => Ok(n as usize),
+    }
 }
 
 pub(crate) enum ReadPosition {
@@ -176,7 +186,13 @@ pub(crate) enum ReadPosition {
 
 pub(crate) fn read_position(req: &LogReadBody) -> ApiResult<ReadPosition> {
     if let Some(cursor) = req.cursor.as_deref() {
+        if cursor.is_empty() || cursor.len() > 256 || req.from_seq.is_some() {
+            return Err(ApiError::invalid("cursor"));
+        }
         let parsed = parse_cursor(cursor)?;
+        if parsed.single_device == Some(false) && req.device_id.is_some() {
+            return Err(ApiError::invalid("cursor"));
+        }
         if let Some(req_writer) = req.writer_key.as_deref() {
             require_hex64(req_writer, "writer_key")?;
             if req_writer != parsed.writer_key {
@@ -204,12 +220,15 @@ pub(crate) fn read_position(req: &LogReadBody) -> ApiResult<ReadPosition> {
             })
         };
     }
+    if req.from_seq == Some(0) {
+        return Err(ApiError::invalid("from_seq"));
+    }
     let writer_key = req
         .writer_key
         .clone()
         .ok_or_else(|| ApiError::invalid("writer_key"))?;
     require_hex64(&writer_key, "writer_key")?;
-    let from_seq = req.from_seq.unwrap_or(1).max(1);
+    let from_seq = req.from_seq.unwrap_or(1);
     if let Some(device_id) = req.device_id.as_deref() {
         require_hex64(device_id, "device_id")?;
         Ok(ReadPosition::Device {
