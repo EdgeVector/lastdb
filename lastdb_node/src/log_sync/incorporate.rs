@@ -123,14 +123,16 @@ async fn decide(
         return Ok(Decision::Decline);
     };
     let key = (body.namespace.clone(), canon_key);
-    let standing = histories.with_mut(database_id, |history| Standing {
+    let history = histories.snapshot(database_id)?;
+    signed_history_materialize::reconcile_keys(store, &history, std::slice::from_ref(&key)).await?;
+    let standing = Standing {
         role: history.grants().role_of(&proposer),
         winner: history
             .records()
             .get(&key)
             .filter(|record| !record.value.is_empty())
             .map(|record| (record.entry, record.creator)),
-    })?;
+    };
     if !standing.allows(&intent.expected, &proposer) {
         return Ok(Decision::Decline);
     }
@@ -313,8 +315,7 @@ fn parse_intent(value: &[u8]) -> Result<Intent, ()> {
 
 fn cite_proposal(ctx: &mut mutation_log::AuthorCtx, proposal: &SignedEntry) -> Result<(), String> {
     let hash = entry_hash(proposal).map_err(|e| e.to_string())?;
-    ctx.seen_heads.push(hash);
-    ctx.seen_lamports.push(proposal.header().lamport);
+    ctx.cite(hash, proposal.header().lamport);
     Ok(())
 }
 
@@ -332,8 +333,15 @@ fn publish(
         database_id,
         identity,
     };
-    chain_author::author_publisher(histories, &target, |mut ctx, _history| {
+    chain_author::author_publisher(histories, &target, |mut ctx, history| {
+        if let Some((hash, lamport)) = history.birth_entry() {
+            ctx.cite(hash, lamport);
+        }
         cite_proposal(&mut ctx, proposal).map_err(|_| ChainError::Unconfirmed)?;
+        let key = (ready.namespace.clone(), ready.key.clone());
+        if let Some(winner) = history.records().get(&key) {
+            ctx.cite(winner.entry, winner.position.lamport);
+        }
         let mut body = data_record(
             StreamKind::Direct,
             ready.namespace,
@@ -362,6 +370,7 @@ fn decline(
         identity,
     };
     chain_author::author_publisher(histories, &target, |mut ctx, history| {
+        history.cite_publisher_streams(&mut ctx);
         cite_proposal(&mut ctx, proposal).map_err(|_| ChainError::Unconfirmed)?;
         author_heads(&ctx, &identity.signing_key, history.publisher_stream_tips())
             .map_err(|_| ChainError::Unconfirmed)

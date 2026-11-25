@@ -92,13 +92,20 @@ fn renew(
         identity: &identity,
     };
     let tip = std::cell::Cell::new(None);
-    let signed = chain_author::author_publisher(histories, &target, |ctx, history| {
+    let signed = chain_author::author_publisher(histories, &target, |mut ctx, history| {
         // Decided again under the history lock, on the time the entry carries.
         let seen = noted().get(database_id).copied();
         if !is_due(history, ctx.authored_at_ms, length_ms, seen) {
             return Err(ChainError::Conflict(NOT_DUE));
         }
         tip.set(grant_tip(history));
+        if let Some(lease) = history.latest_lease() {
+            ctx.cite(lease.entry_hash, lease.lamport);
+        }
+        if let Some(grant) = history.latest_grant() {
+            ctx.cite(grant.entry_hash, grant.lamport);
+        }
+        history.cite_publisher_streams(&mut ctx);
         let body = lease_body(history, ctx.authored_at_ms, length_ms);
         author_lease(&ctx, &identity.signing_key, body).map_err(|_| ChainError::Unconfirmed)
     });

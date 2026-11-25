@@ -1,8 +1,10 @@
 //! Read-only views of [`VerifiedHistory`] for node grant and submission surfaces.
 
 use crate::accept::StreamHead;
+use crate::author::AuthorCtx;
 use crate::entry::{DeviceHead, SignedEntry};
 use crate::ids::{DeviceId, EntryHash, NodeKey, StreamId};
+use crate::kinds::Grantee;
 
 use super::VerifiedHistory;
 
@@ -13,9 +15,41 @@ pub struct GrantTip {
     pub entry_hash: EntryHash,
     /// `writer_seq` of the grant entry on its publisher device stream.
     pub writer_seq: u64,
+    /// Order value (`lamport`) of the grant entry.
+    pub lamport: u64,
 }
 
 impl VerifiedHistory {
+    /// Hash and lamport of the accepted `birth` entry, when present.
+    #[must_use]
+    pub fn birth_entry(&self) -> Option<(EntryHash, u64)> {
+        self.birth
+    }
+
+    /// Winning entry hash and lamport of the declared schema for `namespace`, if any.
+    #[must_use]
+    pub fn schema_entry(&self, namespace: &str) -> Option<(EntryHash, u64)> {
+        self.schema_positions
+            .get(namespace)
+            .map(|(pos, hash)| (*hash, pos.lamport))
+    }
+
+    /// Cite the accepted `birth` entry and every accepted publisher device stream
+    /// tip (highest lamport first) into `ctx`.
+    pub fn cite_publisher_streams(&self, ctx: &mut AuthorCtx) {
+        if let Some((hash, lamport)) = self.birth {
+            ctx.cite(hash, lamport);
+        }
+        let Some(owner) = self.owner else {
+            return;
+        };
+        let mut heads = self.stream_heads_of(owner);
+        heads.sort_by_key(|(dev, head)| (std::cmp::Reverse(head.lamport), *dev));
+        for (_, head) in heads {
+            ctx.cite(head.entry_hash, head.lamport);
+        }
+    }
+
     /// Latest publisher `heads` attestation tips (empty before the first attestation).
     #[must_use]
     pub fn publisher_heads(&self) -> &[DeviceHead] {
@@ -98,18 +132,52 @@ impl VerifiedHistory {
     pub fn latest_grant(&self) -> Option<GrantTip> {
         self.accepted
             .iter()
-            .filter(|(_, meta)| meta.is_publisher && meta.grant_body.is_some())
-            .max_by_key(|(_, meta)| {
+            .filter_map(|(hash, meta)| {
+                if !meta.is_publisher {
+                    return None;
+                }
+                let body = meta.grant_body.as_ref()?;
+                Some((*hash, meta, body.role))
+            })
+            .max_by_key(|(_, meta, role)| {
                 (
                     meta.position.lamport,
+                    crate::grants::grant_tie_rank(*role),
                     meta.position.node_key,
                     meta.position.device_id,
                 )
             })
-            .map(|(hash, meta)| GrantTip {
-                entry_hash: *hash,
+            .map(|(hash, meta, _)| GrantTip {
+                entry_hash: hash,
                 writer_seq: meta.entry.header().writer_seq,
+                lamport: meta.position.lamport,
             })
+    }
+
+    /// Latest accepted publisher grant targeting `grantee` in merge order, if any.
+    #[must_use]
+    pub fn latest_grant_for(&self, grantee: Grantee) -> Option<(EntryHash, u64)> {
+        self.accepted
+            .iter()
+            .filter_map(|(hash, meta)| {
+                if !meta.is_publisher {
+                    return None;
+                }
+                let body = meta.grant_body.as_ref()?;
+                if body.grantee != grantee {
+                    return None;
+                }
+                Some((*hash, meta.position, body.role))
+            })
+            .max_by_key(|(_, pos, role)| {
+                (
+                    pos.lamport,
+                    crate::grants::grant_tie_rank(*role),
+                    pos.node_key,
+                    pos.device_id,
+                )
+            })
+            .map(|(hash, pos, _)| (hash, pos.lamport))
     }
 
     /// Hash and lamport of every accepted publisher grant, for a member's `seen_heads`.

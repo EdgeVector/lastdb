@@ -66,16 +66,13 @@ impl VerifiedHistory {
     pub(super) fn recompute_written_by(&mut self, changed: &[EntryHash]) {
         let mut keys: BTreeSet<(String, String)> = BTreeSet::new();
         for hash in changed {
-            let Some(SignedEntry::Data { header, body }) =
+            let Some(SignedEntry::Data { body, .. }) =
                 self.accepted.get(hash).map(|meta| &meta.entry)
             else {
                 continue;
             };
-            let Some((namespace, payload)) = self.data_write(header, body) else {
-                continue;
-            };
-            if let Ok(decoded) = decode_record_payload(&payload) {
-                keys.insert((namespace, decoded.record_key));
+            if let Ok(decoded) = decode_record_payload(&body.payload) {
+                keys.insert((body.namespace.clone(), decoded.record_key));
             }
         }
         let mut outcome: Vec<((String, String), Option<MaterializedRecord>)> = Vec::new();
@@ -111,11 +108,10 @@ impl VerifiedHistory {
                 .or_else(|| self.bundle_floor.get(key).filter(|r| r.entry == win.entry))
                 .map(|r| r.value.clone())?
         } else {
-            let SignedEntry::Data { header, body } = &self.accepted.get(&win.entry)?.entry else {
+            let SignedEntry::Data { body, .. } = &self.accepted.get(&win.entry)?.entry else {
                 return None;
             };
-            let (_, payload) = self.data_write(header, body)?;
-            decode_record_payload(&payload).ok()?.value
+            decode_record_payload(&body.payload).ok()?.value
         };
         Some(MaterializedRecord {
             position: win.position,

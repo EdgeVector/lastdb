@@ -3,15 +3,12 @@
 use super::CloudState;
 
 pub(crate) const NO_ACCOUNT: &str = "this node has no cloud account";
-pub(crate) const ENROLLING: &str = "the database is still enrolling with the cloud; retry";
 pub(crate) const UNCONFIRMED: &str = "signed grant was not confirmed";
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum ChainError {
     /// No cloud credentials. Final: the caller does not retry.
     NoAccount,
-    /// An account exists and this database is not enrolled yet. Retry later.
-    Enrolling,
     /// The signed entry did not reach local AcceptEntry and the signed log.
     Unconfirmed,
     /// The request cannot be a grant or relay call (400).
@@ -37,7 +34,6 @@ impl ChainError {
     pub(crate) fn reply(&self) -> Reply {
         let (status, code, message, retry) = match self {
             Self::NoAccount => (409, Some("no_cloud_account"), NO_ACCOUNT, false),
-            Self::Enrolling => (503, Some("enrolling"), ENROLLING, true),
             Self::Unconfirmed => (503, None, UNCONFIRMED, true),
             Self::Invalid(message) => (400, None, *message, false),
             Self::NotFound(message) => (404, None, *message, false),
@@ -61,7 +57,5 @@ pub(crate) fn require_enrolled(
     match super::wait_for_enrollment(host, database_id) {
         CloudState::Enrolled => Ok(()),
         CloudState::NoAccount => Err(ChainError::NoAccount),
-        CloudState::Enrolling => Err(ChainError::Enrolling),
-        CloudState::Unverified => Err(ChainError::Unconfirmed),
     }
 }

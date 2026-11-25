@@ -5,11 +5,14 @@
 //! no effect until the publisher incorporates it, so a member's grant decides
 //! only whether it may propose.
 
+use sha2::{Digest as _, Sha256};
+
 use crate::accept::RejectReason;
-use crate::entry::{BundleBody, DataBody, EntryHeader, LeaseBody, SignedEntry};
+use crate::entry::{BundleBody, DataBody, EntryHeader, IncorporatedFrom, LeaseBody, SignedEntry};
 use crate::grants::{AcceptedMeta, GrantState};
-use crate::ids::{EntryHash, NodeKey};
+use crate::ids::{EntryHash, Hex32, NodeKey};
 use crate::kinds::{EntryKind, Role, StreamKind};
+use crate::wire::decode_signature_b64url;
 
 /// Authorize a bundle entry: the publisher's alone.
 pub fn authorize_bundle(
@@ -41,12 +44,60 @@ pub fn authorize_data<'s>(
 ) -> Option<RejectReason> {
     let h = entry.header();
     if owner == Some(h.node_key) {
-        return None;
+        return authorize_publisher_data(h, body, lookup);
     }
     match body.stream {
         StreamKind::Direct => authorize_member_direct(h, body, lookup, leases_held),
         StreamKind::Proposal => authorize_proposal(h, body, lookup),
     }
+}
+
+fn authorize_publisher_data<'s>(
+    h: &EntryHeader,
+    body: &DataBody,
+    lookup: &dyn Fn(&EntryHash) -> Option<&'s AcceptedMeta>,
+) -> Option<RejectReason> {
+    if body.stream != StreamKind::Direct {
+        return Some(RejectReason::Malformed(
+            "publisher data entry must use direct stream",
+        ));
+    }
+    if body.grant_at_device.is_some() || body.grant_at_seq.is_some() {
+        return Some(RejectReason::Malformed(
+            "publisher data entry must omit grant_at",
+        ));
+    }
+    let Some(inc) = &body.incorporated_from else {
+        return None;
+    };
+    let matched = h.seen_heads.iter().any(|hash| {
+        lookup(hash).is_some_and(|meta| matches_incorporated_proposal(&meta.entry, inc))
+    });
+    if matched {
+        None
+    } else {
+        Some(RejectReason::Malformed(
+            "incorporated_from must match a cited proposal",
+        ))
+    }
+}
+
+fn matches_incorporated_proposal(entry: &SignedEntry, inc: &IncorporatedFrom) -> bool {
+    let SignedEntry::Data { header, body } = entry else {
+        return false;
+    };
+    if body.stream != StreamKind::Proposal
+        || header.node_key != inc.node_key
+        || header.device_id != inc.device_id
+        || header.writer_seq != inc.writer_seq
+    {
+        return false;
+    }
+    let Ok(sig) = decode_signature_b64url(&header.signature) else {
+        return false;
+    };
+    let digest: [u8; 32] = Sha256::digest(sig).into();
+    Hex32::from_bytes(digest) == inc.signature_sha256
 }
 
 /// A member's direct entry names its lease by citing it in `seen_heads`: the

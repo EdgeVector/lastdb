@@ -50,7 +50,6 @@ mod auth;
 mod author;
 mod bootstrap;
 mod bundle;
-mod decode;
 mod encode;
 mod entry;
 mod grants;
@@ -58,11 +57,13 @@ mod history;
 mod history_bundle;
 mod history_util;
 mod ids;
+mod json_val;
 mod kinds;
 mod lease_body;
 mod named_blobs;
 mod payload;
 mod record_key;
+mod schema_merge;
 mod sealed;
 mod wire;
 
@@ -71,9 +72,9 @@ pub use accept::{
     AcceptOutcome, PendingReason, RejectReason, StreamHead, LAMPORT_LIMIT,
 };
 pub use author::{
-    author_birth, author_blob_delete, author_bundle, author_data, author_grant, author_heads,
-    author_lease, author_relays, author_schema, author_snapshot, data_record, grant_raise,
-    grant_reduce, hash_of, sign_entry, AuthorCtx,
+    author_birth, author_bundle, author_data, author_grant, author_heads, author_lease,
+    author_schema, author_snapshot, data_record, grant_raise, grant_reduce, hash_of, sign_entry,
+    AuthorCtx, MAX_AUTHOR_SEEN_HEADS,
 };
 pub use bootstrap::{
     bootstrap_from_records, BootstrapError, BootstrapGrant, BootstrapParams, BootstrapRecord,
@@ -83,7 +84,6 @@ pub use bundle::{
     validate_bundle_body, validate_bundle_changes, BundleChange, BUNDLE_BLOB_SIZE_MAX,
     BUNDLE_CHANGE_COUNT_MAX,
 };
-pub use decode::{decode_bundle_body, decode_bundle_signed_bytes, DecodeError};
 pub use encode::signed_bytes;
 pub use entry::{
     BirthBody, BlobDeleteBody, BundleBody, ClosedStream, DataBody, DeviceHead, EntryHeader,
@@ -91,8 +91,8 @@ pub use entry::{
     RevocationCutoff, SchemaBody, SignedEntry, SnapshotBody, SnapshotThrough,
 };
 pub use grants::{AcceptedMeta, GrantState};
-pub use history::{EquivocationEvidence, GrantTip, LeaseView, RejectEvidence, VerifiedHistory};
-pub use history_util::{grant_body_of, next_lamport};
+pub use history::{GrantTip, LeaseView, RejectEvidence, VerifiedHistory};
+pub use history_util::next_lamport;
 pub use ids::{DatabaseId, DeviceId, EntryHash, Hex32, IdError, NodeKey, StreamId};
 pub use kinds::{domain, EntryKind, Grantee, Role, StreamKind};
 pub use named_blobs::named_blobs;
@@ -101,10 +101,7 @@ pub use payload::{
     RecordPosition,
 };
 pub use record_key::{join_record_key, split_record_key, RANGE_SEPARATOR};
-pub use sealed::{
-    decode_bundle_changes, decode_named, encode_bundle_changes, encode_named, SealOpener,
-    SEALED_NAMESPACE,
-};
+pub use sealed::{SealOpener, SEALED_NAMESPACE};
 pub use wire::{
     decode_signature_b64url, encode_signature_b64url, entry_hash, verify_entry_signature,
     EncodeError, VerifyError,

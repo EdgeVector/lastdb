@@ -1,7 +1,6 @@
 //! Verified history `S` and `accept_entry` application.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
-use std::sync::Arc;
 
 use crate::accept::{
     evaluate_with_leases, position_of, stream_id_of, AcceptContext, AcceptOutcome, RejectReason,
@@ -12,7 +11,6 @@ use crate::grants::{AcceptedMeta, GrantState};
 use crate::ids::{DatabaseId, DeviceId, EntryHash, NodeKey, StreamId};
 use crate::kinds::{EntryKind, Role};
 use crate::payload::MaterializedRecord;
-use crate::sealed::SealOpener;
 use crate::wire::entry_hash;
 
 mod effects;
@@ -23,23 +21,8 @@ mod view;
 pub use lease::LeaseView;
 pub use view::GrantTip;
 
-use lease::{LeaseMeta, PosKey, Under};
+use lease::{LeaseMeta, PosKey, RoleKey, Under};
 use recompute::WriteMeta;
-
-/// Equivocation evidence kept when a stream freezes.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct EquivocationEvidence {
-    /// Frozen stream.
-    pub stream: StreamId,
-    /// Writer seq that forked.
-    pub writer_seq: u64,
-    /// First accepted entry hash at that seq.
-    pub held_hash: EntryHash,
-    /// Conflicting incoming entry hash.
-    pub new_hash: EntryHash,
-    /// Conflicting signed entry (evidence).
-    pub conflicting: SignedEntry,
-}
 
 /// Rejected entry retained as evidence.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -57,6 +40,8 @@ pub struct VerifiedHistory {
     database_id: DatabaseId,
     /// Owner from the accepted birth entry.
     owner: Option<NodeKey>,
+    /// Hash and lamport of the accepted birth entry.
+    birth: Option<(EntryHash, u64)>,
     /// Accepted entries by hash.
     accepted: BTreeMap<EntryHash, AcceptedMeta>,
     /// Per-stream tip.
@@ -71,12 +56,8 @@ pub struct VerifiedHistory {
     records: BTreeMap<(String, String), MaterializedRecord>,
     /// Declared schema definitions by namespace (highest position wins).
     schemas: BTreeMap<String, Vec<u8>>,
-    /// Winning position of each declared schema definition.
-    schema_positions: BTreeMap<String, crate::payload::RecordPosition>,
-    /// Blob hashes marked deleted.
-    deleted_blobs: BTreeSet<EntryHash>,
-    /// Digests referenced by accepted bundle entries (blocks invalid `blob_delete`).
-    live_bundle_blobs: BTreeSet<crate::ids::Hex32>,
+    /// Winning position and entry hash of each declared schema definition.
+    schema_positions: BTreeMap<String, (crate::payload::RecordPosition, EntryHash)>,
     /// Latest publisher relay URLs.
     relays: Vec<String>,
     /// Winning position of `relays`.
@@ -89,12 +70,8 @@ pub struct VerifiedHistory {
     pending: VecDeque<SignedEntry>,
     /// Reject evidence.
     rejects: Vec<RejectEvidence>,
-    /// Equivocation evidence.
-    equivocations: Vec<EquivocationEvidence>,
-    /// Opens the sealed payloads of a private database. Absent for a shared one.
-    opener: Option<Arc<dyn SealOpener>>,
-    /// Each member's role in publisher grant order, by grant position.
-    member_roles: BTreeMap<NodeKey, BTreeMap<PosKey, Role>>,
+    /// Each member's role in publisher grant order, by `(lamport, tie_rank, node_key, device_id)`.
+    member_roles: BTreeMap<NodeKey, BTreeMap<RoleKey, Role>>,
     /// Accepted lease entries by position.
     leases: BTreeMap<PosKey, LeaseMeta>,
     /// Position of each accepted lease entry.
@@ -117,6 +94,7 @@ impl VerifiedHistory {
         Self {
             database_id,
             owner: None,
+            birth: None,
             accepted: BTreeMap::new(),
             heads: BTreeMap::new(),
             by_seq: BTreeMap::new(),
@@ -125,16 +103,12 @@ impl VerifiedHistory {
             records: BTreeMap::new(),
             schemas: BTreeMap::new(),
             schema_positions: BTreeMap::new(),
-            deleted_blobs: BTreeSet::new(),
-            live_bundle_blobs: BTreeSet::new(),
             relays: Vec::new(),
             relays_position: None,
             publisher_heads: Vec::new(),
             publisher_heads_position: None,
             pending: VecDeque::new(),
             rejects: Vec::new(),
-            equivocations: Vec::new(),
-            opener: None,
             member_roles: BTreeMap::new(),
             leases: BTreeMap::new(),
             lease_by_hash: BTreeMap::new(),
@@ -143,16 +117,6 @@ impl VerifiedHistory {
             bundle_floor: BTreeMap::new(),
             write_meta: BTreeMap::new(),
         }
-    }
-
-    /// Empty history of a private database: every data and schema entry must
-    /// carry a sealed payload that `opener` opens, and its records and schemas
-    /// are the plaintext ones. See [`crate::sealed`].
-    #[must_use]
-    pub fn with_opener(database_id: DatabaseId, opener: Arc<dyn SealOpener>) -> Self {
-        let mut history = Self::new(database_id);
-        history.opener = Some(opener);
-        history
     }
 
     /// Database id.
@@ -173,12 +137,6 @@ impl VerifiedHistory {
         self.heads.get(stream).copied()
     }
 
-    /// True when the stream is frozen forever.
-    #[must_use]
-    pub fn is_frozen(&self, stream: &StreamId) -> bool {
-        self.frozen.contains(stream)
-    }
-
     /// Borrow folded grants.
     #[must_use]
     pub fn grants(&self) -> &GrantState {
@@ -197,12 +155,6 @@ impl VerifiedHistory {
         &self.schemas
     }
 
-    /// Equivocation evidence.
-    #[must_use]
-    pub fn equivocations(&self) -> &[EquivocationEvidence] {
-        &self.equivocations
-    }
-
     /// Reject evidence.
     #[must_use]
     pub fn rejects(&self) -> &[RejectEvidence] {
@@ -219,12 +171,6 @@ impl VerifiedHistory {
     #[must_use]
     pub fn relays(&self) -> &[String] {
         &self.relays
-    }
-
-    /// Deleted blob hashes.
-    #[must_use]
-    pub fn deleted_blobs(&self) -> &BTreeSet<EntryHash> {
-        &self.deleted_blobs
     }
 
     /// Look up an accepted entry by hash.
@@ -268,25 +214,12 @@ impl VerifiedHistory {
             lookup: &|h| self.accepted.get(h),
             grants: &self.grants,
         };
-        self.require_sealed(entry, evaluate_with_leases(entry, &ctx, true))
+        evaluate_with_leases(entry, &ctx, true)
     }
 
     fn note_reject(&mut self, reason: RejectReason, entry: SignedEntry) {
-        if let RejectReason::Equivocation {
-            held_hash,
-            new_hash,
-        } = &reason
-        {
-            let stream = stream_id_of(&entry);
-            let writer_seq = entry.header().writer_seq;
-            self.frozen.insert(stream);
-            self.equivocations.push(EquivocationEvidence {
-                stream,
-                writer_seq,
-                held_hash: *held_hash,
-                new_hash: *new_hash,
-                conflicting: entry.clone(),
-            });
+        if matches!(reason, RejectReason::Equivocation { .. }) {
+            self.frozen.insert(stream_id_of(&entry));
         }
         self.rejects.push(RejectEvidence { reason, entry });
     }
@@ -300,10 +233,9 @@ impl VerifiedHistory {
             SignedEntry::Grant { body, .. } => Some(body.clone()),
             _ => None,
         };
-        if entry.kind() == EntryKind::Birth {
-            if let SignedEntry::Birth { body, .. } = &entry {
-                self.owner = Some(body.owner);
-            }
+        if let SignedEntry::Birth { body, .. } = &entry {
+            self.owner = Some(body.owner);
+            self.birth = Some((hash, h.lamport));
         }
         self.apply_effects(&entry, hash, position, is_publisher);
         let rebuild = is_publisher && grant_body.is_some();

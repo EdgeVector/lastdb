@@ -80,6 +80,11 @@ async fn pull_stream(
     loop {
         let page = client.read(&writer_hex, &device_hex, from_seq).await?;
         let Some(last_seq) = page.entries.last().map(|e| e.header().writer_seq) else {
+            if page.more {
+                return Err(format!(
+                    "relay log.read returned an empty page with continuation cursor at seq {from_seq}"
+                ));
+            }
             break;
         };
         if last_seq < from_seq {

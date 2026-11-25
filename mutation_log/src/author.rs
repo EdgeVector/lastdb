@@ -4,14 +4,17 @@ use app_identity_crypto::SigningKey;
 
 use crate::accept::StreamHead;
 use crate::entry::{
-    BirthBody, BlobDeleteBody, BundleBody, DataBody, DeviceHead, EntryHeader, GrantBody, HeadsBody,
-    LeaseBody, RelayUrl, RelaysBody, SchemaBody, SignedEntry, SnapshotBody,
+    BirthBody, BundleBody, DataBody, DeviceHead, EntryHeader, GrantBody, HeadsBody, LeaseBody,
+    SchemaBody, SignedEntry, SnapshotBody,
 };
 use crate::history_util::next_lamport;
 use crate::ids::{DatabaseId, DeviceId, EntryHash, Hex32, NodeKey};
 use crate::kinds::{Grantee, Role, StreamKind};
 use crate::wire::{encode_signature_b64url, EncodeError};
 use crate::{encode, wire};
+
+/// Maximum causal heads [`AuthorCtx::cite`] attaches to an authored entry.
+pub const MAX_AUTHOR_SEEN_HEADS: usize = 64;
 
 /// Inputs shared by every author helper.
 #[derive(Clone, Debug)]
@@ -35,6 +38,23 @@ pub struct AuthorCtx {
 }
 
 impl AuthorCtx {
+    /// Record a causal dependency `(hash, lamport)`, deduplicating `hash` and
+    /// keeping `seen_heads.len() <= MAX_AUTHOR_SEEN_HEADS`.
+    pub fn cite(&mut self, hash: EntryHash, lamport: u64) {
+        if let Some(idx) = self.seen_heads.iter().position(|h| *h == hash) {
+            if let Some(slot) = self.seen_lamports.get_mut(idx) {
+                *slot = (*slot).max(lamport);
+            }
+            return;
+        }
+        if self.seen_heads.len() < MAX_AUTHOR_SEEN_HEADS {
+            self.seen_heads.push(hash);
+            self.seen_lamports.push(lamport);
+        } else if let Some(slot) = self.seen_lamports.first_mut() {
+            *slot = (*slot).max(lamport);
+        }
+    }
+
     fn header_unsigned(&self) -> EntryHeader {
         let (writer_seq, prev_hash, prev_lamport) = match self.stream_head {
             None => (1, EntryHash::ZERO, 0),
@@ -146,21 +166,6 @@ pub fn author_schema(
     Ok(entry)
 }
 
-/// Author a blob_delete entry.
-pub fn author_blob_delete(
-    ctx: &AuthorCtx,
-    signing_key: &SigningKey,
-    sha256: Hex32,
-) -> Result<SignedEntry, EncodeError> {
-    let mut entry = SignedEntry::BlobDelete {
-        header: ctx.header_unsigned(),
-        namespace: "blob_delete".into(),
-        body: BlobDeleteBody { sha256 },
-    };
-    sign_entry(&mut entry, signing_key)?;
-    Ok(entry)
-}
-
 /// Author a heads attestation.
 pub fn author_heads(
     ctx: &AuthorCtx,
@@ -205,22 +210,6 @@ pub fn author_lease(
         header: ctx.header_unsigned(),
         namespace: "lease".into(),
         body,
-    };
-    sign_entry(&mut entry, signing_key)?;
-    Ok(entry)
-}
-
-/// Author a relays list entry.
-pub fn author_relays(
-    ctx: &AuthorCtx,
-    signing_key: &SigningKey,
-    urls: Vec<String>,
-) -> Result<SignedEntry, EncodeError> {
-    let relays = urls.into_iter().map(|url| RelayUrl { url }).collect();
-    let mut entry = SignedEntry::Relays {
-        header: ctx.header_unsigned(),
-        namespace: "relays".into(),
-        body: RelaysBody { relays },
     };
     sign_entry(&mut entry, signing_key)?;
     Ok(entry)
