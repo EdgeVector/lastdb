@@ -26,9 +26,8 @@ NONE_YET = "Snapshot: none yet"
 # The reference relay for the refusal takes no blob larger than this. It must take every log segment of the
 # refusing home and refuse one of its data files. A segment holds one sent batch, at most 90 entries
 # (personal/outgoing.rs), and an entry of a record below is about 1.5 KB, so a segment is about 135 KB. The store
-# compacts a small home into data files of at least 256 KiB (MIN_PIECE_BYTES in laststore's compaction), with a
-# last piece of at least 128 KiB folded into the one before it, so every data file of the records is over the
-# limit before and after compaction.
+# compacts a small home into pieces that each grow to 256 KiB (MIN_PIECE_BYTES in laststore's compaction) before
+# the next starts, so at least one data file of the records is over the limit before and after compaction.
 RELAY_LIMIT_BYTES = 192 * 1024
 # Records written to the refusing home in one write: about 470 KB on disk after compression.
 BIG_RECORDS, BIG_NOTE_BYTES = 1000, 600
