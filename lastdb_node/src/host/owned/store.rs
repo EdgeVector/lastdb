@@ -29,8 +29,21 @@ pub(crate) struct CreateArgs<'a> {
 }
 
 impl Tables {
+    pub(crate) async fn lock_creating(&self) -> tokio::sync::MutexGuard<'_, ()> {
+        self.creating.lock().await
+    }
+
+    pub(crate) fn claims(&self, id: &str, name: Option<&str>) -> Result<bool, OwnedError> {
+        let state = self.read()?;
+        let claimed = |entry: &Entry| {
+            entry.id == id || name.is_some_and(|wanted| entry.name.as_deref() == Some(wanted))
+        };
+        Ok(claimed(&state.registry_owner) || state.owned.iter().any(claimed))
+    }
+
     pub(crate) async fn create(
         &self,
+        _creating: &tokio::sync::MutexGuard<'_, ()>,
         home: &Path,
         signer: Arc<Ed25519KeyPair>,
         args: CreateArgs<'_>,
@@ -40,7 +53,6 @@ impl Tables {
             return Err(OwnedError::InvalidSpec);
         }
         validate_create(args.name, args.spec.as_ref())?;
-        let _creating = self.creating.lock().await;
         let (id, birth_seed) = if let Some(ref id) = args.requested_id {
             mutation_log::DatabaseId::from_hex(id).map_err(|_| OwnedError::InvalidName)?;
             (id.clone(), None)
@@ -71,6 +83,7 @@ impl Tables {
                 return Err(OwnedError::AlreadyRegistered);
             }
         }
+        ensure_not_received(home, &entry.id, args.name)?;
         if let (Kind::Shareable, Some(seed)) = (entry.kind, &birth_seed) {
             mint_birth(&entry.id, seed).map_err(|_| OwnedError::Unavailable)?;
         }
@@ -84,9 +97,10 @@ impl Tables {
         entry: Entry,
     ) -> Result<Entry, OwnedError> {
         let id = &entry.id;
-        let store = open(home, &entry, &signer, true)
-            .await
-            .map_err(|_| OwnedError::Unavailable)?;
+        let Ok(store) = open(home, &entry, &signer, true).await else {
+            let _ = remove(home, id);
+            return Err(OwnedError::Unavailable);
+        };
         if let Err(error) = self.commit_create(home, entry.clone(), Arc::clone(&store)) {
             if !error.renamed {
                 let _ = store.shutdown().await;
@@ -96,6 +110,17 @@ impl Tables {
         }
         Ok(entry)
     }
+}
+
+fn ensure_not_received(home: &Path, id: &str, name: &str) -> Result<(), OwnedError> {
+    let shares = crate::registered_share::list(home).map_err(|_| OwnedError::Unavailable)?;
+    if shares
+        .iter()
+        .any(|share| share.id.as_str() == id || share.name.as_deref() == Some(name))
+    {
+        return Err(OwnedError::AlreadyRegistered);
+    }
+    Ok(())
 }
 
 pub(super) async fn open_all(
@@ -160,10 +185,18 @@ pub(super) fn content_encryption_key(
 }
 
 fn remove(home: &Path, id: &str) -> Result<(), String> {
-    let root = home.join("databases").join(id);
-    if root.is_dir() {
-        std::fs::remove_dir_all(&root)
-            .map_err(|error| format!("remove owned database {id}: {error}"))?;
+    let mut first_err = None;
+    for root in [
+        home.join("databases").join(id),
+        home.join("log-sync").join(id),
+    ] {
+        if root.is_dir() {
+            if let Err(error) = std::fs::remove_dir_all(&root) {
+                if first_err.is_none() {
+                    first_err = Some(format!("remove owned database {id}: {error}"));
+                }
+            }
+        }
     }
-    Ok(())
+    first_err.map_or(Ok(()), Err)
 }

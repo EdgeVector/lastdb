@@ -147,7 +147,10 @@ async fn mirror_received(
         Ok(None) => Ok(()),
         Err(error) => {
             let reply = error.reply();
-            let refusal = HostError::new(reply.status, reply.message);
+            let mut refusal = HostError::new(reply.status, reply.message);
+            if let Some(code) = reply.code {
+                refusal = refusal.with_code(code);
+            }
             Err(if reply.retry {
                 refusal.with_retry_after(crate::exec::database_share::RETRY_AFTER_SECS)
             } else {

@@ -166,7 +166,7 @@ async fn list_keys(host: &Host, item: ReadItem) -> Result<Value, HostError> {
 
 async fn read_one(host: &Host, item: ReadItem) -> Result<Value, HostError> {
     require_read(&item.schema)?;
-    let owner_dir = file_dir(&item)?;
+    let owner_dir = file_dir(host, &item)?;
     if item.key.is_none() && item.range.is_none() {
         return list_keys(host, item).await;
     }
@@ -210,7 +210,7 @@ async fn read_one(host: &Host, item: ReadItem) -> Result<Value, HostError> {
 }
 
 /// `file_dir` is an owner-socket folder. An app's folder is its grant.
-fn file_dir(item: &ReadItem) -> Result<Option<std::path::PathBuf>, HostError> {
+fn file_dir(host: &Host, item: &ReadItem) -> Result<Option<std::path::PathBuf>, HostError> {
     let Some(dir) = item.file_dir.as_deref() else {
         return Ok(None);
     };
@@ -225,7 +225,7 @@ fn file_dir(item: &ReadItem) -> Result<Option<std::path::PathBuf>, HostError> {
     if item.key.is_none() && item.range.is_none() {
         return Err(bad("a key list takes no via, no file, and no file_dir"));
     }
-    super::owner_file::accept(dir).map(Some)
+    super::owner_file::accept(dir, &host.home).map(Some)
 }
 
 /// The name, media type, size and local path of a record's file, or null without one.

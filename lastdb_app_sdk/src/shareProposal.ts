@@ -38,11 +38,11 @@ export function buildProposalDocument(
     schema: schemaName,
     record: op.record ?? {},
     key_value: op.key,
-    alternates: op.alternates,
     mutation_type: op.mutationType,
     expected: op.expected,
     file: null,
   };
+  if (op.mutationType !== 'delete') body.alternates = op.alternates;
   if (op.convergence !== undefined) body.convergence = op.convergence;
   if (op.durability !== undefined) body.durability = op.durability;
   if (definitionId !== undefined) body.definition_id = definitionId;

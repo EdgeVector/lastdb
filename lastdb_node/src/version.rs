@@ -1,6 +1,5 @@
 //! Contract version constants for app-LastDB compatibility.
 
-pub const CURRENT_API_VERSION: u32 = crate::lastdb_uds::uds_router::API_VERSION;
 pub const MIN_SUPPORTED_API_VERSION: u32 = 38;
 
 /// Registry listings are filed under this version, not under `API_VERSION`.

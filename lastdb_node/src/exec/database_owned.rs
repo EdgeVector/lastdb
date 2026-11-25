@@ -62,12 +62,17 @@ pub(super) async fn create(req: &UdsRequest, ctx: &AccessContext, host: &Host) -
             );
         }
     };
+    let creating = host.owned.lock_creating().await;
+    let Ok(_share_registry) = crate::share_link::lock_existing_registry(&host.home) else {
+        return error_response(503, "database registry is unavailable", ctx);
+    };
     if let Some(response) = share_conflict(host, &body.name, requested_id.as_deref(), ctx) {
         return response;
     }
     match host
         .owned
         .create(
+            &creating,
             &host.home,
             Arc::clone(&host.keypair),
             owned::CreateArgs {
@@ -119,7 +124,7 @@ fn listed(host: &Host) -> Result<Value, HostError> {
     Ok(json!({ "databases": databases }))
 }
 
-pub(super) fn accept(req: &UdsRequest, ctx: &AccessContext, host: &Host) -> UdsResponse {
+pub(super) async fn accept(req: &UdsRequest, ctx: &AccessContext, host: &Host) -> UdsResponse {
     if req.body.len() > 4096 {
         return error_response(400, "invalid link", ctx);
     }
@@ -129,7 +134,17 @@ pub(super) fn accept(req: &UdsRequest, ctx: &AccessContext, host: &Host) -> UdsR
     let Ok(opened) = crate::share_link::open(&body.link) else {
         return error_response(400, "invalid link", ctx);
     };
-    let registered = crate::share_link::register(&host.home, &opened, body.name.as_deref());
+    let _creating = host.owned.lock_creating().await;
+    let registered = match host
+        .owned
+        .claims(opened.database_id.as_str(), body.name.as_deref())
+    {
+        Ok(true) => Err(crate::share_cache::ShareCacheError::Invalid(
+            "database selector already in use",
+        )),
+        Ok(false) => crate::share_link::register(&host.home, &opened, body.name.as_deref()),
+        Err(_) => Err(crate::share_cache::ShareCacheError::Io),
+    };
     if registered.is_ok() {
         crate::log_sync::request_wake(&host.home);
     }

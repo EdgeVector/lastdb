@@ -75,7 +75,8 @@ export async function connect<DatabaseId extends string | undefined = undefined>
   const client = new LastDbClient<DatabaseId>(options.appId, transport, {
     databaseId: options.databaseId,
   });
-  const required = options.requireApiVersion ?? LASTDB_SDK_API_VERSION;
+  const required =
+    options.requireApiVersion ?? (process.env.LASTDB_APP ? 0 : LASTDB_SDK_API_VERSION);
   if (required > 0) {
     await client.requireApiVersion(required, options.appLabel ?? options.appId);
   }

@@ -5,12 +5,11 @@
 //! `GET /v1/schemas/<definition_id>`. Advice reads the curated vocabulary and
 //! the schemas publishers push. A definition read returns the stored object.
 
-#![allow(clippy::result_large_err)]
-
 mod catalog;
 
 use std::sync::Arc;
 
+use http::{header, HeaderValue, StatusCode};
 use lambda_http::{run, service_fn, Body, Error, Request, Response};
 use schema_service_core::advice::SchemaAdviceRequest;
 use schema_service_core::SchemaServiceState;
@@ -50,34 +49,83 @@ fn json_error(status: u16, message: &str) -> Result<Response<Body>, Error> {
     json_response(status, &json!({ "error": message }))
 }
 
-fn payload_too_large() -> Result<Response<Body>, Error> {
-    json_error(413, "Request body exceeds 128 KiB limit")
+fn bad_body_error(status: StatusCode, message: &str) -> Box<Response<Body>> {
+    let mut response = Response::new(Body::from(json!({ "error": message }).to_string()));
+    *response.status_mut() = status;
+    let headers = response.headers_mut();
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/json"),
+    );
+    headers.insert(
+        header::ACCESS_CONTROL_ALLOW_METHODS,
+        HeaderValue::from_static(ACCESS_CONTROL_ALLOW_METHODS),
+    );
+    headers.insert(
+        header::ACCESS_CONTROL_ALLOW_HEADERS,
+        HeaderValue::from_static(ACCESS_CONTROL_ALLOW_HEADERS),
+    );
+    Box::new(response)
 }
 
 fn typed_json_body<T: DeserializeOwned>(
     event: &Request,
     error: &str,
-) -> Result<T, Result<Response<Body>, Error>> {
+) -> Result<T, Box<Response<Body>>> {
     let parsed = match event.body() {
         Body::Text(s) => {
             if s.len() > MAX_REQUEST_BODY_BYTES {
-                return Err(payload_too_large());
+                return Err(bad_body_error(
+                    StatusCode::PAYLOAD_TOO_LARGE,
+                    "Request body exceeds 128 KiB limit",
+                ));
             }
             serde_json::from_str(s)
         }
         Body::Binary(b) => {
             if b.len() > MAX_REQUEST_BODY_BYTES {
-                return Err(payload_too_large());
+                return Err(bad_body_error(
+                    StatusCode::PAYLOAD_TOO_LARGE,
+                    "Request body exceeds 128 KiB limit",
+                ));
             }
             serde_json::from_slice(b)
         }
-        Body::Empty => return Err(json_error(400, "Request body is empty")),
+        Body::Empty => {
+            return Err(bad_body_error(
+                StatusCode::BAD_REQUEST,
+                "Request body is empty",
+            ));
+        }
     };
-    parsed.map_err(|parse_error| json_error(400, &format!("{error}: {parse_error}")))
+    parsed.map_err(|parse_error| {
+        bad_body_error(StatusCode::BAD_REQUEST, &format!("{error}: {parse_error}"))
+    })
+}
+
+fn is_known_route(path: &str) -> bool {
+    matches!(
+        path,
+        "/" | "/health"
+            | "/v1/health"
+            | "/v1/fields/vocabulary"
+            | "/v1/advice/schema"
+            | catalog::SCHEMAS_PATH
+    ) || catalog::definition_id(path).is_some()
+}
+
+fn preflight_response() -> Result<Response<Body>, Error> {
+    Response::builder()
+        .status(204)
+        .header("Access-Control-Allow-Methods", ACCESS_CONTROL_ALLOW_METHODS)
+        .header("Access-Control-Allow-Headers", ACCESS_CONTROL_ALLOW_HEADERS)
+        .body(Body::Empty)
+        .map_err(|e| Error::from(format!("Failed to build response: {e}")))
 }
 
 fn dispatch_stateless(method: &str, path: &str) -> Option<Result<Response<Body>, Error>> {
     match (method, path) {
+        ("OPTIONS", _) if is_known_route(path) => Some(preflight_response()),
         ("GET", "/health" | "/v1/health") => Some(json_response(
             200,
             &json!({
@@ -117,7 +165,7 @@ async fn dispatch_with_state(
             let request: SchemaAdviceRequest =
                 match typed_json_body(event, "Invalid advice request") {
                     Ok(request) => request,
-                    Err(response) => return response,
+                    Err(response) => return Ok(*response),
                 };
             match state.schema_advice(&request) {
                 Ok(mut response) => {
@@ -137,15 +185,10 @@ async fn dispatch_with_state(
     }
 }
 
-#[allow(
-    clippy::unused_async,
-    clippy::needless_pass_by_value,
-    reason = "lambda_http::service_fn requires an async handler taking Request by value"
-)]
 async fn function_handler(
-    state: Arc<SchemaServiceState>,
-    catalog: Option<Arc<catalog::Catalog>>,
-    event: Request,
+    state: &SchemaServiceState,
+    catalog: Option<&catalog::Catalog>,
+    event: &Request,
 ) -> Result<Response<Body>, Error> {
     let method = event.method().as_str();
     let path = event.uri().path();
@@ -157,13 +200,13 @@ async fn function_handler(
     }
 
     if method == "POST" && path == catalog::SCHEMAS_PATH {
-        return catalog::register_schemas(catalog.as_deref(), &event).await;
+        return catalog::register_schemas(catalog, event).await;
     }
     if let ("GET", Some(id)) = (method, catalog::definition_id(path)) {
-        return catalog::read_definition(catalog.as_deref(), id).await;
+        return catalog::read_definition(catalog, id).await;
     }
 
-    dispatch_with_state(&state, catalog.as_deref(), &event).await
+    dispatch_with_state(state, catalog, event).await
 }
 
 #[tokio::main]
@@ -192,7 +235,9 @@ async fn main() -> Result<(), Error> {
     };
 
     run(service_fn(move |event| {
-        function_handler(Arc::clone(&state), catalog.clone(), event)
+        let state = Arc::clone(&state);
+        let catalog = catalog.clone();
+        async move { function_handler(&state, catalog.as_deref(), &event).await }
     }))
     .await
 }

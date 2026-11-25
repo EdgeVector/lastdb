@@ -152,7 +152,12 @@
             "description": "submit accepted the proposal into the share's pending log. change answers 202 when it queued the change as a proposal. The node did not write a record.",
             "content": {
               "application/json": {
-                "schema": {"$ref": "#/components/schemas/DatabasesSubmitReply"}
+                "schema": {
+                  "oneOf": [
+                    {"$ref": "#/components/schemas/DatabasesSubmitReply"},
+                    {"$ref": "#/components/schemas/DatabasesChangeReply"}
+                  ]
+                }
               }
             }
           },

@@ -32,10 +32,8 @@ pub const SIGNED_HISTORY_INTENT: &[u8] = b"signed-history-v1\n";
 #[must_use]
 pub fn is_payment_subscription_error(status: u16, body: &[u8]) -> bool {
     status == 403
-        && serde_json::from_slice::<ProtocolError>(body).is_ok_and(|err| {
-            err.code == cloud_backup_protocol::ErrorCode::Unauthorized
-                && err.field == "payment.subscription"
-        })
+        && serde_json::from_slice::<ProtocolError>(body)
+            .is_ok_and(|err| err.is_payment_subscription())
 }
 
 /// The relay that `LASTDB_RELAY_URL` names, if it names one.

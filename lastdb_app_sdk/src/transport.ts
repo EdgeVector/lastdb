@@ -52,8 +52,6 @@ export interface TransportSendOptions {
 export interface Transport {
   /** A short description of where this transport points (for diagnostics). */
   readonly target: string;
-  /** True when `send` accepts raw `Uint8Array` / `ArrayBuffer` bodies directly. */
-  readonly supportsBinaryBody?: boolean;
   /** Perform one request and return the parsed JSON response. */
   send(method: 'GET' | 'POST', path: string, options?: TransportSendOptions): Promise<RawResponse>;
   /** Perform one request expecting a binary `application/octet-stream` 2xx body. */
@@ -147,63 +145,11 @@ function mergeHeaders(
   return merged;
 }
 
-/** Wrap an existing {@link Transport} with additional default headers (per-call headers still win). */
-export function withDefaultHeaders(
-  transport: Transport,
-  extraHeaders: Record<string, string>,
-): Transport {
-  if (Object.keys(extraHeaders).length === 0) {
-    return transport;
-  }
-  const wrapped: Transport = {
-    target: transport.target,
-    supportsBinaryBody: transport.supportsBinaryBody,
-    send(method, path, options = {}) {
-      return transport.send(method, path, {
-        ...options,
-        headers: mergeHeaders(extraHeaders, options.headers),
-      });
-    },
-  };
-  if (transport.sendBinary !== undefined) {
-    const sendBinary = transport.sendBinary.bind(transport);
-    wrapped.sendBinary = (method, path, options = {}) =>
-      sendBinary(method, path, {
-        ...options,
-        headers: mergeHeaders(extraHeaders, options.headers),
-      });
-  }
-  return wrapped;
-}
-
 function hasHeader(headers: Record<string, string>, lowerName: string): boolean {
   return Object.keys(headers).some((k) => k.toLowerCase() === lowerName);
 }
 
-function normalizeResponseHeaders(raw: IncomingMessage['headers']): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const [key, value] of Object.entries(raw)) {
-    if (typeof value === 'string') {
-      out[key.toLowerCase()] = value;
-    } else if (Array.isArray(value)) {
-      out[key.toLowerCase()] = value.join(', ');
-    }
-  }
-  return out;
-}
-
-function parseLooseErrorBody(buf: Buffer): unknown {
-  if (buf.byteLength === 0) return null;
-  const text = buf.toString('utf8');
-  try {
-    return JSON.parse(text);
-  } catch {
-    return text;
-  }
-}
-
 class NodeHttpTransport implements Transport {
-  readonly supportsBinaryBody = true;
   private readonly timeoutMs: number;
 
   constructor(
@@ -243,34 +189,12 @@ class NodeHttpTransport implements Transport {
     }
   }
 
-  async sendBinary(
-    method: 'GET' | 'POST',
-    path: string,
-    options: TransportSendOptions = {},
-  ): Promise<BinaryResponse> {
-    const { status, headers, buf } = await this.execute(
-      method,
-      path,
-      'application/octet-stream',
-      options,
-    );
-    if (status >= 200 && status < 300) {
-      return {
-        status,
-        headers,
-        bytes: new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength),
-        errorBody: null,
-      };
-    }
-    return { status, headers, bytes: new Uint8Array(0), errorBody: parseLooseErrorBody(buf) };
-  }
-
   private execute(
     method: 'GET' | 'POST',
     path: string,
     defaultAccept: string,
     options: TransportSendOptions,
-  ): Promise<{ status: number; headers: Record<string, string>; buf: Buffer }> {
+  ): Promise<{ status: number; buf: Buffer }> {
     const timeoutMs = options.timeoutMs ?? this.timeoutMs;
     if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
       return Promise.reject(
@@ -295,7 +219,6 @@ class NodeHttpTransport implements Transport {
           res.on('end', () => {
             resolve({
               status: res.statusCode ?? 0,
-              headers: normalizeResponseHeaders(res.headers),
               buf: Buffer.concat(chunks),
             });
           });

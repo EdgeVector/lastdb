@@ -86,6 +86,13 @@ pub(crate) async fn push(
             );
         }
     };
+    if entry.audience.as_deref() == Some("private") {
+        return refused(
+            403,
+            "private apps do not push schemas to the public catalog",
+            "private audience",
+        );
+    }
     if entry.sha != prepared.sha {
         return refused(403, "schema push refused", "sha mismatch");
     }

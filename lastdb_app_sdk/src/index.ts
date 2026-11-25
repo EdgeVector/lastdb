@@ -32,6 +32,11 @@ export type {
   DatabasesHead,
   DatabasesHeadsReply,
   DatabasesHeadsRequest,
+  DatabasesLease,
+  DatabasesLeaseLengthReply,
+  DatabasesLeaseLengthRequest,
+  DatabasesLeaseReply,
+  DatabasesLeaseRequest,
   DatabasesRelaysReply,
   DatabasesRelaysRequest,
   DatabasesRevokeRequest,
@@ -51,6 +56,7 @@ export type {
   DatabasesSchema,
   DatabasesSchemasReply,
   DatabasesSchemasRequest,
+  DatabasesSelfAccess,
   DatabasesShareLinkReply,
   DatabasesShareLinkRequest,
   DatabasesSpec,
@@ -116,6 +122,7 @@ export type {
   PublishOutcome,
   ReceivedPublish,
   SharedDatabaseAccess,
+  SharedMemberLease,
 } from './databases.js';
 
 export {

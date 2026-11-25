@@ -86,9 +86,21 @@ const UUID_HYPHENATED =
   /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 const UUID_SIMPLE = /^[0-9a-fA-F]{32}$/;
 
+/** The newest write lease held in a received database's signed history. */
+export interface SharedMemberLease {
+  entryHash: string;
+  authoredAtMs: number;
+  expiresAtMs: number;
+  closesAtMs: number;
+  covers: boolean;
+  directWrites: boolean;
+  directWritesUntilMs: number | null;
+}
+
 /** This node's role in a received database, from the folded signed grants. */
 export interface SharedDatabaseAccess {
   role: 'read' | 'submit' | 'write';
+  lease?: SharedMemberLease | null;
 }
 
 /** Versioned spec binding stored on an owned database. */
@@ -119,6 +131,7 @@ export interface ListedDatabase {
   access: string;
   state: string;
   sharingMode?: 'whole_database';
+  leaseLengthMs?: number;
   selfAccess?: SharedDatabaseAccess;
   publish?: ReceivedPublish;
   publisher?: string;
@@ -243,6 +256,13 @@ function parseListedDatabase(value: unknown): ListedDatabase {
   if (value['sharingMode'] === 'whole_database') {
     listed.sharingMode = value['sharingMode'];
   }
+  if (value['leaseLengthMs'] !== undefined) {
+    const length = value['leaseLengthMs'];
+    if (typeof length !== 'number' || !Number.isSafeInteger(length) || length <= 0) {
+      throw new UnexpectedResponseError('database list returned an invalid lease length', 200, value);
+    }
+    listed.leaseLengthMs = length;
+  }
   if (value['selfAccess'] !== undefined) {
     listed.selfAccess = parseSharedDatabaseAccess(value['selfAccess']);
   }
@@ -323,11 +343,38 @@ function parseSpec(value: unknown): DatabaseSpec | null {
   return { name: value['name'], version: value['version'] };
 }
 
+function nonNegativeInt(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+}
+
+function parseSharedMemberLease(value: unknown): SharedMemberLease {
+  if (isObject(value)) {
+    const { entryHash, authoredAtMs, expiresAtMs, closesAtMs, covers, directWrites, directWritesUntilMs } = value;
+    if (
+      typeof entryHash === 'string' &&
+      entryHash.length > 0 &&
+      nonNegativeInt(authoredAtMs) &&
+      nonNegativeInt(expiresAtMs) &&
+      nonNegativeInt(closesAtMs) &&
+      typeof covers === 'boolean' &&
+      typeof directWrites === 'boolean' &&
+      (directWritesUntilMs === null || nonNegativeInt(directWritesUntilMs))
+    ) {
+      return { entryHash, authoredAtMs, expiresAtMs, closesAtMs, covers, directWrites, directWritesUntilMs };
+    }
+  }
+  throw new UnexpectedResponseError('database returned an invalid member lease', 200, value);
+}
+
 function parseSharedDatabaseAccess(value: unknown): SharedDatabaseAccess {
   if (isObject(value)) {
     const { role } = value;
     if (role === 'read' || role === 'submit' || role === 'write') {
-      return { role };
+      const access: SharedDatabaseAccess = { role };
+      if (value['lease'] !== undefined) {
+        access.lease = value['lease'] === null ? null : parseSharedMemberLease(value['lease']);
+      }
+      return access;
     }
   }
   throw new UnexpectedResponseError('database returned an invalid recipient grant', 200, null);

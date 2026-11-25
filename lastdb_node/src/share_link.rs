@@ -123,7 +123,10 @@ pub(crate) fn issue(host: &Host, entry: &Entry) -> Result<String, IssueError> {
     })?;
     let publisher = Digest::try_from(fold_db::hex::hex_lower(host.keypair.public_key_bytes()))
         .map_err(|_| IssueError::unavailable("node key is not a publisher key"))?;
-    let device_id = local_device_id(&host.home)?;
+    let device = crate::device_identity::device_id(&host.home)
+        .map_err(|_| IssueError::unavailable("device id is unavailable"))?;
+    let device_id = Digest::try_from(device.to_hex())
+        .map_err(|_| IssueError::unavailable("device id is not hex32"))?;
     let seed = zeroize::Zeroizing::new(host.keypair.secret_key_bytes());
     let content = owned::content_encryption_key(&seed, &entry.id)
         .map_err(|_| IssueError::unavailable("database content key is unavailable"))?;
@@ -315,24 +318,12 @@ fn mark_signed_log_ready(home: &Path, id: &Id) -> Result<(), ShareCacheError> {
     Ok(())
 }
 
-/// Same file as `log_sync::device::device_id`. Kept here so open-link mint stays
-/// below the sync layer.
-fn local_device_id(home: &Path) -> Result<Digest, IssueError> {
-    use crate::profile::private_fs as disk;
-    let path = home.join("log-sync").join("device-id");
-    if let Ok(Some(bytes)) = disk::read_limited(&path, 4096) {
-        let text = std::str::from_utf8(&bytes)
-            .map_err(|_| IssueError::unavailable("device id is not text"))?
-            .trim();
-        return Digest::try_from(text.to_owned())
-            .map_err(|_| IssueError::unavailable("device id is not hex32"));
-    }
-    let mut bytes = [0u8; 32];
-    rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut bytes);
-    let hex = fold_db::hex::hex_lower(bytes);
-    disk::write_private(&path, format!("{hex}\n").as_bytes())
-        .map_err(|_| IssueError::unavailable("cannot write device id"))?;
-    Digest::try_from(hex).map_err(|_| IssueError::unavailable("device id is not hex32"))
+/// Lock `<home>/received-shares-v1/registry.lock` when the directory exists.
+pub(crate) fn lock_existing_registry(home: &Path) -> Result<Option<File>, ShareCacheError> {
+    let Some(cache) = ShareCache::open_managed(home, false)? else {
+        return Ok(None);
+    };
+    registry_lock(&cache).map(Some)
 }
 
 fn stream(opened: &OpenedLink) -> Stream {

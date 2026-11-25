@@ -16,7 +16,6 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use super::refusal::{conflict_error, name_conflict, WrittenKey, ABSENT};
-use super::write_file::LinkedFile;
 use super::{bad, fail, ok, require_exact_name, require_write};
 use crate::exec::mutation::commit_mutations;
 use crate::exec::reply::HostError;
@@ -141,22 +140,17 @@ pub(super) async fn run(host: &Host, mut items: Vec<WriteItem>) -> Result<Value,
             Vec::new()
         };
         let located = located_keys(&items);
-        let mut prepared = prepare(host, items).await?;
+        let mut mutations = prepare(host, items).await?;
         if shared {
             let writer =
                 mutation_log::NodeKey::from_bytes(host.keypair.public_key_bytes()).to_hex();
-            for mutation in &mut prepared.mutations {
+            for mutation in &mut mutations {
                 mutation.writer = Some(writer.clone());
             }
         }
-        let receipt = commit_mutations(host, prepared.mutations)
+        let receipt = commit_mutations(host, mutations)
             .await
             .map_err(|error| name_conflict(error, &located))?;
-        for file in &prepared.linked {
-            host.records()
-                .remember_local_file(&file.schema, &file.key, &file.path, &file.marker)
-                .await?;
-        }
         let revisions: Vec<Value> = receipt
             .mutation_ids
             .iter()
@@ -172,14 +166,8 @@ pub(super) async fn run(host: &Host, mut items: Vec<WriteItem>) -> Result<Value,
     Ok(json!({ "written": revisions.len(), "revisions": revisions }))
 }
 
-struct Prepared {
-    mutations: Vec<Mutation>,
-    linked: Vec<LinkedFile>,
-}
-
-async fn prepare(host: &Host, items: Vec<WriteItem>) -> Result<Prepared, HostError> {
+async fn prepare(host: &Host, items: Vec<WriteItem>) -> Result<Vec<Mutation>, HostError> {
     let mut mutations = Vec::with_capacity(items.len());
-    let mut linked = Vec::new();
     for (index, mut item) in items.into_iter().enumerate() {
         // A delete names every declared alternate. The node reads the live
         // record's addresses. When no record is there, a shape-valid stand-in
@@ -198,23 +186,21 @@ async fn prepare(host: &Host, items: Vec<WriteItem>) -> Result<Prepared, HostErr
         let file = std::mem::replace(&mut item.file, FileInput::Absent);
         let mut mutation = build(item, alternates);
         match file {
-            FileInput::Link(link) => linked.push(
-                super::write_file::link_file(
-                    host,
-                    &mut mutation,
-                    link.path,
-                    link.name,
-                    link.media_type,
-                )
-                .await
-                .map_err(|error| error.at(index))?,
-            ),
+            FileInput::Link(link) => super::write_file::link_file(
+                host,
+                &mut mutation,
+                link.path,
+                link.name,
+                link.media_type,
+            )
+            .await
+            .map_err(|error| error.at(index))?,
             FileInput::Clear => mutation.file_write = Some(FileWrite::Clear),
             FileInput::Absent => {}
         }
         mutations.push(mutation);
     }
-    Ok(Prepared { mutations, linked })
+    Ok(mutations)
 }
 
 fn located_keys(items: &[WriteItem]) -> Vec<WrittenKey> {

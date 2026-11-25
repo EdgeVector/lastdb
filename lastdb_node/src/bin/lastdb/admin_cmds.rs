@@ -177,7 +177,7 @@ pub(super) fn status(
         let note = "daemon_build is what the PROCESS reports; cli_build is this binary. null daemon_build = no status reply, build unknown — not agreement";
         print_pretty_json(&json!({
             "home": home.display().to_string(), "socket": socket.display().to_string(),
-            "running": running, "daemon_status": daemon_status, "daemon_pid_alive": false,
+            "running": running, "daemon_status": daemon_status, "daemon_pid_alive": running,
             "health_error": health.as_ref().err(), "daemon_build": daemon_build, "cli_build": cli_build,
             "build_agreement": agree, "cloud_sync": cloud_sync, "notes": [note],
         }));

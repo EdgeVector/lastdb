@@ -44,5 +44,7 @@ export function appApiFailure(status: number, body: unknown): AppApiError {
   if (reason !== undefined && !knownReason(reason)) {
     throw new UnexpectedResponseError('app API returned an unknown error reason', status, body);
   }
-  return new AppApiError(status, text('code') ?? '', message, index, reason);
+  const rawCode = text('code');
+  const code = rawCode && rawCode.length > 0 ? rawCode : status === 503 ? 'busy' : '';
+  return new AppApiError(status, code, message, index, reason);
 }
