@@ -33,6 +33,9 @@ from personal_proof_steps import gamma_create, gamma_replace, gamma_view
 from record_runs import RANGED, definition, require, system_seed
 
 SYNC_SECONDS = 300
+# 24 writes of 40,000 characters: about the size of the brain's long text chunks.
+LARGE_WRITES = 24
+LARGE_TEXT_BYTES = 40_000
 SKIPPED = (
     ("relay request log: idle turns read no entry, a restore reads only the tail by count of relay reads",
      "the deployed relay has no request log we can read; the tail is checked by the restore report"),
@@ -83,6 +86,12 @@ def a_writes(a, state, out):
         a.write([create(ALPHA, key, "bulk") for key in keys])
         for key in keys:
             expect(state, ALPHA, key, "bulk")
+    # Large entries, one write each, so one upload carries far more than 350,000 bytes (the Exemem
+    # relay refused any such request until 2026-11-25) and a restore reads them back in pages.
+    for n in range(LARGE_WRITES):
+        text = os.urandom(LARGE_TEXT_BYTES // 2).hex()
+        a.write([create(ALPHA, f"large-{n}", text)])
+        expect(state, ALPHA, f"large-{n}", text)
     a.change([replace(ALPHA, "a1", "two")])
     a.change([delete(ALPHA, "a2")])
     for key, text in (("a1", "two"), ("b1", "base"), ("b2", "base"), ("b3", "base")):

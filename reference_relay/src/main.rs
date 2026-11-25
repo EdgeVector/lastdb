@@ -43,10 +43,12 @@ use handlers::{blob_get, blob_put, log_append, log_read, log_streams, AppState};
 use store::Store;
 use trim::log_trim;
 
-/// Largest signed JSON request body (`log/append` carries up to 90 entries).
-/// Blob bodies are not buffered, so they are not bound by this limit; each
-/// upload is bound by the size its `blob.put` begin declared.
-const MAX_JSON_BODY_BYTES: usize = 64 * 1024 * 1024;
+/// The hosted relay runs on AWS Lambda, which takes at most 6 MB in one request and returns at
+/// most 6 MB in one response. That is the protocol's only request and response size
+/// (`docs/designs/relay-protocol.md`, "Sizes"), and this relay holds both to it so a node that
+/// works here works there. Blob bodies are not buffered and not bound by it; each upload is bound
+/// by the size its `blob.put` begin declared.
+pub(crate) const PLATFORM_PAYLOAD_MAX_BYTES: usize = 6 * 1024 * 1024;
 
 #[derive(Parser, Debug)]
 #[command(name = "reference_relay")]
@@ -134,7 +136,7 @@ async fn run() -> Result<(), String> {
             "/relay/v1/blob/bytes/{database_id}/{sha256}",
             get(blob_bytes),
         )
-        .layer(DefaultBodyLimit::max(MAX_JSON_BODY_BYTES));
+        .layer(DefaultBodyLimit::max(PLATFORM_PAYLOAD_MAX_BYTES));
     if let Some(refusals) = refusal::Refusals::parse(&cli.refuse_first)? {
         app = app.layer(middleware::from_fn_with_state(refusals, refusal::refuse));
     }

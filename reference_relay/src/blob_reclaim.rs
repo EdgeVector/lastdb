@@ -22,7 +22,7 @@ use tokio::fs;
 use crate::auth;
 use crate::error::{ApiError, ApiResult};
 use crate::gate;
-use crate::handlers::{parse_body, AppState, SMALL_BODY_BYTES};
+use crate::handlers::{parse_body, AppState};
 use crate::store::{is_hex64, require_hex64, Store};
 use crate::trim::{personal_owner, snapshot_entry, SnapshotName};
 
@@ -49,7 +49,7 @@ pub(crate) async fn blob_list(
     body: Bytes,
 ) -> ApiResult<Json<Value>> {
     let verified = auth::verify_request(&headers, "/relay/v1/blob/list", &body)?;
-    let req: BlobListBody = parse_body(&body, SMALL_BODY_BYTES)?;
+    let req: BlobListBody = parse_body(&body)?;
     verified.check_database(&req.database_id)?;
     require_hex64(&req.database_id, "database_id")?;
     let db = gate::parse_id(&req.database_id, "database_id")?;
@@ -138,7 +138,7 @@ pub(crate) async fn blob_drop(
     body: Bytes,
 ) -> ApiResult<Json<Value>> {
     let verified = auth::verify_request(&headers, "/relay/v1/blob/drop", &body)?;
-    let req: BlobDropBody = parse_body(&body, SMALL_BODY_BYTES)?;
+    let req: BlobDropBody = parse_body(&body)?;
     verified.check_database(&req.database_id)?;
     check_drop_body(&req)?;
     let db = gate::parse_id(&req.database_id, "database_id")?;
