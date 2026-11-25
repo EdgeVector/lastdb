@@ -53,13 +53,18 @@ impl VerifiedHistory {
         let decls = self.schema_decls.entry(namespace.clone()).or_default();
         decls.insert(
             super::lease::pos_key(position),
-            (position, hash, body.definition.clone()),
+            super::SchemaDecl {
+                pos: position,
+                entry: hash,
+                bytes: body.definition.clone(),
+            },
         );
-        let Some((_, &(win_pos, win_hash, _))) = decls.iter().next_back() else {
+        let Some(winner) = decls.values().next_back() else {
             return;
         };
+        let (win_pos, win_hash) = (winner.pos, winner.entry);
         let next_def = crate::schema_merge::fold_schema_declarations(
-            decls.values().rev().map(|(_, _, def)| def.as_slice()),
+            decls.values().rev().map(|decl| decl.bytes.as_slice()),
         )
         .unwrap_or_default();
         self.schema_positions
