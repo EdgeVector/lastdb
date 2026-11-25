@@ -24,6 +24,8 @@ const ALL: &[u8] = &[0xff];
 
 /// Records read in one page of a range.
 const PAGE: usize = 1024;
+/// Id records one trim removes at most.
+const TRIM_MAX: usize = 4_096;
 
 pub(super) fn seq_key(sequence: u64) -> String {
     format!("{sequence:020}")
@@ -97,6 +99,11 @@ fn range(
         let page = cursor
             .next_page_yielding(PAGE, 0, 1)
             .map_err(|_| Error::Unavailable)?;
+        // A page cut by the read budget names where to resume. A page that reached its record
+        // limit names nothing: it resumes after its last record.
+        let resume = page
+            .resume
+            .or_else(|| page.records.last().map(|(key, _)| key.clone()));
         for (key, value) in page.records {
             if !visit(key, value)? {
                 return Ok(());
@@ -105,8 +112,8 @@ fn range(
         if page.exhausted {
             return Ok(());
         }
-        let Some(last) = page.resume else {
-            return Ok(());
+        let Some(last) = resume else {
+            return Err(Error::Unavailable);
         };
         from = last.into_bytes();
         from.push(0);
@@ -227,7 +234,8 @@ pub(super) fn id_ops(meta: &Meta) -> [HomeMutation; 2] {
     ]
 }
 
-/// Deletes of the id records of every write with sequence at most `through`.
+/// Deletes of the id records of the oldest writes with sequence at most `through`, at most
+/// `TRIM_MAX` of them.
 pub(super) fn trim_id_ops(physical: &V2Home, through: u64) -> Result<Vec<HomeMutation>, Error> {
     let mut ops = Vec::new();
     let end = seq_key(through.saturating_add(1));
@@ -235,7 +243,8 @@ pub(super) fn trim_id_ops(physical: &V2Home, through: u64) -> Result<Vec<HomeMut
         let id = String::from_utf8(value).map_err(|_| Error::Gap)?;
         ops.push(delete(IDS, id));
         ops.push(delete(ID_ORDER, key));
-        Ok(true)
+        // One trim stays well inside the operations of one commit; the next trim goes on.
+        Ok(ops.len() < 2 * TRIM_MAX)
     })?;
     Ok(ops)
 }
