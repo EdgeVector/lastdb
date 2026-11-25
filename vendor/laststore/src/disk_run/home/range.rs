@@ -44,6 +44,14 @@ impl RunRange {
         }
     }
 
+    /// A source over records already in memory, in key order.
+    pub(crate) fn memory(records: Vec<(Vec<u8>, Found)>) -> Self {
+        Self {
+            records: records.into_iter(),
+            ..Self::sequence(Vec::new(), &[0; 32], Bound::Unbounded, Bound::Unbounded)
+        }
+    }
+
     pub(crate) fn set_reader(&mut self, reader: Arc<RunReader>) {
         self.next_index = match &self.lower {
             Bound::Included(k) | Bound::Excluded(k) => reader.index_for(k).unwrap_or(0),
@@ -241,6 +249,10 @@ impl RunRead {
         let lo = Bound::Included(&lower[..]);
         let base_from = self.runs.len() - self.manifest.base.len();
         let mut sources = Vec::new();
+        let logged = self.manifest.mem.range(&lower, &upper);
+        if !logged.is_empty() {
+            sources.push(RunRange::memory(logged));
+        }
         for slot in 0..base_from {
             if self.runs[slot].0.meta.overlaps(&lower, Some(&upper)) {
                 sources.push(self.reader(slot)?.range(lo, Bound::Excluded(&upper)));

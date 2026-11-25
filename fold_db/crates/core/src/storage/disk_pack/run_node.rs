@@ -301,7 +301,9 @@ impl PackNamespacedStore {
             space_policy.disk_cap_bytes = parsed
                 .ok_or_else(|| StorageError::invalid("LASTDB_DISK_CAP_BYTES must be positive"))?;
         }
-        let home = Arc::new(RunHome::open(&path.join(RUN_DIR), &home_key(node_key)).map_err(map)?);
+        // Record commits go through the commit log: one frame and one ordered flush each.
+        let home = RunHome::open_logged(&path.join(RUN_DIR), &home_key(node_key));
+        let home = Arc::new(home.map_err(map)?);
         let cas = Arc::new(RunHome::open(&path.join(CAS_DIR), &cas_key(node_key)).map_err(map)?);
         let mut physical = physical::V2Home::new(home, cas);
         physical.cas_delete_recovery = cas_delete::recover(&physical)?;

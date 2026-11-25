@@ -54,6 +54,19 @@ impl PackRuntime {
         })
     }
 
+    /// Seal every logged commit and remove the commit log, so the stopped home holds CURRENT
+    /// and runs only. Call it once at a clean stop, after the last write.
+    pub async fn close_commit_log(self: &Arc<Self>) -> StorageResult<()> {
+        let _write = self.enter_write().await;
+        let home = Arc::clone(&self.physical.home);
+        run_blocking(move || home.close_log().map_err(map)).await
+    }
+
+    /// Ordered flushes of the record commit log since open, and its memory layer.
+    pub fn commit_log_stats(&self) -> Option<laststore::disk_run::home::CommitLogStats> {
+        self.physical.home.commit_log_stats()
+    }
+
     pub(crate) async fn flush(self: &Arc<Self>) -> StorageResult<()> {
         if PendingBatch::current(self).is_none() {
             self.wait_for_queue(self.seal_queue()).await?;

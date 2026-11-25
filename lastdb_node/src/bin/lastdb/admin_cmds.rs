@@ -198,6 +198,12 @@ pub(super) fn status(
         if let Some(up) = status_val.as_ref().and_then(|s| s["uptime_secs"].as_u64()) {
             println!("Uptime: {up}s");
         }
+        if let Some(line) = status_val
+            .as_ref()
+            .and_then(|s| commit_log_line(&s["commit_log"]))
+        {
+            println!("{line}");
+        }
         if let Some(line) = cloud_sync.as_ref().and_then(format_cloud_sync_line) {
             println!("{line}");
         }
@@ -225,6 +231,18 @@ pub(super) fn status(
         }
     }
     Ok(running)
+}
+
+fn commit_log_line(log: &Value) -> Option<String> {
+    let n = |k: &str| log[k].as_u64();
+    Some(format!(
+        "Commit log: {} flushes, mean {} µs, slowest {} µs; {} commits ({} bytes) not yet in a run",
+        n("flushes")?,
+        n("mean_flush_micros")?,
+        n("slowest_flush_micros")?,
+        n("memory_commits")?,
+        n("memory_bytes")?
+    ))
 }
 
 fn format_cloud_sync_line(sync: &Value) -> Option<String> {

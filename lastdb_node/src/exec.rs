@@ -157,6 +157,7 @@ pub(in crate::exec) async fn execute_data_route_with_timeout(
                     "app_socket": app_socket,
                     "cloud_sync": cloud_sync,
                     "spool": runtime.accepted_report(),
+                    "commit_log": runtime.commit_log_stats(),
                 });
                 return json_ok(&envelope(&json!({ "status": st }), &ctx.user_id));
             }

@@ -198,7 +198,9 @@ impl FoldDB {
 
     pub async fn shutdown(&self) -> Result<(), StorageError> {
         info!(target: "fold_node::database", "Shutting down FoldDB: flushing storage");
-        self.flush().await
+        self.flush().await?;
+        // A stopped home holds no commit log: its logged commits are sealed into a run.
+        self.db_ops.native_runtime().close_commit_log().await
     }
 
     pub async fn flush(&self) -> Result<(), StorageError> {

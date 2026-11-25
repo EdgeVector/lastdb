@@ -1,5 +1,6 @@
 //! Published roots, file-handle snapshots, stopped-home readers, and point reads.
 
+use super::commit_log::replay;
 use super::manifest::{Manifest, RunFile, CURRENT};
 use super::{
     invalid, lock_and_load, open_nofollow, run_key, unpoison, RunHome, RUNS, RUN_HOME_MARKER,
@@ -82,9 +83,9 @@ impl RunRoot {
         self.0.generation
     }
 
-    /// Complete commits in this state.
+    /// Complete commits in this state, logged commits included.
     pub fn frontier(&self) -> u64 {
-        self.0.frontier
+        self.0.total_frontier()
     }
 }
 
@@ -114,7 +115,10 @@ impl RunHome {
     }
 
     /// Hold the current publication across subsequent writes and compactions.
+    /// Logged commits are sealed first: a snapshot holds files only.
     pub fn snapshot(&self) -> Result<RunSnapshot> {
+        let (_seal, _commit) = (unpoison(&self.seal_mutex), self.commit_lock()?);
+        self.seal_now()?;
         let _publish = self.publish_lock()?;
         self.refuse_if_poisoned()?;
         let descriptor = open_nofollow(&self.path().join(RUN_HOME_MARKER))?;
@@ -226,9 +230,11 @@ impl RunRead {
         })
     }
 
-    /// Open one existing CURRENT without the cleanup performed by `RunHome::open`.
+    /// Open one existing CURRENT without the cleanup performed by `RunHome::open`. Logged
+    /// commits are replayed into memory; the log stays as it is.
     pub fn open_existing(root: &Path, key: &[u8; 32], budget: ReadBudget) -> Result<Self> {
-        let (_, _, lock, manifest) = lock_and_load(root, key, false)?;
+        let (dir, _, lock, mut manifest) = lock_and_load(root, key, false)?;
+        manifest.mem = replay(&dir, key, manifest.frontier)?.0;
         Self::build(Arc::new(manifest), *key, Arc::new(lock), budget, None)
     }
 
@@ -296,7 +302,10 @@ impl RunRead {
             self.charge((col.len() + key.len()) as u64)?;
             wanted.push(run_key(col, key.as_bytes()));
         }
-        let mut found: Vec<Option<Found>> = vec![None; coords.len()];
+        let mut found: Vec<Option<Found>> = wanted
+            .iter()
+            .map(|k| k.as_ref().ok().and_then(|k| self.manifest.mem.get(k)))
+            .collect();
         for slot in 0..self.runs.len() {
             let meta = &self.runs[slot].0.meta;
             let open: Vec<usize> = (0..wanted.len())
