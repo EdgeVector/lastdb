@@ -26,6 +26,12 @@ def count(relay, text):
     return sum(1 for line in relay.lines() if text in line)
 
 
+def large_uploads(relay):
+    """Completed uploads of at least FILE_BYTES: the file, not the log segments that carry the entries."""
+    return sum(1 for line in relay.lines()
+               if "upload_bytes=" in line and int(line.split("upload_bytes=")[1].split()[0]) >= FILE_BYTES)
+
+
 def prove_upload_retry(args):
     out = args.output
     roots = {name: out / name for name in ("relay7", "relay8")}
@@ -42,11 +48,13 @@ def prove_upload_retry(args):
         home_with_file(two, FILE_BYTES)
         wait("the home to sync up after its connection was closed once", one.synced_up)
         seconds = time.monotonic() - started
-        closed, completed = count(closing, "relay upload_closed"), count(closing, "upload_ms=")
+        closed, completed = count(closing, "relay upload_closed"), large_uploads(closing)
         require(closed == 1 and completed == 1, f"closed uploads {closed}, completed uploads {completed}")
         wait("the refused upload to be reported", lambda: "blob upload HTTP 400" in json.dumps(two.sync_status()))
         time.sleep(6)
         refused, begins = count(refusing, "route=blob/upload status=400"), count(refusing, "route=blob/put status=200")
+        # The log segments that carry the entries are small and go up; every other begin is one of the file.
+        begins -= count(refusing, "route=blob/upload status=200")
         require(refused >= 1 and refused == begins, f"{refused} refused uploads for {begins} begins: a 400 was sent again")
         require(not two.synced_up(), "the refused home reports its writes as uploaded")
         print(f"19. a connection closed in the middle of the first upload of a file: the node sent the file again and "
