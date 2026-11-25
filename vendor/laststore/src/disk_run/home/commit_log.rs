@@ -1,5 +1,5 @@
-//! The commit log: preallocated files that each commit appends one frame to, with one ordered
-//! flush, and the replay that rebuilds the memory layer when a home opens.
+//! The commit log: files that each commit appends one frame to, with one ordered flush, and the
+//! replay that rebuilds the memory layer when a home opens.
 //!
 //! A frame's counter is the commit's frontier. Replay keeps the frames above the CURRENT
 //! frontier and requires them to be consecutive. A seal publishes them in a run, and the files
@@ -22,9 +22,8 @@ use std::time::Instant;
 /// Directory of the commit log inside a home.
 pub const LOG: &str = "commit-log";
 const SUFFIX: &str = ".log";
-/// Bytes of one preallocated log file. A larger commit gets a file of its own size.
+/// Bytes after which appends move to the next log file. A larger commit gets a file of its own.
 const FILE_BYTES: u64 = 16 << 20;
-const ZEROS: usize = 1 << 20;
 const MAX_FILES: usize = 4096;
 /// Largest commit payload the log takes. A larger commit is sealed into a run of its own.
 pub(super) const MAX_PAYLOAD: usize = MAX_DECOMPRESSED_FRAME_BYTES / 2;
@@ -81,8 +80,8 @@ fn file_path(dir: &Path, seq: u64) -> PathBuf {
     dir.join(format!("{seq:020}{SUFFIX}"))
 }
 
-/// Create one zero-filled log file. Zeros end a replay, so a file cut short by a crash holds
-/// no commit.
+/// Create one empty log file. It grows with each append; a frame cut short by a crash is the
+/// end of the file at replay. Files are not preallocated: an idle home holds no empty log bytes.
 fn create_file(dir: &Path, seq: u64, cap: u64) -> Result<LogFile> {
     let path = file_path(dir, seq);
     let file = OpenOptions::new()
@@ -91,18 +90,7 @@ fn create_file(dir: &Path, seq: u64, cap: u64) -> Result<LogFile> {
         .create_new(true)
         .mode(0o600)
         .open(&path)?;
-    let zeros = vec![0u8; ZEROS];
-    let filled = (|| -> Result<()> {
-        let mut at = 0;
-        while at < cap {
-            let n = (cap - at).min(ZEROS as u64);
-            file.write_all_at(&zeros[..n as usize], at)?;
-            at += n;
-        }
-        sync_dirty_file(&file)?;
-        sync_directory(dir)
-    })();
-    filled.inspect_err(|_| drop(fs::remove_file(&path)))?;
+    sync_directory(dir).inspect_err(|_| drop(fs::remove_file(&path)))?;
     Ok(LogFile {
         seq,
         file,

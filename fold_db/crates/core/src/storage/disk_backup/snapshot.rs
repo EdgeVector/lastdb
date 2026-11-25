@@ -111,6 +111,10 @@ impl PackRuntime {
         self: &Arc<Self>,
         key: zeroize::Zeroizing<[u8; 32]>,
     ) -> StorageResult<Option<DatabaseSnapshot>> {
+        // Settle first without blocking writers, then again under the write gate, where only
+        // the commits of that short window remain.
+        let runtime = Arc::clone(self);
+        run_blocking(move || runtime.settle_runs()).await?;
         let _write = self.enter_write().await;
         if self.requires_recovery() {
             return Err(StorageError::invalid(
@@ -135,6 +139,7 @@ impl PackRuntime {
         let heads = self.stream_head_rows().await?;
         let runtime = Arc::clone(self);
         run_blocking(move || {
+            runtime.settle_runs()?;
             // Commits acknowledge after an ordered write. The files of a snapshot leave this
             // machine, so the drive is flushed to the medium first.
             laststore::flush_drive(runtime.physical.path()).map_err(map)?;
@@ -144,6 +149,24 @@ impl PackRuntime {
                 .map(Some)
         })
         .await
+    }
+
+    /// Seal the commit log and finish pending merges, so a snapshot holds the runs this home
+    /// keeps. Without it a later merge shrinks the local files below what the relay holds.
+    fn settle_runs(&self) -> StorageResult<()> {
+        const MAX_STEPS: usize = 64;
+        let home = &self.physical.home;
+        home.seal_log().map_err(map)?;
+        for _ in 0..MAX_STEPS {
+            if !home.needs_merge()
+                || !home
+                    .merge_step_with_space(&self.space_policy)
+                    .map_err(map)?
+            {
+                break;
+            }
+        }
+        Ok(())
     }
 
     /// Open the files preserved by [`Self::begin_first_snapshot`]. `None` when this home needs

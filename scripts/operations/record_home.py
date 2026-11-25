@@ -360,7 +360,7 @@ def main():
         record_app_api.exercise(node)
         record_commit_log.check(
             node,
-            write=lambda key, values: mutate(node, "RecordById", key, values),
+            write=lambda key, values: mutate(node, "RecordById", key, values, "create"),
             delete=lambda key: mutate(node, "RecordById", key, {}, operation="delete"),
             read=lambda key: next((held(r["record"]) for r in query(node, "RecordById", {"HashKey": key})), None))
         current = query(node, "RecordById", {"HashKey": "four"})[0]["revision"]
