@@ -157,7 +157,7 @@ impl Store {
 /// The keys of the items stored in a stream directory, at or above `min`, ascending. The key of
 /// an entry is its sequence number and the key of a segment its last one, so the first key at or
 /// above a sequence number is the item that holds it when one does.
-async fn stored_keys(dir: &std::path::Path, min: u64) -> ApiResult<Vec<u64>> {
+pub(crate) async fn stored_keys(dir: &std::path::Path, min: u64) -> ApiResult<Vec<u64>> {
     let mut rd = match fs::read_dir(dir).await {
         Ok(rd) => rd,
         Err(err) if err.kind() == ErrorKind::NotFound => return Ok(Vec::new()),

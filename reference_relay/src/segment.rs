@@ -137,7 +137,14 @@ impl Store {
         if head >= segment.last_seq || floor >= segment.last_seq {
             return Ok(Appended::Duplicate);
         }
-        if head + 1 != segment.first_seq || floor >= segment.first_seq {
+        let path = self.item_path(database_id, node_key, device, segment.last_seq);
+        // An entry stored beyond the gap that the segment would fill: the items would overlap.
+        let dir = path.parent().unwrap_or(&path);
+        let overlaps = crate::store_read::stored_keys(dir, segment.first_seq)
+            .await?
+            .first()
+            .is_some_and(|key| *key <= segment.last_seq);
+        if head + 1 != segment.first_seq || floor >= segment.first_seq || overlaps {
             return Err(ApiError::conflict("segment.first_seq"));
         }
         let (bytes, _) = self
@@ -147,7 +154,6 @@ impl Store {
         if bytes != segment.bytes {
             return Err(ApiError::not_found("segment.sha256"));
         }
-        let path = self.item_path(database_id, node_key, device, segment.last_seq);
         if let Some(parent) = path.parent() {
             tokio::fs::create_dir_all(parent)
                 .await

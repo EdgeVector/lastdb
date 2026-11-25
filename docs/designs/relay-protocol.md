@@ -301,18 +301,24 @@ repeat.
 
 - **Who.** Only the publisher (403 `forbidden`, field `publisher`).
 - **Fields.** `first_seq` at least 1, `last_seq` at least `first_seq`, `last_hash` and
-  `sha256` 64 lowercase hex, `bytes` at least 1 (400 `invalid_request`, field
-  `segment.<name>`).
-- **The blob.** `sha256` must be committed with exactly `bytes` (404 `not_found`, field
-  `segment.sha256`). The node then uploads it again and repeats the append. On Exemem the
-  check is a condition in the transaction that stores the item, so a `blob.drop` cannot
-  remove the blob between the check and the item.
+  `sha256` 64 lowercase hex, `bytes` at least 1 and at most the relay's largest blob (400
+  `invalid_request`, field `segment.<name>`). An unknown field is 400, field `segment`.
+- **The blob.** `sha256` must be committed with exactly `bytes`, and not dropped (404
+  `not_found`, field `segment.sha256`). The node then uploads it again and repeats the
+  append. On Exemem the check is a condition in the transaction that stores the item, so a
+  `blob.drop` cannot remove the blob between the check and the item.
+- **Snapshot entries stay inline.** `log.trim` and `blob.drop` read the named snapshot
+  entry by its key, so the snapshot stream holds entries only. A segment there is refused
+  by the trim (403, field `namespace`).
 - **A repeat.** When the head of the stream is at or past `last_seq`, the append is a
   repeat: answered as a duplicate, nothing stored, nothing charged. The same holds at or
   below the floor.
 - **In order only.** Otherwise the head must be exactly `first_seq - 1` (no head and
   `first_seq` 1 counts), and the floor below `first_seq`. Anything else is 409
-  `conflict`, field `segment.first_seq`. A segment is never stored beyond a gap.
+  `conflict`, field `segment.first_seq`. A segment is never stored beyond a gap, and never
+  over an entry stored beyond the gap it would fill (the same 409).
+- **An inline repeat.** An inline `log.append` of an entry that a stored segment holds (at
+  or below the head, or at the segment's `last_seq`) is a duplicate: nothing stored.
 - **What it stores.** One item for the stream at `last_seq`, holding `first_seq`,
   `last_seq`, `last_hash`, `sha256` and `bytes`, and the head moves to `last_seq` and
   `last_hash` in the same step. The item itself is not charged; its blob was.
