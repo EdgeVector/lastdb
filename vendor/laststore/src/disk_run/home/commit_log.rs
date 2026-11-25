@@ -284,7 +284,8 @@ pub(super) fn replay(
         if Some(ctr) != sealed.checked_add(n) {
             return Err(corrupt("commit log: a logged commit is missing"));
         }
-        memory.push(records, cost);
+        // Replay does not estimate the run bytes that replayed tombstones hide.
+        memory.push(records, cost, 0);
     }
     let next_seq = seqs.last().map_or(1, |s| s + 1);
     Ok((memory, Some(LogFiles { next_seq, files })))

@@ -32,6 +32,20 @@ fn seal_bytes(held: &Manifest) -> u64 {
     (runs / 4).clamp(SEAL_MIN_BYTES, SEAL_BYTES)
 }
 
+/// Estimated run bytes that `tombstones` new tombstones hide: the mean file bytes of one live
+/// record in the runs. A tombstone frame is small, but the record it deletes stays in a run
+/// until a seal and a merge.
+fn hidden_bytes(held: &Manifest, tombstones: u64) -> u64 {
+    if tombstones == 0 {
+        return 0;
+    }
+    let (bytes, live) = held.newest_first().fold((0u64, 0u64), |(b, n), r| {
+        let live = r.meta.records.saturating_sub(r.meta.tombstones);
+        (b.saturating_add(r.meta.file_bytes), n.saturating_add(live))
+    });
+    (bytes / live.max(1)).saturating_mul(tombstones)
+}
+
 fn full() -> Error {
     Error::WriteCapacity("disk run home: the commit frontier is full".into())
 }
@@ -72,13 +86,15 @@ impl RunHome {
             self.poisoned.store(true, Ordering::Release);
             return Err(err);
         }
+        let tombstones = records.iter().filter(|(_, body)| body.is_none()).count() as u64;
+        let hidden = hidden_bytes(&held, tombstones);
         let found = records
             .into_iter()
             .map(|(key, body)| (key, body.map_or(Found::Tombstone, Found::Value)))
             .collect();
         let mut cur = self.current.write().map_err(|_| self.poisoned_lock())?;
         let mut next = (**cur).clone();
-        next.mem.push(found, frame.len() as u64);
+        next.mem.push(found, frame.len() as u64, hidden);
         *cur = Arc::new(next);
         Ok(())
     }
@@ -86,7 +102,7 @@ impl RunHome {
     /// True when the memory layer is large or a seal stopped half way.
     pub(super) fn wants_seal(&self) -> bool {
         let held = self.held();
-        held.mem.has_frozen() || held.mem.active_bytes() >= seal_bytes(&held)
+        held.mem.has_frozen() || held.mem.seal_weight() >= seal_bytes(&held)
     }
 
     /// One background seal: switch appends to a new log file, then write the old part as a run.

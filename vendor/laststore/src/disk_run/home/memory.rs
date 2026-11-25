@@ -21,6 +21,9 @@ pub(super) struct Memory {
     frozen_commits: u64,
     active_bytes: u64,
     frozen_bytes: u64,
+    /// Run bytes the active tombstones are estimated to hide. A seal and the merges after it
+    /// reclaim them, so they count toward the seal.
+    active_hidden: u64,
 }
 
 fn combine(newer: &Segment, older: &Segment) -> Segment {
@@ -64,6 +67,11 @@ impl Memory {
         self.active_bytes
     }
 
+    /// Bytes that decide a seal: active log bytes plus the run bytes active tombstones hide.
+    pub(super) fn seal_weight(&self) -> u64 {
+        self.active_bytes.saturating_add(self.active_hidden)
+    }
+
     /// Log bytes of both parts.
     pub(super) fn bytes(&self) -> u64 {
         self.active_bytes.saturating_add(self.frozen_bytes)
@@ -74,8 +82,9 @@ impl Memory {
         !self.frozen.is_empty()
     }
 
-    /// Add one commit: sorted records with unique keys, and its bytes in the log.
-    pub(super) fn push(&mut self, records: Vec<(Vec<u8>, Found)>, cost: u64) {
+    /// Add one commit: sorted records with unique keys, its bytes in the log, and the run bytes
+    /// its tombstones are estimated to hide.
+    pub(super) fn push(&mut self, records: Vec<(Vec<u8>, Found)>, cost: u64, hidden: u64) {
         let mut seg: Segment = records
             .into_iter()
             .map(|(key, f)| match f {
@@ -94,6 +103,7 @@ impl Memory {
         self.active.insert(0, Arc::new(seg));
         self.active_commits += 1;
         self.active_bytes = self.active_bytes.saturating_add(cost);
+        self.active_hidden = self.active_hidden.saturating_add(hidden);
     }
 
     /// Move the active part to the frozen part. False when a frozen part is still unwritten
@@ -105,6 +115,7 @@ impl Memory {
         self.frozen = std::mem::take(&mut self.active);
         self.frozen_commits = std::mem::take(&mut self.active_commits);
         self.frozen_bytes = std::mem::take(&mut self.active_bytes);
+        self.active_hidden = 0;
         true
     }
 
@@ -114,6 +125,7 @@ impl Memory {
             active: self.active.clone(),
             active_commits: self.active_commits,
             active_bytes: self.active_bytes,
+            active_hidden: self.active_hidden,
             ..Self::default()
         }
     }
