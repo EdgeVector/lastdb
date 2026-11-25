@@ -494,6 +494,26 @@ never arrives. The `snapshot` entry plays no part in that. Equivocation freezes 
 recovery is a new `device_id`, not a relay feature. Failover relays rebuild
 the grant index from verified publisher birth/grant entries in the logs.
 
+## Sizes
+
+The protocol sets no size limit of its own. The hosted relay (Exemem) runs on AWS
+Lambda, so its platform limits are the protocol's: one request and one response are
+each at most 6 MB (6 × 1024 × 1024 bytes), and one stored entry is one DynamoDB item,
+at most 400 KB. The reference relay holds requests and responses to the same 6 MB, so
+CI sees what the hosted relay does.
+
+- A sender sizes each `log.append` call to fit the request limit (the node sends at
+  most 3 MiB per call).
+- A `log.read` page stops before its response would pass 6 MB and returns a cursor at
+  the next entry, even when it holds fewer entries than `limit`. A reader follows the
+  cursor (or the next `from_seq`) and never takes a short page as the end of a stream.
+- Blob bytes move through presigned URLs and are not bound by these limits (see
+  "Large files").
+
+Until 2026-11-25 the Exemem relay refused any request body over 350,000 bytes. No
+platform set that number. Once brain text moved into ~44 KB entries, every full
+`log.append` was refused and personal sync stopped. Tom: "Don't set arbitrary limits."
+
 ## Defaults
 
 | Topic | Default |

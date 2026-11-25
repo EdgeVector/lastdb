@@ -42,6 +42,7 @@ import tarfile
 _OPS = Path(__file__).resolve().parent
 sys.path[:0] = [str(_OPS), str(_OPS.parent)]
 from harness import append_step_summary  # noqa: E402
+from personal_proof_cleanup import cleanup_owned  # noqa: E402
 from existing_home_proof import snapshots_on, write_after, write_before  # noqa: E402
 from personal_proof_nodes import ALPHA, MARK, Device, Relay, converged, create, delete, expect, replace, wait  # noqa: E402
 from personal_proof_status import swept  # noqa: E402
@@ -251,11 +252,10 @@ def prove(relay, previous, devices, out, summary):
     wait("the upgraded home to upload", upgraded.synced_up)
     after, acked = heads(upgraded)
     require(after == before + 8 and acked == after, f"after 8 writes the spool holds head {after}, acknowledged {acked}")
-    # A build that trims what a snapshot covers leaves the stream from its floor on.
     floor = relay.stream_floor(upgraded.database, upgraded.device_id())
-    require(floor <= snapshot_head and relay.stream_entries(upgraded.database, upgraded.device_id())
-            == list(range(floor + 1, after + 1)),
-            f"the relay does not hold one entry for each write of the home after its floor {floor}, across both builds")
+    require(0 <= floor <= snapshot_head, "the relay trimmed beyond the previous build's snapshot")
+    require(relay.stream_entries(upgraded.database, upgraded.device_id()) == list(range(floor + 1, after + 1)),
+            "the relay does not hold every entry after its snapshot-covered floor across both builds")
     require(upgraded.snapshot() == state, "the upgraded home does not read its old and new records")
     check_account(upgraded, had_account)
     print(f"2. the build under test started on the same home: cloud sync connected with no error ({sync['environment']}), "
@@ -340,12 +340,7 @@ def main():
         summary.append(f"FAILED: {error}")
     finally:
         # The upgraded node shares the home of the previous one: its root is removed first, the home last.
-        for device in (second, first, upgraded, old):
-            try:
-                device.node.close()
-            except Exception as error:  # noqa: BLE001
-                print(f"{device.name}: cleanup failed: {error}", file=sys.stderr)
-        relay.stop()
+        cleanup_owned((second, first, upgraded, old), (relay,))
     append_step_summary("\n".join(summary) + "\n")
     if failure is not None:
         raise SystemExit(1)

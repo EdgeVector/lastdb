@@ -33,6 +33,9 @@ from personal_proof_steps import gamma_create, gamma_replace, gamma_view
 from record_runs import RANGED, definition, require, system_seed
 
 SYNC_SECONDS = 300
+# 24 writes of 40,000 characters: about the size of the brain's long text chunks.
+LARGE_WRITES = 24
+LARGE_TEXT_BYTES = 40_000
 SKIPPED = (
     ("relay request log: idle turns read no entry, a restore reads only the tail by count of relay reads",
      "the deployed relay has no request log we can read; the tail is checked by the restore report"),
@@ -68,7 +71,7 @@ def folders_of(devices):
 
 # 1. A writes ------------------------------------------------------------------------------
 
-def a_writes(a, state, out):
+def a_writes(relay, a, state, out):
     """Singles, batches, an alternate key and a file in three schemas. Returns what A must read and the timings."""
     started = time.monotonic()
     for schema in SCHEMAS:
@@ -83,6 +86,19 @@ def a_writes(a, state, out):
         a.write([create(ALPHA, key, "bulk") for key in keys])
         for key in keys:
             expect(state, ALPHA, key, "bulk")
+    # Large entries, one write each, made while A is cut off from the relay so they wait in the
+    # spool and go up together: one upload then carries far more than 350,000 bytes (the Exemem
+    # relay refused any such request until 2026-11-25), and a restore reads them back in pages.
+    wait("A to upload what it wrote", a.synced_up, seconds=SYNC_SECONDS)
+    a.point_at(relay.OFFLINE_URL)
+    for n in range(LARGE_WRITES):
+        text = os.urandom(LARGE_TEXT_BYTES // 2).hex()
+        a.write([create(ALPHA, f"large-{n}", text)])
+        expect(state, ALPHA, f"large-{n}", text)
+    pending = a.spool_bytes()[1]
+    require(pending > 350_000, f"A holds {pending} unsent bytes, expected more than one old request cap")
+    a.point_at(relay.url)
+    wait("A to upload the large entries", a.synced_up, seconds=SYNC_SECONDS)
     a.change([replace(ALPHA, "a1", "two")])
     a.change([delete(ALPHA, "a2")])
     for key, text in (("a1", "two"), ("b1", "base"), ("b2", "base"), ("b3", "base")):
@@ -284,7 +300,7 @@ def prove_deployed(relay, devices, out, entry_audit):
     require("personal database sync failed" not in "\n".join(a.warnings(all_lines=True)),
             "A's first turns with an empty relay failed")
     folders = folders_of(devices)
-    expected, report["a_writes"] = step("A writes", a_writes, a, state, out)
+    expected, report["a_writes"] = step("A writes", a_writes, relay, a, state, out)
     signed = report["a_writes"]["entries"]
     report["b_restore"] = step("B restores from the phrase", b_restores, a, b, phrase, state, expected, folders, signed)
     report["edit_apart"] = step("edit apart, both orders", edit_apart, relay, a, b, state)

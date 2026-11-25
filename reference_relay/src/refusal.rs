@@ -73,7 +73,7 @@ pub(crate) async fn refuse(
         return next.run(request).await;
     }
     let (parts, body) = request.into_parts();
-    let Ok(bytes) = to_bytes(body, crate::MAX_JSON_BODY_BYTES).await else {
+    let Ok(bytes) = to_bytes(body, crate::PLATFORM_PAYLOAD_MAX_BYTES).await else {
         return ApiError::invalid("body").into_response();
     };
     let caller = match auth::verify_request(&parts.headers, parts.uri.path(), &bytes) {

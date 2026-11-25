@@ -78,6 +78,7 @@ own. `personal_proof_deployed.py` runs the steps that need no access to the rela
 which steps it does not run.
 
 A failure prints each node's spool state and its recent daemon warnings.
+Every owned shutdown receipt is required; cleanup failures fail the proof, even after its operations passed.
 """
 import argparse
 import json
@@ -91,6 +92,7 @@ sys.path[:0] = [str(_OPS), str(_OPS.parent)]
 from harness import append_step_summary  # noqa: E402
 from personal_proof_load import idle_turn_reads_nothing, kill_under_load, scale  # noqa: E402
 from personal_proof_deployed import prove_deployed, render  # noqa: E402
+from personal_proof_cleanup import cleanup_owned  # noqa: E402
 from personal_proof_nodes import DELTA, DeployedRelay, Relay, converged, prove_hidden, require, wait  # noqa: E402
 from personal_proof_reclaim import prove_cloud  # noqa: E402
 from personal_proof_reconcile import reconcile_reference  # noqa: E402
@@ -210,11 +212,7 @@ def run_deployed(args):
         print(f"FAILED: {error}", file=sys.stderr)
         dump(devices)
     finally:
-        for device in devices:
-            try:
-                device.node.close()
-            except Exception as error:  # noqa: BLE001
-                print(f"{device.name}: cleanup failed: {error}", file=sys.stderr)
+        cleanup_owned(devices)
     if failure is not None:
         raise SystemExit(1)
     print("Personal database proof passed against the deployed relay", flush=True)
@@ -265,15 +263,7 @@ def main():
         print(f"FAILED: {error}", file=sys.stderr)
         dump(devices)
     finally:
-        for device in devices:
-            try:
-                device.node.close()
-            except Exception as error:  # noqa: BLE001
-                print(f"{device.name}: cleanup failed: {error}", file=sys.stderr)
-        relay.stop()
-        relay2.stop()
-        relay3.stop()
-        relay4.stop()
+        cleanup_owned(devices, (relay, relay2, relay3, relay4))
     if failure is not None:
         raise SystemExit(1)
     print("Personal database proof passed", flush=True)
