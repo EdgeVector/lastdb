@@ -15,12 +15,22 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use uuid::Uuid;
 
-/// Log bytes in the active part that start a background seal.
+/// Most log bytes in the active part before a background seal.
 const SEAL_BYTES: u64 = 8 << 20;
+/// Fewest log bytes in the active part that start a background seal.
+const SEAL_MIN_BYTES: u64 = 64 << 10;
 /// Memory layer bytes past which a commit seals before it writes.
 const MAX_MEMORY_BYTES: u64 = 256 << 20;
 
 pub(super) type Records = Vec<(Vec<u8>, Option<Vec<u8>>)>;
+
+/// Log bytes that start a seal: a quarter of the run bytes, kept between `SEAL_MIN_BYTES` and
+/// `SEAL_BYTES`. Logged commits are frames, larger than the same records in a run, so a small
+/// home seals early and its log adds at most about a quarter to its disk size.
+fn seal_bytes(held: &Manifest) -> u64 {
+    let runs: u64 = held.newest_first().map(|r| r.meta.file_bytes).sum();
+    (runs / 4).clamp(SEAL_MIN_BYTES, SEAL_BYTES)
+}
 
 fn full() -> Error {
     Error::WriteCapacity("disk run home: the commit frontier is full".into())
@@ -76,7 +86,7 @@ impl RunHome {
     /// True when the memory layer is large or a seal stopped half way.
     pub(super) fn wants_seal(&self) -> bool {
         let held = self.held();
-        held.mem.has_frozen() || held.mem.active_bytes() >= SEAL_BYTES
+        held.mem.has_frozen() || held.mem.active_bytes() >= seal_bytes(&held)
     }
 
     /// One background seal: switch appends to a new log file, then write the old part as a run.
