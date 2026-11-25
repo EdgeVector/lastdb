@@ -6,7 +6,10 @@ pub(crate) mod schemas;
 
 pub(crate) use current_keys::families::RECORD_FILE_PREFIX;
 
-use crate::schema::types::{field::HashRangeFilter, KeyValue, SchemaError};
+use crate::schema::types::{
+    field::{FilterUtils, HashRangeFilter},
+    KeyValue, SchemaError,
+};
 use crate::storage::{error::StorageResult, StorageError};
 use lastdb_model::field_key_codec::FieldKeyCodec;
 use lastdb_model::field_key_id::ALTERNATE_ENTRY_PREFIX;
@@ -173,7 +176,9 @@ pub(crate) fn alternate_bounds(
             codec
                 .require_text_range_prefix()
                 .map_err(|_| invalid("prefix needs text field"))?;
-            Ok(exact_prefix_bounds(&encode(hash, prefix)?))
+            let start = encode(hash, prefix)?;
+            let end = FilterUtils::create_prefix_end(&start)?;
+            Ok((start, end))
         }
         HashRangeFilter::HashRangeRange { hash, start, end } => {
             Ok((encode(hash, start)?, encode(hash, end)?))

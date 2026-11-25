@@ -42,7 +42,6 @@ pub(in crate::storage::disk_pack) struct ReadContext {
 
 tokio::task_local! {
     static READ: Arc<ReadContext>;
-    static ITEM: Option<FailureSlot>;
 }
 
 impl ReadContext {
@@ -97,13 +96,7 @@ impl ReadContext {
                 ));
             }
             ctx.validate_owner(PendingBatch::current(rt).as_ref())?;
-            let mut next = (*ctx).clone();
-            next.failure = ITEM
-                .try_with(Clone::clone)
-                .ok()
-                .flatten()
-                .unwrap_or_default();
-            return Ok(Arc::new(next));
+            return Ok(ctx);
         }
         let rt = Arc::clone(rt);
         run_blocking(move || Self::capture(&rt, None)).await
@@ -150,12 +143,9 @@ impl ReadContext {
 
     pub(in crate::storage::disk_pack) async fn in_scope<T>(
         self: &Arc<Self>,
-        item: bool,
         fut: impl Future<Output = T>,
     ) -> T {
-        let slot = item.then(|| Arc::clone(&self.failure));
-        READ.scope(Arc::clone(self), ITEM.scope(slot, Box::pin(fut)))
-            .await
+        READ.scope(Arc::clone(self), Box::pin(fut)).await
     }
 
     pub(in crate::storage::disk_pack) fn account_memory_record(

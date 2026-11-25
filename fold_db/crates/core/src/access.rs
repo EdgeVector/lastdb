@@ -123,11 +123,27 @@ pub mod error {
         }
     }
 
+    fn is_storage_full_io(error: &std::io::Error) -> bool {
+        #[cfg(unix)]
+        if error.raw_os_error() == Some(libc::ENOSPC) {
+            return true;
+        }
+        error.kind() == std::io::ErrorKind::StorageFull
+    }
+
     impl From<StorageError> for FoldDbError {
         fn from(error: StorageError) -> Self {
             match error {
                 StorageError::MutationLimit { detail } => {
                     Self::Schema(SchemaError::WriteResourceLimit { detail })
+                }
+                StorageError::StorageFull { detail } => {
+                    Self::Schema(SchemaError::StorageFull { detail })
+                }
+                StorageError::IoError(io) if is_storage_full_io(&io) => {
+                    Self::Schema(SchemaError::StorageFull {
+                        detail: io.to_string(),
+                    })
                 }
                 other => Self::Database(other.to_string()),
             }

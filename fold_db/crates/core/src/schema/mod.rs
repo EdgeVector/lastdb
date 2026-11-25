@@ -2,7 +2,7 @@
 
 pub mod types;
 
-use crate::db_operations::schema_store::SchemaDrop;
+use crate::db_operations::schema_store::{require_compatible_schema_update, SchemaDrop};
 use crate::storage::disk_pack::transaction::{self, publication};
 use crate::storage::{format::metadata::SchemaReplayDrop, StorageError};
 use ::schema_types::IdentityRecompute;
@@ -275,11 +275,7 @@ impl SchemaCore {
         stamp_identity_for_load(&mut schema, existing.as_ref());
         let refresh = existing.is_some();
         if let Some(stored) = existing {
-            if schema.record_keys != stored.record_keys {
-                return Err(SchemaError::InvalidData(
-                    "explicit primary/alternate key declarations are immutable; declare a new schema and copy explicitly".into(),
-                ));
-            }
+            require_compatible_schema_update(&stored, &schema)?;
             schema.validate()?;
         }
         let name = schema.name.clone();

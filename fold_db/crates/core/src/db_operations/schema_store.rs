@@ -9,7 +9,7 @@ use crate::storage::format::read::ReadStore;
 use crate::storage::format::schemas::*;
 use lastdb_model::record_space::record_space_uuid;
 use serde::de::DeserializeOwned;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 mod replay;
@@ -18,6 +18,48 @@ mod retention_sweep;
 
 pub(crate) use replay::SchemaDrop;
 pub use retention_sweep::RetentionFloors;
+
+pub(crate) fn require_compatible_schema_update(
+    existing: &Schema,
+    next: &Schema,
+) -> Result<(), SchemaError> {
+    if existing.record_keys != next.record_keys || existing.schema_type != next.schema_type {
+        return Err(SchemaError::InvalidData(
+            "explicit primary/alternate key declarations are immutable; declare a new schema and copy explicitly".into(),
+        ));
+    }
+    if existing.file_required != next.file_required {
+        return Err(SchemaError::InvalidData(
+            "changing the file requirement needs a new schema identity".into(),
+        ));
+    }
+    let next_fields: HashSet<&str> = next.fields.iter().flatten().map(String::as_str).collect();
+    for field in existing.fields.iter().flatten() {
+        if !next_fields.contains(field.as_str()) {
+            return Err(SchemaError::InvalidData(format!(
+                "existing field '{field}' cannot be removed from schema '{}'; declare a new schema and copy explicitly",
+                existing.name
+            )));
+        }
+        if existing.get_field_type(field) != next.get_field_type(field) {
+            return Err(SchemaError::InvalidData(format!(
+                "existing field '{field}' cannot change type in schema '{}'; declare a new schema and copy explicitly",
+                existing.name
+            )));
+        }
+    }
+    for (field, existing_type) in &existing.field_types {
+        if (!next_fields.contains(field.as_str()) && !next.field_types.contains_key(field))
+            || next.get_field_type(field) != existing_type
+        {
+            return Err(SchemaError::InvalidData(format!(
+                "existing field '{field}' cannot be removed or change type in schema '{}'; declare a new schema and copy explicitly",
+                existing.name
+            )));
+        }
+    }
+    Ok(())
+}
 
 #[derive(Clone)]
 pub struct SchemaStore {
@@ -141,6 +183,7 @@ impl SchemaStore {
                 let next = schema_field_key_profiles(schema)?;
                 let input = schema_input(schema_name, schema)?;
                 if let Some(existing) = self.get_schema(schema_name).await? {
+                    require_compatible_schema_update(&existing, schema)?;
                     let prev: HashMap<_, _> =
                         schema_field_key_profiles(&existing)?.into_iter().collect();
                     if next
@@ -150,11 +193,6 @@ impl SchemaStore {
                         return Err(SchemaError::InvalidData(
                             "the schema range type differs from the stored field key profile"
                                 .into(),
-                        ));
-                    }
-                    if existing.file_required != schema.file_required {
-                        return Err(SchemaError::InvalidData(
-                            "changing the file requirement needs a new schema identity".into(),
                         ));
                     }
                     if existing == *schema {

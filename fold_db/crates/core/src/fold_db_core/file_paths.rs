@@ -29,7 +29,7 @@ impl FoldDB {
             .read_scope()
             .await?
             .run_result(async {
-                let (rk, record) = self.read_file_record(schema_name, key, None).await?;
+                let (rk, record) = self.read_file_record(schema_name, key).await?;
                 let Some((marker, ver)) = record
                     .as_ref()
                     .and_then(|r| r.file.as_ref().zip(r.file_version.as_ref()))
@@ -57,7 +57,7 @@ impl FoldDB {
             .read_scope()
             .await?
             .run_result(async {
-                let (rk, record) = self.read_file_record(schema_name, key, None).await?;
+                let (rk, record) = self.read_file_record(schema_name, key).await?;
                 let Some((marker, ver)) = record
                     .as_ref()
                     .and_then(|r| r.file.as_ref().zip(r.file_version.as_ref()))

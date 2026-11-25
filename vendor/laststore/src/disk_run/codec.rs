@@ -20,6 +20,9 @@ pub(crate) fn get_varint(bytes: &[u8], at: &mut usize) -> Result<u64> {
     for shift in (0..64).step_by(7) {
         let byte = *bytes.get(*at).ok_or_else(|| corrupt("varint eof"))?;
         *at += 1;
+        if shift == 63 && byte > 1 {
+            return Err(corrupt("varint overflow"));
+        }
         value |= u64::from(byte & 0x7f) << shift;
         if byte & 0x80 == 0 {
             return Ok(value);

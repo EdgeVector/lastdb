@@ -41,35 +41,10 @@ fn fill_local_writer(writer_id: &str, mutations: &mut [Mutation]) -> Result<(), 
     Ok(())
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct ResidentCommitOperations {
-    pub created: u64,
-    pub updated: u64,
-    pub deleted: u64,
-}
-
-impl ResidentCommitOperations {
-    #[must_use]
-    pub fn total(&self) -> u64 {
-        self.created
-            .saturating_add(self.updated)
-            .saturating_add(self.deleted)
-    }
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct ResidentCommitStages {
-    pub prepare_us: u64,
-    pub ack_us: u64,
-}
-
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ResidentCommitReceipt {
     pub mutation_ids: Vec<String>,
     pub record_revisions: BTreeMap<String, String>,
-    pub revision: Option<u64>,
-    pub operations: ResidentCommitOperations,
-    pub stages: ResidentCommitStages,
 }
 
 pub(super) struct ChangedRecord<'a> {
@@ -112,8 +87,7 @@ impl MutationManager {
             if mutations.is_empty() {
                 return Ok(ResidentCommitReceipt::default());
             }
-            self.commit_native_batch(mutations, keys, std::time::Instant::now())
-                .await
+            self.commit_native_batch(mutations, keys).await
         })
         .await
     }
@@ -122,85 +96,74 @@ impl MutationManager {
         &self,
         mut mutations: Vec<Mutation>,
         keys: Vec<KeyValue>,
-        start: std::time::Instant,
     ) -> Result<ResidentCommitReceipt, SchemaError> {
         fill_local_writer(&self.writer_id, &mut mutations)?;
         let runtime = self.db_ops.native_runtime();
-        let mut stages = ResidentCommitStages::default();
-        let (mutation_ids, record_revisions, operations, revision) =
-            transaction::scope(Arc::clone(&runtime), async {
-                if mutations
-                    .iter()
-                    .any(|mutation| mutation.contribution.is_some())
-                    && mutations.len() != 1
-                {
-                    return Err(SchemaError::InvalidData(
-                        "a contribution requires one native mutation".into(),
-                    ));
-                }
-                let explicit_ms: Vec<Option<u64>> = mutations
-                    .iter()
-                    .map(|m| m.imported_written_at.map(|ns| ns / 1_000_000))
-                    .collect();
-                let (groups, prep_elapsed) =
-                    self.prepare_write_groups(&mut mutations, &keys).await?;
-                let captured = accepted::capture_enabled(&runtime);
-                let previous = if captured {
-                    self.db_ops
-                        .metadata()
-                        .local_replay_head(&self.writer_id)
-                        .await?
-                } else {
-                    None
-                };
-                let revision = self
-                    .prepare_mutation_author_clocks(&mut mutations, previous.as_ref(), captured)
-                    .await?;
-                let replay = self.local_replay_stamps(&mutations, previous.as_ref(), captured)?;
-                let ops = count_commit_ops(&mutations);
-                let listed: Vec<_> = mutations
-                    .iter()
-                    .map(|m| {
-                        let deleted =
-                            matches!(m.mutation_type, MutationType::Delete | MutationType::Purge);
-                        (m.schema_name.as_str(), &m.key_value, deleted)
-                    })
-                    .collect();
-                let stamps = self
-                    .db_ops
+        let (mutation_ids, record_revisions) = transaction::scope(Arc::clone(&runtime), async {
+            if mutations
+                .iter()
+                .any(|mutation| mutation.contribution.is_some())
+                && mutations.len() != 1
+            {
+                return Err(SchemaError::InvalidData(
+                    "a contribution requires one native mutation".into(),
+                ));
+            }
+            let explicit_ms: Vec<Option<u64>> = mutations
+                .iter()
+                .map(|m| m.imported_written_at.map(|ns| ns / 1_000_000))
+                .collect();
+            let (groups, _) = self.prepare_write_groups(&mut mutations, &keys).await?;
+            let captured = accepted::capture_enabled(&runtime);
+            let previous = if captured {
+                self.db_ops
                     .metadata()
-                    .stage_local_stamps(&listed, &explicit_ms)
-                    .await?;
-                let revs = mutations
-                    .iter()
-                    .zip(&stamps)
-                    .map(|(m, s)| (m.uuid.clone(), s.revision()))
-                    .collect();
-                // Canonical keys and validated CAS/fields are already in place before signing.
-                let signed = self
-                    .db_ops
-                    .records()
-                    .stage_accepted_mutations(&mutations, previous)
-                    .await?;
-                if let Some(head) = &signed {
-                    self.db_ops.metadata().stage_local_replay_head(head).await?;
-                }
-                let ids = mutations.iter().map(|m| m.uuid.clone()).collect();
-                let stage_elapsed = self
-                    .stage_prepared_groups(groups, mutations, stamps, replay)
-                    .await?;
-                let total_prep = prep_elapsed + stage_elapsed;
-                stages.prepare_us = u64::try_from(total_prep.as_micros()).unwrap_or(u64::MAX);
-                Ok::<_, SchemaError>((ids, revs, ops, Some(revision)))
-            })
-            .await?;
-        stages.ack_us = u64::try_from(start.elapsed().as_micros()).unwrap_or(u64::MAX);
+                    .local_replay_head(&self.writer_id)
+                    .await?
+            } else {
+                None
+            };
+            let _ = self
+                .prepare_mutation_author_clocks(&mut mutations, previous.as_ref(), captured)
+                .await?;
+            let replay = self.local_replay_stamps(&mutations, previous.as_ref(), captured)?;
+            let listed: Vec<_> = mutations
+                .iter()
+                .map(|m| {
+                    let deleted =
+                        matches!(m.mutation_type, MutationType::Delete | MutationType::Purge);
+                    (m.schema_name.as_str(), &m.key_value, deleted)
+                })
+                .collect();
+            let stamps = self
+                .db_ops
+                .metadata()
+                .stage_local_stamps(&listed, &explicit_ms)
+                .await?;
+            let revs = mutations
+                .iter()
+                .zip(&stamps)
+                .map(|(m, s)| (m.uuid.clone(), s.revision()))
+                .collect();
+            // Canonical keys and validated CAS/fields are already in place before signing.
+            let signed = self
+                .db_ops
+                .records()
+                .stage_accepted_mutations(&mutations, previous)
+                .await?;
+            if let Some(head) = &signed {
+                self.db_ops.metadata().stage_local_replay_head(head).await?;
+            }
+            let ids = mutations.iter().map(|m| m.uuid.clone()).collect();
+            let _ = self
+                .stage_prepared_groups(groups, mutations, stamps, replay)
+                .await?;
+            Ok::<_, SchemaError>((ids, revs))
+        })
+        .await?;
         Ok(ResidentCommitReceipt {
             mutation_ids,
             record_revisions,
-            revision,
-            operations,
-            stages,
         })
     }
 
@@ -220,10 +183,11 @@ impl MutationManager {
                 )
             })
             .collect();
+        let mutation_types: Vec<_> = changed.iter().map(|r| r.mutation.mutation_type).collect();
         self.db_ops
             .records()
             .format
-            .stage_records(schema, changes)
+            .stage_records(schema, changes, &mutation_types)
             .await?;
         let live = changed
             .iter()
@@ -261,18 +225,6 @@ impl MutationManager {
         }
         Ok(())
     }
-}
-
-fn count_commit_ops(mutations: &[Mutation]) -> ResidentCommitOperations {
-    let mut ops = ResidentCommitOperations::default();
-    for m in mutations {
-        match m.mutation_type {
-            MutationType::Create => ops.created += 1,
-            MutationType::Replace => ops.updated += 1,
-            MutationType::Delete | MutationType::Purge => ops.deleted += 1,
-        }
-    }
-    ops
 }
 
 fn collect_erasure_audits(

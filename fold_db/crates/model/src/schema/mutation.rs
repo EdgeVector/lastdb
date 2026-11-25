@@ -159,58 +159,6 @@ pub enum MutationType {
     Purge,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum MutationConvergence {
-    Sync,
-    #[default]
-    Async,
-}
-
-impl MutationConvergence {
-    #[must_use]
-    pub fn waits(self) -> bool {
-        matches!(self, Self::Sync)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum MutationDurability {
-    Durable,
-    #[default]
-    Queued,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", deny_unknown_fields)]
-pub enum Operation {
-    #[serde(rename = "mutation")]
-    Mutation {
-        schema: String,
-        #[serde(rename = "record")]
-        record_fields: HashMap<String, Value>,
-        key_value: KeyValue,
-        alternates: BTreeMap<String, Option<KeyValue>>,
-        mutation_type: MutationType,
-        /// Ignored. Old proposal bodies may still carry it. The node does not store it.
-        #[serde(default)]
-        source_file_name: Option<String>,
-        /// Ignored. Old proposal bodies may still carry it. The node does not store it.
-        /// `created_by` and `updated_by` in this map are ignored with every other entry.
-        #[serde(default)]
-        metadata: Option<HashMap<String, String>>,
-        file: Option<FileMarker>,
-        expected: CasExpectation,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        convergence: Option<MutationConvergence>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        durability: Option<MutationDurability>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        definition_id: Option<String>,
-    },
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct Mutation {
     pub uuid: String,

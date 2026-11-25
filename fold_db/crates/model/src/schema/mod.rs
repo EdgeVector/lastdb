@@ -192,9 +192,7 @@ pub mod types {
     }
     pub mod operations {
         pub use crate::keys::SortOrder;
-        pub use crate::schema::mutation::{
-            Mutation, MutationConvergence, MutationDurability, MutationType, Operation,
-        };
+        pub use crate::schema::mutation::{Mutation, MutationType};
         pub use crate::schema::Query;
     }
     pub mod cas {
@@ -214,7 +212,7 @@ pub mod types {
     pub use mutation::{
         FileWrite, FileWriteIssuer, LocalFileReference, Mutation, SealedRecordFile,
     };
-    pub use operations::{MutationType, Operation, Query, SortOrder};
+    pub use operations::{MutationType, Query, SortOrder};
     pub use schema::{DeclarativeSchemaType as SchemaType, Schema};
     pub use schema_types::FieldValueType;
 
@@ -262,20 +260,11 @@ pub mod types {
 
         impl FilterUtils {
             pub fn create_prefix_end(prefix: &str) -> Result<String, crate::schema::SchemaError> {
-                let mut end = prefix.to_owned();
-                while let Some(c) = end.pop() {
-                    let next_cp = match c as u32 + 1 {
-                        0xD800 => 0xE000,
-                        n => n,
-                    };
-                    if let Some(next) = char::from_u32(next_cp) {
-                        end.push(next);
-                        return Ok(end);
-                    }
-                }
-                Err(crate::schema::SchemaError::InvalidData(
-                    "the prefix has no finite upper bound; select by prefix instead".into(),
-                ))
+                crate::keys::kind_partition::prefix_upper_bound(prefix).ok_or_else(|| {
+                    crate::schema::SchemaError::InvalidData(
+                        "the prefix has no finite upper bound; select by prefix instead".into(),
+                    )
+                })
             }
         }
     }
