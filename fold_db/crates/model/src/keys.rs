@@ -104,12 +104,10 @@ pub mod canonical {
 pub mod storage_policy {
     #[derive(Clone, Copy, Debug)]
     pub struct BackupResources {
-        pub concurrent_streams: usize,
         pub durable_spool_bytes: u64,
     }
 
     pub const BACKUP_RESOURCES: BackupResources = BackupResources {
-        concurrent_streams: 4,
         durable_spool_bytes: 1024 * 1024 * 1024,
     };
 
@@ -121,8 +119,6 @@ pub mod storage_policy {
         pub const PENDING_MEMORY_BYTES: u64 = 512 * 1024 * 1024;
         pub const LOCAL_FILE_INPUT_MEMORY_BYTES: u64 = PENDING_MEMORY_BYTES;
     }
-
-    const _: () = assert!(BACKUP_RESOURCES.concurrent_streams > 0);
 }
 
 pub mod kind_partition {
@@ -132,15 +128,24 @@ pub mod kind_partition {
     }
 
     #[must_use]
-    pub fn exact_prefix_bounds(prefix: &str) -> (String, String) {
-        let mut bytes = prefix.as_bytes().to_vec();
-        match bytes.last_mut() {
-            Some(last) if *last < 0xff => *last += 1,
-            Some(_) => bytes.push(0),
-            None => {}
+    pub fn prefix_upper_bound(prefix: &str) -> Option<String> {
+        let mut end = prefix.to_owned();
+        while let Some(c) = end.pop() {
+            let next_cp = match c as u32 + 1 {
+                0xD800 => 0xE000,
+                n => n,
+            };
+            if let Some(next) = char::from_u32(next_cp) {
+                end.push(next);
+                return Some(end);
+            }
         }
-        let end = String::from_utf8(bytes)
-            .unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned());
+        None
+    }
+
+    #[must_use]
+    pub fn exact_prefix_bounds(prefix: &str) -> (String, String) {
+        let end = prefix_upper_bound(prefix).unwrap_or_else(|| format!("{prefix}\u{10FFFF}"));
         (prefix.to_owned(), end)
     }
 }

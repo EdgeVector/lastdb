@@ -18,6 +18,8 @@ use uuid::Uuid;
 const MERGE_WIDTH: usize = 8;
 const MAX_MERGE_INPUTS: usize = 64;
 const BASE_PIECES: u64 = 64;
+const MAX_BASE_RUNS: usize = 4096;
+const MAX_TRAILING_RUNTS: usize = 32;
 const MIN_PIECE_BYTES: u64 = 256 << 10;
 const MAX_PIECE_BYTES: u64 = 1 << 30;
 
@@ -238,13 +240,22 @@ impl RunHome {
             .chain(&held.base)
             .map(|r| r.meta.file_bytes)
             .sum();
-        let target = (bytes / BASE_PIECES).clamp(MIN_PIECE_BYTES, MAX_PIECE_BYTES);
-        let (mut take, mut acc) = (0, 0);
+        let mut target = (bytes / BASE_PIECES).clamp(MIN_PIECE_BYTES, MAX_PIECE_BYTES);
+        if held.base.len() > MAX_BASE_RUNS / 2 {
+            target = target.max((bytes / (MAX_BASE_RUNS as u64 / 4)).min(MAX_PIECE_BYTES));
+        }
+        let (mut take, mut acc, mut runts) = (0, 0u64, 0);
         for run in &held.base[done..] {
             if take > 0 && acc >= target {
-                break;
+                let runt = run.meta.file_bytes < target / 2
+                    && acc.saturating_add(run.meta.file_bytes) <= target.saturating_mul(2)
+                    && runts < MAX_TRAILING_RUNTS;
+                if !runt {
+                    break;
+                }
+                runts += 1;
             }
-            (take, acc) = (take + 1, acc + run.meta.file_bytes);
+            (take, acc) = (take + 1, acc.saturating_add(run.meta.file_bytes));
         }
         let taken = &held.base[done..done + take];
         let last = done + take == held.base.len();
@@ -293,46 +304,78 @@ impl RunHome {
             cut.is_none_or(|a| r.meta.last_key.as_slice() > a)
                 && upper.is_none_or(|t| r.meta.first_key.as_slice() <= t)
         });
-        if !overlaps {
+        let taken_bytes: u64 = taken.iter().map(|r| r.meta.file_bytes).sum();
+        let small = taken
+            .iter()
+            .filter(|r| r.meta.file_bytes < target / 2)
+            .count();
+        let coalesce_cold = taken.len() > 1 && (taken_bytes <= target || small > 1);
+        if !overlaps && !coalesce_cold {
             return Ok(None);
         }
-        let lo = cut.map_or(Bound::Unbounded, Bound::Excluded);
-        let up = upper.map_or(Bound::Unbounded, Bound::Included);
-        let mut sources: Vec<_> = merging
-            .iter()
-            .map(|r| Ok(Arc::new(RunReader::open(&r.path, &self.key)?).range(lo, up)))
-            .collect::<Result<_>>()?;
+        let mut sources = Vec::new();
+        if overlaps {
+            let lo = cut.map_or(Bound::Unbounded, Bound::Excluded);
+            let up = upper.map_or(Bound::Unbounded, Bound::Included);
+            for r in merging {
+                sources.push(Arc::new(RunReader::open(&r.path, &self.key)?).range(lo, up));
+            }
+        }
         sources.push(RunRange::sequence(
             taken.iter().map(|r| r.path.clone()).collect(),
             &self.key,
             Bound::Unbounded,
             Bound::Unbounded,
         ));
+        self.write_merged_pieces(sources, target, space).map(Some)
+    }
+
+    fn write_merged_pieces(
+        &self,
+        sources: Vec<RunRange>,
+        target: u64,
+        space: &MergeSpace,
+    ) -> Result<Vec<Arc<RunFile>>> {
+        let min_tail = (target / 2).min(4 << 20);
         let mut pieces = Vec::new();
         let res = (|| -> Result<()> {
-            let mut writer: Option<RunWriter> = None;
+            let (mut writer, mut tail, mut tail_bytes): (Option<RunWriter>, Vec<_>, u64) =
+                (None, Vec::new(), 0);
             for record in MergeIter::new(sources) {
                 let (key, Found::Value(val)) = record? else {
                     continue;
                 };
+                let rec_bytes = (key.len() + val.len()) as u64;
+                if writer.as_ref().is_some_and(|w| w.bytes_written() >= target) {
+                    if tail_bytes.saturating_add(rec_bytes) < min_tail {
+                        tail_bytes = tail_bytes.saturating_add(rec_bytes);
+                        tail.push((key, val));
+                        continue;
+                    }
+                    let done = writer.take().unwrap().finish()?;
+                    pieces.push(RunFile::new(&self.runs_dir, done));
+                    let open =
+                        writer.insert(RunWriter::open(&self.runs_dir, &self.key, Some(space))?);
+                    for (tk, tv) in tail.drain(..) {
+                        open.push(&tk, Some(&tv))?;
+                    }
+                    tail_bytes = 0;
+                }
                 let open = match &mut writer {
                     Some(w) => w,
                     s => s.insert(RunWriter::open(&self.runs_dir, &self.key, Some(space))?),
                 };
                 open.push(&key, Some(&val))?;
-                if open.bytes_written() >= target {
-                    pieces.push(RunFile::new(
-                        &self.runs_dir,
-                        writer.take().unwrap().finish()?,
-                    ));
-                }
             }
-            if let Some(open) = writer {
+            if let Some(mut open) = writer {
+                for (tk, tv) in tail {
+                    open.push(&tk, Some(&tv))?;
+                }
                 pieces.push(RunFile::new(&self.runs_dir, open.finish()?));
             }
             Ok(())
         })();
         res.inspect_err(|_| pieces.iter().for_each(|p| p.retire()))
-            .map(|()| Some(pieces))
+            .map(|()| pieces)
     }
 }

@@ -232,11 +232,6 @@ impl RunRead {
         Self::build(Arc::new(manifest), *key, Arc::new(lock), budget, None)
     }
 
-    /// Complete commits in the held CURRENT.
-    pub fn frontier(&self) -> u64 {
-        self.manifest.frontier
-    }
-
     /// The limits of this call.
     pub fn budget(&self) -> ReadBudget {
         self.budget

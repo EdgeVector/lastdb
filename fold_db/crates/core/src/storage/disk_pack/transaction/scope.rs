@@ -272,15 +272,11 @@ impl PackReadScope {
         })
     }
 
-    pub async fn run_shared<T>(&self, fut: impl Future<Output = T>) -> T {
-        self.context.in_scope(false, fut).await
-    }
-
     pub async fn run_result<T, E: From<StorageError>>(
         &self,
         fut: impl Future<Output = Result<T, E>>,
     ) -> Result<T, E> {
-        let res = self.context.in_scope(true, fut).await;
+        let res = self.context.in_scope(fut).await;
         self.context.error().map_or(res, |err| Err(err.into()))
     }
 }

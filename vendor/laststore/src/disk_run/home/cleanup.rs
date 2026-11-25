@@ -211,6 +211,8 @@ impl RunHome {
 
     /// Remove an authenticated private checkpoint after verifying its ownership.
     pub fn clear_checkpoint(&self, spec: CheckpointSpec) -> Result<()> {
+        let _publish = self.publish_lock()?;
+        self.refuse_if_poisoned()?;
         if self.load_checkpoint(spec)?.is_some() {
             fs::remove_file(self.root_dir.join(spec.file_name))?;
             sync_directory(&self.root_dir)?;

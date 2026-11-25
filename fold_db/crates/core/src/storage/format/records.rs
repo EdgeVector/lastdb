@@ -12,7 +12,9 @@ use super::{
     read::ReadStore, CAS_COLLECTION, DELETE_AUDIT_FAMILY, MAIN_NAMESPACE, SCHEMA_RELEASE_ROWS,
 };
 use crate::error::FoldDbError;
-use crate::schema::types::{FileWrite, FileWriteIssuer, LocalFileReference, Schema, SchemaError};
+use crate::schema::types::{
+    FileWrite, FileWriteIssuer, LocalFileReference, MutationType, Schema, SchemaError,
+};
 use crate::storage::current_keys::families::record_file_path;
 use crate::storage::disk_pack::{run_blocking, transaction, PackKvStore, PackRuntime};
 use crate::storage::error::StorageResult;
@@ -123,25 +125,6 @@ impl RecordFormat {
             .ok_or_else(|| FoldDbError::Schema(inv("local file hash is not 64 hex digits")))
     }
 
-    pub(crate) async fn open_record_file(
-        &self,
-        key: &str,
-        version: &Position,
-        file_marker: &FileMarker,
-    ) -> Result<Option<Vec<u8>>, FoldDbError> {
-        let path = record_file_path(key, version)?;
-        let cas = self.cas().await?.get(path.as_bytes()).await;
-        if let Ok(Some(row)) = cas {
-            return decrypt_file_row(&self.content_key, file_marker, &row).map(Some);
-        }
-        if let Some(bytes) =
-            local_file_ref::read_referenced(&self.runtime, &path, file_marker).await?
-        {
-            return Ok(Some(bytes));
-        }
-        Ok(cas.map(|_| None)?)
-    }
-
     /// Bytes this node sealed for the file. A local reference is not opened.
     pub(crate) async fn open_owned_record_file(
         &self,
@@ -218,6 +201,7 @@ impl RecordFormat {
         &self,
         schema: &Schema,
         changes: Vec<RecordChange>,
+        mutation_types: &[MutationType],
     ) -> Result<(), SchemaError> {
         self.require_scope()?;
         let missing = changes
@@ -226,7 +210,8 @@ impl RecordFormat {
         if schema.file_required && missing {
             return Err(inv("this record requires a file"));
         }
-        let (main, files, written) = encode::encode_batch(schema, changes, &self.content_key)?;
+        let (main, files, written) =
+            encode::encode_batch(schema, changes, mutation_types, &self.content_key)?;
         let (puts, deletes, refs) = encode_files(&self.issuer, &self.content_key, files)?;
         self.main.batch_mutate(main).await?;
         if !puts.is_empty() {
@@ -262,10 +247,11 @@ fn after_commit_sidecar(
     }
     let rt = Arc::clone(runtime);
     transaction::after_commit(runtime, async move {
-        if let Err(error) = run_blocking(move || local_file_ref::apply(&rt, refs)).await {
-            tracing::error!(%error, "local file reference catalog update failed after commit");
-        }
-        Ok(())
+        run_blocking(move || local_file_ref::apply(&rt, refs))
+            .await
+            .inspect_err(|error| {
+                tracing::error!(%error, "local file reference catalog update failed after commit");
+            })
     })
     .map_err(SchemaError::from)
 }

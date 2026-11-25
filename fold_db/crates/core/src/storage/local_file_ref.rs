@@ -1,8 +1,7 @@
 //! Per-home local file reference sidecar catalog and verified external file reads.
 
-use super::disk_pack::{run_blocking, PackRuntime};
+use super::disk_pack::{admit, PackRuntime};
 use super::error::{StorageError, StorageResult};
-use crate::error::FoldDbError;
 use lastdb_model::hex::{hex_lower, sha256_hex};
 use lastdb_model::record_value::FileMarker;
 use lastdb_model::storage_policy::native_write::LOCAL_FILE_INPUT_MEMORY_BYTES;
@@ -140,24 +139,39 @@ pub(in crate::storage) fn sha256_regular_file(
     expected_size: Option<u64>,
 ) -> StorageResult<(u64, String)> {
     let display = path.display();
-    let metadata = fs::metadata(path)?;
-    if !metadata.is_file() {
+    let file = admit::open_nofollow_read(path)
+        .map_err(|e| invalid(format!("local file {display}: {e}")))?;
+    let held = file
+        .metadata()
+        .map_err(|e| invalid(format!("local file {display}: {e}")))?;
+    if !held.is_file() {
         return Err(invalid(format!(
             "local file {display} is not a regular file"
         )));
     }
-    if expected_size.is_some_and(|size| metadata.len() != size) {
+    if held.len() > MAX_RECORD_FILE_BYTES {
+        return Err(invalid(format!(
+            "local file {display} is {} bytes; a record file holds at most {MAX_RECORD_FILE_BYTES} bytes",
+            held.len()
+        )));
+    }
+    if expected_size.is_some_and(|size| held.len() != size) {
         return Err(invalid(format!("local file {display} size mismatch")));
     }
-    let (mut file, mut hasher, mut buffer, mut seen) =
-        (File::open(path)?, Sha256::new(), [0u8; 65536], 0u64);
-    while let count @ 1.. = file.read(&mut buffer)? {
+    let limit = expected_size.unwrap_or(held.len());
+    let (mut reader, mut hasher, mut buffer, mut seen) = (
+        file.take(limit.saturating_add(1)),
+        Sha256::new(),
+        [0u8; 65536],
+        0u64,
+    );
+    while let count @ 1.. = reader.read(&mut buffer)? {
         seen = seen
             .checked_add(count as u64)
             .ok_or_else(|| invalid("length overflow"))?;
         hasher.update(&buffer[..count]);
     }
-    (seen == metadata.len())
+    (seen == held.len())
         .then(|| (seen, hex_lower(hasher.finalize())))
         .ok_or_else(|| invalid(format!("local file {display} changed during hash")))
 }
@@ -167,28 +181,18 @@ pub(crate) fn describe(runtime: &PackRuntime, path: &Path) -> StorageResult<Desc
     let display = path.display();
     let canonical =
         fs::canonicalize(path).map_err(|e| invalid(format!("local file {display}: {e}")))?;
+    canonical
+        .to_str()
+        .ok_or_else(|| invalid(format!("local file {display}: non-UTF-8 path")))?;
     if canonical.starts_with(fs::canonicalize(&node).unwrap_or(node)) {
         return Err(invalid(
             "a local file reference must stay outside the node home",
         ));
     }
-    let metadata =
-        fs::metadata(&canonical).map_err(|e| invalid(format!("local file {display}: {e}")))?;
-    if !metadata.is_file() {
-        return Err(invalid(format!(
-            "local file {display} is not a regular file"
-        )));
-    }
     // A snapshot and a receiving device hold the file as one value of the file
-    // store. A file the store cannot hold is refused here, at the write, because
-    // nothing after the write can back it up.
-    if metadata.len() > MAX_RECORD_FILE_BYTES {
-        return Err(invalid(format!(
-            "local file {display} is {} bytes; a record file holds at most {MAX_RECORD_FILE_BYTES} bytes",
-            metadata.len()
-        )));
-    }
-    let (length, sha256) = sha256_regular_file(&canonical, Some(metadata.len()))?;
+    // store. A file the store cannot hold is refused inside sha256_regular_file,
+    // at the write, because nothing after the write can back it up.
+    let (length, sha256) = sha256_regular_file(&canonical, None)?;
     let file_name = canonical
         .file_name()
         .and_then(|name| name.to_str())
@@ -279,27 +283,8 @@ pub(crate) fn referenced_path(
     Ok(Some((path, intact)))
 }
 
-pub(crate) async fn read_referenced(
-    runtime: &PackRuntime,
-    cas_key: &str,
-    marker: &FileMarker,
-) -> Result<Option<Vec<u8>>, FoldDbError> {
-    let entry = {
-        let _guard = catalog_lock(runtime)?;
-        load(&sidecar_path(runtime)?.0)?.files.remove(cas_key)
-    };
-    let Some(entry) = entry else { return Ok(None) };
-    if entry.sha256 != marker.sha256 || entry.size_bytes != marker.size_bytes {
-        return Err(FoldDbError::SecurityError(
-            "local file reference does not match its record marker".into(),
-        ));
-    }
-    let bytes = run_blocking(move || read_verified_local_file(&entry)).await?;
-    Ok(Some(bytes))
-}
-
 fn read_verified_local_file(entry: &Entry) -> StorageResult<Vec<u8>> {
-    if entry.size_bytes > LOCAL_FILE_INPUT_MEMORY_BYTES {
+    if entry.size_bytes > LOCAL_FILE_INPUT_MEMORY_BYTES.min(MAX_RECORD_FILE_BYTES) {
         return Err(StorageError::write_limit(
             "local file exceeds in-memory cap",
         ));
@@ -307,16 +292,21 @@ fn read_verified_local_file(entry: &Entry) -> StorageResult<Vec<u8>> {
     let path = Path::new(&entry.path);
     let display = path.display();
     let mismatch = || invalid(format!("local file {display} marker mismatch"));
-    let metadata = fs::metadata(path).map_err(|e| invalid(format!("local file {display}: {e}")))?;
-    if !metadata.is_file() || metadata.len() != entry.size_bytes {
+    let file = admit::open_nofollow_read(path)
+        .map_err(|e| invalid(format!("local file {display}: {e}")))?;
+    let held = file
+        .metadata()
+        .map_err(|e| invalid(format!("local file {display}: {e}")))?;
+    if !held.is_file() || held.len() != entry.size_bytes {
         return Err(mismatch());
     }
+    let capacity = usize::try_from(held.len()).map_err(|_| mismatch())?;
     let mut bytes = Vec::new();
-    let capacity = usize::try_from(entry.size_bytes).unwrap_or(usize::MAX);
     bytes
         .try_reserve_exact(capacity)
         .map_err(|_| StorageError::write_limit("alloc refused"))?;
-    File::open(path)?.read_to_end(&mut bytes)?;
-    let matches = bytes.len() as u64 == entry.size_bytes && sha256_hex(&bytes) == entry.sha256;
+    file.take(entry.size_bytes.saturating_add(1))
+        .read_to_end(&mut bytes)?;
+    let matches = bytes.len() as u64 == held.len() && sha256_hex(&bytes) == entry.sha256;
     matches.then_some(bytes).ok_or_else(mismatch)
 }

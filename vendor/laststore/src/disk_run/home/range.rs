@@ -328,7 +328,15 @@ impl RunHashRange<'_> {
                 return Err(Error::ReadBudgetExceeded);
             }
             if let Found::Value(v) = found {
-                self.read.charge((key.len() + v.len()) as u64)?;
+                if self.read.charge((key.len() + v.len()) as u64).is_err() {
+                    self.read.costs.examined_keys -= 1;
+                    self.held = Some((key, Found::Value(v)));
+                    if yielding.is_some() && last.is_some() {
+                        resume = last.take();
+                        break;
+                    }
+                    return Err(Error::ReadBudgetExceeded);
+                }
                 out.push((storage_key(&self.collection, &key)?, v));
             }
             last = yielding.map(|_| key);

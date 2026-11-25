@@ -1,7 +1,7 @@
 //! Record batch, inline-file, tombstone, and alternate-key KV encoding.
 
 use super::{inv, RecordChange};
-use crate::schema::types::{Schema, SchemaError};
+use crate::schema::types::{MutationType, Schema, SchemaError};
 use crate::storage::disk_pack::record_warm::WrittenRecord;
 use crate::storage::format::inline_files;
 use crate::storage::format::metadata::{record_value_error, FileChange};
@@ -67,8 +67,12 @@ fn encode_alternates(
 pub(super) fn encode_batch(
     schema: &Schema,
     changes: Vec<RecordChange>,
+    mutation_types: &[MutationType],
     node_key: &[u8; 32],
 ) -> Result<EncodedBatch, SchemaError> {
+    if changes.len() != mutation_types.len() {
+        return Err(inv("record batch mutation types do not match changes"));
+    }
     let alternates = encode_alternates(schema, &changes, node_key)?;
     let count = changes.len();
     let mut seen = HashSet::with_capacity(count);
@@ -80,7 +84,7 @@ pub(super) fn encode_batch(
     }
     let mut main = Vec::with_capacity(count * 2 + alternates.len());
     let (mut files, mut written) = (Vec::with_capacity(count), Vec::with_capacity(count));
-    for change in changes {
+    for (change, &mutation_type) in changes.into_iter().zip(mutation_types) {
         if change.after.is_live() && change.after.key != change.key.key {
             return Err(inv("record payload differs from its bound primary address"));
         }
@@ -118,7 +122,11 @@ pub(super) fn encode_batch(
             written.push(WrittenRecord::new(&encoded_key, after, &value));
             main.push(KvMutation::put(encoded_key, value));
         } else {
-            let delete_marker = applied_deletes::encode(&encoded_key, &after.stamp)?;
+            let delete_marker = if mutation_type == MutationType::Purge {
+                KvMutation::delete(format!("ad:{encoded_key}"))
+            } else {
+                applied_deletes::encode(&encoded_key, &after.stamp)?
+            };
             main.extend([
                 inline_files::delete(&encoded_key),
                 delete_marker,

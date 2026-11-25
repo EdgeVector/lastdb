@@ -142,21 +142,13 @@ impl SchemaStore {
         if let Some(restored) = SchemaRetentionPolicy::after_operator_clear(previous.as_ref()) {
             return self.put_policy(schema_name, &restored).await;
         }
-        let mut keys = vec![StateDelete::Key {
-            schema: schema_name,
-            kind: StateKey::Policy,
-        }];
-        for kind in Tracking::ALL {
-            keys.push(StateDelete::Selected {
+        self.format
+            .delete_states(vec![StateDelete::Key {
                 schema: schema_name,
-                kind,
-                keys: self
-                    .schema_states_store
-                    .list_keys_with_prefix(&kind.prefix(schema_name))
-                    .await?,
-            });
-        }
-        self.format.delete_states(keys).await?;
+                kind: StateKey::Policy,
+            }])
+            .await?;
+        self.sweep_retention_tracking(schema_name).await?;
         self.runtime.flush().await?;
         Ok(())
     }

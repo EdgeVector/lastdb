@@ -264,7 +264,7 @@ impl FoldDB {
             .read_scope()
             .await?
             .run_result(async {
-                let (rk, record) = self.read_file_record(schema_name, key, None).await?;
+                let (rk, record) = self.read_file_record(schema_name, key).await?;
                 let record = record.ok_or_else(|| {
                     FoldDbError::Database("local file reference has no record".into())
                 })?;
@@ -294,7 +294,6 @@ impl FoldDB {
         &self,
         schema_name: &str,
         key: &KeyValue,
-        revision: Option<&str>,
     ) -> Result<(String, Option<Arc<StoredRecord>>), FoldDbError> {
         let schema = self.schema_manager.require_schema_metadata(schema_name)?;
         let records = self.db_ops.records();
@@ -304,51 +303,6 @@ impl FoldDB {
             .await?
             .pop()
             .flatten();
-        if let Some(expected) = revision {
-            let actual = rec.as_deref().map(|r| r.stamp.revision());
-            if actual.as_deref() != Some(expected) {
-                return Err(SchemaError::CasConflict {
-                    schema: schema_name.to_owned(),
-                    key: key.to_storage_key(),
-                    expected: expected.to_owned(),
-                    actual,
-                }
-                .into());
-            }
-        }
         Ok((rk, rec))
-    }
-
-    pub async fn read_record_file(
-        &self,
-        schema_name: &str,
-        key: &KeyValue,
-        revision: Option<&str>,
-    ) -> Result<Option<(FileMarker, Vec<u8>)>, FoldDbError> {
-        self.db_ops
-            .read_scope()
-            .await?
-            .run_result(async {
-                let (rk, record) = self.read_file_record(schema_name, key, revision).await?;
-                let Some((marker, ver)) = record
-                    .as_ref()
-                    .and_then(|r| r.file.as_ref().zip(r.file_version.as_ref()))
-                else {
-                    return Ok(None);
-                };
-                let bytes = self
-                    .db_ops
-                    .records()
-                    .format
-                    .open_record_file(&rk, ver, marker)
-                    .await?
-                    .ok_or_else(|| {
-                        FoldDbError::InProgress(
-                            "the record's file is not on this device and could not be downloaded: no cloud backup is configured on this node".into(),
-                        )
-                    })?;
-                Ok(Some((marker.clone(), bytes)))
-            })
-            .await
     }
 }

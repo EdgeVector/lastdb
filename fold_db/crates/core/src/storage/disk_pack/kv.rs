@@ -246,14 +246,6 @@ impl PackKvStore {
         .await
     }
 
-    pub(crate) async fn list_keys_with_prefix(&self, prefix: &str) -> StorageResult<Vec<String>> {
-        let rows = self.scan_prefix(prefix.as_bytes()).await?;
-        Ok(rows
-            .into_iter()
-            .map(|(k, _)| String::from_utf8_lossy(&k).into_owned())
-            .collect())
-    }
-
     pub(crate) async fn scan_items_with_prefix<T: DeserializeOwned>(&self, p: &str) -> JsonRows<T> {
         decode_json_rows(self.scan_prefix(p.as_bytes()).await?)
     }
