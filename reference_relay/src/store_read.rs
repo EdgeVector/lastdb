@@ -20,33 +20,15 @@ impl Store {
     ) -> ApiResult<(Vec<Value>, Option<String>)> {
         require_hex64(device_id, "entries.device_id")?;
         let limit = limit.clamp(1, MAX_BATCH);
-        let mut entries = Vec::new();
         let mut seq = from_seq.max(1);
         if seq <= self.heads.floor(database_id, node_key, device_id) {
             return Err(ApiError::trimmed("from_seq"));
         }
-        while entries.len() < limit {
-            let meta = EntryKey {
-                database_id: database_id.to_owned(),
-                node_key: node_key.to_owned(),
-                device_id: device_id.to_owned(),
-                writer_seq: seq,
-            };
-            match fs::read(self.entry_path(&meta)).await {
-                Ok(bytes) => {
-                    let val =
-                        serde_json::from_slice(&bytes).map_err(|_| ApiError::invalid("entries"))?;
-                    entries.push(val);
-                    seq += 1;
-                }
-                Err(err) if err.kind() == ErrorKind::NotFound => {
-                    if seq <= self.heads.floor(database_id, node_key, device_id) {
-                        return Err(ApiError::trimmed("from_seq"));
-                    }
-                    break;
-                }
-                Err(_) => return Err(ApiError::invalid("data_dir")),
-            }
+        let entries = self
+            .read_stream(database_id, node_key, device_id, &mut seq, limit)
+            .await?;
+        if entries.is_empty() && seq <= self.heads.floor(database_id, node_key, device_id) {
+            return Err(ApiError::trimmed("from_seq"));
         }
         let cursor = if entries.len() == limit {
             Some(format!("d:{node_key}:{device_id}:{seq}"))
@@ -54,6 +36,64 @@ impl Store {
             None
         };
         Ok((entries, cursor))
+    }
+
+    /// Read the items of one stream from `seq` on without a gap, at most `limit` of them, and
+    /// move `seq` past the last one. An item is an entry or a segment; the first segment may
+    /// start below `seq` when it holds `seq`.
+    async fn read_stream(
+        &self,
+        database_id: &str,
+        node_key: &str,
+        device_id: &str,
+        seq: &mut u64,
+        limit: usize,
+    ) -> ApiResult<Vec<Value>> {
+        let dir = self
+            .root
+            .join(format!("logs/{database_id}/{node_key}/{device_id}"));
+        let path_at = |writer_seq: u64| {
+            self.entry_path(&EntryKey {
+                database_id: database_id.to_owned(),
+                node_key: node_key.to_owned(),
+                device_id: device_id.to_owned(),
+                writer_seq,
+            })
+        };
+        let mut items = Vec::new();
+        // An inline entry is stored at its own seq and is read directly. Only a segment, stored at
+        // its last seq, needs the listing of the stream, made at most once per page.
+        let mut listed: Option<std::vec::IntoIter<u64>> = None;
+        while items.len() < limit {
+            let (key, bytes) = match fs::read(path_at(*seq)).await {
+                Ok(bytes) => (*seq, bytes),
+                Err(err) if err.kind() == ErrorKind::NotFound => {
+                    if listed.is_none() {
+                        listed = Some(stored_keys(&dir, *seq).await?.into_iter());
+                    }
+                    let next = listed
+                        .as_mut()
+                        .and_then(|keys| keys.find(|key| *key >= *seq));
+                    let Some(key) = next else { break };
+                    match fs::read(path_at(key)).await {
+                        Ok(bytes) => (key, bytes),
+                        // A trim removed it after the listing.
+                        Err(err) if err.kind() == ErrorKind::NotFound => break,
+                        Err(_) => return Err(ApiError::invalid("data_dir")),
+                    }
+                }
+                Err(_) => return Err(ApiError::invalid("data_dir")),
+            };
+            let item: Value =
+                serde_json::from_slice(&bytes).map_err(|_| ApiError::invalid("entries"))?;
+            let (first, last) = crate::segment::covers(key, &item)?;
+            if first > *seq {
+                break;
+            }
+            items.push(item);
+            *seq = last + 1;
+        }
+        Ok(items)
     }
 
     /// Read every device under `writer_key`, ordered by device id then seq.
@@ -86,31 +126,11 @@ impl Store {
         for device_id in devices.iter().skip(start) {
             let floor = self.heads.floor(database_id, writer_key, device_id);
             let mut seq = resume_seq.take().unwrap_or(1).max(floor + 1).max(1);
-            while entries.len() < limit {
-                let meta = EntryKey {
-                    database_id: database_id.to_owned(),
-                    node_key: writer_key.to_owned(),
-                    device_id: device_id.clone(),
-                    writer_seq: seq,
-                };
-                match fs::read(self.entry_path(&meta)).await {
-                    Ok(bytes) => {
-                        let val = serde_json::from_slice(&bytes)
-                            .map_err(|_| ApiError::invalid("entries"))?;
-                        entries.push(val);
-                        seq += 1;
-                    }
-                    Err(err) if err.kind() == ErrorKind::NotFound => {
-                        let now_floor = self.heads.floor(database_id, writer_key, device_id);
-                        if seq <= now_floor {
-                            seq = now_floor + 1;
-                            continue;
-                        }
-                        break;
-                    }
-                    Err(_) => return Err(ApiError::invalid("data_dir")),
-                }
-            }
+            let want = limit - entries.len();
+            let items = self
+                .read_stream(database_id, writer_key, device_id, &mut seq, want)
+                .await?;
+            entries.extend(items);
             if entries.len() == limit {
                 return Ok((entries, Some(format!("w:{writer_key}:{device_id}:{seq}"))));
             }
@@ -147,6 +167,34 @@ impl Store {
         devices.sort();
         Ok(devices)
     }
+}
+
+/// The keys of the items stored in a stream directory, at or above `min`, ascending. The key of
+/// an entry is its sequence number and the key of a segment its last one, so the first key at or
+/// above a sequence number is the item that holds it when one does.
+pub(crate) async fn stored_keys(dir: &std::path::Path, min: u64) -> ApiResult<Vec<u64>> {
+    let mut rd = match fs::read_dir(dir).await {
+        Ok(rd) => rd,
+        Err(err) if err.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(_) => return Err(ApiError::invalid("data_dir")),
+    };
+    let mut keys = Vec::new();
+    while let Some(ent) = rd
+        .next_entry()
+        .await
+        .map_err(|_| ApiError::invalid("data_dir"))?
+    {
+        let key = ent
+            .file_name()
+            .to_str()
+            .and_then(|name| name.strip_suffix(".json"))
+            .and_then(|name| name.parse::<u64>().ok());
+        if let Some(key) = key.filter(|key| *key >= min) {
+            keys.push(key);
+        }
+    }
+    keys.sort_unstable();
+    Ok(keys)
 }
 
 #[derive(serde::Deserialize)]

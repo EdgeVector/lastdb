@@ -72,6 +72,98 @@ impl RelayClient {
         }
     }
 
+    /// The bytes of the blob at a presigned URL that a `log.read` named (a log segment), checked
+    /// against `size` and `sha256`. A segment holds one sent batch, so it is read into memory.
+    pub(in crate::log_sync) async fn fetch_bytes(
+        &self,
+        url: &str,
+        headers: &serde_json::Value,
+        sha256: &str,
+        size: u64,
+    ) -> Result<Vec<u8>, String> {
+        url_guard::validate_presigned_url(&self.base, url)?;
+        let headers = url_guard::presigned_headers(headers, false)?;
+        let mut tried = 0;
+        loop {
+            tried += 1;
+            match self.fetch_once(url, &headers, sha256, size).await {
+                Ok(bytes) => return Ok(bytes),
+                Err(DownloadError::Retryable(error)) if tried < UPLOAD_TRIES => {
+                    tracing::warn!(
+                        target: "lastdbd::log_sync",
+                        %error,
+                        tried,
+                        "log segment download failed transiently; retrying"
+                    );
+                    tokio::time::sleep(upload_backoff(tried)).await;
+                }
+                Err(DownloadError::Retryable(error) | DownloadError::Fatal(error)) => {
+                    return Err(error)
+                }
+            }
+        }
+    }
+
+    async fn fetch_once(
+        &self,
+        url: &str,
+        headers: &[(HeaderName, HeaderValue)],
+        sha256: &str,
+        size: u64,
+    ) -> Result<Vec<u8>, DownloadError> {
+        let mut download = self.download.get(url);
+        for (name, value) in headers {
+            download = download.header(name, value);
+        }
+        let response = download.send().await.map_err(|e| {
+            DownloadError::Retryable(format!("log segment download: {}", describe(e, url)))
+        })?;
+        let status = response.status();
+        if status.is_redirection() {
+            return Err(DownloadError::Fatal(format!(
+                "log segment download unexpected redirect HTTP {status}"
+            )));
+        }
+        url_guard::validate_presigned_url(&self.base, response.url().as_str())
+            .map_err(DownloadError::Fatal)?;
+        if !status.is_success() {
+            let msg = format!("log segment download HTTP {status}");
+            return if is_retryable_store_status(status) {
+                Err(DownloadError::Retryable(msg))
+            } else {
+                Err(DownloadError::Fatal(msg))
+            };
+        }
+        let mut bytes = Vec::with_capacity(usize::try_from(size).unwrap_or(0));
+        let mut chunks = response.bytes_stream();
+        while let Some(chunk) = chunks.next().await {
+            let chunk = chunk.map_err(|e| {
+                DownloadError::Retryable(format!(
+                    "log segment download body: {} after {} of {size} bytes",
+                    describe(e, url),
+                    bytes.len()
+                ))
+            })?;
+            if (bytes.len() + chunk.len()) as u64 > size {
+                return Err(DownloadError::Fatal(format!(
+                    "log segment {sha256} is larger than the relay said"
+                )));
+            }
+            bytes.extend_from_slice(&chunk);
+        }
+        if bytes.len() as u64 != size {
+            return Err(DownloadError::Retryable(format!(
+                "log segment {sha256} is shorter than the relay said"
+            )));
+        }
+        if hex_lower(&Sha256::digest(&bytes)) != sha256 {
+            return Err(DownloadError::Fatal(format!(
+                "log segment {sha256} does not match its digest"
+            )));
+        }
+        Ok(bytes)
+    }
+
     async fn get_once(
         &self,
         url: &str,

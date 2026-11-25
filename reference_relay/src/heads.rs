@@ -32,6 +32,7 @@ use serde::{Deserialize, Serialize};
 use tokio::fs;
 
 use crate::error::{ApiError, ApiResult};
+use crate::segment::Span;
 
 /// The file in a stream directory that records the last seq a trim dropped.
 pub(crate) const FLOOR_FILE: &str = "floor.json";
@@ -63,6 +64,17 @@ impl StreamHead {
         if stored && self.seq == head {
             self.beyond_rev += 1;
         }
+    }
+
+    /// Record a stored segment. Only one that continues the head is stored, so others are ignored.
+    fn record_segment(&mut self, span: Span) {
+        if span.last_seq <= self.seq || span.first_seq != self.seq + 1 {
+            return;
+        }
+        let last = span.last_seq;
+        (self.seq, self.hash) = (last, span.last_hash);
+        self.pending.retain(|stored, _| *stored > last);
+        self.join_pending();
     }
 
     /// Record that a trim dropped every entry up to `seq`, whose hash is `hash`.
@@ -139,6 +151,17 @@ impl Heads {
             .entry(device_id.to_owned())
             .or_default()
             .record(seq, hash);
+    }
+
+    /// Add one newly stored segment to the head of its stream.
+    pub(crate) fn record_segment(&self, database_id: &str, writer: &str, device: &str, span: Span) {
+        let mut streams = self.streams.lock().expect("heads lock");
+        streams
+            .entry((database_id.to_owned(), writer.to_owned()))
+            .or_default()
+            .entry(device.to_owned())
+            .or_default()
+            .record_segment(span);
     }
 
     /// Record that a trim dropped every entry of a stream up to `seq`.
@@ -278,6 +301,8 @@ impl Heads {
         // The floor first: entries above it then join the head from there.
         self.load_floor(&db, &writer, &device, &device_dir.join(FLOOR_FILE))
             .await?;
+        // In stream order, so a segment finds the head it continued when it was stored.
+        let mut stored = Vec::new();
         while let Ok(Some(file)) = files.next_entry().await {
             let path = file.path();
             let seq = path
@@ -285,11 +310,23 @@ impl Heads {
                 .and_then(|n| n.to_str())
                 .and_then(|n| n.strip_suffix(".json"))
                 .and_then(|n| n.parse::<u64>().ok());
-            let Some(seq) = seq else { continue };
+            if let Some(seq) = seq {
+                stored.push((seq, path));
+            }
+        }
+        stored.sort_unstable();
+        for (seq, path) in stored {
             let Ok(bytes) = fs::read(&path).await else {
                 continue;
             };
-            let Ok(entry) = serde_json::from_slice::<SignedEntry>(&bytes) else {
+            let Ok(item) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
+                continue;
+            };
+            if let Ok(Some(span)) = crate::segment::span(&item) {
+                self.record_segment(&db, &writer, &device, span);
+                continue;
+            }
+            let Ok(entry) = serde_json::from_value::<SignedEntry>(item) else {
                 continue;
             };
             if let Ok(hash) = entry_hash(&entry) {

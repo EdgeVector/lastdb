@@ -6,7 +6,7 @@
 //! key and signed with the node key (`crate::personal_author`). A file that an
 //! entry names is in the spool beside it, sealed. The sender changes nothing in
 //! the store and signs nothing. It reads the entries past the acknowledged
-//! position, sends their files and then the entries, asks the relay for each
+//! position, sends their files and then the entries as one log segment (`send`), asks the relay for each
 //! file again (a sweep drops a file that no entry named yet, and such a file goes
 //! up again), writes the head row of its own stream, and tells the spool to
 //! retire them.
@@ -34,9 +34,10 @@ use mutation_log::{entry_hash, DataBody, SignedEntry};
 use super::{apply, send, Ctx};
 use crate::log_sync::relay::{RelayClient, StreamHead as RelayStream};
 
-/// The relay takes at most this many entries in one append.
+/// The spool is read this many entries at a time.
 const PAGE: u32 = 90;
-/// A batch stops at 2 MiB of entries and files, so one HTTP request stays small.
+/// A batch stops at 2 MiB of entries and files. The entries of a batch go up as one segment,
+/// held in memory while it is written, and one spool confirmation covers the batch.
 const BATCH_BYTES: u64 = 2 * 1024 * 1024;
 
 /// The entries of one send, with the spool range they cover and the files they name.
@@ -75,8 +76,12 @@ async fn drain(ctx: &Ctx<'_>, client: &RelayClient, streams: &[RelayStream]) -> 
     let mut birth_known = streams
         .iter()
         .any(|stream| stream.device_id == ctx.birth_device_hex);
+    let mut relay_head = streams
+        .iter()
+        .find(|stream| stream.device_id == ctx.device_hex)
+        .map_or(0, |stream| stream.head_seq);
     while let Some(batch) = next_batch(ctx, streams).await? {
-        finish(ctx, client, &batch, &mut birth_known).await?;
+        finish(ctx, client, &batch, &mut birth_known, &mut relay_head).await?;
     }
     Ok(())
 }
@@ -204,8 +209,9 @@ async fn finish(
     client: &RelayClient,
     batch: &Batch,
     birth_known: &mut bool,
+    relay_head: &mut u64,
 ) -> Result<(), String> {
-    send::send(ctx, client, batch, birth_known).await?;
+    send::send(ctx, client, batch, birth_known, relay_head).await?;
     let last = batch.entries.last().ok_or("a batch holds no entry")?;
     commit_head(ctx, last).await?;
     let position = UploadPosition {

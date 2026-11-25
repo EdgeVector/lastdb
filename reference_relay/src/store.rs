@@ -117,6 +117,10 @@ impl Store {
             Ok(raw) => {
                 let existing: Value =
                     serde_json::from_slice(&raw).map_err(|_| ApiError::invalid("entries"))?;
+                // A segment that ends here holds the entry: a repeat, as on the Exemem relay.
+                if existing.get("segment").is_some() {
+                    return Ok(PreparedEntry::BatchDuplicate);
+                }
                 if &existing != entry {
                     return Err(ApiError::conflict("entries.writer_seq"));
                 }
@@ -127,6 +131,13 @@ impl Store {
             }
             Err(err) if err.kind() == ErrorKind::NotFound => {
                 if self.check_floor_admission(meta, hash)? {
+                    return Ok(PreparedEntry::BatchDuplicate);
+                }
+                // Absent at or below the contiguous head: a segment holds it. A repeat.
+                let head = self
+                    .heads
+                    .head_seq(&meta.database_id, &meta.node_key, &meta.device_id);
+                if head.is_some_and(|head| head >= meta.writer_seq) {
                     return Ok(PreparedEntry::BatchDuplicate);
                 }
                 let bytes = serde_json::to_vec(entry).map_err(|_| ApiError::invalid("entries"))?;

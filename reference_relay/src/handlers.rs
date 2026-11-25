@@ -19,6 +19,8 @@ use crate::gate;
 use crate::grant_index::GrantIndex;
 use crate::presign;
 use crate::request_log::EntriesReturned;
+use crate::segment::SegmentBody;
+use crate::segment_api::{append_segment, entries_held, present_segments};
 use crate::store::{now_ms, require_hex64, Store};
 use crate::store_read::{read_limit, read_position, LogReadBody, ReadPosition};
 
@@ -77,12 +79,17 @@ pub(crate) async fn log_append(
     require_hex64(&req.database_id, "database_id")?;
     let caller = verified.node_key;
     let db = gate::parse_id(&req.database_id, "database_id")?;
-    let signed = gate::parse_entries(&req.entries)?;
+    let entries = match (req.entries, req.segment) {
+        (Some(entries), None) => entries,
+        (None, Some(segment)) => return append_segment(&state, &db, &caller, &segment).await,
+        _ => return Err(ApiError::invalid("segment")),
+    };
+    let signed = gate::parse_entries(&entries)?;
     let mut grants = state.grants.lock().await;
     let plan = gate::authorize_append(&grants, &db, &caller, &signed)?;
     let (stored, duplicate) = state
         .store
-        .append_entries(&req.database_id, &req.entries)
+        .append_entries(&req.database_id, &entries)
         .await?;
     plan.commit(&mut grants, db);
     Ok(Json(json!({ "stored": stored, "duplicate": duplicate })))
@@ -108,7 +115,7 @@ pub(crate) async fn log_read(
         .check_log_read(&db, &caller, writer_key, all_devices)
         .await?;
     let limit = read_limit(req.limit)?;
-    let (entries, cursor) = match position {
+    let (mut entries, cursor) = match position {
         ReadPosition::Device {
             writer_key,
             device_id,
@@ -137,8 +144,10 @@ pub(crate) async fn log_read(
         }
     };
     let prefix = if all_devices { "w:" } else { "d:" };
+    present_segments(&state, &req.database_id, &mut entries);
     let (entries, cursor) = fit_response(entries, cursor, prefix)?;
-    let returned = EntriesReturned(entries.len());
+    // The request log counts entries, so a segment counts the entries it holds.
+    let returned = EntriesReturned(entries_held(&entries));
     let mut out = json!({ "entries": entries });
     if let Some(c) = cursor {
         out["cursor"] = Value::String(c);
@@ -318,12 +327,17 @@ fn fit_response(
     let Some(cut) = cut else {
         return Ok((entries, cursor));
     };
+    // A segment carries its stream and ends at `last_seq`; an entry at `writer_seq`.
     let last = &entries[cut - 1];
+    let (last, seq_field) = match last.get("segment") {
+        Some(segment) => (segment, "last_seq"),
+        None => (last, "writer_seq"),
+    };
     let field = |name: &str| last.get(name).and_then(Value::as_str).map(str::to_owned);
     let (Some(node_key), Some(device_id), Some(seq)) = (
         field("node_key"),
         field("device_id"),
-        last.get("writer_seq").and_then(Value::as_u64),
+        last.get(seq_field).and_then(Value::as_u64),
     ) else {
         return Err(ApiError::invalid("entries"));
     };
@@ -353,7 +367,10 @@ pub(crate) fn parse_body<T: serde::de::DeserializeOwned>(body: &[u8]) -> ApiResu
 #[serde(deny_unknown_fields)]
 struct LogAppendBody {
     database_id: String,
-    entries: Vec<Value>,
+    #[serde(default)]
+    entries: Option<Vec<Value>>,
+    #[serde(default)]
+    segment: Option<SegmentBody>,
 }
 
 #[derive(Deserialize)]

@@ -18,6 +18,7 @@ sys.path[:0] = [str(_OPS), str(_OPS.parent)]
 from benchmarks.node import Node  # noqa: E402
 from record_runs import held, require  # noqa: E402
 import v1_records as v1  # noqa: E402
+from personal_proof_segments import stored_entries  # noqa: E402
 
 WAIT_SECONDS = 150
 SCALE_WAIT_SECONDS = 1800
@@ -44,7 +45,6 @@ BATCH = 200
 # (TRIM_EVERY in recover.rs), so the directory never holds much more than the sum.
 IDS_KEPT, IDS_TRIM_EVERY = 10_000, 2_500
 IDS_BOUND = IDS_KEPT + IDS_TRIM_EVERY + 500
-
 
 
 def wait(what, probe, seconds=WAIT_SECONDS):
@@ -126,9 +126,9 @@ class Relay:
         return found
 
     def stream_entries(self, database, device_id):
-        """The entries the relay holds of one device stream: logs/<db>/<node>/<device>/<seq>.json."""
-        return sorted(int(p.stem) for p in (self.data / "logs").glob(f"{database}/*/{device_id}/*.json") if p.stem.isdigit())
-
+        """The seqs of the entries the relay holds of one device stream (segments read as their entries)."""
+        dirs = (self.data / "logs").glob(f"{database}/*/{device_id}")
+        return sorted(seq for directory in dirs for seq in stored_entries(directory))
 
     def stream_floor(self, database, device_id):
         """The last entry of a stream that a trim dropped, from its `floor.json`. 0 when none was."""

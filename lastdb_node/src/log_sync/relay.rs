@@ -1,6 +1,7 @@
 //! HTTP client for `/relay/v1/log/*`.
 
 mod http;
+mod segments;
 
 use std::time::{Duration, Instant};
 
@@ -114,7 +115,12 @@ impl RelayClient {
             .await?;
         let (stored, duplicate) = parse_append_counts(&value, entries.len() as u64);
         if let Some(usage) = &self.usage {
-            usage.entries_accepted(database_id, entries, stored.saturating_add(duplicate))?;
+            usage.entries_accepted(
+                database_id,
+                entries,
+                stored.saturating_add(duplicate),
+                false,
+            )?;
         }
         Ok((stored, duplicate))
     }
@@ -130,34 +136,10 @@ impl RelayClient {
         cursor: Option<&str>,
         limit: u32,
     ) -> Result<(Vec<SignedEntry>, Option<String>), String> {
-        // OpenAPI LogReadBody names the stream key `writer_key` (hex node key).
-        let mut body = json!({
-            "database_id": database_id,
-            "limit": limit,
-        });
-        if let Some(cursor) = cursor {
-            body["cursor"] = Value::String(cursor.to_owned());
-        } else {
-            body["writer_key"] = Value::String(writer_key.to_owned());
-            body["from_seq"] = json!(from_seq);
-            if let Some(device_id) = device_id {
-                body["device_id"] = Value::String(device_id.to_owned());
-            }
-        }
-        let value = self
-            .post("/relay/v1/log/read", database_id, &body)
-            .await
-            .map_err(|error| {
-                if error.contains("HTTP 410") {
-                    format!("{BEHIND_THE_TRIM}: {error}")
-                } else {
-                    error
-                }
-            })?;
-        let entries: Vec<SignedEntry> = serde_json::from_value(value["entries"].clone())
-            .map_err(|_| "relay log.read returned invalid entries".to_owned())?;
-        let cursor = value["cursor"].as_str().map(str::to_owned);
-        Ok((entries, cursor))
+        let page = self
+            .read_page(database_id, writer_key, device_id, from_seq, cursor, limit)
+            .await?;
+        Ok((page.entries, page.cursor))
     }
 
     /// Ask the relay to drop what the snapshot entry `writer_seq` of the snapshot stream

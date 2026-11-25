@@ -180,17 +180,22 @@ def relay_view(relay, device):
     status, answer = relay_post(relay, device, database, node, "/relay/v1/log/streams",
                                 {"database_id": database, "writer_key": node})
     require(status == 200, f"log/streams: {status} {answer!r}")
-    entries = []
+    entries, inline, segments = [], 0, set()
     for item in answer["streams"]:
-        entries += read_stream(relay, device, database, node, item["device_id"], item["head_seq"])[1]
+        _floor, held, length, named = read_stream(relay, device, database, node, item["device_id"], item["head_seq"])
+        entries += held
+        inline += length
+        segments |= named
     snapshots = [entry for entry in entries if entry["kind"] == "snapshot"]
     require(len(snapshots) == 1, f"the relay holds {len(snapshots)} snapshot entries, expected the newest alone")
     snapshot = snapshots[0]
     manifest = json.loads(get_blob(relay, device, database, node, snapshot["manifest_sha256"],
                                    snapshot["manifest_bytes"], "the manifest"))["files"]
     return {"snapshot": snapshot, "manifest": manifest, "files": {file["sha256"]: file["bytes"] for file in manifest},
-            "named": {entry["file"]["sha256"] for entry in entries if entry.get("file")}, "entries": len(entries),
-            "entry_bytes": sum(len(json.dumps(entry, separators=(",", ":"), ensure_ascii=False).encode()) for entry in entries),
+            # A segment's blob is named while its item is stored, like the file an entry names. The bytes of
+            # the entries a segment holds are in that blob, so only the entries stored inline weigh as entries.
+            "named": {entry["file"]["sha256"] for entry in entries if entry.get("file")} | segments,
+            "entries": len(entries), "entry_bytes": inline, "segments": segments,
             "blobs": list_blobs(relay, device, node)}
 
 
@@ -255,15 +260,20 @@ def measure(relay, writer, label, before):
     held = by_path_bytes(writer)
     sizes = sorted((sum(before.values()) + held, sum(after.values()) + held))
     manifest = view["snapshot"]["manifest_bytes"]
-    allowance = manifest + view["entry_bytes"] + ENVELOPE_OVERHEAD * len(sealed)
+    # The log after the snapshot is allowed whole: the inline entries and the segment blobs that hold the rest.
+    segment_bytes = sum(view["blobs"][digest] for digest in view["segments"])
+    log_bytes = view["entry_bytes"] + segment_bytes
+    allowance = manifest + log_bytes + ENVELOPE_OVERHEAD * len(sealed)
     total = stored + view["entry_bytes"]
     require(total <= sizes[1] + allowance + SLACK_BYTES,
             f"{label}: the relay holds {total} bytes ({stored} of files, {view['entry_bytes']} of entries); the local store "
             f"holds {sizes[1]} bytes of files, and the allowance is {allowance} + {SLACK_BYTES}")
     return {"snapshot_seq": view["snapshot"]["writer_seq"], "relay_bytes": total, "relay_files": len(view["blobs"]),
             "relay_file_bytes": stored, "relay_entries": view["entries"], "relay_entry_bytes": view["entry_bytes"],
-            "manifest_bytes": manifest, "sealed_files": len(sealed), "sealed_bytes": sealed_bytes,
-            "local_bytes": sizes[1], "local_bytes_least": sizes[0], "allowance": allowance}
+            # Sealed files are the files entries name; the segment blobs that hold the entries count apart.
+            "manifest_bytes": manifest, "sealed_files": len(sealed - view["segments"]),
+            "sealed_bytes": sealed_bytes - segment_bytes, "segment_files": len(view["segments"]),
+            "segment_bytes": segment_bytes, "local_bytes": sizes[1], "local_bytes_least": sizes[0], "allowance": allowance}
 
 
 def check_growth(rounds):
