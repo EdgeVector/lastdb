@@ -23,12 +23,15 @@ from record_runs import definition, system_seed
 import v1_records as v1
 
 NONE_YET = "Snapshot: none yet"
-# The reference relay for the refusal takes no blob larger than this. It must take every log segment: a
-# segment holds one sent batch, at most 2 MiB of entries (BATCH_BYTES in personal/outgoing.rs) and newlines.
-RELAY_LIMIT_BYTES = 2560 * 1024
-# Records written to the refusing home in one write, so one data file holds them: about half their text after
-# compression, over the limit.
-BIG_RECORDS, BIG_NOTE_BYTES = 240, 30_000
+# The reference relay for the refusal takes no blob larger than this. It must take every log segment of the
+# refusing home and refuse one of its data files. A segment holds one sent batch, at most 90 entries
+# (personal/outgoing.rs), and an entry of a record below is about 1.5 KB, so a segment is about 135 KB. The store
+# compacts a small home into data files of at least 256 KiB (MIN_PIECE_BYTES in laststore's compaction), with a
+# last piece of at least 128 KiB folded into the one before it, so every data file of the records is over the
+# limit before and after compaction.
+RELAY_LIMIT_BYTES = 192 * 1024
+# Records written to the refusing home in one write: about 470 KB on disk after compression.
+BIG_RECORDS, BIG_NOTE_BYTES = 1000, 600
 # The refused snapshot is not tried again while this long passes, many sync turns.
 QUIET_SECONDS = 12
 FIELDS = ("state", "taken_at_ms", "files", "bytes", "relay", "manifest_sha256", "through_seq", "snapshot_seq",
@@ -146,7 +149,10 @@ def refused_snapshot(relay, device):
     system_seed(device.node, definition(ALPHA, "Hash", RECORD_FIELDS, description_prefix="Personal proof "))
     device.write([create_big(i) for i in range(BIG_RECORDS)])
     warned = len(device.warnings(all_lines=True))
-    wait("the refusing home to upload its writes", device.synced_up)
+    def uploaded():
+        require(refusals(relay) == 0, "the refusing relay refused a log segment: its limit is below a sent batch")
+        return device.synced_up()
+    wait("the refusing home to upload its writes", uploaded)
     env = {k: v for k, v in os.environ.items() if not k.startswith("LASTDB")}
     env.update(LASTDB_SOCKET_PATH=str(device.node.socket), LASTDB_HOME=str(device.node.home))
     asked = subprocess.run([str(device.cli), "backup", "snapshot", "--wait"], capture_output=True, text=True,
@@ -188,6 +194,6 @@ def refusals(relay):
 
 
 def create_big(index):
-    """A record with a note of BIG_NOTE_BYTES of hex, so that the data file passes the limit of the relay."""
+    """A record with a note of BIG_NOTE_BYTES of hex: small entries, and together data files over the limit."""
     note = os.urandom(BIG_NOTE_BYTES // 2).hex()
     return v1.create_item(ALPHA, {"hash": f"big-{index}"}, {"id": f"big-{index}", "note": note})
