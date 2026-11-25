@@ -1,56 +1,10 @@
-//! Spec catalog and share admission for named LastDB databases.
+//! Versioned whole-database spec binding and selector label validation.
 //!
-//! The crate reads no clock and opens no file. [`SpecBinding::admitted`] and
-//! [`admit_namespace`] are the narrow policy. A missing binding is
-//! [`PolicyError::BindingAbsent`]. Callers deny that result.
-//!
-//! The registry, the publication marker, and the daemon share one binding.
-//! [`SpecBinding::admitted`] is that binding. [`record_is_shareable`] is the
-//! LastDB check for a schema, its fields, and a file. A service that stores
-//! the log does not call it. The payload stays opaque there.
-//!
-//! A database name does not select a spec. The stored `{ "name", "version" }`
-//! binding does. App schemas (People, Hearth, …) are not a LastDB catalog:
-//! whole-database shares publish every schema, and member write behaviour
-//! comes from the publisher's settings statement.
+//! The crate reads no clock and opens no file. Whole-database shares publish
+//! every schema, and member write behaviour comes from the signed grant and
+//! lease chain.
 
 const WHOLE_DATABASE: &str = "whole-database";
-
-struct SchemaSpec {
-    namespace: &'static str,
-    name: &'static str,
-    fields: &'static [&'static str],
-}
-
-struct ShareSpec {
-    namespaces: &'static [&'static str],
-    schemas: &'static [SchemaSpec],
-}
-
-/// LastDB's own files product. Not an app catalog.
-const FILES: ShareSpec = ShareSpec {
-    namespaces: &["lastdb-files"],
-    schemas: &[
-        SchemaSpec {
-            namespace: "lastdb-files",
-            name: "FileCatalog",
-            fields: &["entries"],
-        },
-        SchemaSpec {
-            namespace: "lastdb-files",
-            name: "FileChunk",
-            fields: &["data"],
-        },
-    ],
-};
-
-fn share_spec(name: &str, version: u32) -> Result<&'static ShareSpec, PolicyError> {
-    match (name, version) {
-        ("lastdb-files", 1) => Ok(&FILES),
-        ("lastdb-files", _) => Err(PolicyError::UnsupportedVersion),
-        _ => Err(PolicyError::UnknownSpec),
-    }
-}
 
 /// Versioned spec binding stored beside a database id, name, and kind.
 ///
@@ -63,8 +17,7 @@ pub struct SpecBinding {
 }
 
 impl SpecBinding {
-    /// Accept a syntactically valid spec name and version. Catalog membership
-    /// is checked by [`Self::admitted`] and [`admit_namespace`].
+    /// Accept a syntactically valid spec name and version (`>= 1`).
     pub fn new(name: &str, version: u32) -> Result<Self, PolicyError> {
         if !valid_label(name) {
             return Err(PolicyError::InvalidName);
@@ -80,6 +33,7 @@ impl SpecBinding {
     }
 
     /// The versioned transport marker for a complete, explicitly shared database.
+    #[must_use]
     pub fn whole_database() -> Self {
         Self {
             name: WHOLE_DATABASE.to_owned(),
@@ -88,113 +42,37 @@ impl SpecBinding {
     }
 
     /// Whether the binding identifies a complete database publication.
+    #[must_use]
     pub fn is_whole_database(&self) -> bool {
         self.name == WHOLE_DATABASE && self.version == 1
     }
 
     /// Whether the name is reserved for the complete database transport.
+    #[must_use]
     pub fn is_whole_database_name(name: &str) -> bool {
         name == WHOLE_DATABASE
     }
 
     /// Borrow the spec name.
+    #[must_use]
     pub fn name(&self) -> &str {
         &self.name
     }
 
     /// Registry spec version. `1` is the current catalog.
+    #[must_use]
     pub fn version(&self) -> u32 {
         self.version
     }
-
-    /// The binding the registry, the publication marker, and the daemon share.
-    ///
-    /// `name` and `version` are the stored `{ "name", "version" }` object.
-    /// A missing spec is not this call. An unknown catalog entry is an error.
-    pub fn admitted(name: &str, version: u32) -> Result<Self, PolicyError> {
-        let binding = Self::new(name, version)?;
-        share_namespaces(Some(&binding))?;
-        Ok(binding)
-    }
 }
 
-/// Whether a namespace may enter the bound share database.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum NamespaceClass {
-    /// The bound spec lists this namespace.
-    Official,
-    /// The namespace stays in `personal`.
-    AppPrivate,
-}
-
-/// Why admission refused the database, binding, or namespace.
+/// Why [`SpecBinding::new`] refused a binding.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PolicyError {
-    /// Share admission was asked for no binding.
-    BindingAbsent,
-    /// The spec name is not in the catalog.
-    UnknownSpec,
-    /// The spec name exists and this version does not.
+    /// The spec version is 0.
     UnsupportedVersion,
-    /// The database name or spec name is outside the selector alphabet.
+    /// The spec name is outside the selector alphabet.
     InvalidName,
-    /// The namespace is outside the selector alphabet.
-    InvalidNamespace,
-}
-
-fn share_namespaces(binding: Option<&SpecBinding>) -> Result<&'static [&'static str], PolicyError> {
-    let Some(binding) = binding else {
-        return Err(PolicyError::BindingAbsent);
-    };
-    if binding.is_whole_database() {
-        Ok(&[])
-    } else {
-        Ok(share_spec(binding.name(), binding.version())?.namespaces)
-    }
-}
-
-/// Classify one namespace for a share binding. A missing or unknown binding
-/// is an error, not an allow.
-pub fn admit_namespace(
-    binding: Option<&SpecBinding>,
-    namespace: &str,
-) -> Result<NamespaceClass, PolicyError> {
-    if !valid_label(namespace) {
-        return Err(PolicyError::InvalidNamespace);
-    }
-    let namespaces = share_namespaces(binding)?;
-    if binding.is_some_and(SpecBinding::is_whole_database) || namespaces.contains(&namespace) {
-        Ok(NamespaceClass::Official)
-    } else {
-        Ok(NamespaceClass::AppPrivate)
-    }
-}
-
-/// True when LastDB may publish this record on the binding.
-///
-/// The schema and every named field must be listed. `file` is true only when
-/// the mutation carries the record's file bytes. Those bytes are eligible for
-/// `lastdb-files` `FileChunk`. A private schema, an unlisted field, or any
-/// other file is `Ok(false)`. A bad binding is an error. A missing spec is
-/// not classified here. Whole-database shares do not call this path.
-pub fn record_is_shareable(
-    binding: &SpecBinding,
-    namespace: &str,
-    schema: &str,
-    fields: &[&str],
-    file: bool,
-) -> Result<bool, PolicyError> {
-    let listed = share_spec(binding.name(), binding.version())?.schemas;
-    let Some(found) = listed
-        .iter()
-        .find(|item| item.namespace == namespace && item.name == schema)
-    else {
-        return Ok(false);
-    };
-    if fields.iter().any(|field| !found.fields.contains(field)) {
-        return Ok(false);
-    }
-    Ok(!file || (namespace == "lastdb-files" && schema == "FileChunk"))
 }
 
 /// Whether `value` is 1..=64 ASCII alphanumeric, `-`, or `_` bytes.

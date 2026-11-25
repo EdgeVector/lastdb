@@ -1,10 +1,8 @@
 //! Side effects of accepting an entry into [`VerifiedHistory`].
 
-use crate::accept::{AcceptOutcome, RejectReason};
 use crate::entry::{DataBody, EntryHeader, SignedEntry};
 use crate::ids::EntryHash;
 use crate::payload::{decode_record_payload, MaterializedRecord, RecordPosition};
-use crate::sealed::{decode_named, SEALED_NAMESPACE};
 
 use super::recompute::WriteMeta;
 use super::VerifiedHistory;
@@ -24,16 +22,8 @@ impl VerifiedHistory {
             SignedEntry::Lease { header, body, .. } => {
                 self.note_lease(hash, position, header, body);
             }
-            SignedEntry::Schema { header, body } => {
-                self.apply_schema_effect(header, body, position);
-            }
-            SignedEntry::Bundle { body, .. } => {
-                self.live_bundle_blobs.insert(body.blob_sha256);
-            }
-            SignedEntry::BlobDelete { body, .. }
-                if !self.live_bundle_blobs.contains(&body.sha256) =>
-            {
-                self.deleted_blobs.insert(body.sha256);
+            SignedEntry::Schema { body, .. } => {
+                self.apply_schema_effect(body, hash, position);
             }
             SignedEntry::Heads { body, .. }
                 if self
@@ -55,25 +45,30 @@ impl VerifiedHistory {
 
     fn apply_schema_effect(
         &mut self,
-        header: &EntryHeader,
         body: &crate::entry::SchemaBody,
+        hash: EntryHash,
         position: RecordPosition,
     ) {
-        let opened = if self.is_sealed(&body.namespace) {
-            self.open_content(header, &body.definition)
-        } else {
-            Some((body.namespace.clone(), body.definition.clone()))
-        };
-        let Some((namespace, definition)) = opened else {
-            return;
-        };
-        if self
-            .schema_positions
-            .get(&namespace)
-            .is_none_or(|held| position.beats(*held))
-        {
-            self.schema_positions.insert(namespace.clone(), position);
-            self.schemas.insert(namespace, definition);
+        let namespace = body.namespace.clone();
+        match self.schema_positions.get(&namespace).copied() {
+            None => {
+                self.schema_positions
+                    .insert(namespace.clone(), (position, hash));
+                self.schemas.insert(namespace, body.definition.clone());
+            }
+            Some((held_pos, held_hash)) => {
+                let held_def = self.schemas.get(&namespace).map_or(&[][..], Vec::as_slice);
+                let (win_pos, win_hash, win_def, other_def) = if position.beats(held_pos) {
+                    (position, hash, body.definition.as_slice(), held_def)
+                } else {
+                    (held_pos, held_hash, held_def, body.definition.as_slice())
+                };
+                let next_def = crate::schema_merge::merge_schema_definitions(win_def, other_def)
+                    .unwrap_or_else(|| win_def.to_vec());
+                self.schema_positions
+                    .insert(namespace.clone(), (win_pos, win_hash));
+                self.schemas.insert(namespace, next_def);
+            }
         }
     }
 
@@ -115,66 +110,6 @@ impl VerifiedHistory {
                 value: decoded.value,
             };
             self.merge_write(key, write, false);
-        }
-    }
-
-    /// True when `namespace` marks a sealed payload that this history can open.
-    fn is_sealed(&self, namespace: &str) -> bool {
-        self.opener.is_some() && namespace == SEALED_NAMESPACE
-    }
-
-    /// The schema name and the bytes after it inside a sealed payload.
-    fn open_content(&self, header: &EntryHeader, sealed: &[u8]) -> Option<(String, Vec<u8>)> {
-        let plain = self.opener.as_ref()?.open(header, sealed)?;
-        let (name, rest) = decode_named(&plain)?;
-        Some((name.to_owned(), rest.to_vec()))
-    }
-
-    /// A history with an opener takes a data or schema entry only when its
-    /// payload is sealed and opens. Other kinds, and an entry that is already
-    /// accepted, pass.
-    pub(super) fn require_sealed(
-        &self,
-        entry: &SignedEntry,
-        outcome: AcceptOutcome,
-    ) -> AcceptOutcome {
-        let AcceptOutcome::Accept {
-            duplicate: false, ..
-        } = outcome
-        else {
-            return outcome;
-        };
-        if self.opener.is_none() {
-            return outcome;
-        }
-        let (namespace, sealed) = match entry {
-            SignedEntry::Data { body, .. } => (&body.namespace, &body.payload),
-            SignedEntry::Schema { body, .. } => (&body.namespace, &body.definition),
-            _ => return outcome,
-        };
-        let reason = if namespace != SEALED_NAMESPACE {
-            "this database takes sealed entries only"
-        } else if self.open_content(entry.header(), sealed).is_none() {
-            "sealed payload does not open"
-        } else {
-            return outcome;
-        };
-        AcceptOutcome::Reject {
-            reason: RejectReason::Malformed(reason),
-        }
-    }
-
-    /// The namespace and record payload that a data entry writes: the plain
-    /// ones, or the opened ones of a sealed entry.
-    pub(super) fn data_write(
-        &self,
-        header: &EntryHeader,
-        body: &DataBody,
-    ) -> Option<(String, Vec<u8>)> {
-        if self.is_sealed(&body.namespace) {
-            self.open_content(header, &body.payload)
-        } else {
-            Some((body.namespace.clone(), body.payload.clone()))
         }
     }
 

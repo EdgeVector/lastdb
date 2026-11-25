@@ -108,7 +108,7 @@ fn sort_grants(grants: &mut [(RecordPosition, &GrantBody)]) {
     });
 }
 
-fn grant_tie_rank(role: Role) -> u8 {
+pub(crate) fn grant_tie_rank(role: Role) -> u8 {
     // Lower sorts first; apply revoked last so it wins.
     match role {
         Role::Write => 0,

@@ -40,12 +40,6 @@ pub struct RecordPayload {
 }
 
 impl RecordPayload {
-    /// True when this payload is a delete tombstone.
-    #[must_use]
-    pub fn is_tombstone(&self) -> bool {
-        self.value.is_empty()
-    }
-
     /// Encode the envelope.
     #[must_use]
     pub fn encode(&self) -> Vec<u8> {

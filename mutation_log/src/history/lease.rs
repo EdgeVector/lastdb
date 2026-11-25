@@ -20,8 +20,20 @@ use super::VerifiedHistory;
 /// Total order of positions: `(lamport, node_key, device_id)`.
 pub(super) type PosKey = (u64, NodeKey, DeviceId);
 
+/// Grant role index key: `(lamport, grant_tie_rank(role), node_key, device_id)`.
+pub(super) type RoleKey = (u64, u8, NodeKey, DeviceId);
+
 pub(super) fn pos_key(position: RecordPosition) -> PosKey {
     (position.lamport, position.node_key, position.device_id)
+}
+
+fn role_key(position: RecordPosition, role: Role) -> RoleKey {
+    (
+        position.lamport,
+        crate::grants::grant_tie_rank(role),
+        position.node_key,
+        position.device_id,
+    )
 }
 
 /// One accepted lease entry.
@@ -30,6 +42,7 @@ pub(super) struct LeaseMeta {
     hash: EntryHash,
     device_id: DeviceId,
     writer_seq: u64,
+    lamport: u64,
     authored_at_ms: u64,
     expires_at_ms: u64,
     closes_at_ms: u64,
@@ -54,6 +67,8 @@ pub struct LeaseView {
     pub device_id: DeviceId,
     /// `writer_seq` of the entry on that stream.
     pub writer_seq: u64,
+    /// Order value (`lamport`) of the lease entry.
+    pub lamport: u64,
     /// The publisher's clock when it signed the lease (`authored_at_ms`).
     pub authored_at_ms: u64,
     /// A covered member signs direct entries only before this time.
@@ -64,7 +79,8 @@ pub struct LeaseView {
 
 impl VerifiedHistory {
     /// True when `key` held the `write` role as of the accepted lease entry
-    /// `lease`: its last grant before the lease, in position order, is `write`.
+    /// `lease`: its last grant strictly before the lease, with equal-lamport
+    /// `revoked` winning ties, is `write`.
     #[must_use]
     pub fn lease_covers(&self, lease: &EntryHash, key: &NodeKey) -> bool {
         self.writer_under(lease, key)
@@ -76,7 +92,12 @@ impl VerifiedHistory {
         };
         self.member_roles
             .get(key)
-            .and_then(|roles| roles.range(..*at).next_back())
+            .and_then(|roles| {
+                roles
+                    .range(..=(at.0, u8::MAX, at.1, at.2))
+                    .rev()
+                    .find(|(&(gl, _, gn, gd), _)| (gl, gn, gd) < *at)
+            })
             .is_some_and(|(_, role)| *role == Role::Write)
     }
 
@@ -237,6 +258,7 @@ impl VerifiedHistory {
                 hash,
                 device_id: header.device_id,
                 writer_seq: header.writer_seq,
+                lamport: header.lamport,
                 authored_at_ms: header.authored_at_ms,
                 expires_at_ms: body.expires_at_ms,
                 closes_at_ms: body.closes_at_ms,
@@ -278,6 +300,7 @@ impl VerifiedHistory {
         body: &DataBody,
         is_publisher: bool,
     ) -> Option<(NodeKey, String, RecordPayload)> {
+        let _ = self;
         let merges =
             body.stream == StreamKind::Direct || (is_publisher && body.incorporated_from.is_some());
         if !merges {
@@ -288,9 +311,8 @@ impl VerifiedHistory {
             .as_ref()
             .filter(|_| is_publisher)
             .map_or(header.node_key, |from| from.node_key);
-        let (namespace, payload) = self.data_write(header, body)?;
-        let decoded = decode_record_payload(&payload).ok()?;
-        Some((author, namespace, decoded))
+        let decoded = decode_record_payload(&body.payload).ok()?;
+        Some((author, body.namespace.clone(), decoded))
     }
 
     /// Keep a publisher grant in the per-member role index that
@@ -303,11 +325,12 @@ impl VerifiedHistory {
         let crate::kinds::Grantee::Member(key) = body.grantee else {
             return;
         };
-        let grant_at = pos_key(position_of(entry));
+        let pos = position_of(entry);
+        let grant_at = pos_key(pos);
         self.member_roles
             .entry(key)
             .or_default()
-            .insert(grant_at, body.role);
+            .insert(role_key(pos, body.role), body.role);
         let affected: Vec<EntryHash> = self
             .leases
             .range((Bound::Excluded(grant_at), Bound::Unbounded))
@@ -342,6 +365,7 @@ fn view_of(lease: &LeaseMeta) -> LeaseView {
         entry_hash: lease.hash,
         device_id: lease.device_id,
         writer_seq: lease.writer_seq,
+        lamport: lease.lamport,
         authored_at_ms: lease.authored_at_ms,
         expires_at_ms: lease.expires_at_ms,
         closes_at_ms: lease.closes_at_ms,

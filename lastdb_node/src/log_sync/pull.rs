@@ -274,6 +274,7 @@ async fn pull_pages(
 ) -> Result<u64, String> {
     let mut cursor: Option<String> = None;
     let mut accepted = 0u64;
+    let mut empty_pages = 0u32;
     loop {
         let (entries, next) = client
             .read(
@@ -285,18 +286,24 @@ async fn pull_pages(
                 90,
             )
             .await?;
-        if entries.is_empty() {
-            break;
-        }
+        let empty = entries.is_empty();
         for entry in entries {
             if accept_one(histories, db, entry)? {
                 accepted += 1;
             }
         }
-        match next {
-            Some(next) => cursor = Some(next),
-            None => break,
+        let Some(next) = next else {
+            break;
+        };
+        if empty {
+            empty_pages += 1;
+            if cursor.as_deref() == Some(next.as_str()) || empty_pages > 256 {
+                return Err("relay log.read cursor did not advance".into());
+            }
+        } else {
+            empty_pages = 0;
         }
+        cursor = Some(next);
     }
     Ok(accepted)
 }

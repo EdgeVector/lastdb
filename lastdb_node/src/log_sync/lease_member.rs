@@ -6,12 +6,16 @@
 //! `mutation_log`; this file only reads its answers (`latest_lease`,
 //! `lease_covers`).
 
+use std::cell::Cell;
+
 use mutation_log::{
-    author_data, data_record, EntryHash, LeaseView, NodeKey, Role, StreamKind, VerifiedHistory,
+    author_data, data_record, AcceptOutcome, AuthorCtx, DatabaseId, EntryHash, LeaseView, NodeKey,
+    RejectReason, Role, StreamKind, VerifiedHistory,
 };
 
-use super::chain_author::{self, Target};
+use super::chain_author;
 use super::chain_error::ChainError;
+use super::history_store;
 use super::mirror::{encode_value, OwnedMutation};
 use crate::host::Host;
 
@@ -59,10 +63,9 @@ pub(crate) fn cover(history: &VerifiedHistory, node: NodeKey, now_ms: u64) -> Op
     if now_ms >= until_ms {
         return None;
     }
-    let lamport = history.get_accepted(&lease.entry_hash)?.position.lamport;
     Some(Cover {
         lease: lease.entry_hash,
-        lamport,
+        lamport: lease.lamport,
         until_ms,
     })
 }
@@ -171,6 +174,9 @@ fn sign_all(
     database_id: &str,
     signed: &[OwnedMutation],
 ) -> Result<(), ChainError> {
+    if signed.is_empty() {
+        return Ok(());
+    }
     let mut encoded = Vec::with_capacity(signed.len());
     for item in signed {
         let declared = store
@@ -187,31 +193,88 @@ fn sign_all(
             .map_err(|_| ChainError::Invalid("the write does not carry its record fields"))?;
         encoded.push((item, value));
     }
+    let database = DatabaseId::from_hex(database_id)
+        .map_err(|_| ChainError::Invalid("database id is not a 64-hex id"))?;
     let identity = chain_author::identity_of(host)?;
-    let target = Target {
-        home: &host.home,
-        database_id,
-        identity: &identity,
-    };
+    let stream = VerifiedHistory::stream(identity.node_key, identity.device_id);
     let histories = super::histories_for(host);
-    for (item, value) in encoded {
-        chain_author::author_member(&histories, &target, |mut ctx, history| {
-            // Entries that wait for a dependency mean the stream tip is not known.
-            if history.pending_len() > 0 {
+    histories
+        .with_mut(database_id, |history| {
+            if history.pending_len() > 0 || history.pending_on(&stream) {
                 return Err(ChainError::Unconfirmed);
             }
-            let cover = cover(history, identity.node_key, ctx.authored_at_ms)
-                .ok_or(ChainError::Forbidden(REFUSED))?;
-            ctx.seen_heads.push(cover.lease);
-            ctx.seen_lamports.push(cover.lamport);
-            let body = data_record(
-                StreamKind::Direct,
-                item.schema.clone(),
-                &item.record_key,
-                &value,
-            );
-            author_data(&ctx, &identity.signing_key, body).map_err(|_| ChainError::Unconfirmed)
-        })?;
-    }
+            let now_ms = fold_db::clock::unix_millis();
+            let cover =
+                cover(history, identity.node_key, now_ms).ok_or(ChainError::Forbidden(REFUSED))?;
+            let cause: Cell<Option<ChainError>> = Cell::new(None);
+            let bctx = BatchCtx {
+                database,
+                identity: &identity,
+                cover: &cover,
+                now_ms,
+            };
+            history_store::commit_authored_batch(&host.home, history, |next| {
+                stage_direct_batch(next, &bctx, &encoded, &cause)
+            })
+            .map_err(|_| cause.take().unwrap_or(ChainError::Unconfirmed))
+        })
+        .map_err(|_| ChainError::Unconfirmed)??;
+    super::wake::request_wake(&host.home);
     Ok(())
+}
+
+struct BatchCtx<'a> {
+    database: DatabaseId,
+    identity: &'a chain_author::AuthorIdentity,
+    cover: &'a Cover,
+    now_ms: u64,
+}
+
+fn stage_direct_batch(
+    next: &mut VerifiedHistory,
+    bctx: &BatchCtx<'_>,
+    encoded: &[(&OwnedMutation, Vec<u8>)],
+    cause: &Cell<Option<ChainError>>,
+) -> Result<Vec<mutation_log::SignedEntry>, String> {
+    let stream = VerifiedHistory::stream(bctx.identity.node_key, bctx.identity.device_id);
+    let mut batch = Vec::with_capacity(encoded.len());
+    for (item, value) in encoded {
+        let mut ctx = AuthorCtx {
+            database_id: bctx.database,
+            node_key: bctx.identity.node_key,
+            device_id: bctx.identity.device_id,
+            stream_head: next.stream_head(&stream),
+            seen_heads: Vec::new(),
+            seen_lamports: Vec::new(),
+            authored_at_ms: bctx.now_ms,
+        };
+        ctx.cite(bctx.cover.lease, bctx.cover.lamport);
+        let key = (item.schema.clone(), item.record_key.clone());
+        if let Some(winner) = next.records().get(&key) {
+            ctx.cite(winner.entry, winner.position.lamport);
+        }
+        let body = data_record(
+            StreamKind::Direct,
+            item.schema.clone(),
+            &item.record_key,
+            value,
+        );
+        let entry =
+            author_data(&ctx, &bctx.identity.signing_key, body).map_err(|e| e.to_string())?;
+        match next.accept_entry(entry.clone()) {
+            AcceptOutcome::Accept { .. } => batch.push(entry),
+            AcceptOutcome::Reject { reason } => {
+                cause.set(Some(match reason {
+                    RejectReason::Unauthorized(msg) => ChainError::Forbidden(msg),
+                    RejectReason::StreamFrozen | RejectReason::Equivocation { .. } => {
+                        ChainError::Conflict("this device stream is frozen")
+                    }
+                    _ => ChainError::Unconfirmed,
+                }));
+                return Err("authored direct entry rejected".into());
+            }
+            AcceptOutcome::Pending { .. } => return Err("authored direct entry pending".into()),
+        }
+    }
+    Ok(batch)
 }

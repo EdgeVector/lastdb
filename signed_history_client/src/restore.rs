@@ -96,29 +96,49 @@ async fn pull_stream(
     through: &mut u64,
 ) -> Result<(), String> {
     let mut from_seq = 1u64;
+    let mut cursor: Option<String> = None;
+    let mut empty_pages = 0u32;
     loop {
-        let (entries, cursor) = client
+        let (entries, next) = client
             .read(
                 database_id,
                 &stream.writer_key,
                 &stream.device_id,
                 from_seq,
+                cursor.as_deref(),
                 PAGE,
             )
             .await?;
-        if entries.is_empty() {
-            break;
-        }
+        let empty = entries.is_empty();
         let page_len = entries.len();
-        let last_seq = entries.last().map_or(from_seq, |e| e.header().writer_seq);
+        if let Some(last) = entries.last() {
+            let last_seq = last.header().writer_seq;
+            if cursor.is_none() && last_seq < from_seq {
+                return Err(format!(
+                    "relay returned seq {last_seq} for a read from {from_seq}"
+                ));
+            }
+            from_seq = last_seq.saturating_add(1);
+        }
         for entry in entries {
             accept_one(history, entry, replayed, through)?;
         }
-        from_seq = last_seq.saturating_add(1);
-        let more = cursor.is_some() || page_len as u32 >= PAGE;
-        if !more {
+        if let Some(next_cursor) = next {
+            if empty {
+                empty_pages += 1;
+                if cursor.as_deref() == Some(next_cursor.as_str()) || empty_pages > 256 {
+                    return Err("relay log.read cursor did not advance".into());
+                }
+            } else {
+                empty_pages = 0;
+            }
+            cursor = Some(next_cursor);
+            continue;
+        }
+        if empty || (page_len as u32) < PAGE {
             break;
         }
+        cursor = None;
     }
     Ok(())
 }

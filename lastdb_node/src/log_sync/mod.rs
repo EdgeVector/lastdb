@@ -114,10 +114,6 @@ pub(crate) fn schema_id(schema: &Schema) -> Result<Digest, String> {
 pub enum CloudState {
     /// No cloud credentials on disk.
     NoAccount,
-    /// Credentials present but enrollment unfinished.
-    Enrolling,
-    /// Identity not yet verified with the account service.
-    Unverified,
     /// Ready for signed-history sync when a relay URL is configured.
     Enrolled,
 }

@@ -1,73 +1,59 @@
 //! After a lease is closed, this node signs again, as proposals, the direct
 //! changes of its own device that the closing excluded.
 //!
-//! An excluded entry stays in its stream and writes nothing. The history says
-//! what each record is now, so the proposal names that state as its expected
-//! one, and the publisher decides it like any other proposal. Each excluded
-//! entry gets one proposal: its id comes from the entry hash, and the ledger of
-//! proposals remembers it.
+//! Multiple excluded entries for the same `(namespace, record_key)` coalesce
+//! to the final state per key, while recording superseded intermediate entry
+//! IDs (and `Create` + `Delete` net no-ops) in `proposals.json` so they are
+//! never proposed later.
+
+use std::collections::BTreeMap;
 
 use mutation_log::{decode_record_payload, entry_hash, EntryHash, SignedEntry, VerifiedHistory};
 use serde_json::{json, Map, Value};
 
 use super::chain_author::{self, AuthorIdentity};
-use super::proposal::{self, ContributionError, Submitted};
+use super::proposal::{self, ContributionError, Ledger, Submitted};
 use crate::host::Host;
 
 struct Redo {
-    id: String,
+    ids: Vec<String>,
     namespace: String,
     record_key: String,
-    envelope: Vec<u8>,
+    /// `None` when the net effect against `winner == None` is a no-op (e.g. `Create` + `Delete`).
+    envelope: Option<Vec<u8>>,
 }
 
-/// Sign again each excluded change of this device that is not yet a proposal.
-/// Returns how many proposals were signed. A member that may no longer propose
-/// signs none.
+struct KeyAccum {
+    ids: Vec<String>,
+    namespace: String,
+    record_key: String,
+    final_record: Option<Value>,
+}
+
+/// Sign again each excluded change of this device that is not yet in `proposals.json`,
+/// coalesced per `(namespace, record_key)`. Returns how many proposals were signed.
 pub(super) async fn resign_excluded(host: &Host, database_id: &str) -> Result<usize, String> {
     let identity = chain_author::identity_of(host).map_err(|e| e.reply().message.to_owned())?;
-    let redo = super::histories_for(host)
-        .with_mut(database_id, |history| excluded_changes(history, &identity))?;
-    if redo.is_empty() {
+    let has_any = super::histories_for(host)
+        .with_mut(database_id, |history| has_own_excluded(history, &identity))?;
+    if !has_any {
         return Ok(0);
     }
     let lock = proposal::proposal_submit_lock(&host.home, database_id);
     let _guard = lock.lock().await;
     let mut ledger = proposal::load_ledger(&host.home, database_id).map_err(|e| e.to_string())?;
+    let redo = super::histories_for(host).with_mut(database_id, |history| {
+        excluded_changes(history, &identity, &ledger)
+    })?;
+    if redo.is_empty() {
+        return Ok(0);
+    }
     let mut signed = 0;
     let mut finish = Ok(());
     for item in redo {
-        if ledger.contains_key(&item.id) {
-            continue;
-        }
-        let digest = proposal::hex_digest(&item.envelope);
-        if let Err(error) = proposal::fits_proposal_ledger(&ledger, &item.id, &digest) {
-            finish = Err(error.to_string());
-            break;
-        }
-        match proposal::author_proposal(
-            host,
-            database_id,
-            item.namespace,
-            &item.record_key,
-            &item.envelope,
-        ) {
-            Ok(authored) => {
-                ledger.insert(
-                    item.id,
-                    Submitted {
-                        writer_seq: authored.writer_seq,
-                        entry_hash: authored.entry_hash,
-                        body_sha256: digest,
-                    },
-                );
-                if let Err(error) = proposal::store_ledger(&host.home, database_id, &ledger) {
-                    finish = Err(error.to_string());
-                    break;
-                }
-                signed += 1;
-            }
-            // The role no longer lets this member propose. Nothing more to do.
+        match apply_redo_item(host, database_id, &mut ledger, item) {
+            Ok(true) => signed += 1,
+            Ok(false) => {}
             Err(ContributionError::Forbidden) => break,
             Err(error) => {
                 finish = Err(error.to_string());
@@ -83,8 +69,74 @@ pub(super) async fn resign_excluded(host: &Host, database_id: &str) -> Result<us
     finish.map(|()| signed)
 }
 
-fn excluded_changes(history: &VerifiedHistory, me: &AuthorIdentity) -> Vec<Redo> {
-    let mut found = Vec::new();
+fn apply_redo_item(
+    host: &Host,
+    database_id: &str,
+    ledger: &mut Ledger,
+    item: Redo,
+) -> Result<bool, ContributionError> {
+    let Some(envelope) = item.envelope else {
+        for id in item.ids {
+            proposal::fits_proposal_ledger(ledger, &id, "")?;
+            ledger.insert(
+                id,
+                Submitted {
+                    writer_seq: 0,
+                    entry_hash: EntryHash::ZERO,
+                    body_sha256: String::new(),
+                },
+            );
+        }
+        proposal::store_ledger(&host.home, database_id, ledger)?;
+        return Ok(false);
+    };
+    let digest = proposal::hex_digest(&envelope);
+    let mut probe = ledger.clone();
+    for id in &item.ids {
+        proposal::fits_proposal_ledger(&probe, id, &digest)?;
+        probe.insert(
+            id.clone(),
+            Submitted {
+                writer_seq: u64::MAX,
+                entry_hash: EntryHash::ZERO,
+                body_sha256: digest.clone(),
+            },
+        );
+    }
+    let authored = proposal::author_proposal(
+        host,
+        database_id,
+        item.namespace,
+        &item.record_key,
+        &envelope,
+    )?;
+    for id in item.ids {
+        ledger.insert(
+            id,
+            Submitted {
+                writer_seq: authored.writer_seq,
+                entry_hash: authored.entry_hash,
+                body_sha256: digest.clone(),
+            },
+        );
+    }
+    proposal::store_ledger(&host.home, database_id, ledger)?;
+    Ok(true)
+}
+
+fn has_own_excluded(history: &VerifiedHistory, me: &AuthorIdentity) -> bool {
+    history.excluded_entries().into_iter().any(|entry| {
+        matches!(
+            entry,
+            SignedEntry::Data { header, .. }
+                if header.node_key == me.node_key && header.device_id == me.device_id
+        )
+    })
+}
+
+fn excluded_changes(history: &VerifiedHistory, me: &AuthorIdentity, ledger: &Ledger) -> Vec<Redo> {
+    let mut groups: Vec<KeyAccum> = Vec::new();
+    let mut index_by_key: BTreeMap<(String, String), usize> = BTreeMap::new();
     for entry in history.excluded_entries() {
         let SignedEntry::Data { header, body } = entry else {
             continue;
@@ -96,38 +148,75 @@ fn excluded_changes(history: &VerifiedHistory, me: &AuthorIdentity) -> Vec<Redo>
         else {
             continue;
         };
-        let key = (body.namespace.clone(), payload.record_key.clone());
-        let winner = history
-            .records()
-            .get(&key)
-            .filter(|record| !record.value.is_empty())
-            .map(|record| record.entry);
-        let record = serde_json::from_slice::<Value>(&payload.value)
-            .ok()
-            .filter(Value::is_object);
-        let (kind, expected, record) = match (payload.value.is_empty(), winner, record) {
-            (true, None, _) | (false, _, None) => continue,
-            (true, Some(won), _) => ("delete", entry_expected(won), None),
-            (false, None, Some(record)) => ("create", json!({ "type": "absent" }), Some(record)),
-            (false, Some(won), Some(record)) => ("replace", entry_expected(won), Some(record)),
-        };
-        let mut envelope = Map::new();
-        envelope.insert("mutation_type".into(), json!(kind));
-        envelope.insert("expected".into(), expected);
-        if let Some(record) = record {
-            envelope.insert("record".into(), record);
-        }
-        let Ok(envelope) = serde_json::to_vec(&Value::Object(envelope)) else {
+        let id = id_of(&hash);
+        if ledger.contains_key(&id) {
             continue;
+        }
+        let final_record = if payload.value.is_empty() {
+            None
+        } else {
+            let Some(obj) = serde_json::from_slice::<Value>(&payload.value)
+                .ok()
+                .filter(Value::is_object)
+            else {
+                continue;
+            };
+            Some(obj)
         };
-        found.push(Redo {
-            id: id_of(&hash),
-            namespace: key.0,
-            record_key: key.1,
-            envelope,
-        });
+        let key = (body.namespace.clone(), payload.record_key);
+        if let Some(&idx) = index_by_key.get(&key) {
+            groups[idx].ids.push(id);
+            groups[idx].final_record = final_record;
+        } else {
+            let idx = groups.len();
+            index_by_key.insert(key.clone(), idx);
+            groups.push(KeyAccum {
+                ids: vec![id],
+                namespace: key.0,
+                record_key: key.1,
+                final_record,
+            });
+        }
     }
-    found
+    groups
+        .into_iter()
+        .filter_map(|acc| build_redo(history, acc))
+        .collect()
+}
+
+fn build_redo(history: &VerifiedHistory, acc: KeyAccum) -> Option<Redo> {
+    let key = (acc.namespace.clone(), acc.record_key.clone());
+    let winner = history
+        .records()
+        .get(&key)
+        .filter(|record| !record.value.is_empty())
+        .map(|record| record.entry);
+    let (kind, expected, record) = match (acc.final_record, winner) {
+        (None, None) => {
+            return Some(Redo {
+                ids: acc.ids,
+                namespace: acc.namespace,
+                record_key: acc.record_key,
+                envelope: None,
+            });
+        }
+        (None, Some(won)) => ("delete", entry_expected(won), None),
+        (Some(record), None) => ("create", json!({ "type": "absent" }), Some(record)),
+        (Some(record), Some(won)) => ("replace", entry_expected(won), Some(record)),
+    };
+    let mut envelope = Map::new();
+    envelope.insert("mutation_type".into(), json!(kind));
+    envelope.insert("expected".into(), expected);
+    if let Some(record) = record {
+        envelope.insert("record".into(), record);
+    }
+    let envelope = serde_json::to_vec(&Value::Object(envelope)).ok()?;
+    Some(Redo {
+        ids: acc.ids,
+        namespace: acc.namespace,
+        record_key: acc.record_key,
+        envelope: Some(envelope),
+    })
 }
 
 fn entry_expected(won: EntryHash) -> Value {

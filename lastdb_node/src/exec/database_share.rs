@@ -5,12 +5,12 @@
 use super::*;
 use crate::host::owned;
 use crate::lastdb_uds::uds_router::method_not_allowed_response;
+use crate::log_sync::chain_error::ChainError;
 use crate::log_sync::CloudState;
 use crate::named_grant::{cloud_failure, ConfigError};
 use serde_json::Value;
 
 const NO_ACCOUNT: &str = "this node has no cloud account";
-const ENROLLING: &str = "the database is still enrolling with the cloud; retry";
 pub(super) const RETRY_AFTER_SECS: u64 = 2;
 
 pub(super) enum Route {
@@ -88,10 +88,30 @@ fn lease(req: &UdsRequest, ctx: &AccessContext, host: &Host, selector: &str) -> 
     };
     match result {
         Ok(value) => render(Ok(value), ctx),
-        Err(error) => {
-            let reply = error.reply();
-            error_response(reply.status, reply.message, ctx)
-        }
+        Err(error) => render(Err(chain_host_error(&error)), ctx),
+    }
+}
+
+fn chain_host_error(error: &ChainError) -> HostError {
+    let reply = error.reply();
+    let code = reply.code.unwrap_or(match reply.status {
+        400 => "invalid_request",
+        403 => "forbidden",
+        404 => "not_found",
+        409 => "conflict",
+        503 => "unavailable",
+        _ => "internal_error",
+    });
+    let body = json!({
+        "ok": false,
+        "error": code,
+        "message": reply.message,
+    });
+    let built = HostError::structured(reply.status, reply.message, body);
+    if reply.retry {
+        built.with_retry_after(RETRY_AFTER_SECS)
+    } else {
+        built
     }
 }
 
@@ -110,7 +130,7 @@ fn link(req: &UdsRequest, ctx: &AccessContext, host: &Host, entry: &owned::Entry
             })),
             ctx,
         ),
-        Err(error) => link_error(host, &entry.id, &error, ctx),
+        Err(error) => link_error(host, &error, ctx),
     }
 }
 
@@ -121,35 +141,29 @@ fn ensure_enrolled(host: &Host, database_id: &str) -> Result<(), ConfigError> {
     match crate::log_sync::wait_for_enrollment(host, database_id) {
         CloudState::Enrolled => Ok(()),
         CloudState::NoAccount => Err(ConfigError::NoAccount),
-        CloudState::Enrolling if payment_blocked(host, database_id) => {
-            Err(ConfigError::PaymentRequired)
-        }
-        CloudState::Enrolling => Err(ConfigError::Enrolling),
-        CloudState::Unverified => Err(ConfigError::Unconfirmed),
     }
 }
 
 fn payment_blocked(host: &Host, database_id: &str) -> bool {
     host.cloud_sync.snapshot().payment_hold
-        && crate::log_sync::database_cloud_state(&host.home, database_id) == CloudState::Enrolling
+        && crate::log_sync::database_cloud_state(&host.home, database_id) == CloudState::Enrolled
 }
 
 fn link_error(
     host: &Host,
-    database_id: &str,
     error: &crate::share_link::IssueError,
     ctx: &AccessContext,
 ) -> UdsResponse {
     let (status, message) = error.status();
     if error.is_cloud_connection() {
-        let failure = cloud_failure(&host.home, database_id, message);
+        let failure = cloud_failure(&host.home, message);
         return render(Err(host_error(failure)), ctx);
     }
     error_response(status, message, ctx)
 }
 
 fn host_error(error: ConfigError) -> HostError {
-    let retry = matches!(error, ConfigError::Enrolling).then_some(RETRY_AFTER_SECS);
+    let retry = matches!(error, ConfigError::Unconfirmed).then_some(RETRY_AFTER_SECS);
     let (status, code, body) = match error {
         ConfigError::PaymentRequired => (
             402,
@@ -163,11 +177,6 @@ fn host_error(error: ConfigError) -> HostError {
             409,
             "no_cloud_account".to_owned(),
             json!({ "message": NO_ACCOUNT }),
-        ),
-        ConfigError::Enrolling => (
-            503,
-            "database_enrolling".to_owned(),
-            json!({ "message": ENROLLING }),
         ),
         ConfigError::Unconfirmed => (
             503,

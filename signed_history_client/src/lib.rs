@@ -6,6 +6,7 @@
 
 mod relay;
 mod restore;
+mod retry;
 
 pub use relay::RelayClient;
 pub use restore::{restore_from_relay, RestoreReport, RestoreRequest, StreamRef};

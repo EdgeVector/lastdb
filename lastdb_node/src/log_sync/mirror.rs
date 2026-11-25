@@ -153,7 +153,13 @@ fn ensure_schema(
     }
     let definition =
         serde_json::to_vec(&schema).map_err(|_| "cannot encode schema definition".to_owned())?;
-    let author = author_ctx(history, ctx, fold_db::clock::unix_millis());
+    let mut author = author_ctx(history, ctx, fold_db::clock::unix_millis());
+    if let Some((hash, lamport)) = history.birth_entry() {
+        author.cite(hash, lamport);
+    }
+    if let Some((hash, lamport)) = history.schema_entry(name) {
+        author.cite(hash, lamport);
+    }
     let body = SchemaBody {
         namespace: name.to_owned(),
         definition,
@@ -189,7 +195,14 @@ fn author_one(
     item: &OwnedMutation,
     batch: &mut Vec<SignedEntry>,
 ) -> Result<(), String> {
-    let author = author_ctx(history, ctx, fold_db::clock::unix_millis());
+    let mut author = author_ctx(history, ctx, fold_db::clock::unix_millis());
+    if let Some((hash, lamport)) = history.birth_entry() {
+        author.cite(hash, lamport);
+    }
+    let key = (item.schema.clone(), item.record_key.clone());
+    if let Some(winner) = history.records().get(&key) {
+        author.cite(winner.entry, winner.position.lamport);
+    }
     let value = encode_value(item)?;
     let body = data_record(
         StreamKind::Direct,

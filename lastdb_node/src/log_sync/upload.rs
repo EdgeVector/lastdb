@@ -261,14 +261,40 @@ async fn drain_log(client: &RelayClient, home: &Path, database_id: &str) -> Resu
         if found.batch.is_empty() {
             return Ok(uploaded);
         }
-        let expected = found.batch.len() as u64;
-        let (stored, duplicate) = client.append(database_id, &found.batch).await?;
+        let take = chunk_len(database_id, &found.batch)?;
+        let chunk = &found.batch[..take];
+        let expected = chunk.len() as u64;
+        let (stored, duplicate) = client.append(database_id, chunk).await?;
         if stored + duplicate < expected {
             return Err(format!(
                 "relay log.append stored {stored} (duplicate {duplicate}) of {expected} log entries"
             ));
         }
-        history_store::store_uploaded(home, database_id, found.uploaded + found.batch.len())?;
+        history_store::store_uploaded(home, database_id, found.uploaded + chunk.len())?;
         uploaded = true;
     }
+}
+
+fn chunk_len(database_id: &str, batch: &[SignedEntry]) -> Result<usize, String> {
+    const MAX_CHUNK_BYTES: usize = 3 * 1024 * 1024;
+    let mut used = 32usize.saturating_add(database_id.len());
+    let mut count = 0usize;
+    for entry in batch {
+        let item_len = serde_json::to_vec(entry)
+            .map_err(|_| "cannot encode authored log entry".to_owned())?
+            .len();
+        let next_used = used.saturating_add(item_len).saturating_add(1);
+        if next_used > MAX_CHUNK_BYTES {
+            if count == 0 {
+                return Err(format!(
+                    "log entry seq {} exceeds {MAX_CHUNK_BYTES} byte upload limit ({item_len} bytes)",
+                    entry.header().writer_seq
+                ));
+            }
+            break;
+        }
+        used = next_used;
+        count += 1;
+    }
+    Ok(count)
 }

@@ -1,6 +1,6 @@
 //! HTTP client for `/relay/v1/log/*`.
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use app_identity_crypto::{hex_lower, sign, SigningKey};
 use base64::Engine as _;
@@ -8,8 +8,13 @@ use mutation_log::SignedEntry;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
+use crate::retry::{async_sleep, is_transient, retry_wait, retryable_transport, RETRIES};
+
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
+const APPEND_MAX_ENTRIES: usize = 90;
+const APPEND_MAX_BYTES: usize = 3 * 1024 * 1024;
+const MAX_RESPONSE_BYTES: usize = 8 * 1024 * 1024;
 
 /// Signed HTTP client for one node/device identity.
 pub struct RelayClient {
@@ -18,6 +23,12 @@ pub struct RelayClient {
     node_key_hex: String,
     device_id: String,
     http: reqwest::Client,
+}
+
+enum BodyRead {
+    Ok(String),
+    Retryable,
+    Fatal(String),
 }
 
 impl RelayClient {
@@ -33,6 +44,7 @@ impl RelayClient {
         let http = reqwest::Client::builder()
             .connect_timeout(CONNECT_TIMEOUT)
             .timeout(REQUEST_TIMEOUT)
+            .redirect(reqwest::redirect::Policy::none())
             .pool_max_idle_per_host(0)
             .build()
             .expect("relay http client");
@@ -45,74 +57,172 @@ impl RelayClient {
         }
     }
 
-    /// Append signed entries to the relay log.
+    /// Append signed entries to the relay log, chunked to `<= 90` entries and `<= 3 MiB` JSON.
     pub async fn append(
         &self,
         database_id: &str,
         entries: &[SignedEntry],
     ) -> Result<(u64, u64), String> {
-        let body = json!({
-            "database_id": database_id,
-            "entries": entries,
-        });
-        let value = self
-            .post("/relay/v1/log/append", database_id, &body)
-            .await?;
-        Ok(parse_append_counts(&value, entries.len() as u64))
+        if entries.is_empty() {
+            return Ok((0, 0));
+        }
+        let mut total_stored = 0u64;
+        let mut total_dup = 0u64;
+        let mut offset = 0usize;
+        while offset < entries.len() {
+            let take = next_append_chunk_len(database_id, &entries[offset..])?;
+            let chunk = &entries[offset..offset + take];
+            let body = json!({
+                "database_id": database_id,
+                "entries": chunk,
+            });
+            let value = self
+                .post("/relay/v1/log/append", database_id, &body)
+                .await?;
+            let (stored, dup) = parse_append_counts(&value, chunk.len() as u64);
+            total_stored = total_stored.saturating_add(stored);
+            total_dup = total_dup.saturating_add(dup);
+            offset += take;
+        }
+        Ok((total_stored, total_dup))
     }
 
-    /// Read one device stream page. `writer_key` is the hex node key.
+    /// Read one device stream page. When `cursor` is `Some`, resumes from that cursor.
     pub async fn read(
         &self,
         database_id: &str,
         writer_key: &str,
         device_id: &str,
         from_seq: u64,
+        cursor: Option<&str>,
         limit: u32,
     ) -> Result<(Vec<SignedEntry>, Option<String>), String> {
-        let body = json!({
+        let mut body = json!({
             "database_id": database_id,
-            "writer_key": writer_key,
-            "device_id": device_id,
-            "from_seq": from_seq,
             "limit": limit,
         });
+        if let Some(cursor) = cursor {
+            body["cursor"] = Value::String(cursor.to_owned());
+        } else {
+            body["writer_key"] = Value::String(writer_key.to_owned());
+            body["device_id"] = Value::String(device_id.to_owned());
+            body["from_seq"] = json!(from_seq);
+        }
         let value = self.post("/relay/v1/log/read", database_id, &body).await?;
         let entries: Vec<SignedEntry> = serde_json::from_value(value["entries"].clone())
             .map_err(|_| "relay log.read returned invalid entries".to_owned())?;
-        let cursor = value["cursor"].as_str().map(str::to_owned);
-        Ok((entries, cursor))
+        let next = value["cursor"].as_str().map(str::to_owned);
+        Ok((entries, next))
     }
 
     async fn post(&self, path: &str, database_id: &str, body: &Value) -> Result<Value, String> {
         let raw = serde_json::to_vec(body).map_err(|_| "cannot encode relay body")?;
-        let headers = sign_headers(
-            &self.signing_key,
-            &self.node_key_hex,
-            &self.device_id,
-            database_id,
-            path,
-            &raw,
-        )?;
         let url = format!("{}{path}", self.base);
-        let mut req = self.http.post(url).body(raw);
-        for (name, value) in headers {
-            req = req.header(name, value);
-        }
-        let resp = req
-            .send()
-            .await
-            .map_err(|e| format!("relay request failed: {e}"))?;
-        let status = resp.status();
-        let text = resp
-            .text()
-            .await
-            .map_err(|e| format!("relay response body: {e}"))?;
-        if !status.is_success() {
+        let mut retried = 0u32;
+        loop {
+            let headers = sign_headers(
+                &self.signing_key,
+                &self.node_key_hex,
+                &self.device_id,
+                database_id,
+                path,
+                &raw,
+            )?;
+            let mut req = self.http.post(&url).body(raw.clone());
+            for (name, value) in headers {
+                req = req.header(name, value);
+            }
+            let started = Instant::now();
+            let resp = match req.send().await {
+                Ok(resp) => resp,
+                Err(e) if retried < RETRIES && retryable_transport(&e, started.elapsed()) => {
+                    async_sleep(retry_wait(retried)).await;
+                    retried += 1;
+                    continue;
+                }
+                Err(e) => return Err(format!("relay request failed: {e}")),
+            };
+            let status = resp.status();
+            let text = match read_bounded_text(resp, started, retried < RETRIES).await {
+                BodyRead::Ok(text) => text,
+                BodyRead::Retryable => {
+                    async_sleep(retry_wait(retried)).await;
+                    retried += 1;
+                    continue;
+                }
+                BodyRead::Fatal(err) => return Err(err),
+            };
+            if status.is_success() {
+                return serde_json::from_str(&text)
+                    .map_err(|_| "relay response is not JSON".into());
+            }
+            if retried < RETRIES && is_transient(status.as_u16(), &text) {
+                async_sleep(retry_wait(retried)).await;
+                retried += 1;
+                continue;
+            }
             return Err(format!("relay {path} HTTP {status}: {text}"));
         }
-        serde_json::from_str(&text).map_err(|_| "relay response is not JSON".into())
     }
+}
+
+async fn read_bounded_text(
+    mut resp: reqwest::Response,
+    started: Instant,
+    may_retry: bool,
+) -> BodyRead {
+    if resp
+        .content_length()
+        .is_some_and(|len| len > MAX_RESPONSE_BYTES as u64)
+    {
+        return BodyRead::Fatal(format!("relay response exceeds {MAX_RESPONSE_BYTES} bytes"));
+    }
+    let mut buf = Vec::new();
+    loop {
+        match resp.chunk().await {
+            Ok(Some(chunk)) => {
+                if buf.len().saturating_add(chunk.len()) > MAX_RESPONSE_BYTES {
+                    return BodyRead::Fatal(format!(
+                        "relay response exceeds {MAX_RESPONSE_BYTES} bytes"
+                    ));
+                }
+                buf.extend_from_slice(&chunk);
+            }
+            Ok(None) => break,
+            Err(e) if may_retry && retryable_transport(&e, started.elapsed()) => {
+                return BodyRead::Retryable;
+            }
+            Err(e) => return BodyRead::Fatal(format!("relay response body: {e}")),
+        }
+    }
+    match String::from_utf8(buf) {
+        Ok(text) => BodyRead::Ok(text),
+        Err(_) => BodyRead::Fatal("relay response is not UTF-8".into()),
+    }
+}
+
+fn next_append_chunk_len(database_id: &str, remaining: &[SignedEntry]) -> Result<usize, String> {
+    let overhead = 32usize.saturating_add(database_id.len());
+    let mut used = overhead;
+    let mut count = 0usize;
+    for entry in remaining.iter().take(APPEND_MAX_ENTRIES) {
+        let item_len = serde_json::to_vec(entry)
+            .map_err(|_| "cannot encode signed entry".to_owned())?
+            .len();
+        let next_used = used.saturating_add(item_len).saturating_add(1);
+        if next_used > APPEND_MAX_BYTES {
+            if count == 0 {
+                return Err(format!(
+                    "signed entry seq {} exceeds {APPEND_MAX_BYTES} byte append limit ({item_len} bytes)",
+                    entry.header().writer_seq
+                ));
+            }
+            break;
+        }
+        used = next_used;
+        count += 1;
+    }
+    Ok(count)
 }
 
 fn sign_headers(
@@ -149,8 +259,8 @@ fn parse_append_counts(value: &Value, sent: u64) -> (u64, u64) {
     let stored = value["stored"].as_u64().unwrap_or(0);
     if stored >= sent {
         (stored, 0)
-    } else if value["duplicate"].as_bool() == Some(true) && stored == 0 {
-        (0, sent)
+    } else if value["duplicate"].as_bool() == Some(true) {
+        (stored, sent.saturating_sub(stored))
     } else {
         (stored, value["duplicate"].as_u64().unwrap_or(0))
     }

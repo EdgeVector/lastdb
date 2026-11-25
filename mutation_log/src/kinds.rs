@@ -106,15 +106,6 @@ impl StreamKind {
             Self::Proposal => 1,
         }
     }
-
-    /// Parse wire `u8`.
-    pub fn from_wire(b: u8) -> Option<Self> {
-        match b {
-            0 => Some(Self::Direct),
-            1 => Some(Self::Proposal),
-            _ => None,
-        }
-    }
 }
 
 /// Grant role (OpenAPI `GrantRole`).
@@ -141,17 +132,6 @@ impl Role {
             Self::Submit => 1,
             Self::Write => 2,
             Self::Revoked => 3,
-        }
-    }
-
-    /// Parse wire `u8`.
-    pub fn from_wire(b: u8) -> Option<Self> {
-        match b {
-            0 => Some(Self::Read),
-            1 => Some(Self::Submit),
-            2 => Some(Self::Write),
-            3 => Some(Self::Revoked),
-            _ => None,
         }
     }
 

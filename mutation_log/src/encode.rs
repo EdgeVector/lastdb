@@ -218,11 +218,12 @@ fn encode_snapshot(buf: &mut Vec<u8>, body: &SnapshotBody) -> Result<(), EncodeE
 }
 
 fn encode_lease(buf: &mut Vec<u8>, body: &LeaseBody) -> Result<(), EncodeError> {
+    const LEASE_CLOSED_MAX: usize = 4096;
     let closed = &body.closed;
     let ascending = closed
         .windows(2)
         .all(|pair| (pair[0].node_key, pair[0].device_id) < (pair[1].node_key, pair[1].device_id));
-    if closed.len() > u16::MAX as usize || !ascending {
+    if closed.len() > LEASE_CLOSED_MAX || !ascending {
         return Err(EncodeError::BadLeaseClosed);
     }
     put_u64(buf, body.expires_at_ms);

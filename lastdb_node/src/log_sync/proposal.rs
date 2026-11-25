@@ -13,12 +13,12 @@ use std::path::Path;
 use std::sync::Arc;
 
 use cloud_backup_protocol::Id;
-use mutation_log::{author_data, data_record, NodeKey, Role, StreamKind, VerifiedHistory};
+use mutation_log::{author_data, data_record, Grantee, NodeKey, Role, StreamKind, VerifiedHistory};
 use serde_json::Value;
 use sha2::{Digest as _, Sha256};
 
 use ledger::{fits_ledger, submit_lock};
-pub(super) use ledger::{load_ledger, store_ledger, Submitted};
+pub(super) use ledger::{load_ledger, store_ledger, Ledger, Submitted};
 use parse::{canonicalize_proposed, envelope, parse, Proposed};
 
 use super::chain_author::{self, Target};
@@ -191,10 +191,15 @@ pub(super) fn author_proposal(
     };
     chain_author::author_member(&super::histories_for(host), &target, |mut ctx, history| {
         require_submitter(history, &identity.node_key)?;
-        for (hash, lamport) in history.publisher_grants() {
-            ctx.seen_heads.push(hash);
-            ctx.seen_lamports.push(lamport);
+        if let Some((hash, lamport)) = history.birth_entry() {
+            ctx.cite(hash, lamport);
         }
+        let (grant_hash, grant_lamport) = history
+            .latest_grant_for(Grantee::Member(identity.node_key))
+            .ok_or(ChainError::Forbidden(
+                "this member cannot submit this shared mutation",
+            ))?;
+        ctx.cite(grant_hash, grant_lamport);
         let body = data_record(StreamKind::Proposal, namespace, record_key, value);
         author_data(&ctx, &identity.signing_key, body).map_err(|_| ChainError::Unconfirmed)
     })
