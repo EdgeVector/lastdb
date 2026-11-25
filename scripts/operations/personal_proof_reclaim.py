@@ -195,7 +195,7 @@ def relay_view(relay, device):
             # A segment's blob is named while its item is stored, like the file an entry names. The bytes of
             # the entries a segment holds are in that blob, so only the entries stored inline weigh as entries.
             "named": {entry["file"]["sha256"] for entry in entries if entry.get("file")} | segments,
-            "entries": len(entries), "entry_bytes": inline,
+            "entries": len(entries), "entry_bytes": inline, "segments": segments,
             "blobs": list_blobs(relay, device, node)}
 
 
@@ -260,7 +260,9 @@ def measure(relay, writer, label, before):
     held = by_path_bytes(writer)
     sizes = sorted((sum(before.values()) + held, sum(after.values()) + held))
     manifest = view["snapshot"]["manifest_bytes"]
-    allowance = manifest + view["entry_bytes"] + ENVELOPE_OVERHEAD * len(sealed)
+    # The log after the snapshot is allowed whole: the inline entries and the segment blobs that hold the rest.
+    log_bytes = view["entry_bytes"] + sum(view["blobs"][digest] for digest in view["segments"])
+    allowance = manifest + log_bytes + ENVELOPE_OVERHEAD * len(sealed)
     total = stored + view["entry_bytes"]
     require(total <= sizes[1] + allowance + SLACK_BYTES,
             f"{label}: the relay holds {total} bytes ({stored} of files, {view['entry_bytes']} of entries); the local store "
