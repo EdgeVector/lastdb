@@ -698,6 +698,8 @@ jobs:
             ${{ runner.temp }}/deployed-personal/nodes/summary.json
             ${{ runner.temp }}/deployed-personal/nodes/summary.md
             ${{ runner.temp }}/deployed-personal/nodes/*/node.log
+            ${{ runner.temp }}/deployed-personal/nodes/*/shutdown.json
+            ${{ runner.temp }}/deployed-personal/nodes/*/cleanup.json
           retention-days: 7
           if-no-files-found: warn
 

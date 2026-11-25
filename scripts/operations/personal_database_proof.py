@@ -92,7 +92,7 @@ sys.path[:0] = [str(_OPS), str(_OPS.parent)]
 from harness import append_step_summary  # noqa: E402
 from personal_proof_load import idle_turn_reads_nothing, kill_under_load, scale  # noqa: E402
 from personal_proof_deployed import prove_deployed, render  # noqa: E402
-from personal_proof_cleanup import cleanup_owned
+from personal_proof_cleanup import cleanup_owned  # noqa: E402
 from personal_proof_nodes import DELTA, DeployedRelay, Relay, converged, prove_hidden, require, wait  # noqa: E402
 from personal_proof_reclaim import prove_cloud  # noqa: E402
 from personal_proof_reconcile import reconcile_reference  # noqa: E402
