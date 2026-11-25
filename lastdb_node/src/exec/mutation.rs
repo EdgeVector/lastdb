@@ -13,7 +13,7 @@ use super::schema_routes::resolve_schema_name;
 use crate::host::Host;
 
 const POISONED_READ_VIEW: &str =
-    "Storage backend error: native read view lock is poisoned; restart the process to reopen the home";
+    "Storage backend error: read view lock poisoned; restart process to reopen home";
 
 async fn stamp_and_validate(host: &Host, mutation: &mut Mutation) -> Result<(), HostError> {
     let req = mutation.schema_name.clone();

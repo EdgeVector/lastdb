@@ -111,13 +111,10 @@ fn run(cli: Cli) -> Result<(), String> {
     });
     let db_scoped = matches!(
         &cmd,
-        Command::Get { .. }
-            | Command::GetKeys(_)
-            | Command::Mutate { .. }
-            | Command::Share(ShareCommand::Link { .. })
+        Command::Get { .. } | Command::GetKeys(_) | Command::Mutate { .. }
     );
     if cli.db.is_some() && !db_scoped {
-        return Err("--db requires a record command or a database-scoped share command".into());
+        return Err("--db requires a record command".into());
     }
     match cmd {
         Command::Status { json, timeout } => {
@@ -126,9 +123,9 @@ fn run(cli: Cli) -> Result<(), String> {
             }
             Ok(())
         }
-        Command::Backup(b) => backup_command(cli.data_dir, cli.db, b),
+        Command::Backup(b) => backup_command(cli.data_dir, b),
         Command::Cloud(c) => cloud_account_command(cli.data_dir, c),
-        Command::Share(a) => share_cmds::run(cli.data_dir, cli.db.as_deref(), a),
+        Command::Share(a) => share_cmds::run(cli.data_dir, a),
         Command::Db(DatabaseCommand::List { json }) => list_databases(cli.data_dir, json),
         Command::Db(DatabaseCommand::Create {
             name,

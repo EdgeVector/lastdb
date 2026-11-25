@@ -62,12 +62,18 @@ pub(super) async fn create(req: &UdsRequest, ctx: &AccessContext, host: &Host) -
             );
         }
     };
-    if let Some(response) = share_conflict(host, &body.name, requested_id.as_deref(), ctx) {
-        return response;
-    }
+    let creating = host.owned.lock_creating().await;
+    let Ok(_share_registry) = crate::share_link::lock_existing_registry(&host.home) else {
+        return error_response(503, "database registry is unavailable", ctx);
+    };
+    let reserved_ids = match share_conflict(host, &body.name, requested_id.as_deref(), ctx) {
+        Ok(ids) => ids,
+        Err(response) => return response,
+    };
     match host
         .owned
         .create(
+            &creating,
             &host.home,
             Arc::clone(&host.keypair),
             owned::CreateArgs {
@@ -75,6 +81,7 @@ pub(super) async fn create(req: &UdsRequest, ctx: &AccessContext, host: &Host) -
                 kind,
                 spec,
                 requested_id,
+                reserved_ids: &reserved_ids,
             },
             |id, seed| {
                 crate::log_sync::birth::mint(&host.home, id, host.keypair.public_key_bytes(), seed)
@@ -119,7 +126,7 @@ fn listed(host: &Host) -> Result<Value, HostError> {
     Ok(json!({ "databases": databases }))
 }
 
-pub(super) fn accept(req: &UdsRequest, ctx: &AccessContext, host: &Host) -> UdsResponse {
+pub(super) async fn accept(req: &UdsRequest, ctx: &AccessContext, host: &Host) -> UdsResponse {
     if req.body.len() > 4096 {
         return error_response(400, "invalid link", ctx);
     }
@@ -129,7 +136,17 @@ pub(super) fn accept(req: &UdsRequest, ctx: &AccessContext, host: &Host) -> UdsR
     let Ok(opened) = crate::share_link::open(&body.link) else {
         return error_response(400, "invalid link", ctx);
     };
-    let registered = crate::share_link::register(&host.home, &opened, body.name.as_deref());
+    let _creating = host.owned.lock_creating().await;
+    let registered = match host
+        .owned
+        .claims(opened.database_id(), body.name.as_deref())
+    {
+        Ok(true) => Err(crate::share_cache::ShareCacheError::Invalid(
+            "database selector already in use",
+        )),
+        Ok(false) => crate::share_link::register(&host.home, &opened, body.name.as_deref()),
+        Err(_) => Err(crate::share_cache::ShareCacheError::Io),
+    };
     if registered.is_ok() {
         crate::log_sync::request_wake(&host.home);
     }
@@ -203,22 +220,24 @@ fn share_conflict(
     name: &str,
     id: Option<&str>,
     ctx: &AccessContext,
-) -> Option<UdsResponse> {
-    match registered_share::list(&host.home) {
-        Ok(shares)
-            if shares.iter().any(|share| {
-                share.name.as_deref() == Some(name) || id == Some(share.id.as_str())
-            }) =>
-        {
-            Some(error_response(
-                409,
-                "database name or ID is already registered",
-                ctx,
-            ))
-        }
-        Ok(_) => None,
-        Err(_) => Some(error_response(503, "database registry is unavailable", ctx)),
+) -> Result<Vec<String>, UdsResponse> {
+    let Ok(shares) = registered_share::list(&host.home) else {
+        return Err(error_response(503, "database registry is unavailable", ctx));
+    };
+    if shares
+        .iter()
+        .any(|share| share.name.as_deref() == Some(name) || id == Some(share.id.as_str()))
+    {
+        return Err(error_response(
+            409,
+            "database name or ID is already registered",
+            ctx,
+        ));
     }
+    Ok(shares
+        .into_iter()
+        .map(|share| share.id.as_str().to_owned())
+        .collect())
 }
 
 fn fail(error: OwnedError, ctx: &AccessContext) -> UdsResponse {

@@ -82,31 +82,30 @@ export interface FileMarker {
 
 interface ProposalTarget {
   key: KeyValue;
-  /** Exactly every declared name. Null requires allow_absent in the schema. */
-  alternates: Record<string, KeyValue | null>;
   convergence?: MutationConvergence;
   durability?: MutationDurability;
 }
 
-interface CompleteRecord {
+interface WriteTarget extends ProposalTarget {
+  /** Exactly every declared name. Null requires allow_absent in the schema. */
+  alternates: Record<string, KeyValue | null>;
   record: RowFields;
 }
 
-export type CreateMutationOp = ProposalTarget &
-  CompleteRecord & {
-    mutationType: 'create';
-    expected: { type: 'absent' };
-  };
+export type CreateMutationOp = WriteTarget & {
+  mutationType: 'create';
+  expected: { type: 'absent' };
+};
 
-export type ReplaceMutationOp = ProposalTarget &
-  CompleteRecord & {
-    mutationType: 'replace';
-    expected: { type: 'revision'; revision: string };
-  };
+export type ReplaceMutationOp = WriteTarget & {
+  mutationType: 'replace';
+  expected: { type: 'revision'; revision: string };
+};
 
 export type DeleteMutationOp = ProposalTarget & {
-  mutationType: 'delete' | 'purge';
+  mutationType: 'delete';
   expected: { type: 'revision'; revision: string };
+  alternates?: never;
   record?: never;
 };
 

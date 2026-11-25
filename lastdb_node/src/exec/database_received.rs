@@ -11,12 +11,15 @@ pub(super) async fn submit_signed(
     host: &Host,
     share: &RegisteredShare,
 ) -> UdsResponse {
-    if !share.whole_database() {
-        return error_response(403, "this share is read-only", ctx);
-    }
     let Some(id) = req.header("Idempotency-Key").and_then(mutation_id) else {
         return error_response(400, "a shared write requires a UUID Idempotency-Key", ctx);
     };
+    if let Err(error) = super::app_api::require_change_grant(&req.body) {
+        return render(Err(error), ctx);
+    }
+    if !share.whole_database() {
+        return error_response(403, "this share is read-only", ctx);
+    }
     match crate::log_sync::submit_share_write(host, share, &id, &req.body, None).await {
         Ok(sequence) => accepted("submitted", &id, sequence),
         Err(error) => contribution_failure(&error, ctx),

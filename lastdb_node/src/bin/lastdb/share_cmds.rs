@@ -14,16 +14,9 @@ use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-pub(super) fn run(
-    data_dir: Option<PathBuf>,
-    db: Option<&str>,
-    action: ShareCommand,
-) -> Result<(), String> {
+pub(super) fn run(data_dir: Option<PathBuf>, action: ShareCommand) -> Result<(), String> {
     match action {
         ShareCommand::Accept { link, name } => {
-            if db.is_some() {
-                return Err("--db does not apply to an open read link".into());
-            }
             post_accept(data_dir, &json!({ "link": link, "name": name }))
         }
         ShareCommand::Link { database } => mint_link(data_dir, &database),

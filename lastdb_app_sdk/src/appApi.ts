@@ -38,6 +38,8 @@ export type DatabasesReplyFor<T extends Api.DatabasesRequest> =
   : T extends { action: 'heads' } ? Api.DatabasesHeadsReply
   : T extends { action: 'relays' } ? Api.DatabasesRelaysReply
   : T extends { action: 'bootstrap_relay' } ? Api.DatabasesBootstrapRelayReply
+  : T extends { action: 'lease' } ? Api.DatabasesLeaseReply
+  : T extends { action: 'lease_length' } ? Api.DatabasesLeaseLengthReply
   : T extends { action: 'share_link' } ? Api.DatabasesShareLinkReply
   : T extends { action: 'submit' } ? Api.DatabasesSubmitReply
   : T extends { action: 'change' } ? Api.DatabasesChangeReply
@@ -83,6 +85,7 @@ function readItemBody(item: Api.ReadItem): Record<string, unknown> {
   if (item.cursor !== undefined) body.cursor = item.cursor;
   if (item.keys_only !== undefined) body.keys_only = item.keys_only;
   if (item.file !== undefined) body.file = item.file;
+  if ('file_dir' in item && item.file_dir !== undefined) body.file_dir = item.file_dir;
   if (item.key !== undefined) body.key = keyBody(item.key);
   if (item.range !== undefined) body.range = rangeBody(item.range);
   return body;

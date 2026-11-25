@@ -12,7 +12,7 @@ use crate::registered_share::{self, RegisteredShare};
 
 enum Selection {
     Owner,
-    Owned(Arc<FoldDB>),
+    Owned { store: Arc<FoldDB>, shareable: bool },
     Signed(Box<RegisteredShare>),
 }
 
@@ -32,7 +32,7 @@ pub(in crate::exec) async fn execute_database_request(
         ("POST", DATABASES_PATH) => return database_owned::create(req, ctx, host).await,
         ("POST", database_owned::SPEC_PATH) => return database_owned::bind(req, ctx, host),
         ("POST", database_owned::ACCEPT_PATH) => {
-            return database_owned::accept(req, ctx, host);
+            return database_owned::accept(req, ctx, host).await;
         }
         _ => {}
     }
@@ -70,6 +70,20 @@ pub(in crate::exec) async fn execute_database_request(
     if matches!(selection, Selection::Signed(_)) && !is_database_operation(route) {
         return content_free(404, "Not Found");
     }
+    if matches!(
+        selection,
+        Selection::Owned {
+            shareable: true,
+            ..
+        }
+    ) && matches!(route, DataRoute::DropSchema)
+    {
+        return error_response(
+            400,
+            "schemas in a shareable database cannot be dropped; declare a new schema name",
+            ctx,
+        );
+    }
     dispatch(route, req, ctx, host, selection).await
 }
 
@@ -82,7 +96,7 @@ async fn dispatch(
 ) -> UdsResponse {
     match selection {
         Selection::Owner => super::execute_data_route_with_timeout(route, req, ctx, host).await,
-        Selection::Owned(store) => {
+        Selection::Owned { store, .. } => {
             host.with_records(
                 store,
                 super::execute_data_route_with_timeout(route, req, ctx, host),
@@ -212,7 +226,17 @@ fn resolve_database(
 ) -> Result<Selection, UdsResponse> {
     match host.owned.resolve(selector) {
         Ok(ResolvedStore::Owner) => Ok(Selection::Owner),
-        Ok(ResolvedStore::Owned(store)) => Ok(Selection::Owned(store)),
+        Ok(ResolvedStore::Owned(store)) => {
+            let entries = host
+                .owned
+                .owned_entries()
+                .map_err(|error| render(Err(error.into()), ctx))?;
+            let shareable = entries.iter().any(|entry| {
+                entry.kind == crate::host::owned::Kind::Shareable
+                    && (entry.id == selector || entry.name.as_deref() == Some(selector))
+            });
+            Ok(Selection::Owned { store, shareable })
+        }
         Ok(ResolvedStore::Absent) => resolve_share(selector, ctx, host),
         Err(error) => Err(render(Err(error.into()), ctx)),
     }

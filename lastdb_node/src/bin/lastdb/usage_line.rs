@@ -17,8 +17,9 @@ pub(crate) fn usage_lines(sync: &Value) -> Vec<String> {
         .filter_map(|(id, database)| {
             let usage = database.get("usage").filter(|usage| usage.is_object())?;
             let field = |name: &str| usage[name].as_u64().unwrap_or(0);
-            let held = (field("entry_bytes") + field("blob_bytes"))
-                .saturating_sub(field("released_bytes") + field("released_blob_bytes"));
+            let held = field("entry_bytes")
+                .saturating_add(field("blob_bytes"))
+                .saturating_sub(field("released_bytes").saturating_add(field("released_blob_bytes")));
             let unconfirmed = field("unconfirmed_blobs");
             let cut_off = if unconfirmed == 0 {
                 String::new()

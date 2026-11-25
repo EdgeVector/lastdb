@@ -318,6 +318,12 @@ pub(super) async fn backup_snapshot(
         require_owner(ctx, "backup snapshot is owner-only")?;
         if req.method == "GET" {
             if let Some(nonce) = wire::query_value(&req.target, "reclaim") {
+                if nonce.is_empty() {
+                    return Err(HostError::new(
+                        400,
+                        "the reclaim query parameter is required",
+                    ));
+                }
                 return crate::log_sync::reclaim_status(host, &nonce)
                     .map_err(|e| HostError::new(503, e));
             }

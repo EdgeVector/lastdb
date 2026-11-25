@@ -12,7 +12,7 @@ use crate::exec::reply::HostError;
 
 const MAX_DIR_LEN: usize = 4096;
 
-pub(super) fn accept(dir: &str) -> Result<PathBuf, HostError> {
+pub(super) fn accept(dir: &str, home: &Path) -> Result<PathBuf, HostError> {
     let path = Path::new(dir);
     if dir.is_empty() || !path.is_absolute() {
         return Err(bad("file_dir must be an absolute path"));
@@ -24,8 +24,18 @@ pub(super) fn accept(dir: &str) -> Result<PathBuf, HostError> {
     real_directory(path)?;
     let canonical =
         fs::canonicalize(path).map_err(|_| bad("file_dir must be an existing directory"))?;
+    outside_home(&canonical, home)?;
     confirm(&canonical)?;
     Ok(canonical)
+}
+
+fn outside_home(dir: &Path, home: &Path) -> Result<(), HostError> {
+    let home = fs::canonicalize(home)
+        .map_err(|_| HostError::internal("the LastDB home is not a directory"))?;
+    if dir == home || dir.starts_with(&home) {
+        return Err(bad("file_dir must stay outside the LastDB home"));
+    }
+    Ok(())
 }
 
 pub(super) fn confirm(path: &Path) -> Result<(), HostError> {

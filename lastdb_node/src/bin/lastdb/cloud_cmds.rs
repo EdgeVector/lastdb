@@ -56,15 +56,14 @@ const RECLAIM: Queued = Queued {
 
 pub(super) fn backup_command(
     data_dir: Option<PathBuf>,
-    db: Option<String>,
     action: BackupCommand,
 ) -> Result<(), String> {
     match action {
         BackupCommand::Snapshot { database, wait } => {
-            queue(data_dir, database.or(db).as_deref(), wait, &SNAPSHOT)
+            queue(data_dir, database.as_deref(), wait, &SNAPSHOT)
         }
         BackupCommand::Reclaim { database, wait } => {
-            queue(data_dir, database.or(db).as_deref(), wait, &RECLAIM)
+            queue(data_dir, database.as_deref(), wait, &RECLAIM)
         }
         BackupCommand::Connect(a) => setup::run_connect(data_dir, &a),
         BackupCommand::Restore(args) => {
