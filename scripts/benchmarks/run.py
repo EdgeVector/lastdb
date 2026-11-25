@@ -106,11 +106,11 @@ def recipe_for(args):
 
 def confirm_suite(parser, kind, output):
     from growth_report import compare as growth_compare
-    from report import compare as speed_compare, load_comparison as load, suspects
+    from report import compare as speed_compare, load_comparison as load, repeat_set
     if os.environ.get("GITHUB_ACTIONS") != "true" or os.environ.get("RUNNER_ENVIRONMENT") != "github-hosted":
         parser.error("Automatic benchmark confirmation requires a GitHub-hosted Actions runner")
     manifest, comparison = load(output, {"growth": growth_compare, "speed": speed_compare}[kind])
-    initial = sorted(suspects(comparison, kind))
+    initial = sorted(repeat_set(comparison, kind))
     save(output / "repeat-plan.json", {"kind": kind, "suspects": initial, "max_repeats": 1})
     if not initial:
         print("No suspect measures; skip the confirmation run.", flush=True)
@@ -185,7 +185,7 @@ def main():
                 "drivers": {name: file_hash(Path(__file__).parent / name)
                             for name in ("run.py", "node.py", "workload.py", "phases.py", "report.py",
                                          "artifact.py", "build.py", "growth.py", "growth_report.py",
-                                         "disk_budget.py", "process_counters.py")}}
+                                         "disk_budget.py", "process_counters.py", "limits.py")}}
     save(manifest_path, manifest)
     for pair in range(recipe["pairs"]):
         for label in (("baseline", "candidate") if pair % 2 == 0 else ("candidate", "baseline")):

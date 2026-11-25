@@ -261,7 +261,7 @@ jobs:
         if: always()
         run: python3 driver/scripts/benchmarks/plan.py disk --profile "$BENCH_PROFILE" --phase finish
 
-      - name: Publish benchmark summary
+      - name: Require the absolute response-time limits and publish the benchmark summary
         if: always() && matrix.lane == 'speed'
         env:
           MEASUREMENT_OUTCOME: ${{ steps.measurement.outcome }}

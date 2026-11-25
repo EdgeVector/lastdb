@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Publish advisory performance changes, confirmation decisions, mixed reads, and native diagnostics."""
+"""Publish advisory performance changes, absolute limits, confirmation decisions, mixed reads, and native diagnostics."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ import math
 from pathlib import Path
 import statistics
 
+from limits import breaches, decide, limit_lines
 from node import home_format_line, publish_summary, save
 from phases import phase_lines
 
@@ -26,6 +27,11 @@ def suspects(comparison, kind):
             if (item["changes_percent"][name] >= limit if limit > 0 else item["changes_percent"][name] <= limit)}
 
 
+def repeat_set(comparison, kind):
+    """Measures that start the confirmation pass: relative suspects and absolute speed-limit breaches."""
+    return suspects(comparison, kind) | (breaches(comparison) if kind == "speed" else set())
+
+
 def load_comparison(output, compare_fn, status="success"):
     manifest = json.loads((output / "benchmark.json").read_text())
     if not manifest["complete"] or status != "success":
@@ -39,7 +45,7 @@ def confirm(output, manifest, comparison, compare_fn, kind, status):
     if status != "success":
         raise ValueError("The automatic confirmation step did not complete successfully")
     initial, repeated, second = suspects(comparison, kind), set(), {}
-    if initial:
+    if repeat_set(comparison, kind):
         other, second = load_comparison(output / "confirmation", compare_fn)
         for name in ("profile", "recipe", "driver_revision", "drivers", "binaries", "host"):
             if manifest[name] != other[name]:
@@ -54,7 +60,7 @@ def confirm(output, manifest, comparison, compare_fn, kind, status):
     decision = {"kind": kind, "repeat_required": bool(initial), "results": rows,
                 "repeat_only_suspects": sorted(repeated - initial)}
     save(output / "advisory-confirmation.json", decision)
-    return decision
+    return decision, second
 
 
 def _fmt_pair(pair, kind, metric=""):
@@ -68,7 +74,7 @@ def _fmt_pair(pair, kind, metric=""):
 def confirmation_lines(decision):
     result = ["", "## Automatic advisory confirmation", ""]
     if not decision["repeat_required"]:
-        return "\n".join(result + ["No measure crossed an advisory limit. CI skipped the repeat.", ""])
+        return "\n".join(result + ["No measure crossed an advisory limit.", ""])
     result.extend(["CI repeated this suite once with the same programs, recipe, and fresh generated homes.",
                    "Only the same case and measure above its limit in both runs produces a warning.", "",
                    "| Case | Measure | First base → candidate | Repeat base → candidate | Result |",
@@ -240,7 +246,7 @@ def mixed_lines(output, manifest):
 
 
 def render(output, manifest, comparison):
-    lines = ["# LastDB benchmarks — advisory", "",
+    lines = ["# LastDB benchmarks", "",
              f"Profile: **{manifest['profile']}**. Pairs: **{manifest['recipe']['pairs']}**.", "",
              f"Base: `{manifest['binaries']['baseline']['revision']}`  ",
              f"Candidate: `{manifest['binaries']['candidate']['revision']}`  ",
@@ -261,7 +267,8 @@ def render(output, manifest, comparison):
     lines.extend(["", "CAUTION: Shared GitHub machines vary. These results establish no fixed speed guarantee.",
                   "Cold reads miss the LastDB warm set. The operating system file cache stays uncontrolled.",
                   "The throughput includes the client cost. The memory measure excludes seed and startup.",
-                  "A 20% slowdown requires confirmation in a second complete comparison before a notice. No slowdown fails the check.",
+                  "A 20% slowdown requires confirmation in a second complete comparison before a notice. Relative slowdowns never fail the check.",
+                  "The absolute limits below fail the check when the same breach appears in both complete passes.",
                   "Raw samples, receipts, per-pair changes, resource measures, and build logs are in the run artifact.",
                   "Generated homes and identity files stay out of the artifact and leave the runner after shutdown."])
     return "\n".join(lines) + "\n"
@@ -326,18 +333,27 @@ def main():
             raise ValueError("The build or measurement did not complete successfully")
         comparison = compare(args.output, manifest)
         save(args.output / "comparison.json", comparison)
-        decision = confirm(args.output, manifest, comparison, compare, "speed", args.confirmation_status)
-        report, complete = render(args.output, manifest, comparison) + confirmation_lines(decision), True
+        decision, second = confirm(args.output, manifest, comparison, compare, "speed", args.confirmation_status)
+        limit_rows = decide(comparison, second)
+        save(args.output / "limit-decision.json", {"results": limit_rows})
+        report = (render(args.output, manifest, comparison) + "\n".join(limit_lines(comparison, limit_rows))
+                  + "\n" + confirmation_lines(decision))
+        complete = True
     except (OSError, ValueError, KeyError, TypeError, ZeroDivisionError) as failure:
         report = ("# LastDB benchmarks — incomplete\n\n"
                   f"{type(failure).__name__}: {failure}\n\n"
                   "This run supplies no valid speed comparison. Inspect the build logs, result files, and raw samples.\n"
-                  "Slowdowns are advisory. A build failure or incomplete measurement remains an error.\n")
-        complete = False
+                  "Relative slowdowns are advisory. A build failure, incomplete measurement, or confirmed\n"
+                  "absolute-limit breach is an error.\n")
+        complete, limit_rows = False, []
     publish_summary(args.output, report)
+    failed = [row for row in limit_rows if row["failed"]]
+    for row in failed:
+        print(f"::error title=Absolute response-time limit::{row['case']} {row['metric']} "
+              f"{row['first']:.3f} then {row['repeat']:.3f} ms; limit {row['limit']:.1f} ms in both passes.")
     if complete:
         notices(decision)
-    return 0 if complete else 1
+    return 0 if complete and not failed else 1
 
 
 if __name__ == "__main__":
