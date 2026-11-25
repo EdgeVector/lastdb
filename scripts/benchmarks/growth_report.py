@@ -279,7 +279,7 @@ def main():
             raise ValueError("The resource growth measurement did not complete")
         comparison = compare(args.output, manifest)
         save(args.output / "comparison.json", comparison)
-        decision = confirm(args.output, manifest, comparison, compare, "growth", args.confirmation_status)
+        decision, _ = confirm(args.output, manifest, comparison, compare, "growth", args.confirmation_status)
         report, complete = render(args.output, manifest, comparison) + confirmation_lines(decision), True
     except (OSError, ValueError, KeyError, TypeError, ZeroDivisionError) as failure:
         report = ("# LastDB disk and memory growth — incomplete\n\n"

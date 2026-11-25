@@ -1,6 +1,7 @@
 name: LastDB benchmarks
 
-# Completion, verified upload, and the single-pass 1.5x disk limit are required. Speed stays advisory.
+# Completion, verified upload, the single-pass 1.5x disk limit, and the absolute response-time limits
+# (scripts/benchmarks/limits.py, confirmed in a repeat) are required. Relative speed changes stay advisory.
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
@@ -64,7 +65,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - name: Require complete measurements and verified uploads for product changes
+      - name: Require complete measurements, verified uploads, and the absolute limits for product changes
         env:
           PLAN_RESULT: ${{ needs.plan.result }}
           REQUIRED: ${{ needs.plan.outputs.required }}
@@ -74,9 +75,9 @@ jobs:
           set -euo pipefail
           [ "$PLAN_RESULT" = success ]
           case "$REQUIRED:$BENCHMARK_RESULT" in
-            true:success) echo "Complete benchmark, verified uploads, and single-pass 1.5x disk limit passed. Speed stays advisory." ;;
+            true:success) echo "Complete benchmark, verified uploads, 1.5x disk limit, and absolute response-time limits passed. Relative speed stays advisory." ;;
             false:skipped) echo "No product changes; measurements are unnecessary." ;;
-            *) echo "::error::Required benchmark or upload did not complete: $BENCHMARK_RESULT"; exit 1 ;;
+            *) echo "::error::Required benchmark, upload, disk limit, or response-time limit failed: $BENCHMARK_RESULT"; exit 1 ;;
           esac
           echo "$REASON" >> "$GITHUB_STEP_SUMMARY"
 

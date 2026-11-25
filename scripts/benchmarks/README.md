@@ -38,8 +38,9 @@ The current 16-writer measurement is `write_gate.py`. The optional comparison is
 
 The `LastDB benchmarks` workflow checks each PR update and merge group.
 Product changes require the `benchmark-complete` check before merge.
-It requires completed measurements and verified artifact uploads. Slowdowns remain advisory.
+It requires completed measurements and verified artifact uploads. Relative slowdowns remain advisory.
 The single-pass 1.5× total settled database-size limit also blocks merge.
+The absolute response-time limits in `limits.py` also block merge (see [Absolute response-time limits](#absolute-response-time-limits)).
 Build failures, rejected requests, incomplete measurements, and upload failures block completion.
 Documentation-only PRs pass the path check without measurements. Unknown paths require measurements.
 The workflow also measures each main push. The larger nightly run starts at 09:27 UTC.
@@ -407,8 +408,33 @@ A new suspect in the repeat produces no warning because it lacks confirmation. C
 Both passes retain their raw results and comparisons in the same artifact, under each suite's `confirmation/` directory.
 The artifact also retains `repeat-plan.json` and `advisory-confirmation.json` for the decision.
 An absent, failed, invalid, or mismatched required repeat means incomplete evidence and fails `benchmark-complete`.
-Speed and relative-growth notices do not change the exit status. No speed limit enters branch protection.
+Relative speed and growth notices do not change the exit status.
 The absolute disk-size limit uses one pass and fails `benchmark-complete` through the measurement job's result.
+
+### Absolute response-time limits
+
+Tom set fixed response-time limits on 2026-11-25. A slow absolute level never shows up as a change
+against the base, so the relative comparison alone let write latency drift for weeks.
+`limits.py` holds one table. Each limit applies to the candidate's median across pairs:
+
+| Cases | p50 ms | p95 ms |
+|---|---:|---:|
+| `insert/1`, `update/1`, `concurrent-write/1` | 5 | 10 |
+| `insert/128`, `update/128` | 30 | 60 |
+| `cold-read/1`, `cold-read-spread/1`, `hot-read/1`, `concurrent-read/1` | 1 | 2 |
+| `cold-read/32`, `cold-read-spread/32`, `hot-read/32` | 10 | 15 |
+| `concurrent-write/16` | 50 | — |
+| `concurrent-read/16` | 15 | — |
+
+The limits sit above the highest median seen in the 10 main pushes and the nightly run before they started.
+On those runs the single-record write p50 was 1.5–4.0 ms and the single-record read p50 was 0.25–0.46 ms.
+A first-pass breach starts the same automatic confirmation pass as a relative suspect.
+Only the same case and measure above its limit in both complete passes fails the speed job and `benchmark-complete`.
+One past run (insert/128 p95 88 ms) would have cleared in its repeat (21.6 ms).
+The limits also apply to the nightly run, which then opens the scheduled-failure issue.
+The summary shows every limit, the candidate value, and the room left. `limit-decision.json` keeps the verdict.
+The limit fails even when the base also exceeds it. This states the current level, not PR causation.
+Linux runners flush much faster than a Mac; the macOS capture lane stays advisory.
 
 Cold means a LastDB warm-set miss. The operating system file cache stays uncontrolled.
 The workflow does not claim a physical-device cold read.
