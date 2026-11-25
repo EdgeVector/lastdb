@@ -15,6 +15,7 @@ from pathlib import Path
 import json
 import time
 
+from personal_proof_cleanup import cleanup_owned
 from personal_proof_nodes import Device, Relay, require, wait
 from personal_proof_uplink import home_with_file
 
@@ -57,10 +58,4 @@ def prove_upload_retry(args):
             print(f"{device.name} sync status: {device.sync_status()}", flush=True)
         raise
     finally:
-        for device in (one, two):
-            try:
-                device.node.close()
-            except Exception as error:  # noqa: BLE001
-                print(f"{device.name}: cleanup failed: {error}")
-        closing.stop()
-        refusing.stop()
+        cleanup_owned((one, two), (closing, refusing))

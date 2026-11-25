@@ -26,6 +26,7 @@ import re
 import subprocess
 import time
 
+from personal_proof_cleanup import cleanup_owned
 from personal_proof_nodes import GAMMA, Device, Relay, require, wait
 from personal_proof_snapshot import newest_snapshot_entry, snapshot_stream, stored_seqs
 from personal_proof_status import status_lines, swept
@@ -153,9 +154,4 @@ def prove_lane(args):
             print("\n".join(device.warnings()), flush=True)
         raise
     finally:
-        for device in (w, x, y):
-            try:
-                device.node.close()
-            except Exception as error:  # noqa: BLE001
-                print(f"{device.name}: cleanup failed: {error}")
-        relay.stop()
+        cleanup_owned((w, x, y), (relay,))

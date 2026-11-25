@@ -49,6 +49,7 @@ import shutil
 
 from personal_proof_blobs import list_blobs, omitted_stream_refused
 from personal_proof_deployed_trim import node_hex
+from personal_proof_cleanup import cleanup_owned
 from personal_proof_nodes import ALPHA, ENVELOPE_OVERHEAD, FIELDS, Device, Relay, create, wait
 from personal_proof_reconcile import get_blob, read_stream, uploaded
 from personal_proof_status import reclaim_now, status_lines, storage_line, swept
@@ -369,9 +370,4 @@ def prove_cloud(args):
             print("\n".join(device.warnings()), flush=True)
         raise
     finally:
-        for device in (writer, other):
-            try:
-                device.node.close()
-            except Exception as error:  # noqa: BLE001
-                print(f"{device.name}: cleanup failed: {error}")
-        relay.stop()
+        cleanup_owned((writer, other), (relay,))

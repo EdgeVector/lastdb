@@ -38,6 +38,7 @@ from pathlib import Path
 import re
 import time
 
+from personal_proof_cleanup import cleanup_owned
 from personal_proof_nodes import FIELDS, GAMMA, Device, Relay, require, wait
 from personal_proof_steps import gamma_create
 import v1_records as v1
@@ -133,12 +134,7 @@ def large_file_is_backed_up(args, out):
                 print(f"{device.name}: no status: {error}", flush=True)
         raise
     finally:
-        for device in (source, restored):
-            try:
-                device.node.close()
-            except Exception as error:  # noqa: BLE001
-                print(f"{device.name}: cleanup failed: {error}")
-        relay.stop()
+        cleanup_owned((source, restored), (relay,))
 
 
 def prove_uplink(args):
@@ -172,6 +168,14 @@ def prove_uplink(args):
         print(f"18. a file upload at {SLOW_BYTES_PER_SECOND // 1024} KiB/s took {max(uploads) / 1000:.0f} s as one upload "
               f"(old allowance {OLD_ALLOWANCE_SECONDS} s) and completed after {slow_seconds:.0f} s; an upload the relay "
               f"stopped reading failed after {stall_seconds:.0f} s: {message[0]}", flush=True)
+        # Restore the injected network fault before asking for a strict shutdown.
+        # Otherwise the next stalled retry can outlive the 45-second stop budget.
+        stall_relay.stop()
+        stall_relay.extra = []
+        stall_relay.start()
+        wait("the stalled home to recover after the relay accepts uploads", stalled.synced_up, seconds=180)
+        stalled.stop()
+        print("18. the relay accepts uploads again; the stalled home caught up and stopped with a shutdown receipt", flush=True)
         large = large_file_is_backed_up(args, out)
         print(f"18b. a file of {large['refused_file_bytes']} bytes, above the record file limit, was refused at the "
               f"write with a 400 that states the limit; a home with a file of {large['file_bytes']} bytes attached "
@@ -185,10 +189,4 @@ def prove_uplink(args):
             print(f"{device.name} sync status: {device.sync_status()}", flush=True)
         raise
     finally:
-        for device in (slow, stalled):
-            try:
-                device.node.close()
-            except Exception as error:  # noqa: BLE001
-                print(f"{device.name}: cleanup failed: {error}")
-        slow_relay.stop()
-        stall_relay.stop()
+        cleanup_owned((slow, stalled), (slow_relay, stall_relay))
