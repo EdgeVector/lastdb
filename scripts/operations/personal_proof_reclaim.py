@@ -180,17 +180,22 @@ def relay_view(relay, device):
     status, answer = relay_post(relay, device, database, node, "/relay/v1/log/streams",
                                 {"database_id": database, "writer_key": node})
     require(status == 200, f"log/streams: {status} {answer!r}")
-    entries = []
+    entries, inline, segments = [], 0, set()
     for item in answer["streams"]:
-        entries += read_stream(relay, device, database, node, item["device_id"], item["head_seq"])[1]
+        _floor, held, length, named = read_stream(relay, device, database, node, item["device_id"], item["head_seq"])
+        entries += held
+        inline += length
+        segments |= named
     snapshots = [entry for entry in entries if entry["kind"] == "snapshot"]
     require(len(snapshots) == 1, f"the relay holds {len(snapshots)} snapshot entries, expected the newest alone")
     snapshot = snapshots[0]
     manifest = json.loads(get_blob(relay, device, database, node, snapshot["manifest_sha256"],
                                    snapshot["manifest_bytes"], "the manifest"))["files"]
     return {"snapshot": snapshot, "manifest": manifest, "files": {file["sha256"]: file["bytes"] for file in manifest},
-            "named": {entry["file"]["sha256"] for entry in entries if entry.get("file")}, "entries": len(entries),
-            "entry_bytes": sum(len(json.dumps(entry, separators=(",", ":"), ensure_ascii=False).encode()) for entry in entries),
+            # A segment's blob is named while its item is stored, like the file an entry names. The bytes of
+            # the entries a segment holds are in that blob, so only the entries stored inline weigh as entries.
+            "named": {entry["file"]["sha256"] for entry in entries if entry.get("file")} | segments,
+            "entries": len(entries), "entry_bytes": inline,
             "blobs": list_blobs(relay, device, node)}
 
 

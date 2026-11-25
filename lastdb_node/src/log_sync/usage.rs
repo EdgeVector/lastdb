@@ -168,12 +168,14 @@ impl Ledger {
     }
 
     /// The relay accepted `accepted` of these entries (stored or duplicate). Each counts once, and
-    /// only when it accepted all of them.
-    pub(super) fn entries_accepted(
+    /// only when it accepted all of them. The entries of a log segment count with no length: their
+    /// bytes are the segment's blob, which counts as a blob.
+    pub(super) fn entries_accepted<E: std::borrow::Borrow<SignedEntry>>(
         &self,
         database_id: &str,
-        entries: &[SignedEntry],
+        entries: &[E],
         accepted: u64,
+        in_segment: bool,
     ) -> Result<(), String> {
         if accepted != entries.len() as u64 {
             return Ok(());
@@ -182,6 +184,7 @@ impl Ledger {
         let mut saved = load(&self.home, database_id, self.spool_acked)?;
         let mut changed = false;
         for entry in entries {
+            let entry = entry.borrow();
             let header = entry.header();
             let counted = saved
                 .streams
@@ -191,9 +194,13 @@ impl Ledger {
                 continue;
             }
             *counted = header.writer_seq;
-            let entry_len = serde_json::to_vec(entry)
-                .map_err(|_| "cannot measure an entry")?
-                .len() as u64;
+            let entry_len = if in_segment {
+                0
+            } else {
+                serde_json::to_vec(entry)
+                    .map_err(|_| "cannot measure an entry")?
+                    .len() as u64
+            };
             saved.usage.entries = saved.usage.entries.saturating_add(1);
             saved.usage.entry_bytes = saved.usage.entry_bytes.saturating_add(entry_len);
             changed = true;

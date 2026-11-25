@@ -261,6 +261,105 @@ relay keeps one snapshot with everything after its positions. A device that has 
 read up to those positions when the snapshot is named is behind the trim. See
 `signed-log-on-local-machinery.md`, sections 14 and 16.
 
+### Log segments
+
+A personal database's node sends the entries of its device stream as **segments**: the
+bytes of a run of consecutive entries live in one blob, and the relay keeps one small
+item that names the blob. The entries are the same signed entries, one per write, signed
+when the write commits; only where their bytes are stored changes. A segment keeps entry
+bytes out of the relay's item store (Exemem: one DynamoDB partition per database, 1,000
+write units a second, one unit per KB, doubled in a transaction). Tom approved it on
+2026-11-25 (`design-lastdb-relay-log-segments-20261125`). The publisher may send
+segments on any stream of its own; the node sends them for a personal database only.
+Shared databases keep inline entries.
+
+**The blob.** The signed entries `first_seq` through `last_seq` of one device stream, in
+order, each as its JSON (the form `log.append` takes) followed by one `\n`. Nothing else.
+It is not sealed again: each body is already sealed. It goes up through `blob.put` like
+any file, before the append that names it, and is charged like any blob.
+
+**`log.append` of a segment.** The body carries `segment` in place of `entries`:
+
+```json
+{
+  "database_id": "<hex64>",
+  "segment": {
+    "device_id": "<hex64>",
+    "first_seq": 101,
+    "last_seq": 190,
+    "last_hash": "<hex64 entry hash of entry 190>",
+    "sha256": "<hex64 of the blob>",
+    "bytes": 3964021
+  }
+}
+```
+
+The writer is the caller's node key. One of `entries` and `segment`, never both (400
+`invalid_request`, field `segment`). The answer is the answer of an entry append, counted
+in entries: `{ "stored": last_seq - first_seq + 1 }`, with `"duplicate": true` for a
+repeat.
+
+- **Who.** Only the publisher (403 `forbidden`, field `publisher`).
+- **Fields.** `first_seq` at least 1, `last_seq` at least `first_seq`, `last_hash` and
+  `sha256` 64 lowercase hex, `bytes` at least 1 (400 `invalid_request`, field
+  `segment.<name>`).
+- **The blob.** `sha256` must be committed with exactly `bytes` (404 `not_found`, field
+  `segment.sha256`). The node then uploads it again and repeats the append. On Exemem the
+  check is a condition in the transaction that stores the item, so a `blob.drop` cannot
+  remove the blob between the check and the item.
+- **A repeat.** When the head of the stream is at or past `last_seq`, the append is a
+  repeat: answered as a duplicate, nothing stored, nothing charged. The same holds at or
+  below the floor.
+- **In order only.** Otherwise the head must be exactly `first_seq - 1` (no head and
+  `first_seq` 1 counts), and the floor below `first_seq`. Anything else is 409
+  `conflict`, field `segment.first_seq`. A segment is never stored beyond a gap.
+- **What it stores.** One item for the stream at `last_seq`, holding `first_seq`,
+  `last_seq`, `last_hash`, `sha256` and `bytes`, and the head moves to `last_seq` and
+  `last_hash` in the same step. The item itself is not charged; its blob was.
+
+The relay cannot hash entries it does not hold, so `last_hash` is the publisher's
+statement, as the blob's content is. A reader checks both (below). A false statement can
+only damage the publisher's own database.
+
+**`log.read`.** A stored segment appears in `entries` in its place in the stream, as an
+object with one field:
+
+```json
+{
+  "segment": {
+    "node_key": "<hex64>", "device_id": "<hex64>",
+    "first_seq": 101, "last_seq": 190, "last_hash": "<hex64>",
+    "sha256": "<hex64>", "bytes": 3964021,
+    "url": "<presigned GET>", "headers": {}, "expires_at_ms": 1764000000000
+  }
+}
+```
+
+`url`, `headers` and `expires_at_ms` are the answer `blob.get` gives for that digest. A
+segment counts as one item toward `limit`. A read from `from_seq` starts with the segment
+that holds `from_seq` when one does, so the first segment of a page can start below
+`from_seq`; later items continue it without a gap. A cursor after a segment names
+`last_seq + 1`.
+
+The reader downloads the blob, checks its SHA-256 and length, and checks that it holds
+exactly the entries `first_seq` through `last_seq` of that stream, in order, and that the
+hash of the last is `last_hash`. A mismatch is an error, as a bad entry is. It then takes
+the entries from `from_seq` on and checks them like entries read inline (signature,
+chain).
+
+**`log.trim`.** A segment is dropped whole. For a stream position `p`, the trim drops every
+stored item whose last sequence number is at or below `p`: entries, and segments whose
+`last_seq` is at or below `p`. The floor becomes the last sequence number and hash of the
+last item it dropped. The hash the snapshot names is checked against the item that ends at
+`p`; when `p` falls inside a segment, that segment stays, no hash is checked for it, and the
+floor stops at the item before it. A segment is a sealed item: it may go wherever a sealed
+`data` entry may. `entries_deleted` counts the entries the dropped segments held;
+`released_bytes` counts only inline entries, because a segment's bytes are its blob's.
+
+**`blob.drop`.** A segment's blob is needed while its item is stored. The node reads the
+items after the newest snapshot and names their blobs as needed, like the files their
+entries name. After a trim drops an item, its blob is unnamed and the next sweep drops it.
+
 ### The `snapshot` entry
 
 A `snapshot` entry names a checkpoint of a database: the native files of the

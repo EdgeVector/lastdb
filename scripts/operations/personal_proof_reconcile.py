@@ -36,6 +36,7 @@ import urllib.error
 import urllib.request
 
 from personal_proof_deployed_trim import node_hex
+from personal_proof_nodes import expand_read, stored_items
 from personal_proof_snapshot import stored_seqs, stream_dirs
 from personal_proof_trim import relay_post
 from record_runs import require
@@ -135,7 +136,9 @@ def check_entries(relay, database, audit, streams_through):
         require(seqs == list(range(floor + 1, position + 1)),
                 f"stream {device_id[:8]} holds {seqs[:3]}..{seqs[-3:]} ({len(seqs)} entries), expected {floor + 1} to {position}")
         require(stream["count"] == len(seqs), f"stream {device_id[:8]}: the audit read {stream['count']} entries, disk has {len(seqs)}")
-        length = sum((directory / f"{seq}.json").stat().st_size for seq in seqs)
+        # The accounts weigh the entries stored inline. A segment's entries weigh as its blob.
+        length = sum((directory / f"{key}.json").stat().st_size
+                     for key, value in stored_items(directory) if "segment" not in value)
         count += len(seqs)
         size += length
         seen[device_id] = {"floor": floor, "head": position, "entries": len(seqs), "bytes": length,
@@ -242,7 +245,9 @@ def reconcile_reference(relay, a, devices, label):
 # Deployed relay ---------------------------------------------------------------------------
 
 def read_stream(relay, a, database, node, device_id, head):
-    """The entries a deployed relay still holds of one stream, and its floor (found by reading: 410 at or below it)."""
+    """The entries a deployed relay still holds of one stream, its floor (found by reading: 410 at or below it),
+    the length of the entries it stores inline, and the digests of its segment blobs. A segment item is read
+    as the entries its blob holds."""
     def readable(seq):
         status, answer = relay_post(relay, a, database, node, "/relay/v1/log/read",
                                     {"database_id": database, "writer_key": node, "device_id": device_id,
@@ -257,15 +262,21 @@ def read_stream(relay, a, database, node, device_id, head):
         else:
             low = middle + 1
     floor = low - 1
-    entries, seq = [], floor + 1
+    entries, seq, inline, segments = [], floor + 1, 0, set()
     while seq <= head:
         status, answer = relay_post(relay, a, database, node, "/relay/v1/log/read",
                                     {"database_id": database, "writer_key": node, "device_id": device_id,
                                      "from_seq": seq, "limit": 90})
         require(status == 200 and answer["entries"], f"log/read of {device_id[:8]} at {seq}: {status} {answer!r}")
-        entries += answer["entries"]
-        seq += len(answer["entries"])
-    return floor, entries
+        inline += sum(len(json.dumps(item, separators=(",", ":"), ensure_ascii=False).encode())
+                      for item in answer["entries"] if "segment" not in item)
+        segments.update(item["segment"]["sha256"] for item in answer["entries"] if "segment" in item)
+        # The first segment can begin below `seq`.
+        found = [entry for entry in expand_read(answer["entries"]) if entry["writer_seq"] >= seq]
+        require(found, f"log/read of {device_id[:8]} at {seq} returned no entry at or after it")
+        entries += found
+        seq = found[-1]["writer_seq"] + 1
+    return floor, entries, inline, segments
 
 
 def get_blob(relay, a, database, node, digest, length, what):
@@ -307,7 +318,7 @@ def reconcile_deployed(relay, a, devices, binary):
                 f"{device.name}: its confirmed position is not the head the relay reports")
     streams, held_entries, held_bytes, files, snapshots = {}, 0, 0, {}, []
     for device_id, head in sorted(heads.items()):
-        floor, entries = read_stream(relay, a, database, node, device_id, head)
+        floor, entries, length, _segments = read_stream(relay, a, database, node, device_id, head)
         require(len(entries) == head - floor, f"stream {device_id[:8]}: read {len(entries)} entries, expected {head - floor}")
         checked = run_audit(binary, "chain", text=json.dumps({"floor": None, "entries": entries}))
         require(not checked["problems"], f"stream {device_id[:8]}: {checked['problems'][:3]}")
@@ -315,7 +326,6 @@ def reconcile_deployed(relay, a, devices, binary):
             require(checked["last_hash"] == listed[device_id]["head_hash"],
                     f"stream {device_id[:8]}: the last entry hashes to {checked['last_hash']}, log/streams says "
                     f"{listed[device_id]['head_hash']}")
-        length = sum(len(json.dumps(entry, separators=(",", ":"), ensure_ascii=False).encode()) for entry in entries)
         held_entries += len(entries)
         held_bytes += length
         streams[device_id] = {"floor": floor, "head": head, "entries": len(entries), "read_back_bytes": length,

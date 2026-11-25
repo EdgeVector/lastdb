@@ -28,6 +28,32 @@ pub(super) struct StreamHead {
     pub(super) head_hash: String,
 }
 
+/// One page of a `log.read`.
+pub(super) struct Page {
+    /// The entries in stream order, those of a segment in its place.
+    pub(super) entries: Vec<SignedEntry>,
+    pub(super) cursor: Option<String>,
+    /// For each entry, whether a segment held it (its bytes are the segment blob's).
+    pub(super) in_segment: Vec<bool>,
+    /// The digests of the segment blobs that held entries of this page.
+    pub(super) segments: Vec<String>,
+}
+
+/// A log segment as `log.read` names it.
+#[derive(Deserialize)]
+struct SegmentRef {
+    node_key: String,
+    device_id: String,
+    first_seq: u64,
+    last_seq: u64,
+    last_hash: String,
+    sha256: String,
+    bytes: u64,
+    url: String,
+    #[serde(default)]
+    headers: Value,
+}
+
 pub(super) struct RelayClient {
     pub(super) base: String,
     pub(super) signing_key: SigningKey,
@@ -114,7 +140,32 @@ impl RelayClient {
             .await?;
         let (stored, duplicate) = parse_append_counts(&value, entries.len() as u64);
         if let Some(usage) = &self.usage {
-            usage.entries_accepted(database_id, entries, stored.saturating_add(duplicate))?;
+            usage.entries_accepted(
+                database_id,
+                entries,
+                stored.saturating_add(duplicate),
+                false,
+            )?;
+        }
+        Ok((stored, duplicate))
+    }
+
+    /// Append a log segment of `entries`, consecutive entries of this node's stream, whose bytes
+    /// the caller put on the relay as the blob the segment names (`relay-protocol.md`, "Log
+    /// segments"). Answers `(stored, duplicate)` in entries, like [`Self::append`].
+    pub(super) async fn append_segment(
+        &self,
+        database_id: &str,
+        segment: &Value,
+        entries: &[&SignedEntry],
+    ) -> Result<(u64, u64), String> {
+        let body = json!({ "database_id": database_id, "segment": segment });
+        let value = self
+            .post("/relay/v1/log/append", database_id, &body)
+            .await?;
+        let (stored, duplicate) = parse_append_counts(&value, entries.len() as u64);
+        if let Some(usage) = &self.usage {
+            usage.entries_accepted(database_id, entries, stored.saturating_add(duplicate), true)?;
         }
         Ok((stored, duplicate))
     }
@@ -130,6 +181,25 @@ impl RelayClient {
         cursor: Option<&str>,
         limit: u32,
     ) -> Result<(Vec<SignedEntry>, Option<String>), String> {
+        let page = self
+            .read_page(database_id, writer_key, device_id, from_seq, cursor, limit)
+            .await?;
+        Ok((page.entries, page.cursor))
+    }
+
+    /// [`Self::read`], with the digests of the log segments that held the entries. A segment
+    /// is fetched and opened here, so a caller sees the entries it holds as if they were stored
+    /// one by one. On a read of one device from `from_seq`, the entries of the first segment
+    /// below `from_seq` are left out.
+    pub(super) async fn read_page(
+        &self,
+        database_id: &str,
+        writer_key: &str,
+        device_id: Option<&str>,
+        from_seq: u64,
+        cursor: Option<&str>,
+        limit: u32,
+    ) -> Result<Page, String> {
         // OpenAPI LogReadBody names the stream key `writer_key` (hex node key).
         let mut body = json!({
             "database_id": database_id,
@@ -154,10 +224,83 @@ impl RelayClient {
                     error
                 }
             })?;
-        let entries: Vec<SignedEntry> = serde_json::from_value(value["entries"].clone())
-            .map_err(|_| "relay log.read returned invalid entries".to_owned())?;
-        let cursor = value["cursor"].as_str().map(str::to_owned);
-        Ok((entries, cursor))
+        const BAD: &str = "relay log.read returned invalid entries";
+        let items = value["entries"].as_array().ok_or(BAD)?;
+        let skip_below = (cursor.is_none() && device_id.is_some()).then_some(from_seq);
+        let mut page = Page {
+            entries: Vec::with_capacity(items.len()),
+            cursor: value["cursor"].as_str().map(str::to_owned),
+            in_segment: Vec::with_capacity(items.len()),
+            segments: Vec::new(),
+        };
+        for (index, item) in items.iter().enumerate() {
+            let Some(segment) = item.get("segment") else {
+                page.entries
+                    .push(serde_json::from_value(item.clone()).map_err(|_| BAD.to_owned())?);
+                page.in_segment.push(false);
+                continue;
+            };
+            let segment: SegmentRef =
+                serde_json::from_value(segment.clone()).map_err(|_| BAD.to_owned())?;
+            let entries = self.open_segment(&segment).await?;
+            let from = if index == 0 {
+                skip_below.unwrap_or(0)
+            } else {
+                0
+            };
+            for entry in entries {
+                if entry.header().writer_seq >= from {
+                    page.entries.push(entry);
+                    page.in_segment.push(true);
+                }
+            }
+            page.segments.push(segment.sha256);
+        }
+        Ok(page)
+    }
+
+    /// The entries of a log segment, after a check that the blob holds exactly the entries the
+    /// relay named: that stream, `first_seq` through `last_seq` in order, the last with hash
+    /// `last_hash`. The signatures and the chain are the caller's to check, as for any entry.
+    async fn open_segment(&self, segment: &SegmentRef) -> Result<Vec<SignedEntry>, String> {
+        let bytes = self
+            .fetch_bytes(
+                &segment.url,
+                &segment.headers,
+                &segment.sha256,
+                segment.bytes,
+            )
+            .await?;
+        let bad = |what: &str| format!("log segment {}: {what}", segment.sha256);
+        if segment.last_seq < segment.first_seq || bytes.last() != Some(&b'\n') {
+            return Err(bad("not a list of entries"));
+        }
+        let mut entries = Vec::new();
+        for (offset, line) in bytes[..bytes.len() - 1]
+            .split(|byte| *byte == b'\n')
+            .enumerate()
+        {
+            let entry: SignedEntry =
+                serde_json::from_slice(line).map_err(|_| bad("holds an invalid entry"))?;
+            let header = entry.header();
+            if header.node_key.to_hex() != segment.node_key
+                || header.device_id.to_hex() != segment.device_id
+                || Some(header.writer_seq) != segment.first_seq.checked_add(offset as u64)
+            {
+                return Err(bad("holds another entry than the relay named"));
+            }
+            entries.push(entry);
+        }
+        let last = entries.last().ok_or_else(|| bad("is empty"))?;
+        if last.header().writer_seq != segment.last_seq
+            || mutation_log::entry_hash(last)
+                .map(|hash| hash.to_hex())
+                .ok()
+                != Some(segment.last_hash.clone())
+        {
+            return Err(bad("does not end at the entry the relay named"));
+        }
+        Ok(entries)
     }
 
     /// Ask the relay to drop what the snapshot entry `writer_seq` of the snapshot stream

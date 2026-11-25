@@ -20,6 +20,7 @@ mod heads;
 mod presign;
 mod refusal;
 mod request_log;
+mod segment;
 mod store;
 mod store_read;
 mod trim;

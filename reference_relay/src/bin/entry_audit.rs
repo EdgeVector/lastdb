@@ -5,7 +5,9 @@
 //!   hash of the last entry and every problem found: a seq that is not the one in the file name, a
 //!   bad signature (every entry of a stream up to 200 entries, a sample of a longer one), a gap, a first entry that does not follow the floor, or a `prev_hash` that is not
 //!   the hash of the entry before it. It also lists the file digests that stored data entries name
-//!   and the manifests that stored `snapshot` entries name.
+//!   and the manifests that stored `snapshot` entries name. A segment item (a file keyed at its
+//!   last seq that names a blob under `DATA_DIR/blobs/`) is read as the entries its blob holds,
+//!   and its blob counts as a named file.
 //! - `entry_audit chain` reads `{"floor": null | {"seq", "hash"}, "entries": [...]}` on stdin (entries
 //!   as `log/read` returned them, from the first one after the floor) and reports the same for them,
 //!   with the hash of every entry. A read has no floor hash on a relay that does not show it, so the
@@ -130,6 +132,8 @@ fn disk(data_dir: &Path) -> Result<Value, String> {
         for (node, node_dir) in subdirs(&database_dir) {
             for (device, device_dir) in subdirs(&node_dir) {
                 let mut entries: Vec<(u64, Value)> = Vec::new();
+                let mut segment_problems: Vec<String> = Vec::new();
+                let mut segment_count = 0u64;
                 for file in std::fs::read_dir(&device_dir)
                     .map_err(|error| error.to_string())?
                     .flatten()
@@ -141,7 +145,21 @@ fn disk(data_dir: &Path) -> Result<Value, String> {
                     else {
                         continue;
                     };
-                    entries.push((seq, read_json(&file.path())?));
+                    let value = read_json(&file.path())?;
+                    if value.get("segment").is_some() {
+                        segment_count += 1;
+                        match expand_segment(data_dir, seq, &value["segment"]) {
+                            Ok(held) => {
+                                if let Some(digest) = value["segment"]["sha256"].as_str() {
+                                    files.insert(digest.to_owned());
+                                }
+                                entries.extend(held);
+                            }
+                            Err(problem) => segment_problems.push(problem),
+                        }
+                        continue;
+                    }
+                    entries.push((seq, value));
                 }
                 entries.sort_by_key(|(seq, _)| *seq);
                 let floor_path = device_dir.join("floor.json");
@@ -175,6 +193,10 @@ fn disk(data_dir: &Path) -> Result<Value, String> {
                 });
                 // The hash of every entry of a large stream is not needed here.
                 report["hashes"] = Value::Null;
+                if let Some(problems) = report["problems"].as_array_mut() {
+                    problems.extend(segment_problems.into_iter().map(Value::from));
+                }
+                report["segments"] = json!(segment_count);
                 report["database_id"] = json!(database);
                 report["node_key"] = json!(node);
                 report["device_id"] = json!(device);
@@ -187,6 +209,59 @@ fn disk(data_dir: &Path) -> Result<Value, String> {
         "named_files": files,
         "snapshots": snapshots,
     }))
+}
+
+/// The entries a segment item stored at `key` holds, read from its blob under `DATA_DIR/blobs/`.
+/// The item must be stored at its last seq, and the blob must hold exactly `first_seq..=last_seq`
+/// with the last entry hashing to `last_hash`. A problem names the item.
+fn expand_segment(data_dir: &Path, key: u64, segment: &Value) -> Result<Vec<(u64, Value)>, String> {
+    let (Some(first), Some(last), Some(sha256), Some(last_hash)) = (
+        segment["first_seq"].as_u64(),
+        segment["last_seq"].as_u64(),
+        segment["sha256"].as_str(),
+        segment["last_hash"].as_str(),
+    ) else {
+        return Err(format!("the segment item at {key} lacks a field"));
+    };
+    if last != key || first == 0 || first > last {
+        return Err(format!("the segment item at {key} covers {first}..={last}"));
+    }
+    let bytes = std::fs::read(data_dir.join("blobs").join(sha256))
+        .map_err(|error| format!("the segment blob {sha256} of item {key}: {error}"))?;
+    if segment["bytes"].as_u64() != Some(bytes.len() as u64) {
+        return Err(format!(
+            "the segment blob {sha256} of item {key} has another length"
+        ));
+    }
+    let mut held = Vec::new();
+    for line in bytes
+        .split(|byte| *byte == b'\n')
+        .filter(|line| !line.is_empty())
+    {
+        let value: Value = serde_json::from_slice(line)
+            .map_err(|error| format!("an entry of segment {key} does not parse: {error}"))?;
+        let seq = value["writer_seq"]
+            .as_u64()
+            .ok_or_else(|| format!("an entry of segment {key} has no writer_seq"))?;
+        held.push((seq, value));
+    }
+    let seqs: Vec<u64> = held.iter().map(|(seq, _)| *seq).collect();
+    if seqs != (first..=last).collect::<Vec<u64>>() {
+        return Err(format!(
+            "segment {key} holds other entries than {first}..={last}"
+        ));
+    }
+    let hash = held
+        .last()
+        .and_then(|(_, value)| serde_json::from_value::<SignedEntry>(value.clone()).ok())
+        .and_then(|signed| entry_hash(&signed).ok())
+        .map(|hash| hash.to_hex());
+    if hash.as_deref() != Some(last_hash) {
+        return Err(format!(
+            "the last entry of segment {key} does not hash to its last_hash"
+        ));
+    }
+    Ok(held)
 }
 
 fn floor_of(value: &Value) -> Result<Option<(u64, String)>, String> {
@@ -207,6 +282,9 @@ fn chain() -> Result<Value, String> {
     let floor = floor_of(&value)?;
     let mut entries = Vec::new();
     for entry in value["entries"].as_array().ok_or("no entries")? {
+        if entry.get("segment").is_some() {
+            return Err("chain takes entries; expand a segment item before the check".into());
+        }
         let seq = entry["writer_seq"]
             .as_u64()
             .ok_or("an entry has no writer_seq")?;

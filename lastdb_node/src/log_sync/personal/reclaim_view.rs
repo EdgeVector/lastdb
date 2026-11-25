@@ -147,9 +147,9 @@ impl TailReader<'_, '_> {
         let mut empty_pages: u32 = 0;
         while next <= stream.head_seq {
             let want = (stream.head_seq - next + 1).min(u64::from(PAGE)) as u32;
-            let (entries, next_cursor) = self
+            let page = self
                 .client
-                .read(
+                .read_page(
                     &self.ctx.database_id,
                     &self.ctx.node_hex,
                     Some(&stream.device_id),
@@ -158,6 +158,9 @@ impl TailReader<'_, '_> {
                     want,
                 )
                 .await?;
+            // A segment's blob is needed while its item is stored, like a file an entry names.
+            self.tail.named.extend(page.segments);
+            let (entries, next_cursor, in_segment) = (page.entries, page.cursor, page.in_segment);
             if entries.is_empty() {
                 if let Some(advance) = next_cursor.filter(|c| {
                     !c.is_empty()
@@ -175,7 +178,7 @@ impl TailReader<'_, '_> {
             }
             cursor = None;
             empty_pages = 0;
-            for entry in &entries {
+            for (entry, in_segment) in entries.iter().zip(in_segment) {
                 if next > stream.head_seq {
                     return Err("the relay returned entries above the listed stream head".into());
                 }
@@ -185,10 +188,13 @@ impl TailReader<'_, '_> {
                     .named
                     .extend(named_blobs(entry).iter().map(Hex32::to_hex));
                 self.tail.entries = self.tail.entries.saturating_add(1);
-                let len = serde_json::to_vec(entry)
-                    .map_err(|_| "cannot measure an entry")?
-                    .len() as u64;
-                self.tail.entry_bytes = self.tail.entry_bytes.saturating_add(len);
+                // The bytes of an entry that a segment holds are counted with the segment's blob.
+                if !in_segment {
+                    let len = serde_json::to_vec(entry)
+                        .map_err(|_| "cannot measure an entry")?
+                        .len() as u64;
+                    self.tail.entry_bytes = self.tail.entry_bytes.saturating_add(len);
+                }
                 next += 1;
             }
         }

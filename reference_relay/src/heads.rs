@@ -65,6 +65,18 @@ impl StreamHead {
         }
     }
 
+    /// Record a stored segment of entries `first` through `last`. A segment is only stored when it
+    /// continues the head, so one that does not is ignored here.
+    fn record_segment(&mut self, first: u64, last: u64, hash: String) {
+        if last <= self.seq || first != self.seq + 1 {
+            return;
+        }
+        self.seq = last;
+        self.hash = hash;
+        self.pending.retain(|stored, _| *stored > last);
+        self.join_pending();
+    }
+
     /// Record that a trim dropped every entry up to `seq`, whose hash is `hash`.
     fn trimmed(&mut self, seq: u64, hash: String) {
         if seq <= self.floor {
@@ -139,6 +151,25 @@ impl Heads {
             .entry(device_id.to_owned())
             .or_default()
             .record(seq, hash);
+    }
+
+    /// Fold one newly stored segment into the head of its stream.
+    pub(crate) fn record_segment(
+        &self,
+        database_id: &str,
+        writer_key: &str,
+        device_id: &str,
+        first: u64,
+        last: u64,
+        hash: String,
+    ) {
+        let mut streams = self.streams.lock().expect("heads lock");
+        streams
+            .entry((database_id.to_owned(), writer_key.to_owned()))
+            .or_default()
+            .entry(device_id.to_owned())
+            .or_default()
+            .record_segment(first, last, hash);
     }
 
     /// Record that a trim dropped every entry of a stream up to `seq`.
@@ -278,6 +309,8 @@ impl Heads {
         // The floor first: entries above it then join the head from there.
         self.load_floor(&db, &writer, &device, &device_dir.join(FLOOR_FILE))
             .await?;
+        // In stream order, so a segment finds the head it continued when it was stored.
+        let mut stored = Vec::new();
         while let Ok(Some(file)) = files.next_entry().await {
             let path = file.path();
             let seq = path
@@ -285,11 +318,30 @@ impl Heads {
                 .and_then(|n| n.to_str())
                 .and_then(|n| n.strip_suffix(".json"))
                 .and_then(|n| n.parse::<u64>().ok());
-            let Some(seq) = seq else { continue };
+            if let Some(seq) = seq {
+                stored.push((seq, path));
+            }
+        }
+        stored.sort_unstable();
+        for (seq, path) in stored {
             let Ok(bytes) = fs::read(&path).await else {
                 continue;
             };
-            let Ok(entry) = serde_json::from_slice::<SignedEntry>(&bytes) else {
+            let Ok(item) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
+                continue;
+            };
+            if let Ok(Some(span)) = crate::segment::span(&item) {
+                self.record_segment(
+                    &db,
+                    &writer,
+                    &device,
+                    span.first_seq,
+                    span.last_seq,
+                    span.last_hash,
+                );
+                continue;
+            }
+            let Ok(entry) = serde_json::from_value::<SignedEntry>(item) else {
                 continue;
             };
             if let Ok(hash) = entry_hash(&entry) {

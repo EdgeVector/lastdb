@@ -5,7 +5,7 @@ and afterwards signs requests as A: the repeat of those entries must be answered
 read there must be 410, and the contiguous head that `log/streams` reports must not move. What it cannot
 do on a deployed relay: list the stored entries, read the floors, or read the quota counter.
 """
-from personal_proof_nodes import require
+from personal_proof_nodes import expand_read, require
 from personal_proof_trim import Ed25519PrivateKey, relay_post
 
 EARLY = (3, 7)
@@ -19,11 +19,16 @@ def node_hex(device):
 def before_trim(relay, a):
     """Early entries of A as the relay holds them now, and the head of A's stream."""
     node = node_hex(a)
-    status, answer = relay_post(relay, a, a.database, node, "/relay/v1/log/read",
-                                {"database_id": a.database, "writer_key": node, "device_id": a.device_id(),
-                                 "from_seq": 1, "limit": 10})
-    require(status == 200 and len(answer["entries"]) >= max(EARLY), f"early entries of A: {status}")
-    return {"node": node, "head": head_of(relay, a, node), "entries": {seq: answer["entries"][seq - 1] for seq in EARLY}}
+    found, seq = {}, 1
+    while seq <= max(EARLY):
+        status, answer = relay_post(relay, a, a.database, node, "/relay/v1/log/read",
+                                    {"database_id": a.database, "writer_key": node, "device_id": a.device_id(),
+                                     "from_seq": seq, "limit": 10})
+        require(status == 200 and answer["entries"], f"early entries of A at {seq}: {status}")
+        # A segment item is read as the entries its blob holds.
+        found.update((entry["writer_seq"], entry) for entry in expand_read(answer["entries"]))
+        seq = max(found) + 1
+    return {"node": node, "head": head_of(relay, a, node), "entries": {seq: found[seq] for seq in EARLY}}
 
 
 def head_of(relay, a, node):

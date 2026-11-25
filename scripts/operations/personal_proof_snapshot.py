@@ -19,7 +19,7 @@ import time
 
 from personal_proof_nodes import (
     ALPHA, BETA, GAMMA, MEBIBYTE, MEMORY_BOUND_BYTES, MARK, converged, create, delete, expect, relay_files,
-    relay_holds_none, replace, wait)
+    relay_holds_none, replace, stored_entries, wait)
 from personal_proof_status import prove_installed, prove_taken, swept
 from personal_proof_steps import gamma_replace, gamma_seen, gamma_view
 from record_runs import require
@@ -35,14 +35,15 @@ def stream_dirs(relay, database):
 
 
 def stored_seqs(directory):
-    """The sequence numbers of the entries a stream directory holds, ascending. `floor.json` is not one."""
-    return sorted(int(path.stem) for path in directory.glob("*.json") if path.stem.isdigit())
+    """The sequence numbers of the entries a stream directory holds, ascending, with the entries of
+    each segment item. `floor.json` is not one."""
+    return sorted(stored_entries(directory))
 
 
 def stream_kind(directory):
     """The kind of the first stored entry of a stream, or None when it holds none."""
-    seqs = stored_seqs(directory)
-    return json.loads((directory / f"{seqs[0]}.json").read_text())["kind"] if seqs else None
+    entries = stored_entries(directory)
+    return entries[min(entries)]["kind"] if entries else None
 
 
 def snapshot_stream(relay, database):
@@ -57,8 +58,9 @@ def newest_snapshot_entry(relay, database):
     """The newest `snapshot` entry on the relay, as the JSON the relay stored."""
     directory = snapshot_stream(relay, database)
     require(directory is not None, "the relay holds no snapshot stream")
-    newest = stored_seqs(directory)[-1]
-    return newest, json.loads((directory / f"{newest}.json").read_text())
+    entries = stored_entries(directory)
+    newest = max(entries)
+    return newest, entries[newest]
 
 
 def tail_entries(relay, database, entry):
@@ -228,7 +230,8 @@ def second_snapshot(relay, a, b, f, h, phrase, state, folders, expected):
     # their reads are not counted for H.
     wait("B and F to hold the two records", lambda: converged((b, f), state))
     directory = next(path for path in stream_dirs(relay, a.database) if path.name == a.device_id())
-    kept = {seq: json.loads((directory / f"{seq}.json").read_text()) for seq in stored_seqs(directory)[-4:]}
+    held_entries = stored_entries(directory)
+    kept = {seq: held_entries[seq] for seq in sorted(held_entries)[-4:]}
     before = {file["sha256"] for file in last_record(a)["manifest"]["files"]}
     mark = len(relay.lines())
     second = a.snapshot_now()
