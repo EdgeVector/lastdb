@@ -261,7 +261,8 @@ def measure(relay, writer, label, before):
     sizes = sorted((sum(before.values()) + held, sum(after.values()) + held))
     manifest = view["snapshot"]["manifest_bytes"]
     # The log after the snapshot is allowed whole: the inline entries and the segment blobs that hold the rest.
-    log_bytes = view["entry_bytes"] + sum(view["blobs"][digest] for digest in view["segments"])
+    segment_bytes = sum(view["blobs"][digest] for digest in view["segments"])
+    log_bytes = view["entry_bytes"] + segment_bytes
     allowance = manifest + log_bytes + ENVELOPE_OVERHEAD * len(sealed)
     total = stored + view["entry_bytes"]
     require(total <= sizes[1] + allowance + SLACK_BYTES,
@@ -269,8 +270,10 @@ def measure(relay, writer, label, before):
             f"holds {sizes[1]} bytes of files, and the allowance is {allowance} + {SLACK_BYTES}")
     return {"snapshot_seq": view["snapshot"]["writer_seq"], "relay_bytes": total, "relay_files": len(view["blobs"]),
             "relay_file_bytes": stored, "relay_entries": view["entries"], "relay_entry_bytes": view["entry_bytes"],
-            "manifest_bytes": manifest, "sealed_files": len(sealed), "sealed_bytes": sealed_bytes,
-            "local_bytes": sizes[1], "local_bytes_least": sizes[0], "allowance": allowance}
+            # Sealed files are the files entries name; the segment blobs that hold the entries count apart.
+            "manifest_bytes": manifest, "sealed_files": len(sealed - view["segments"]),
+            "sealed_bytes": sealed_bytes - segment_bytes, "segment_files": len(view["segments"]),
+            "segment_bytes": segment_bytes, "local_bytes": sizes[1], "local_bytes_least": sizes[0], "allowance": allowance}
 
 
 def check_growth(rounds):
