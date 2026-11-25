@@ -54,6 +54,19 @@ impl RelayClient {
         Ok((stored, duplicate))
     }
 
+    /// Count `entries`, which the relay holds already in a segment, in the usage ledger. An entry
+    /// the ledger counted already is skipped, so a repeat changes nothing.
+    pub(in crate::log_sync) fn segment_entries_held(
+        &self,
+        database_id: &str,
+        entries: &[&SignedEntry],
+    ) -> Result<(), String> {
+        match &self.usage {
+            Some(usage) => usage.entries_accepted(database_id, entries, entries.len() as u64, true),
+            None => Ok(()),
+        }
+    }
+
     /// [`Self::read`], with the digests of the log segments that held the entries. A segment
     /// is fetched and opened here, so a caller sees the entries it holds as if they were stored
     /// one by one. On a read of one device from `from_seq`, the entries of the first segment

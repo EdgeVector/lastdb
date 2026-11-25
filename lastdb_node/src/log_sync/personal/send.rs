@@ -43,11 +43,16 @@ pub(super) async fn send(
     // The relay can hold the first entries of the batch already: a turn that ended between the
     // relay's answer and the confirmation of the spool. A segment continues the head, so it starts
     // after them.
-    let unsent: Vec<&SignedEntry> = batch
+    let (held, unsent): (Vec<&SignedEntry>, Vec<&SignedEntry>) = batch
         .entries
         .iter()
-        .filter(|entry| entry.header().writer_seq > *relay_head)
-        .collect();
+        .partition(|entry| entry.header().writer_seq <= *relay_head);
+    // The turn that sent `held` can have ended before it counted them in the usage ledger. This
+    // build sends entries only in segments, so they count as segment entries; the ledger skips
+    // every entry it counted already.
+    if !held.is_empty() {
+        client.segment_entries_held(&ctx.database_id, &held)?;
+    }
     if !unsent.is_empty() {
         send_segment(ctx, client, &unsent).await?;
     }

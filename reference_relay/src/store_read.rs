@@ -52,21 +52,36 @@ impl Store {
         let dir = self
             .root
             .join(format!("logs/{database_id}/{node_key}/{device_id}"));
-        let mut items = Vec::new();
-        for key in stored_keys(&dir, *seq).await? {
-            if items.len() >= limit {
-                break;
-            }
-            let meta = EntryKey {
+        let path_at = |writer_seq: u64| {
+            self.entry_path(&EntryKey {
                 database_id: database_id.to_owned(),
                 node_key: node_key.to_owned(),
                 device_id: device_id.to_owned(),
-                writer_seq: key,
-            };
-            let bytes = match fs::read(self.entry_path(&meta)).await {
-                Ok(bytes) => bytes,
-                // A trim removed it after the listing.
-                Err(err) if err.kind() == ErrorKind::NotFound => break,
+                writer_seq,
+            })
+        };
+        let mut items = Vec::new();
+        // An inline entry is stored at its own seq and is read directly. Only a segment, stored at
+        // its last seq, needs the listing of the stream, made at most once per page.
+        let mut listed: Option<std::vec::IntoIter<u64>> = None;
+        while items.len() < limit {
+            let (key, bytes) = match fs::read(path_at(*seq)).await {
+                Ok(bytes) => (*seq, bytes),
+                Err(err) if err.kind() == ErrorKind::NotFound => {
+                    if listed.is_none() {
+                        listed = Some(stored_keys(&dir, *seq).await?.into_iter());
+                    }
+                    let next = listed
+                        .as_mut()
+                        .and_then(|keys| keys.find(|key| *key >= *seq));
+                    let Some(key) = next else { break };
+                    match fs::read(path_at(key)).await {
+                        Ok(bytes) => (key, bytes),
+                        // A trim removed it after the listing.
+                        Err(err) if err.kind() == ErrorKind::NotFound => break,
+                        Err(_) => return Err(ApiError::invalid("data_dir")),
+                    }
+                }
                 Err(_) => return Err(ApiError::invalid("data_dir")),
             };
             let item: Value =
