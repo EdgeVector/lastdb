@@ -127,9 +127,6 @@ impl RequestFiles {
         if crate::cloud::relay_base_url(&host.home).is_none() {
             return Err("no relay is configured for this home".into());
         }
-        if let Some(existing) = self.waiting(&host.home, &owner.id) {
-            return Ok((owner.id, existing));
-        }
         let nonce = uuid::Uuid::new_v4().simple().to_string();
         let _ = disk::remove_private(&file_of(&host.home, &owner.id, self.result));
         let _ = disk::remove_private(&file_of(&host.home, &owner.id, self.error));

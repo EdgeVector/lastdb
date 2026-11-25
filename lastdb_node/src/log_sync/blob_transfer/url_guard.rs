@@ -5,7 +5,8 @@
 //! presigned URL shares its exact `(scheme, host, port)` origin (local `reference_relay`).
 //! Every other presigned URL must use `https://`, carry no userinfo or fragment, and not address
 //! loopback, private, link-local, CGNAT, multicast, unspecified, or unique-local IP literals.
-//! Relay-supplied headers are restricted to `content-type`, `x-amz-*`, and `x-bz-*`.
+//! Relay-supplied headers must be valid HTTP header pairs and may not set framing, host, proxy,
+//! cookie, or cloud metadata-service headers.
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
@@ -47,7 +48,7 @@ pub(in crate::log_sync) fn validate_presigned_url(
     Ok(())
 }
 
-/// Validate relay-supplied presigned request headers against the storage header allowlist.
+/// Validate relay-supplied presigned request headers against the forbidden-header denylist.
 /// For uploads, a relay-supplied `content-length` is ignored because the caller sets the exact
 /// file byte length itself.
 pub(in crate::log_sync) fn presigned_headers(
@@ -141,9 +142,26 @@ fn is_allowed_header_name(name: &str) -> bool {
     if name.is_empty() || name.len() > MAX_HEADER_NAME_BYTES {
         return false;
     }
-    if !name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-') {
+    let lower = name.to_ascii_lowercase();
+    if lower.starts_with("x-aws-ec2-metadata") {
         return false;
     }
-    let lower = name.to_ascii_lowercase();
-    lower == "content-type" || lower.starts_with("x-amz-") || lower.starts_with("x-bz-")
+    !matches!(
+        lower.as_str(),
+        "host"
+            | "content-length"
+            | "transfer-encoding"
+            | "connection"
+            | "keep-alive"
+            | "upgrade"
+            | "te"
+            | "trailer"
+            | "proxy-authorization"
+            | "proxy-authenticate"
+            | "proxy-connection"
+            | "cookie"
+            | "metadata"
+            | "metadata-flavor"
+            | "x-google-metadata-request"
+    )
 }

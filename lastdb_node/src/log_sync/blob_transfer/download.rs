@@ -112,17 +112,17 @@ fn part_path(dest: &Path, sha256: &str) -> PathBuf {
     dest.with_file_name(format!(".{sha256}.{suffix}.part"))
 }
 
-fn open_part(part: PathBuf) -> std::io::Result<std::fs::File> {
+fn open_part(part: &Path) -> std::io::Result<std::fs::File> {
     if let Some(parent) = part.parent().filter(|p| !p.as_os_str().is_empty()) {
         std::fs::create_dir_all(parent)?;
     }
-    disk::remove_private(&part)?;
+    disk::remove_private(part)?;
     let file = std::fs::OpenOptions::new()
         .create_new(true)
         .write(true)
         .mode(0o600)
         .custom_flags(libc::O_NOFOLLOW)
-        .open(&part)?;
+        .open(part)?;
     file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
     Ok(file)
 }
@@ -141,7 +141,7 @@ async fn write_verified(
     url: &str,
 ) -> Result<(), DownloadError> {
     let target = part.to_path_buf();
-    let std_file = tokio::task::spawn_blocking(move || open_part(target))
+    let std_file = tokio::task::spawn_blocking(move || open_part(&target))
         .await
         .map_err(|e| DownloadError::Fatal(format!("blob file: {e}")))?
         .map_err(|e| DownloadError::Fatal(format!("blob file: {e}")))?;
