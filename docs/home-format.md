@@ -51,13 +51,7 @@ be sent are files outside the store.
       CURRENT                [S] sealed list of the live runs, and the frontier
       runs/<run id>.ldrun    [S] immutable run files
       LOCK                       owner lock
-      accepted-v1/               the spool. Not in a snapshot.
-        state.json                 head, acknowledged position, flags
-        pending.json               in-flight commit staging record: frontier_before, main_frontier_before, notes
-        cloud-upload.json          upload progress paired with the spool
-        entries/                   signed entries the relay has not acknowledged, with their sealed files
-        ids/                       one file per recent mutation id
-        staging/                   staged entry files while a commit is in flight
+      accepted-files/            sealed files of spool entries not yet sent, one `<seq>.bin` each. Not in a snapshot.
     disk-cas/                [S] the file blob store, the same shape as disk-run
     local-file-refs.json         files that records hold by path
     app-grants.json              local app grants
@@ -188,40 +182,67 @@ The schema definitions the database uses, and their retention (TTL) state.
 
 - Every commit of a captured home puts one entry in the spool before the
   caller is told. One write is one entry. A schema put or drop is an entry.
-- A spool entry is the signed entry of the device stream, as the bytes the
-  relay stores (`body.bin`), and the sealed file that the entry names
-  (`file.bin`). The store makes both in the commit: the host gives it an author
-  that seals with the database read key and signs with the node key. The sender
-  reads the entries, sends the files and then the entries, and retires them
-  when the relay acknowledges. It signs nothing, and a retry sends the same
-  bytes.
-- A file that a write links by its path is read once, at the commit, and its
-  sealed copy stays in the spool until it is sent. It counts toward the size
-  limit of the spool (1 GiB).
+- The spool is records in the main home, written in the same commit as the
+  write they describe, so a write and its entry become durable together:
+  - `accepted_entries/<seq>`: the signed entry of the device stream, as the
+    bytes the relay stores, after a short note (mutation id, plaintext SHA-256,
+    sealed file SHA-256 and length). The key is the sequence as 20 digits.
+  - `accepted_ids/<mutation id>` and `accepted_id_order/<seq>`: the newest
+    10,000 mutation ids with the plaintext SHA-256 of each body, plus every id
+    not yet acknowledged. A commit that reuses a recorded id, or repeats one in
+    the same batch, is refused before the stream moves.
+  - `accepted_state/state`: the acknowledged position, the upload position
+    that confirms it (one record, so the two are one write), `snapshot_required`
+    and the frontier when the stream started. The head is the last entry, or the
+    acknowledged position when no entry is left.
+- The sealed file that an entry names stays a file, `accepted-files/<seq>.bin`,
+  because it can be larger than a record. It is written in order before the
+  commit of its entry. A file that a write links by its path is read once, at
+  the commit. Sealed files count toward the size limit of the spool (1 GiB).
+- The store makes the entry in the commit: the host gives it an author that
+  seals with the database read key and signs with the node key. The sender
+  flushes the drive to the medium, reads a page of entries, sends the files and
+  then the entries, and when the relay acknowledges, one commit moves the
+  acknowledged position, records the upload position and deletes the sent
+  entries. Their files are removed after that commit; an open removes any file
+  outside the spool. The sender signs nothing, and a retry sends the same bytes.
 - A home captures exactly when something sends the spool: it has a relay, it
   already has a spool, or it is a restore.
-- Before a captured commit publishes to `main`, `prepare` writes staged entry
-  files in `staging/` and `pending.json` (`frontier_before`,
-  `main_frontier_before`, `notes`). On reopen, `finish_pending` compares the
-  `main` run frontier against `main_frontier_before` (falling back to the
-  combined `frontier_before`, `state.armed`, and `committed.json` only when
-  reopening a legacy `pending.json` written without `main_frontier_before`) to
-  install committed entries into `entries/` or discard uncommitted staging. New
-  commits write neither `committed.json` nor `state.armed`.
-- `state.json` holds the head and the acknowledged position. An acknowledgement
-  trims the bodies. `gap` blocks the next commit. `snapshot_required` means the
-  home held data before it began to capture: nothing is read for upload until
-  a first snapshot covers that data.
+- A spool that has recorded no write starts at the head of its device's chain
+  (`signed-replay-chain:<device>`): the entries up to it were sent before.
+- `snapshot_required` means the home held data before it began to capture:
+  nothing is read for upload until a first snapshot covers that data.
+- A snapshot carries the spool records of the home that took it. A restore
+  deletes them in its first commits and starts an empty spool for its own
+  device.
 - One commit captures at most 1024 mutations.
-- `ids/` keeps the newest 10,000 mutation ids with the plaintext SHA-256 of
-  each body, plus the id of every entry not yet acknowledged. Any commit that
-  reuses a recorded mutation id or repeats an id within the same batch is
-  refused before advancing the stream.
-- The sequence number of the signed entry is the number of the spool entry.
+- The sequence number of the signed entry is the number of the spool entry. A
+  commit refuses a note signed with another number.
   Each captured schema put or drop derives its mutation id from the schema
   name, definition identity (or `drop`), and `authored_at_ms`, so repeated
   `put -> drop -> put` or `drop` transitions each receive their own spool entry
   and stream sequence, while a duplicate schema mutation id is refused.
+- A build from before this layout kept the spool in `disk-run/accepted-v1/`.
+  This build refuses a home that still has that folder. The one manual step:
+  run the older build until `lastdb status` shows every write acknowledged,
+  stop it, check that `accepted-v1/state.json` has head equal to acked and that
+  there is no `pending.json`, move `accepted-v1/` to the Trash, start this
+  build.
+
+## What an acknowledgement means
+
+- A commit writes its run file, then `CURRENT`, and syncs each one and its
+  folder in that order. On macOS each sync is an ordered write
+  (`F_BARRIERFSYNC`): the bytes are on the drive and stay in order with later
+  writes, and the drive's cache is not emptied. On Linux each sync is
+  `fdatasync`.
+- So a crash of LastDB or of the operating system loses no acknowledged write.
+  A sudden power cut on macOS can lose the newest acknowledged writes that are
+  still in the drive's cache, in order: the store is never torn, and a write
+  and its spool entry are lost together.
+- Nothing that a power cut can still take leaves the machine. Before the sender
+  reads a page of entries, before a snapshot is cut, and before a flush receipt,
+  the drive is flushed to the medium (`F_FULLFSYNC` on macOS).
 
 ## What a snapshot is
 
@@ -249,7 +270,7 @@ one is.
 
 | Name in code or on the wire | What it is |
 |---|---|
-| `accepted-v1`, "accepted stream", "upload queue" | The spool. |
+| `accepted_*` collections, `accepted-files`, "accepted stream", "upload queue" | The spool. |
 | `node_key` | The owner's key. It comes from the recovery phrase and is the same on every device of the owner. |
 | `device_id` | The id of one stream. One per installation, plus two that are no device: the birth stream and the snapshot stream of a personal database, both derived from the seed. |
 | `lamport` | The order value: the commit time in milliseconds, raised to one more than the highest value the device has seen. Not a Lamport counter. |
@@ -268,7 +289,6 @@ Only the first one is the disk format.
 | 15 | `HOME_FORMAT`, the marker file, `lastdb status` | The home as a whole |
 | v2 | `laststore-run-home-v2`, `.ldrun` | The run file engine (laststore) |
 | v1 | `laststore-pack-node-v1` | The name of the marker file |
-| v1 | `accepted-v1` | The spool directory |
 | 3 | `RECORD_VALUE_VERSION` | The encoding of one record value |
 | 14 | `RECORD_PROFILE` | An internal profile number of the run home |
 | 1 | `X-LastDB-Relay-Protocol` | The relay wire protocol |

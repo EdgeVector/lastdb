@@ -3,6 +3,7 @@
 mod changes;
 mod files;
 mod replay;
+pub(in crate::storage) use replay::chain_key;
 mod replay_stream;
 
 pub(crate) use changes::ChangedKey;

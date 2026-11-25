@@ -49,7 +49,6 @@ use crate::profile::private_fs as disk;
 
 const FILE: &str = "cloud-usage.json";
 const LIMIT: usize = 4 * 1024 * 1024;
-const STATE_LIMIT: usize = 65_536;
 
 /// One writer at a time: the lane and the sync turn both put things.
 static LOCK: Mutex<()> = Mutex::new(());
@@ -76,13 +75,15 @@ struct Saved {
 #[derive(Clone)]
 pub(super) struct Ledger {
     home: PathBuf,
+    /// The acknowledged spool position of the home when the ledger was made.
+    spool_acked: u64,
 }
 
 fn path(home: &Path, database_id: &str) -> PathBuf {
     home.join("log-sync").join(database_id).join(FILE)
 }
 
-fn had_prior_uploads(home: &Path, database_id: &str) -> bool {
+fn had_prior_uploads(home: &Path, database_id: &str, spool_acked: u64) -> bool {
     let registered = crate::host::owned::registered_databases(home);
     let is_personal = if registered.is_empty() {
         !home
@@ -96,18 +97,7 @@ fn had_prior_uploads(home: &Path, database_id: &str) -> bool {
             .any(|db| !db.native && db.id == database_id)
     };
     if is_personal {
-        let state_path = home
-            .join("data")
-            .join("disk-run")
-            .join("accepted-v1")
-            .join("state.json");
-        let acked = disk::read_file_limited(&state_path, STATE_LIMIT, false)
-            .ok()
-            .flatten()
-            .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
-            .and_then(|state| state["acked"].as_u64())
-            .unwrap_or(0);
-        acked > 0
+        spool_acked > 0
             || home
                 .join("log-sync")
                 .join(database_id)
@@ -118,28 +108,28 @@ fn had_prior_uploads(home: &Path, database_id: &str) -> bool {
     }
 }
 
-fn normalize(home: &Path, database_id: &str, saved: &mut Saved) {
+fn normalize(home: &Path, database_id: &str, spool_acked: u64, saved: &mut Saved) {
     if !saved.complete_decided {
         saved.usage.complete = match saved.started_after {
             Some(after) => after == 0,
-            None => !had_prior_uploads(home, database_id) && saved.usage.entries == 0,
+            None => !had_prior_uploads(home, database_id, spool_acked) && saved.usage.entries == 0,
         };
         saved.started_after = None;
         saved.complete_decided = true;
     }
 }
 
-fn load(home: &Path, database_id: &str) -> Result<Saved, String> {
+fn load(home: &Path, database_id: &str, spool_acked: u64) -> Result<Saved, String> {
     match disk::read_limited(&path(home, database_id), LIMIT) {
         Ok(Some(bytes)) => {
             let mut saved: Saved = serde_json::from_slice(&bytes)
                 .map_err(|_| "the cloud usage record is invalid".to_owned())?;
-            normalize(home, database_id, &mut saved);
+            normalize(home, database_id, spool_acked, &mut saved);
             Ok(saved)
         }
         Ok(None) => {
             let mut saved = Saved::default();
-            saved.usage.complete = !had_prior_uploads(home, database_id);
+            saved.usage.complete = !had_prior_uploads(home, database_id, spool_acked);
             saved.complete_decided = true;
             Ok(saved)
         }
@@ -166,9 +156,10 @@ fn lock() -> std::sync::MutexGuard<'static, ()> {
 }
 
 impl Ledger {
-    pub(super) fn new(home: &Path) -> Self {
+    pub(super) fn new(home: &Path, spool_acked: u64) -> Self {
         Self {
             home: home.to_owned(),
+            spool_acked,
         }
     }
 
@@ -184,7 +175,7 @@ impl Ledger {
             return Ok(());
         }
         let _guard = lock();
-        let mut saved = load(&self.home, database_id)?;
+        let mut saved = load(&self.home, database_id, self.spool_acked)?;
         let mut changed = false;
         for entry in entries {
             let header = entry.header();
@@ -224,7 +215,7 @@ impl Ledger {
         };
         let mut saved: Saved = serde_json::from_slice(&raw)
             .map_err(|_| "the cloud usage record is invalid".to_owned())?;
-        normalize(&self.home, database_id, &mut saved);
+        normalize(&self.home, database_id, self.spool_acked, &mut saved);
         if saved.pending.remove(sha256).is_none() {
             return Ok(());
         }
@@ -241,7 +232,7 @@ impl Ledger {
         bytes: u64,
     ) -> Result<(), String> {
         let _guard = lock();
-        let mut saved = load(&self.home, database_id)?;
+        let mut saved = load(&self.home, database_id, self.spool_acked)?;
         if !saved.pending.contains_key(sha256) {
             saved.pending.insert(sha256.to_owned(), bytes);
             store(&self.home, database_id, &mut saved)?;
@@ -258,7 +249,7 @@ impl Ledger {
         counted: bool,
     ) -> Result<(), String> {
         let _guard = lock();
-        let mut saved = load(&self.home, database_id)?;
+        let mut saved = load(&self.home, database_id, self.spool_acked)?;
         saved.pending.remove(sha256);
         if counted {
             saved.usage.blobs += 1;
@@ -275,7 +266,7 @@ impl Ledger {
             return Ok(());
         }
         let _guard = lock();
-        let mut saved = load(&self.home, database_id)?;
+        let mut saved = load(&self.home, database_id, self.spool_acked)?;
         saved.usage.released_entries += entries;
         saved.usage.released_bytes += bytes;
         store(&self.home, database_id, &mut saved)
@@ -292,7 +283,7 @@ impl Ledger {
             return Ok(());
         }
         let _guard = lock();
-        let mut saved = load(&self.home, database_id)?;
+        let mut saved = load(&self.home, database_id, self.spool_acked)?;
         saved.usage.released_blobs += blobs;
         saved.usage.released_blob_bytes += bytes;
         store(&self.home, database_id, &mut saved)
@@ -300,15 +291,15 @@ impl Ledger {
 }
 
 /// The totals of one database in `home`, if this device put anything.
-fn read(home: &Path, database_id: &str) -> Option<CloudUsage> {
+fn read(home: &Path, database_id: &str, spool_acked: u64) -> Option<CloudUsage> {
     let bytes = disk::read_limited(&path(home, database_id), LIMIT).ok()??;
     let mut saved = serde_json::from_slice::<Saved>(&bytes).ok()?;
-    normalize(home, database_id, &mut saved);
+    normalize(home, database_id, spool_acked, &mut saved);
     Some(saved.usage)
 }
 
 /// Put the totals of every database of `home` into the status of the node.
-pub(crate) fn fill(home: &Path, status: &mut CloudSyncStatus) {
+pub(crate) fn fill(home: &Path, spool_acked: u64, status: &mut CloudSyncStatus) {
     let Ok(dirs) = std::fs::read_dir(home.join("log-sync")) else {
         return;
     };
@@ -316,7 +307,7 @@ pub(crate) fn fill(home: &Path, status: &mut CloudSyncStatus) {
         let Some(id) = dir.file_name().to_str().map(str::to_owned) else {
             continue;
         };
-        if let Some(usage) = read(home, &id) {
+        if let Some(usage) = read(home, &id, spool_acked) {
             status.databases.entry(id).or_default().usage = Some(usage);
         }
     }

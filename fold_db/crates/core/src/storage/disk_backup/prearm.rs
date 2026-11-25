@@ -3,7 +3,7 @@
 use super::accepted::{self, Log};
 use super::snapshot::DatabaseSnapshot;
 use crate::storage::disk_pack::{
-    admit, cas_delete, map, physical::V2Home, run_node, CAS_DIR, RUN_DIR,
+    admit, cas_delete, map, physical::V2Home, run_node, PackRuntime, CAS_DIR, RUN_DIR,
 };
 use crate::storage::error::{StorageError, StorageResult};
 use laststore::disk_run::home::{RunHome, LOCK, RUNS};
@@ -26,16 +26,21 @@ const MAX_FILE_BYTES: u64 = 5_000_000_000;
 /// call enters the spool and none is in the cut twice. The cut is made of hard links to the
 /// immutable run files and copies of the few small files, so it is quick and survives a restart.
 /// A cut left by an earlier start that still matches the files is kept.
-pub(super) fn stage_and_pin(physical: &V2Home, log: &Log, key: &[u8; 32]) -> StorageResult<()> {
+pub(super) fn stage_and_pin(runtime: &PackRuntime, log: &Log, key: &[u8; 32]) -> StorageResult<()> {
+    let physical = &runtime.physical;
     let data_root = data(physical)?;
     let ready = checkpoint_path(physical, READY)?;
     let frontier = physical.current_root().frontier();
+    let pin = |frontier| {
+        let change = log
+            .pin_initial_frontier(frontier)
+            .map_err(accepted::storage)?;
+        log.apply(change, |ops| runtime.commit(ops))
+    };
     if let Some(saved) = open(physical, key)? {
         if saved.native_frontier == frontier {
             File::open(ready.parent().ok_or_else(unavailable)?)?.sync_all()?;
-            return log
-                .pin_initial_frontier(frontier)
-                .map_err(accepted::storage);
+            return pin(frontier);
         }
         // No entry exists yet, so the files may be cut again.
         release(physical)?;
@@ -44,8 +49,7 @@ pub(super) fn stage_and_pin(physical: &V2Home, log: &Log, key: &[u8; 32]) -> Sto
     let cut =
         DatabaseSnapshot::from_roots(physical, Vec::new())?.with_local_files(physical, key)?;
     stage(data_root, &ready, &cut)?;
-    log.pin_initial_frontier(frontier)
-        .map_err(accepted::storage)
+    pin(frontier)
 }
 
 pub(super) fn open(physical: &V2Home, key: &[u8; 32]) -> StorageResult<Option<DatabaseSnapshot>> {

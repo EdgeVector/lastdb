@@ -9,17 +9,15 @@ mod body;
 mod capture;
 mod disk;
 
-use disk::upload::io;
-
 pub use author::{CaptureAuthor, LocalEntry, SignedLocal};
 pub(crate) use capture::{capture_enabled, stage_records, stage_schema_drop, stage_schema_put};
 pub use disk::upload::{UploadIdentity, UploadPosition};
-pub(in crate::storage) use disk::{Log, Note};
+pub(in crate::storage) use disk::{Change, Log, Note};
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::storage::disk_pack::PackRuntime;
+use crate::storage::disk_pack::{run_blocking, PackRuntime};
 use crate::storage::error::{StorageError, StorageResult};
 
 /// The most notes one commit may put in the spool. See `CONTROL_MAX`.
@@ -62,6 +60,25 @@ pub struct Status {
     pub gap: bool,
 }
 
+/// What the spool of a home holds, for the status of the node.
+#[derive(Clone, Copy, Debug, serde::Serialize)]
+pub struct SpoolReport {
+    /// Last captured write. Zero means none.
+    pub head: u64,
+    /// Last write the relay confirmed.
+    pub acked: u64,
+    /// The first snapshot of a home with older data is still to come.
+    pub snapshot_required: bool,
+    /// The spool is blocked until the node opens it again.
+    pub gap: bool,
+    /// Bytes of the entries still to send, with their sealed files.
+    pub retained_bytes: u64,
+    /// Id records of recent writes, kept to refuse a write sent twice.
+    pub id_records: u64,
+    /// Last sequence number of this device's stream the relay confirmed.
+    pub uploaded_writer_seq: Option<u64>,
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(in crate::storage) struct Frontiers {
     pub total: u64,
@@ -99,16 +116,18 @@ pub struct Page {
     pub items: Vec<Entry>,
 }
 
-/// Check for the exact private spool of an already-captured database.
+/// Whether the home already captured its writes: it has the folder of sealed spool files, or the
+/// spool folder of an older build (which the open then refuses with its upgrade step).
 pub fn has_spool(data_dir: &Path) -> StorageResult<bool> {
-    let root = data_dir
-        .join(crate::storage::disk_pack::RUN_DIR)
-        .join(disk::DIR);
-    match root.symlink_metadata() {
-        Ok(_) => io::require_dir(&root).map(|()| true).map_err(storage),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
-        Err(error) => Err(error.into()),
+    let run = data_dir.join(crate::storage::disk_pack::RUN_DIR);
+    for name in [disk::FILES_DIR, disk::OLD_DIR] {
+        match run.join(name).symlink_metadata() {
+            Ok(_) => return Ok(true),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
     }
+    Ok(false)
 }
 
 pub(in crate::storage) fn storage(error: Error) -> StorageError {
@@ -137,9 +156,14 @@ impl PackRuntime {
 
     /// Give the store the author of its captured writes, once.
     pub fn name_capture_author(&self, author: Arc<dyn CaptureAuthor>) -> StorageResult<()> {
+        let chain = crate::storage::format::metadata::chain_key(author.device());
         self.capture_author
             .set(author)
-            .map_err(|_| StorageError::invalid("the store already has an author for its writes"))
+            .map_err(|_| StorageError::invalid("the store already has an author for its writes"))?;
+        match &self.accepted {
+            Some(log) => log.start_at_chain(&self.physical, &chain).map_err(storage),
+            None => Ok(()),
+        }
     }
 
     pub(crate) fn capture_author(&self) -> Option<&Arc<dyn CaptureAuthor>> {
@@ -159,7 +183,7 @@ impl PackRuntime {
     /// Whether this capture has already stored `mutation_id`.
     pub fn accepted_mutation_seen(&self, mutation_id: &str) -> Result<bool, Error> {
         match &self.accepted {
-            Some(log) => log.mutation_recorded(mutation_id),
+            Some(log) => log.mutation_recorded(&self.physical, mutation_id),
             None => Ok(false),
         }
     }
@@ -178,12 +202,25 @@ impl PackRuntime {
         )
     }
 
-    /// Sealed entries with sequence greater than `after`, at most `limit`.
+    /// What the spool holds. `None` when this home captures nothing.
+    pub fn accepted_report(&self) -> Option<SpoolReport> {
+        self.accepted.as_ref().and_then(|log| log.report().ok())
+    }
+
+    /// Sealed entries with sequence greater than `after`, at most `limit`, for upload.
+    ///
+    /// A commit acknowledges a write after an ordered write, which does not force the drive's
+    /// cache to the medium. Before any entry leaves this machine the whole drive is flushed, so
+    /// the relay never holds a write that a power loss could still take from this home.
     pub fn accepted_prefix(&self, after: u64, limit: u32) -> Result<Page, Error> {
         let Some(log) = &self.accepted else {
             return idle_prefix(after, limit);
         };
-        log.prefix(after, limit)
+        // Every entry up to this head was committed before the flush starts, so the flush
+        // covers it. An entry committed during the flush waits for the next page.
+        let flushed = log.status().head;
+        laststore::flush_drive(self.physical.path()).map_err(|_| Error::Unavailable)?;
+        log.prefix(&self.physical, after, limit, flushed)
     }
 
     /// Read the upload checkpoint and finish an interrupted local acknowledgement.
@@ -197,49 +234,87 @@ impl PackRuntime {
             .upload_position(identity)
     }
 
-    /// Store the upload result before retiring any corresponding spool entries.
-    pub fn confirm_accepted_upload(
-        &self,
+    /// Record the upload result and retire the entries it covers, in one commit.
+    pub async fn confirm_accepted_upload(
+        self: &Arc<Self>,
         identity: &UploadIdentity,
         after: u64,
         position: UploadPosition,
     ) -> Result<(), Error> {
-        self.accepted
-            .as_ref()
-            .ok_or(Error::Unavailable)?
-            .confirm_upload(identity, after, position)
+        let identity = identity.clone();
+        self.change_spool(move |log, physical| log.plan_ack(physical, &identity, after, position))
+            .await
     }
 
     /// Record that a snapshot covers the native frontier from before the stream.
-    pub fn note_accepted_snapshot(&self, covered_frontier: u64) -> Result<(), Error> {
-        let Some(log) = &self.accepted else {
+    pub async fn note_accepted_snapshot(
+        self: &Arc<Self>,
+        covered_frontier: u64,
+    ) -> Result<(), Error> {
+        if self.accepted.is_none() {
             return Ok(());
-        };
-        log.note_snapshot(covered_frontier)
+        }
+        self.change_spool(move |log, _| log.note_snapshot(covered_frontier))
+            .await
     }
 
+    /// Empty the spool of a restored home. Its files carry the spool of the device that took the
+    /// snapshot.
+    pub(in crate::storage) async fn reset_accepted(
+        self: &Arc<Self>,
+        frontier: u64,
+    ) -> Result<(), Error> {
+        if self.accepted.is_none() {
+            return Ok(());
+        }
+        self.change_spool(move |log, physical| log.reset(physical, frontier))
+            .await
+    }
+
+    /// Plan a spool change and commit it under the write gate.
+    async fn change_spool(
+        self: &Arc<Self>,
+        plan: impl FnOnce(&Log, &crate::storage::disk_pack::physical::V2Home) -> Result<Change, Error>
+            + Send
+            + 'static,
+    ) -> Result<(), Error> {
+        let (gate, runtime) = (self.enter_write().await, Arc::clone(self));
+        let outcome = run_blocking(move || {
+            let _gate = gate;
+            let Some(log) = &runtime.accepted else {
+                return Ok(Err(Error::Unavailable));
+            };
+            let change = match plan(log, &runtime.physical) {
+                Ok(change) => change,
+                Err(error) => return Ok(Err(error)),
+            };
+            log.apply(change, |ops| runtime.commit(ops)).map(Ok)
+        })
+        .await;
+        outcome.unwrap_or(Err(Error::Unavailable))
+    }
+
+    /// The spool records that go into the commit of `notes`.
     pub(in crate::storage) fn prepare_accepted(
         &self,
         before: Frontiers,
         notes: &[disk::Note],
-    ) -> StorageResult<()> {
+    ) -> StorageResult<Vec<laststore::disk_run::home::HomeMutation>> {
+        let Some(log) = &self.accepted else {
+            return Ok(Vec::new());
+        };
+        log.prepare(&self.physical, before, notes).map_err(storage)
+    }
+
+    pub(in crate::storage) fn publish_accepted(&self) -> StorageResult<()> {
         let Some(log) = &self.accepted else {
             return Ok(());
         };
-        log.prepare(before, notes).map_err(storage)
+        log.publish().map_err(storage)
     }
 
-    pub(in crate::storage) fn publish_accepted(
-        &self,
-        before: Frontiers,
-        after: Frontiers,
-    ) -> StorageResult<()> {
-        let Some(log) = &self.accepted else {
-            return Ok(());
-        };
-        log.publish(before, after).map_err(storage)
-    }
-
+    /// The commit of [`Self::prepare_accepted`] failed. Its spool records are durable exactly
+    /// when the main home moved past `before`.
     pub(in crate::storage) fn fail_accepted(&self, before: Frontiers) {
         let Some(log) = &self.accepted else {
             return;
@@ -248,7 +323,7 @@ impl PackRuntime {
         if after.main == before.main {
             let _ = log.abort();
         } else if after.main > before.main {
-            let _ = log.publish(before, after);
+            let _ = log.publish();
         } else {
             let _ = log.force_gap();
         }

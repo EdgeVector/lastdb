@@ -112,14 +112,20 @@ pub(in crate::exec) async fn execute_data_route_with_timeout(
                     .app_uds_workers
                     .get()
                     .map(crate::lastdb_uds::UdsWorkerPool::snapshot);
+                let runtime = host.db.db_ops().native_runtime();
                 let mut cloud_sync = host.cloud_sync.snapshot();
-                crate::log_sync::usage::fill(&host.home, &mut cloud_sync);
+                crate::log_sync::usage::fill(
+                    &host.home,
+                    runtime.accepted_status().acked,
+                    &mut cloud_sync,
+                );
                 let st = json!({
                     "build": { "version": crate::version::build_version() },
                     "process_start_ts": host.process_start_ts, "uptime_secs": up,
                     "uds": uds,
                     "app_socket": app_socket,
                     "cloud_sync": cloud_sync,
+                    "spool": runtime.accepted_report(),
                 });
                 return json_ok(&envelope(&json!({ "status": st }), &ctx.user_id));
             }

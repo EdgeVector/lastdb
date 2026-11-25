@@ -253,6 +253,7 @@ async fn run_first_inner(ctx: &Ctx<'_>, client: &RelayClient) -> Result<Report, 
     let opened = ctx.runtime.accepted_status().opened_frontier;
     ctx.runtime
         .note_accepted_snapshot(opened)
+        .await
         .map_err(|error| format!("the first snapshot could not be recorded: {error:?}"))?;
     ctx.runtime
         .release_initial_snapshot()

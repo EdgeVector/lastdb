@@ -222,39 +222,39 @@ class Device:
     def log_dir(self):
         return self.node.home / "log-sync" / str(self.database)
 
-    def spool_dir(self):
+    def old_spool_dir(self):
+        """The spool folder of a build from before the spool moved into the store."""
         return self.node.home / "data" / "disk-run" / "accepted-v1"
 
     def spool_state(self):
-        """The spool's own state file: `head` is the last accepted write, `acked` the last the relay confirmed."""
+        """The spool (`head`, `acked`) from the daemon's status or an older build's folder; None if it is down."""
+        folder = self.old_spool_dir()
         try:
-            return json.loads((self.spool_dir() / "state.json").read_text())
-        except (OSError, ValueError):
+            if folder.exists():
+                state = json.loads((folder / "state.json").read_text())
+                return {"head": state["head"], "acked": state["acked"], "pending": (folder / "pending.json").exists()}
+            return self.node.call("/api/status")[0]["status"]["spool"]
+        except Exception:  # noqa: BLE001 the node may be down: the caller waits or reports None
             return None
 
     def checkpoint(self):
         """The confirmed upload position: the last sequence number of this device's stream."""
-        try:
-            return json.loads((self.spool_dir() / "cloud-upload.json").read_text())
-        except (OSError, ValueError):
+        report = self.spool_state()
+        if report is None or report.get("uploaded_writer_seq") is None:
             return None
+        return {"writer_seq": report["uploaded_writer_seq"]}
 
     def id_records(self):
-        """How many id records the spool holds: one small file for each recent accepted write."""
-        try:
-            return sum(1 for _ in (self.spool_dir() / "ids").iterdir())
-        except OSError:
-            return 0
+        """How many id records the spool holds: one for each recent accepted write."""
+        report = self.spool_state()
+        return 0 if report is None else report["id_records"]
 
     def spool_bytes(self):
-        """Apparent size of every file under the spool directory, and of its pending entries alone."""
-        total = pending = 0
-        for path in self.spool_dir().rglob("*"):
-            if path.is_file():
-                total += path.stat().st_size
-                if "entries" in path.relative_to(self.spool_dir()).parts:
-                    pending += path.stat().st_size
-        return total, pending
+        """Bytes the spool holds: the entries still to send with their sealed files, twice, for the
+        callers that read (total, pending). The spool has no other files."""
+        report = self.spool_state()
+        held = 0 if report is None else report["retained_bytes"]
+        return held, held
 
     def synced_up(self):
         """Every write the spool holds is on the relay."""

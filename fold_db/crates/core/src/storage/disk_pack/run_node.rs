@@ -309,15 +309,12 @@ impl PackNamespacedStore {
         let cleanup_job = Arc::new(CleanupJob::open(&physical));
         let initializing_now = path.join(CREATION_INTENT).try_exists()?;
         let accepted = if capture_accepted {
-            let user_data = !initializing_now
-                && !Log::has_state(physical.path())
-                && super::user_data::has_user_data(&physical, &current)?;
             Some(Log::open(
-                physical.path(),
+                &physical,
                 current.frontiers(),
-                user_data,
+                || super::user_data::has_user_data(&physical, &current),
                 initializing_now,
-            ))
+            )?)
         } else {
             None
         };

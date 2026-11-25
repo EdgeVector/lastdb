@@ -1,6 +1,7 @@
 //! Disk format v2 engine ([`disk_run`]): immutable, sorted, encrypted run files and `CURRENT`.
 
-#![forbid(unsafe_code)]
+// One `fcntl` call needs `unsafe` (`durability::barrier`); nothing else may use it.
+#![deny(unsafe_code)]
 #![deny(missing_docs)]
 
 use std::fmt;
@@ -59,6 +60,46 @@ impl From<std::io::Error> for Error {
     }
 }
 
+/// Make every write that a home under `path` finished before this call survive a power cut.
+///
+/// A commit writes in order but does not wait for the drive to empty its own cache (see
+/// `durability`). Call this before anything that leaves the machine depends on those writes,
+/// for example before the entries that name them are sent. On macOS it is `F_FULLFSYNC`, which
+/// empties the whole drive cache. Elsewhere each ordered write already reached stable storage,
+/// so it syncs the folder only.
+pub fn flush_drive(path: &std::path::Path) -> Result<()> {
+    let folder = std::fs::File::open(path)?;
+    #[cfg(target_os = "macos")]
+    rustix::fs::fcntl_fullfsync(&folder).map_err(std::io::Error::from)?;
+    #[cfg(not(target_os = "macos"))]
+    folder.sync_all()?;
+    Ok(())
+}
+
+/// Create a private file (mode 0600) holding `bytes`, as ordered writes of the file and of its
+/// folder entry (see `durability`). An existing file is an error. A failed write removes it.
+pub fn write_new_file_ordered(path: &std::path::Path, bytes: &[u8]) -> Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    let parent = path
+        .parent()
+        .ok_or_else(|| Error::Config("a file needs a folder".into()))?;
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(path)?;
+    file.write_all(bytes)
+        .map_err(Error::from)
+        .and_then(|()| durability::sync_dirty_file(&file))
+        .and_then(|()| durability::sync_directory(parent))
+        .inspect_err(|_| drop(std::fs::remove_file(path)))
+}
+
+/// Ordered writes. A write that returns has reached the drive, and the drive keeps it before
+/// every later write, so a crash of the process or of the system loses nothing and a power cut
+/// can only lose the newest writes, never one without the writes before it. A write does not
+/// wait for the drive to empty its cache; [`flush_drive`] does that.
 pub(crate) mod durability {
     use crate::Result;
     use std::fs::File;
@@ -66,7 +107,7 @@ pub(crate) mod durability {
 
     pub(crate) fn sync_dirty_file(file: &File) -> Result<()> {
         #[cfg(target_os = "macos")]
-        rustix::fs::fcntl_fullfsync(file).map_err(std::io::Error::from)?;
+        barrier(file)?;
         #[cfg(not(target_os = "macos"))]
         file.sync_data()?;
         Ok(())
@@ -78,6 +119,21 @@ pub(crate) mod durability {
         return sync_dirty_file(&f);
         #[cfg(not(target_os = "macos"))]
         Ok(f.sync_all()?)
+    }
+
+    /// `F_BARRIERFSYNC`: the file's data reaches the drive, ordered before later writes. A file
+    /// system that does not support it gets the full flush instead.
+    #[cfg(target_os = "macos")]
+    #[allow(unsafe_code)]
+    fn barrier(file: &File) -> std::io::Result<()> {
+        use std::os::fd::AsRawFd;
+        // SAFETY: `fcntl` with `F_BARRIERFSYNC` takes no argument and reads no memory; the
+        // descriptor stays open for the call because `file` is borrowed.
+        let rc = unsafe { libc::fcntl(file.as_raw_fd(), libc::F_BARRIERFSYNC) };
+        if rc != -1 {
+            return Ok(());
+        }
+        rustix::fs::fcntl_fullfsync(file).map_err(std::io::Error::from)
     }
 }
 

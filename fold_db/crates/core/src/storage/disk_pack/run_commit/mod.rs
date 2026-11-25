@@ -41,6 +41,9 @@ impl PackRuntime {
     pub async fn flush_native(self: &Arc<Self>) -> StorageResult<NativeFlushReceipt> {
         let target_sequence = self.seal_queue();
         self.wait_for_queue(target_sequence).await?;
+        // Commits acknowledge after an ordered write. A flush receipt promises the medium.
+        let path = self.physical.path().to_owned();
+        run_blocking(move || laststore::flush_drive(&path).map_err(map)).await?;
         let cur = &self.view.read().expect("native durable flush view").root;
         let completed_sequence = *self.completed.borrow();
         Ok(NativeFlushReceipt {
@@ -97,7 +100,7 @@ impl PackRuntime {
                 "accepted queue reached 1024 requests; retry after flush",
             ));
         }
-        let note_bytes = match self.precheck_accepted_queue(&q, pending, &ops) {
+        let note_bytes = match self.precheck_accepted_queue(&q, pending) {
             Ok(bytes) => bytes,
             Err(error) => {
                 if matches!(error, StorageError::WriteResourceLimit { .. }) {
@@ -119,7 +122,6 @@ impl PackRuntime {
         &self,
         q: &WriteQueue,
         pending: &PendingBatch,
-        ops: &[HomeMutation],
     ) -> StorageResult<u64> {
         let incoming = pending.accepted_notes();
         let batch_bytes = incoming
@@ -128,11 +130,6 @@ impl PackRuntime {
             .ok_or_else(|| {
                 StorageError::mutation_limit("batch exceeds pending memory allowance")
             })?;
-        if !incoming.is_empty() && ops.iter().all(|op| op.collection == CAS_COLLECTION) {
-            return Err(StorageError::invalid(
-                "accepted notes require a main store mutation",
-            ));
-        }
         let Some(log) = &self.accepted else {
             return Ok(batch_bytes);
         };
@@ -172,7 +169,7 @@ impl PackRuntime {
                     .ok_or_else(|| StorageError::write_limit("accepted stream spool is full"))?;
             }
         }
-        log.check_admissible(queued_notes, queued_bytes, &incoming)
+        log.check_admissible(&self.physical, queued_notes, queued_bytes, &incoming)
             .map(|()| batch_bytes)
             .map_err(crate::storage::disk_backup::accepted::storage)
     }
@@ -298,7 +295,10 @@ impl PackRuntime {
                     "accepted notes require a native commit",
                 ));
             }
-            self.prepare_accepted(self.physical.current_root().frontiers(), &[])?;
+            if let Some(log) = &self.accepted {
+                log.check_healthy()
+                    .map_err(crate::storage::disk_backup::accepted::storage)?;
+            }
             let cur = self.view.read().expect("empty prefix root").root.clone();
             self.install_committed(cur, &hidden, &requests)?;
         }

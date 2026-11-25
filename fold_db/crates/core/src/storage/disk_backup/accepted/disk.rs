@@ -1,75 +1,113 @@
-//! Durable sequence beside the main run home. A gap blocks the next commit.
+//! The spool: one signed entry per captured write. Its records live in the main home and are
+//! written in the same commit as the write they belong to, so a write and its entry become
+//! durable together and the spool needs no disk sync of its own. Sealed files stay files, in
+//! one folder beside the home (see `files`).
 
-mod recover;
+mod change;
+mod files;
+mod inner;
+mod store;
 mod types;
 pub(super) mod upload;
 
 pub(in crate::storage) use types::Note;
-pub(super) use types::{id_ok, sha_ok, spool_cap, Meta, Pending, PendingNote, State};
 
-use super::{io, Error, Frontiers, Page, Status};
-use std::path::{Path, PathBuf};
+use super::{Error, Frontiers, Page, Status};
+use crate::storage::disk_pack::physical::V2Home;
+use crate::storage::error::StorageResult;
+use inner::{fresh, read_page};
+use laststore::disk_run::home::HomeMutation;
+use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard};
+use types::{id_ok, sha_ok, spool_cap, State};
+use upload::Checkpoint;
 
-pub(in crate::storage) const DIR: &str = "accepted-v1";
+/// The folder of sealed files, beside the main home's runs.
+pub(in crate::storage) const FILES_DIR: &str = "accepted-files";
+/// The spool folder of builds before the spool moved into the store.
+pub(in crate::storage) const OLD_DIR: &str = "accepted-v1";
 pub(super) const MAX_PAGE: u32 = 90;
+/// The id records of this many of the newest writes stay. A retry of a write older than that
+/// is taken as a new write.
+const IDS_KEPT: u64 = 10_000;
+/// How many acknowledged entries pass between two trims of the id records.
+const TRIM_EVERY: u64 = 2_500;
+/// Deletes in one commit of a reset, below the operation limit of a commit.
+const CLEAR_PART: usize = 8_192;
+
+const OLD_SPOOL: &str = "this home holds the spool of an older build (data/disk-run/accepted-v1); \
+start that build until `lastdb status` shows every write acknowledged, stop it, move \
+data/disk-run/accepted-v1 to the Trash, then start this build";
 
 #[derive(Default)]
 struct Inner {
     state: Option<State>,
-    frontier: u64,
-    main_frontier: u64,
-    blocked: bool,
+    /// Last entry, or `acked` when the spool holds none.
+    head: u64,
+    /// Bytes of the entries the spool holds, with their sealed files.
+    retained: u64,
     /// The home held data when it opened and has no stream yet.
     history: bool,
+    blocked: bool,
+    /// The state row in memory differs from the store. The next commit writes it.
+    unsaved: bool,
     /// Acknowledged entries since the id records were last trimmed.
     since_trim: u64,
+    /// Id records the store holds.
+    ids: u64,
+    planned: Option<Planned>,
+}
+
+/// What a commit in flight adds to the spool.
+struct Planned {
+    last: u64,
+    notes: u64,
+    added: u64,
+    files: Vec<PathBuf>,
+    saves_state: bool,
+}
+
+/// A change of the spool that its own commit writes. See [`Log::apply`].
+pub(in crate::storage) struct Change {
+    ops: Vec<HomeMutation>,
+    state: State,
+    released: u64,
+    acknowledged: u64,
+    trimmed: u64,
+    remove: Vec<PathBuf>,
+    clears: bool,
 }
 
 pub(in crate::storage) struct Log {
-    root: PathBuf,
+    files: PathBuf,
     inner: Mutex<Inner>,
 }
 
 impl Log {
-    pub(in crate::storage) fn has_state(home: &Path) -> bool {
-        home.join(DIR)
-            .join("state.json")
-            .symlink_metadata()
-            .is_ok_and(|meta| {
-                meta.is_file() && crate::storage::disk_pack::admit::is_private_meta(&meta)
-            })
-    }
-
+    /// Open the spool of a captured home. Only a home that still has the spool folder of an
+    /// older build is refused; any other fault blocks the spool and is reported in its status.
     pub(in crate::storage) fn open(
-        home: &Path,
+        physical: &V2Home,
         frontiers: Frontiers,
-        has_user_data: bool,
+        user_data: impl FnOnce() -> StorageResult<bool>,
         initializing: bool,
-    ) -> Self {
-        let root = home.join(DIR);
-        let mut inner = Inner {
-            frontier: frontiers.total,
-            main_frontier: frontiers.main,
-            ..Inner::default()
-        };
-        let outcome = if root.exists() {
-            inner.load(&root, has_user_data)
-        } else if has_user_data {
-            inner.history = true;
-            Ok(())
-        } else if initializing {
-            Ok(())
-        } else {
-            inner.mark_born(&root, frontiers)
-        };
-        if let Err(error) = outcome {
-            inner.block(&root, error);
+    ) -> StorageResult<Self> {
+        let home = physical.path();
+        if home.join(OLD_DIR).symlink_metadata().is_ok() {
+            return Err(crate::storage::error::StorageError::invalid(OLD_SPOOL));
         }
-        Self {
-            root,
+        let dir = home.join(FILES_DIR);
+        let mut inner = Inner::default();
+        if inner
+            .load(physical, &dir, frontiers, user_data, initializing)
+            .is_err()
+        {
+            inner.blocked = true;
+        }
+        Ok(Self {
+            files: dir,
             inner: Mutex::new(inner),
-        }
+        })
     }
 
     pub(in crate::storage::disk_backup) fn status(&self) -> Status {
@@ -86,283 +124,220 @@ impl Log {
     }
 
     pub(in crate::storage) fn check_healthy(&self) -> Result<(), Error> {
-        let inner = self.lock()?;
-        inner.refuse_gap()?;
-        if io::read_json::<Pending>(&self.root.join("pending.json"))?.is_some() {
-            return Err(Error::Gap);
-        }
-        Ok(())
+        self.lock()?.refuse_gap()
     }
 
     pub(in crate::storage) fn check_admissible(
         &self,
+        physical: &V2Home,
         queued_notes: usize,
         queued_bytes: u64,
         notes: &[Note],
     ) -> Result<(), Error> {
         let inner = self.lock()?;
         inner.refuse_gap()?;
-        if io::read_json::<Pending>(&self.root.join("pending.json"))?.is_some() {
-            return Err(Error::Gap);
-        }
-        let head = inner.state.as_ref().map_or(0, |s| s.head);
         let added_notes = queued_notes
             .checked_add(notes.len())
             .and_then(|n| u64::try_from(n).ok())
             .ok_or(Error::Unavailable)?;
-        head.checked_add(added_notes).ok_or(Error::Unavailable)?;
+        inner
+            .head
+            .checked_add(added_notes)
+            .ok_or(Error::Unavailable)?;
         let mut batch_bytes = 0u64;
         for note in notes {
             if !id_ok(&note.mutation_id) || !sha_ok(&note.plaintext_sha256) {
-                return Err(Error::Conflict);
-            }
-            if recover::mutation_recorded(&self.root, &note.mutation_id)? {
                 return Err(Error::Conflict);
             }
             batch_bytes = batch_bytes
                 .checked_add(note.byte_weight())
                 .ok_or(Error::Spool)?;
         }
-        let retained = inner.state.as_ref().map_or(0, |s| s.retained_bytes);
-        let total = retained
+        let ids: Vec<String> = notes.iter().map(|note| note.mutation_id.clone()).collect();
+        if store::read_ids(physical, &ids)?.iter().any(Option::is_some) {
+            return Err(Error::Conflict);
+        }
+        let total = inner
+            .retained
             .checked_add(queued_bytes)
             .and_then(|s| s.checked_add(batch_bytes))
             .ok_or(Error::Spool)?;
         (total <= spool_cap()).then_some(()).ok_or(Error::Spool)
     }
 
-    pub(super) fn note_snapshot(&self, covered: u64) -> Result<(), Error> {
-        self.lock()?.note_snapshot(&self.root, covered)
-    }
-
-    /// Record that the files at `covered` are the first snapshot's cut. The caller holds the
-    /// write gate, no entry exists yet, and the checkpoint of those files is already durable.
-    pub(in crate::storage) fn pin_initial_frontier(&self, covered: u64) -> Result<(), Error> {
-        let mut inner = self.lock()?;
-        inner.refuse_gap()?;
-        inner.frontier = covered;
-        let state = match &inner.state {
-            Some(state) if state.head == 0 && state.snapshot_required => State {
-                opened_frontier: covered,
-                ..state.clone()
-            },
-            None if inner.history => inner.fresh(covered, true),
-            _ => return Err(Error::Snapshot),
-        };
-        inner.store(&self.root, state)
-    }
-
-    pub(super) fn prefix(&self, after: u64, limit: u32) -> Result<Page, Error> {
-        self.lock()?.prefix(&self.root, after, limit)
-    }
-
-    pub(super) fn mark_born(&self, frontiers: Frontiers) -> Result<(), Error> {
-        self.lock()?.mark_born(&self.root, frontiers)
-    }
-
-    pub(super) fn prepare(&self, before: Frontiers, notes: &[Note]) -> Result<(), Error> {
-        self.lock()?.prepare(&self.root, before, notes)
-    }
-
-    pub(super) fn publish(&self, before: Frontiers, after: Frontiers) -> Result<(), Error> {
-        self.lock()?.publish(&self.root, before, after)
-    }
-
-    pub(super) fn abort(&self) -> Result<(), Error> {
-        let _inner = self.lock()?;
-        recover::discard(&self.root)
-    }
-
-    pub(super) fn force_gap(&self) -> Result<(), Error> {
-        self.lock()?.block(&self.root, Error::Gap);
-        Err(Error::Gap)
-    }
-
-    pub(super) fn mutation_recorded(&self, id: &str) -> Result<bool, Error> {
+    pub(super) fn mutation_recorded(&self, physical: &V2Home, id: &str) -> Result<bool, Error> {
         if !id_ok(id) {
             return Ok(false);
         }
-        recover::mutation_recorded(&self.root, id)
+        Ok(store::read_ids(physical, &[id.to_owned()])?
+            .into_iter()
+            .next()
+            .flatten()
+            .is_some())
     }
 
-    fn lock(&self) -> Result<MutexGuard<'_, Inner>, Error> {
-        self.inner.lock().map_err(|_| Error::Unavailable)
-    }
-}
-
-impl Inner {
-    fn load(&mut self, root: &Path, has_user_data: bool) -> Result<(), Error> {
-        io::require_dir(root)?;
-        match io::read_json::<State>(&root.join("state.json"))? {
-            Some(state) => {
-                let bad = state.version != 1 || state.gap;
-                self.state = Some(state);
-                if bad {
-                    return Err(Error::Gap);
-                }
-            }
-            None => self.history = has_user_data,
+    /// The operations that put `notes` in the spool, for the commit that writes them. A state
+    /// row that changed since the last commit goes with them. Sealed files are written now.
+    pub(in crate::storage) fn prepare(
+        &self,
+        physical: &V2Home,
+        before: Frontiers,
+        notes: &[Note],
+    ) -> Result<Vec<HomeMutation>, Error> {
+        let mut inner = self.lock()?;
+        // A commit without captured writes adds nothing, and is not refused by a blocked spool:
+        // the reset of a restore is such a commit.
+        if notes.is_empty() && (inner.blocked || !inner.unsaved) {
+            return Ok(Vec::new());
         }
-        recover::reconcile(root, self)?;
-        recover::finish_pending(root, self)?;
-        recover::trim_ids(root, self);
+        inner.refuse_gap()?;
+        if inner.planned.is_some() {
+            return inner.fail(Error::Gap);
+        }
+        let mut ops = Vec::new();
+        let mut planned = Planned {
+            last: inner.head,
+            notes: notes.len() as u64,
+            added: 0,
+            files: Vec::new(),
+            saves_state: false,
+        };
+        if !notes.is_empty() {
+            let mut seen = std::collections::BTreeSet::new();
+            let mut added = 0u64;
+            for note in notes {
+                if !id_ok(&note.mutation_id)
+                    || !sha_ok(&note.plaintext_sha256)
+                    || !seen.insert(note.mutation_id.as_str())
+                {
+                    return Err(Error::Conflict);
+                }
+                added = added.checked_add(note.byte_weight()).ok_or(Error::Spool)?;
+            }
+            let ids: Vec<String> = notes.iter().map(|note| note.mutation_id.clone()).collect();
+            if store::read_ids(physical, &ids)?.iter().any(Option::is_some) {
+                return Err(Error::Conflict);
+            }
+            if inner
+                .retained
+                .checked_add(added)
+                .is_none_or(|total| total > spool_cap())
+            {
+                return Err(Error::Spool);
+            }
+            if inner.state.is_none() {
+                let history = inner.history;
+                inner.state = Some(fresh(before.total, history));
+                inner.unsaved = true;
+            }
+            let written = inner.plan_notes(&self.files, notes, &mut planned, &mut ops);
+            if let Err(error) = written {
+                for path in &planned.files {
+                    let _ = files::remove(path);
+                }
+                return Err(error);
+            }
+            planned.added = added;
+        }
+        if inner.unsaved {
+            let state = inner.state.as_ref().ok_or(Error::Gap)?;
+            ops.push(store::state_op(state)?);
+            planned.saves_state = true;
+        }
+        if !ops.is_empty() {
+            inner.planned = Some(planned);
+        }
+        Ok(ops)
+    }
+
+    /// The commit of [`Self::prepare`] is durable.
+    pub(in crate::storage) fn publish(&self) -> Result<(), Error> {
+        let mut inner = self.lock()?;
+        let Some(planned) = inner.planned.take() else {
+            return Ok(());
+        };
+        inner.head = planned.last;
+        inner.retained = inner.retained.saturating_add(planned.added);
+        inner.ids = inner.ids.saturating_add(planned.notes);
+        if planned.saves_state {
+            inner.unsaved = false;
+            inner.history = false;
+        }
         Ok(())
     }
 
-    fn status(&self) -> Status {
-        let state = self.state.as_ref();
-        Status {
-            head: state.map_or(0, |state| state.head),
-            acked: state.map_or(0, |state| state.acked),
-            opened_frontier: state.map_or(0, |state| state.opened_frontier),
-            snapshot_required: state.map_or(self.history, |state| state.snapshot_required),
-            gap: self.blocked || state.is_some_and(|state| state.gap),
+    /// The commit of [`Self::prepare`] did not happen. Its sealed files are removed.
+    pub(in crate::storage) fn abort(&self) -> Result<(), Error> {
+        let mut inner = self.lock()?;
+        if let Some(planned) = inner.planned.take() {
+            for path in &planned.files {
+                files::remove(path)?;
+            }
         }
+        Ok(())
     }
 
-    fn prefix(&mut self, root: &Path, after: u64, limit: u32) -> Result<Page, Error> {
-        self.refuse_gap()?;
+    pub(super) fn force_gap(&self) -> Result<(), Error> {
+        let mut inner = self.lock()?;
+        inner.planned = None;
+        inner.fail(Error::Gap)
+    }
+
+    /// Entries after `after`, at most `limit`, none past `flushed`: the head when the drive was
+    /// last flushed to the medium.
+    pub(super) fn prefix(
+        &self,
+        physical: &V2Home,
+        after: u64,
+        limit: u32,
+        flushed: u64,
+    ) -> Result<Page, Error> {
+        let mut inner = self.lock()?;
+        inner.refuse_gap()?;
         if limit == 0 || limit > MAX_PAGE {
             return Err(Error::Limit);
         }
-        let view = self.status();
+        let view = inner.status();
         if after > view.head {
             return Err(Error::Ahead);
         }
         if after < view.acked {
             return Err(Error::Behind);
         }
-        let last = after.saturating_add(u64::from(limit)).min(view.head);
-        let (through, items) = recover::read_page(root, self, after, last)?;
-        Ok(Page { through, items })
-    }
-
-    fn acknowledge(&mut self, root: &Path, through: u64) -> Result<(), Error> {
-        self.refuse_gap()?;
-        let view = self.status();
-        if view.snapshot_required && through > view.acked {
-            return Err(Error::Snapshot);
-        }
-        if through > view.head {
-            return Err(Error::Ahead);
-        }
-        if through <= view.acked {
-            return Ok(());
-        }
-        let mut state = self.state.clone().ok_or(Error::Gap)?;
-        let released = recover::retained_bytes(root, view.acked, through)?;
-        state.retained_bytes = state
-            .retained_bytes
-            .checked_sub(released)
-            .ok_or(Error::Gap)?;
-        state.acked = through;
-        io::write_json(&root.join("state.json"), &state)?;
-        self.state = Some(state);
-        recover::release_acked(root, view.acked, through);
-        self.since_trim += through - view.acked;
-        if self.since_trim >= recover::TRIM_EVERY {
-            self.since_trim = 0;
-            recover::trim_ids(root, self);
-        }
-        Ok(())
-    }
-
-    fn note_snapshot(&mut self, root: &Path, covered: u64) -> Result<(), Error> {
-        self.refuse_gap()?;
-        let needed = self
-            .state
-            .as_ref()
-            .map_or(self.frontier, |s| s.opened_frontier);
-        if covered < needed {
-            return Err(Error::Snapshot);
-        }
-        self.history = false;
-        let mut state = self
-            .state
-            .clone()
-            .unwrap_or_else(|| self.fresh(needed, false));
-        state.snapshot_required = false;
-        self.store(root, state)
-    }
-
-    fn mark_born(&mut self, root: &Path, frontiers: Frontiers) -> Result<(), Error> {
-        self.refuse_gap()?;
-        self.frontier = frontiers.total;
-        self.main_frontier = frontiers.main;
-        self.history = false;
-        if let Some(mut state) = self.state.clone() {
-            if state.head > 0 {
-                return Ok(());
-            }
-            state.snapshot_required = false;
-            state.opened_frontier = frontiers.total;
-            return self.store(root, state);
-        }
-        self.store(root, self.fresh(frontiers.total, false))
-    }
-
-    fn prepare(&mut self, root: &Path, before: Frontiers, notes: &[Note]) -> Result<(), Error> {
-        self.refuse_gap()?;
-        self.frontier = before.total;
-        self.main_frontier = before.main;
-        if notes.is_empty() {
-            return Ok(());
-        }
-        if io::read_json::<Pending>(&root.join("pending.json"))?.is_some() {
-            self.block(root, Error::Gap);
-            return Err(Error::Gap);
-        }
-        let planned = recover::plan(root, self, notes)?;
-        recover::write_pending(root, before, notes, &planned)
-    }
-
-    fn publish(&mut self, root: &Path, before: Frontiers, after: Frontiers) -> Result<(), Error> {
-        let Some(pending) = io::read_json::<Pending>(&root.join("pending.json"))? else {
-            self.frontier = after.total;
-            self.main_frontier = after.main;
-            return Ok(());
-        };
-        if after.main <= before.main
-            || pending.frontier_before != before.total
-            || pending.main_frontier_before != Some(before.main)
-        {
-            self.block(root, Error::Gap);
-            return Err(Error::Gap);
-        }
-        self.frontier = after.total;
-        self.main_frontier = after.main;
-        recover::finish_pending(root, self)
-    }
-
-    fn refuse_gap(&self) -> Result<(), Error> {
-        (!self.blocked && !self.state.as_ref().is_some_and(|s| s.gap))
-            .then_some(())
-            .ok_or(Error::Gap)
-    }
-
-    fn block(&mut self, root: &Path, _error: Error) {
-        self.blocked = true;
-        recover::persist_gap(root, self);
-    }
-
-    pub(super) fn fresh(&self, opened: u64, snapshot_required: bool) -> State {
-        State {
-            version: 1,
-            opened_frontier: opened,
-            head: 0,
-            acked: 0,
-            retained_bytes: 0,
-            snapshot_required,
-            gap: false,
-            armed: false,
+        let last = after
+            .saturating_add(u64::from(limit))
+            .min(view.head)
+            .min(flushed.max(after));
+        match read_page(physical, &self.files, after, last) {
+            Ok(items) => Ok(Page {
+                through: items.last().map_or(after, |entry| entry.sequence),
+                items,
+            }),
+            Err(Error::Gap) => inner.fail(Error::Gap),
+            Err(error) => Err(error),
         }
     }
 
-    pub(super) fn store(&mut self, root: &Path, state: State) -> Result<(), Error> {
-        recover::ensure_tree(root)?;
-        io::write_json(&root.join("state.json"), &state)?;
-        self.state = Some(state);
-        self.history = false;
-        Ok(())
+    /// What the spool holds, for the status of the node.
+    pub(super) fn report(&self) -> Result<super::SpoolReport, Error> {
+        let inner = self.lock()?;
+        let status = inner.status();
+        Ok(super::SpoolReport {
+            head: status.head,
+            acked: status.acked,
+            snapshot_required: status.snapshot_required,
+            gap: status.gap,
+            retained_bytes: inner.retained,
+            id_records: inner.ids,
+            uploaded_writer_seq: inner
+                .state
+                .as_ref()
+                .and_then(|state| state.upload.as_ref())
+                .map(Checkpoint::writer_seq),
+        })
+    }
+
+    fn lock(&self) -> Result<MutexGuard<'_, Inner>, Error> {
+        self.inner.lock().map_err(|_| Error::Unavailable)
     }
 }

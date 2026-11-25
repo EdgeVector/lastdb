@@ -17,10 +17,7 @@ use std::sync::Arc;
 type Coord = (String, String);
 
 impl PackRuntime {
-    pub(in crate::storage::disk_pack) fn commit(
-        &self,
-        ops: Vec<HomeMutation>,
-    ) -> StorageResult<()> {
+    pub(in crate::storage) fn commit(&self, ops: Vec<HomeMutation>) -> StorageResult<()> {
         if ops.is_empty() {
             return Ok(());
         }
@@ -99,20 +96,19 @@ impl PackRuntime {
         reqs: &[Arc<PendingBatch>],
     ) -> StorageResult<()> {
         let PreparedCommit {
-            mutations, space, ..
+            mut mutations,
+            space,
+            ..
         } = prepared;
         let (v2, before) = (&self.physical, self.physical.current_root().frontiers());
         let notes = transaction::take_accepted_notes(reqs);
-        if !notes.is_empty() && mutations.iter().all(|o| o.collection == CAS_COLLECTION) {
-            return Err(StorageError::invalid(
-                "accepted notes require a main store mutation",
-            ));
-        }
-        self.prepare_accepted(before, &notes)?;
+        // The spool records of the captured writes go into the main home in this same commit, so
+        // a write and its entry become durable together.
+        mutations.extend(self.prepare_accepted(before, &notes)?);
         let result = (|| {
             cas_delete::require_clear(v2)?;
             commit_split(v2, mutations)?;
-            self.publish_accepted(before, v2.current_root().frontiers())
+            self.publish_accepted()
         })();
         if let Err(error) = result {
             self.fail_accepted(before);
