@@ -1,6 +1,7 @@
 //! Atomic run commits and tiered/incremental base compaction on [`RunHome`].
 
 use super::manifest::{Manifest, RunFile, MAX_LEVELS};
+use super::seal::Records;
 use super::{invalid, run_key, unpoison, RunHome};
 use crate::disk_run::{
     merge_runs, Found, MergeIter, MergeSpace, PreparedRun, RunRange, RunReader, RunWriter,
@@ -92,13 +93,7 @@ impl RunHome {
     }
 
     pub(super) fn publish_staged(&self, next: Manifest, staged: &Path) -> Result<Arc<Manifest>> {
-        if let Err(err) = Manifest::replace(&self.root_dir, staged) {
-            self.poisoned.store(true, Ordering::Release);
-            return Err(err);
-        }
-        let next = Arc::new(next);
-        *self.current.write().map_err(|_| self.poisoned_lock())? = Arc::clone(&next);
-        Ok(next)
+        self.publish_with(next, staged, false)
     }
 
     fn stage_new_run(&self, file: &Arc<RunFile>) -> Result<(Manifest, PathBuf)> {
@@ -111,7 +106,7 @@ impl RunHome {
         Ok((next, path))
     }
 
-    fn poisoned_lock(&self) -> Error {
+    pub(super) fn poisoned_lock(&self) -> Error {
         self.poisoned.store(true, Ordering::Release);
         Error::WriteCapacity(
             "disk run home: a lock was poisoned; restart the process to reopen the home".into(),
@@ -148,9 +143,18 @@ impl RunHome {
             .collect::<Result<_>>()?;
         records.sort_by(|a, b| a.0.cmp(&b.0));
         records.dedup_by(|later, first| later.0 == first.0);
+        if self.log_open() {
+            return self.commit_logged(records);
+        }
         let _commit = self.commit_lock()?;
+        self.commit_run(&records)
+    }
+
+    /// Write sorted records into one new newest run. The caller holds the commit lock, and the
+    /// memory layer is empty.
+    pub(super) fn commit_run(&self, records: &Records) -> Result<()> {
         let mut writer = RunWriter::open(&self.runs_dir, &self.key, None)?;
-        for (key, body) in &records {
+        for (key, body) in records {
             writer.push(key, body.as_deref())?;
         }
         let prepared = writer.prepare_finish()?;
@@ -165,13 +169,16 @@ impl RunHome {
     /// True when [`RunHome::merge_step_with_space`] has work.
     pub fn needs_merge(&self) -> bool {
         let held = self.held();
-        held.tiered().any(|r| r.hidden().is_none()) || plan(&held).is_some()
+        self.wants_seal() || held.tiered().any(|r| r.hidden().is_none()) || plan(&held).is_some()
     }
 
     /// Merge with this home's disk cap and the shared filesystem write quota.
     pub fn merge_step_with_space(&self, policy: &SpacePolicy) -> Result<bool> {
         self.refuse_if_poisoned()?;
         let _merge = unpoison(&self.merge_mutex);
+        if self.wants_seal() {
+            return self.seal_step().map(|()| true);
+        }
         let held = self.held();
         self.count_hidden(&held)?;
         match plan(&held) {

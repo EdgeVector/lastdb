@@ -1,12 +1,16 @@
 //! A disk format v2 home: sorted run files and one CURRENT.
 
 mod cleanup;
+mod commit_log;
 mod compaction;
 mod manifest;
+mod memory;
 pub(super) mod range;
 mod read;
+mod seal;
 
 pub use cleanup::{CheckpointSpec, LogicalInventory, RunHomeDiagnostics};
+pub use commit_log::{CommitLogStats, LOG};
 pub use compaction::HomeMutation;
 pub use manifest::RUNS;
 pub use range::{RunHashRange, RunRangePage};
@@ -16,6 +20,7 @@ use super::codec::corrupt;
 use super::{MergeSpace, MAX_RUN_KEY_BYTES, RUN_SUFFIX};
 use crate::durability::{sync_directory, sync_dirty_file};
 use crate::{Error, Result};
+use commit_log::CommitLog;
 use manifest::{Manifest, RunFile};
 use read::ReaderPool;
 use rustix::fs::{FlockOperation, OFlags};
@@ -112,6 +117,8 @@ pub struct RunHome {
     commit_mutex: Mutex<()>,
     publish_mutex: Mutex<()>,
     merge_mutex: Mutex<()>,
+    seal_mutex: Mutex<()>,
+    log: Option<CommitLog>,
     retired: Mutex<Vec<Weak<RunFile>>>,
     readers: Arc<ReaderPool>,
     poisoned: AtomicBool,
@@ -164,9 +171,20 @@ impl RunHome {
         Self::open(root, key)
     }
 
-    /// Open an existing home, take its owner lock, and remove crash leftovers.
+    /// Open an existing home, take its owner lock, and remove crash leftovers. Commits write
+    /// runs. Logged commits left by a logged owner are sealed, and the log is removed.
     pub fn open(root: &Path, key: &[u8; 32]) -> Result<Self> {
-        let (root_dir, identity, lock, manifest) = lock_and_load(root, key, true)?;
+        Self::open_with(root, key, false)
+    }
+
+    /// Open an existing home whose commits append one frame each to a commit log, with one
+    /// ordered flush. A background seal moves logged commits into runs.
+    pub fn open_logged(root: &Path, key: &[u8; 32]) -> Result<Self> {
+        Self::open_with(root, key, true)
+    }
+
+    fn open_with(root: &Path, key: &[u8; 32], logged: bool) -> Result<Self> {
+        let (root_dir, identity, lock, mut manifest) = lock_and_load(root, key, true)?;
         for entry in fs::read_dir(&root_dir)? {
             let entry = entry?;
             let name = entry.file_name();
@@ -179,7 +197,14 @@ impl RunHome {
         let keep = manifest.newest_first().map(|r| r.meta.id).collect();
         sweep_runs(&runs_dir, &keep, usize::MAX)?;
         manifest.verify_files("a run that CURRENT names has the wrong size")?;
-        Ok(Self {
+        let (memory, found) = commit_log::replay(&root_dir, key, manifest.frontier)?;
+        manifest.mem = memory;
+        let (stale_log, log) = if logged {
+            (false, Some(CommitLog::open(root_dir.join(LOG), found)?))
+        } else {
+            (found.is_some(), None)
+        };
+        let home = Self {
             root_dir,
             runs_dir,
             key: *key,
@@ -188,11 +213,17 @@ impl RunHome {
             commit_mutex: Mutex::new(()),
             publish_mutex: Mutex::new(()),
             merge_mutex: Mutex::new(()),
+            seal_mutex: Mutex::new(()),
+            log,
             retired: Mutex::default(),
             readers: Arc::default(),
             poisoned: AtomicBool::new(false),
             lock: Arc::new(lock),
-        })
+        };
+        if stale_log {
+            home.seal_and_drop_log()?;
+        }
+        Ok(home)
     }
 
     /// The home's directory.

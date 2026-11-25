@@ -15,7 +15,7 @@ from benchmarks.node import Node  # noqa: E402
 from harness import HOME_FORMAT, marker_format, poll_until  # noqa: E402
 import v1_records as v1  # noqa: E402
 import record_app_api, record_inline_files, record_named_databases, record_runs  # noqa: E401,E402
-import record_app_api_databases  # noqa: E402
+import record_app_api_databases, record_commit_log  # noqa: E401,E402
 from record_runs import (  # noqa: E402
     FIELDS, RANGED, definition, held, ids, ledger, listed_hashes, refused, require, system_seed,
 )
@@ -358,6 +358,11 @@ def main():
         record_runs.check(node)
         record_inline_files.exercise_drop_tracking(node)
         record_app_api.exercise(node)
+        record_commit_log.check(
+            node,
+            write=lambda key, values: mutate(node, "RecordById", key, values, "create"),
+            delete=lambda key: mutate(node, "RecordById", key, {}, operation="delete"),
+            read=lambda key: next((held(r["record"]) for r in query(node, "RecordById", {"HashKey": key})), None))
         current = query(node, "RecordById", {"HashKey": "four"})[0]["revision"]
         retry = v1.replace_item(
             "RecordById", {"hash": "four"}, {"id": "four", "bucket": "b5"}, current,
@@ -366,6 +371,7 @@ def main():
         record_named_databases.prepare(node, args.cli.resolve(strict=True), output)
         record_app_api.named_database(node, "work")
         node.stop()
+        record_commit_log.check_stopped(node)
         record_inline_files.exercise_format_refusal(node)
         node.start()
         refused(lambda: v1.write_items(node, [retry]), "HTTP 409")

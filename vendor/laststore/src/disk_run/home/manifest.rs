@@ -1,5 +1,6 @@
 //! CURRENT: sealed manifest model, binary wire codec, file staging, and run-file lifecycle.
 
+use super::memory::Memory;
 use super::{open_nofollow, write_private_file};
 use crate::disk_run::codec::{corrupt, get_bytes, get_len, get_slice, get_varint, put_varint};
 use crate::disk_run::{MergeSpace, RunMeta, MAX_RUN_KEY_BYTES, RUN_SUFFIX};
@@ -77,9 +78,16 @@ pub(super) struct Manifest {
     pub(super) merging: Vec<Arc<RunFile>>,
     pub(super) merge_cut: Option<Vec<u8>>,
     pub(super) base: Vec<Arc<RunFile>>,
+    /// Logged commits above `frontier`. Never encoded: replay rebuilds it from the log.
+    pub(super) mem: Memory,
 }
 
 impl Manifest {
+    /// Complete commits: those CURRENT holds and those in the memory layer.
+    pub(super) fn total_frontier(&self) -> u64 {
+        self.frontier + self.mem.commits()
+    }
+
     fn lists(&self) -> impl Iterator<Item = &Vec<Arc<RunFile>>> {
         self.levels.iter().chain([&self.merging, &self.base])
     }
@@ -216,6 +224,7 @@ impl Manifest {
             merging,
             merge_cut,
             base,
+            mem: Memory::default(),
         };
         check_shape(&manifest).map(|()| manifest)
     }

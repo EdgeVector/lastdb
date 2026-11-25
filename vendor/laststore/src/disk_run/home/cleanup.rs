@@ -248,7 +248,7 @@ impl RunHome {
     /// Capture storage diagnostics for the current published root.
     pub fn diagnostics(&self, with_inv: bool, deadline: Instant) -> Result<RunHomeDiagnostics> {
         let root = {
-            let (_commit, _merge) = (unpoison(&self.commit_mutex), unpoison(&self.merge_mutex));
+            let (_merge, _commit) = (unpoison(&self.merge_mutex), unpoison(&self.commit_mutex));
             self.refuse_if_poisoned()?;
             self.held()
         };
@@ -268,7 +268,7 @@ impl RunHome {
         });
         Ok(RunHomeDiagnostics {
             generation: root.generation,
-            frontier: root.frontier,
+            frontier: root.total_frontier(),
             inventory,
         })
     }

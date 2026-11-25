@@ -188,6 +188,13 @@ pub(crate) mod frame {
         Ok((id, counter, len, bytes[5]))
     }
 
+    /// Encoded length of the frame whose header starts `bytes`. `None` when no frame header
+    /// starts there, for example in the zeros after the last frame of a log file.
+    pub(crate) fn encoded_len(bytes: &[u8]) -> Option<usize> {
+        let (_, _, len, _) = decode_header(bytes.first_chunk::<HEADER_SIZE>()?).ok()?;
+        len.checked_add(HEADER_SIZE + TAG_SIZE)
+    }
+
     #[derive(Default)]
     pub(crate) struct DecodeScratch(Option<zstd::bulk::Decompressor<'static>>);
 
