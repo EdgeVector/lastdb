@@ -26,6 +26,10 @@ pub(crate) struct Sealer {
 }
 
 impl Sealer {
+    /// A sealer for a database that already has its shared read key.
+    pub(crate) fn for_read_key(database: DatabaseId, key: Zeroizing<[u8; 32]>) -> Self {
+        Self { key, database }
+    }
     /// The sealer of the personal database of the node with this seed.
     pub(crate) fn for_node_seed(node_seed: &[u8; 32]) -> Result<Self, String> {
         let id = personal_identity::database_id(node_seed);

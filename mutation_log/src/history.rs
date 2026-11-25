@@ -191,6 +191,17 @@ impl VerifiedHistory {
 
     /// Run `AcceptEntry(E, S)`. Applies on accept; buffers on pending; keeps evidence on reject.
     pub fn accept_entry(&mut self, entry: SignedEntry) -> AcceptOutcome {
+        self.accept_entry_opened(entry.clone(), entry)
+    }
+
+    /// Accept the signed wire entry while applying the locally opened form.
+    /// The wire entry remains the signed/hash-chained evidence; callers use
+    /// this for payloads that are opaque to the relay.
+    pub fn accept_entry_opened(
+        &mut self,
+        entry: SignedEntry,
+        opened: SignedEntry,
+    ) -> AcceptOutcome {
         let outcome = self.evaluate_entry(&entry);
         match &outcome {
             AcceptOutcome::Accept {
@@ -198,11 +209,13 @@ impl VerifiedHistory {
                 duplicate,
             } => {
                 if !*duplicate {
-                    self.apply_accepted(*entry_hash, entry);
+                    self.apply_accepted_opened(*entry_hash, entry, opened);
                     self.drain_pending();
                 }
             }
             AcceptOutcome::Pending { .. } => {
+                // An encrypted entry cannot be promoted safely without its
+                // opener. Its caller retries after the missing dependency.
                 self.pending.push_back(entry);
             }
             AcceptOutcome::Reject { reason } => {
@@ -235,6 +248,10 @@ impl VerifiedHistory {
     }
 
     pub(crate) fn apply_accepted(&mut self, hash: EntryHash, entry: SignedEntry) {
+        self.apply_accepted_opened(hash, entry.clone(), entry);
+    }
+
+    fn apply_accepted_opened(&mut self, hash: EntryHash, entry: SignedEntry, opened: SignedEntry) {
         let stream = stream_id_of(&entry);
         let h = entry.header().clone();
         let position = position_of(&entry);
@@ -247,7 +264,7 @@ impl VerifiedHistory {
             self.owner = Some(body.owner);
             self.birth = Some((hash, h.lamport));
         }
-        self.apply_effects(&entry, hash, position, is_publisher);
+        self.apply_effects(&opened, hash, position, is_publisher);
         let rebuild = is_publisher && grant_body.is_some();
         let grant_ref = rebuild.then(|| entry.clone());
         let meta = AcceptedMeta {

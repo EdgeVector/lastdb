@@ -24,7 +24,11 @@ use super::chain_author::AuthorIdentity;
 use super::history_store;
 use super::materialize;
 use super::wake;
+use crate::host::owned;
 use crate::host::Host;
+use crate::personal_seal::Sealer;
+use crate::shared_seal;
+use zeroize::Zeroizing;
 
 /// One FoldDB mutation to carry as a signed direct `data` entry.
 pub struct OwnedMutation {
@@ -40,6 +44,7 @@ pub(super) struct MirrorCtx<'a> {
     pub(super) identity: &'a AuthorIdentity,
     pub(super) store: &'a FoldDB,
     material: &'a BirthMaterial,
+    sealer: Sealer,
 }
 
 /// Author signed entries for an owned write and wake sync.
@@ -66,6 +71,7 @@ pub fn mirror_owned_write(
         identity: &identity,
         store: &store,
         material: &material,
+        sealer: shared_sealer(host, database_id)?,
     };
     histories.with_mut(database_id, |history| {
         history_store::commit_authored_batch(&host.home, history, |next| {
@@ -119,6 +125,7 @@ pub(super) fn publish_declared_schemas(host: &Host, database_id: &str) -> Result
         identity: &identity,
         store: &store,
         material: &material,
+        sealer: shared_sealer(host, database_id)?,
     };
     super::histories_for(host).with_mut(database_id, |history| {
         if history.owner().is_none() {
@@ -164,9 +171,18 @@ fn ensure_schema(
         namespace: name.to_owned(),
         definition,
     };
+    let body = shared_seal::seal_schema(
+        &ctx.sealer,
+        author.node_key,
+        author.device_id,
+        author.next_writer_seq(),
+        body,
+    )?;
     let entry =
         author_schema(&author, &ctx.identity.signing_key, body).map_err(|e| e.to_string())?;
-    stage(history, batch, entry)
+    let opened = shared_seal::open_entry(&ctx.sealer, &entry)
+        .ok_or_else(|| "sealed schema entry does not open".to_owned())?;
+    stage_opened(history, batch, entry, opened)
 }
 
 fn schema_definition_matches(prior: &[u8], current: &fold_db::schema::types::Schema) -> bool {
@@ -210,8 +226,23 @@ fn author_one(
         &item.record_key,
         &value,
     );
+    let body = shared_seal::seal_data(
+        &ctx.sealer,
+        author.node_key,
+        author.device_id,
+        author.next_writer_seq(),
+        body,
+    )?;
     let entry = author_data(&author, &ctx.identity.signing_key, body).map_err(|e| e.to_string())?;
-    stage(history, batch, entry)
+    let opened = shared_seal::open_entry(&ctx.sealer, &entry)
+        .ok_or_else(|| "sealed data entry does not open".to_owned())?;
+    stage_opened(history, batch, entry, opened)
+}
+
+fn shared_sealer(host: &Host, database_id: &str) -> Result<Sealer, String> {
+    let seed = Zeroizing::new(host.keypair.secret_key_bytes());
+    let key = owned::content_encryption_key(&seed, database_id)?;
+    shared_seal::for_key(database_id, key)
 }
 
 /// The context of the next entry on this device's stream.
@@ -240,6 +271,20 @@ fn stage(
         return Err("this stream has entries that wait for a dependency; sync first".into());
     }
     accepted(history.accept_entry(entry.clone()))?;
+    batch.push(entry);
+    Ok(())
+}
+
+fn stage_opened(
+    history: &mut VerifiedHistory,
+    batch: &mut Vec<SignedEntry>,
+    entry: SignedEntry,
+    opened: SignedEntry,
+) -> Result<(), String> {
+    if history.pending_on(&stream_id_of(&entry)) {
+        return Err("this stream has entries that wait for a dependency; sync first".into());
+    }
+    accepted(history.accept_entry_opened(entry.clone(), opened))?;
     batch.push(entry);
     Ok(())
 }
