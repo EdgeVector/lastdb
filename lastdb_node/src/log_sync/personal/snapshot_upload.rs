@@ -142,12 +142,11 @@ async fn stage_cut_blobs(
     committed_any: &mut bool,
 ) -> Result<((usize, u64), (String, u64)), String> {
     let fetched;
-    let held = match cached_held {
-        Some(held) => held,
-        None => {
-            fetched = client.blob_list(&ctx.database_id).await?;
-            &fetched
-        }
+    let held = if let Some(held) = cached_held {
+        held
+    } else {
+        fetched = client.blob_list(&ctx.database_id).await?;
+        &fetched
     };
     let uploaded = upload_files(ctx, client, cut, &list.files, held, committed_any).await?;
     let manifest = put_manifest(ctx, client, list, committed_any).await?;
