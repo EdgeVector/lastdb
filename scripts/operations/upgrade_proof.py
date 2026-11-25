@@ -186,7 +186,7 @@ def leave_old_spool(device, out):
     folder = device.old_spool_dir()
     if not folder.exists():
         return False
-    state = device.spool_report()
+    state = device.spool_state()
     require(state is not None and state["head"] == state["acked"] and not state["pending"],
             f"the stopped previous build left a spool that is not fully sent: {state!r}")
     folder.rename(out / "previous-build-spool")
@@ -251,8 +251,11 @@ def prove(relay, previous, devices, out, summary):
     wait("the upgraded home to upload", upgraded.synced_up)
     after, acked = heads(upgraded)
     require(after == before + 8 and acked == after, f"after 8 writes the spool holds head {after}, acknowledged {acked}")
-    require(relay.stream_entries(upgraded.database, upgraded.device_id()) == list(range(1, after + 1)),
-            "the relay does not hold one entry for each write of the home across both builds")
+    # A build that trims what a snapshot covers leaves the stream from its floor on.
+    floor = relay.stream_floor(upgraded.database, upgraded.device_id())
+    require(floor <= snapshot_head and relay.stream_entries(upgraded.database, upgraded.device_id())
+            == list(range(floor + 1, after + 1)),
+            f"the relay does not hold one entry for each write of the home after its floor {floor}, across both builds")
     require(upgraded.snapshot() == state, "the upgraded home does not read its old and new records")
     check_account(upgraded, had_account)
     print(f"2. the build under test started on the same home: cloud sync connected with no error ({sync['environment']}), "

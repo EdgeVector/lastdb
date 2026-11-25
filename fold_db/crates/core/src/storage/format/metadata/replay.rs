@@ -191,8 +191,12 @@ impl Metadata {
                     order: sent.order,
                 }))
             }
-            None if spool.head == 0 => Ok(None),
-            _ => Err(SchemaError::Blocked(
+            // No entry of this device's stream is in this home: the stream starts here. A spool
+            // that holds a position then came with the files of another device's snapshot, and
+            // the restore empties it before this device captures a write. (A spool of this
+            // device's own writes is committed with its chain row, so it is never in this arm.)
+            None => Ok(None),
+            Some(_) => Err(SchemaError::Blocked(
                 "the spool holds writes that an older build made and did not send, and this \
                  build cannot send them; start the build that made them, wait until it has \
                  sent them, then start this build"

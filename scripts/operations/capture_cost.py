@@ -110,7 +110,7 @@ def run_captured(build, name, out, relay, files):
         device.start()
         times = workload(device.node, files,
                          lambda: wait(f"{name} to upload every entry", device.synced_up, SYNC_SECONDS))
-        state = device.spool_report()
+        state = device.spool_state()
         writes = WARM + SINGLES + BATCHES * BATCH + sum(count for _, count in FILES)
         require(state is not None and state["head"] >= writes and state["head"] == state["acked"],
                 f"{name}: the spool reports {state!r} after {writes} records")
