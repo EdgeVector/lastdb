@@ -32,6 +32,7 @@ use serde::{Deserialize, Serialize};
 use tokio::fs;
 
 use crate::error::{ApiError, ApiResult};
+use crate::segment::Span;
 
 /// The file in a stream directory that records the last seq a trim dropped.
 pub(crate) const FLOOR_FILE: &str = "floor.json";
@@ -65,14 +66,13 @@ impl StreamHead {
         }
     }
 
-    /// Record a stored segment of entries `first` through `last`. A segment is only stored when it
-    /// continues the head, so one that does not is ignored here.
-    fn record_segment(&mut self, first: u64, last: u64, hash: String) {
-        if last <= self.seq || first != self.seq + 1 {
+    /// Record a stored segment. Only one that continues the head is stored, so others are ignored.
+    fn record_segment(&mut self, span: Span) {
+        if span.last_seq <= self.seq || span.first_seq != self.seq + 1 {
             return;
         }
-        self.seq = last;
-        self.hash = hash;
+        let last = span.last_seq;
+        (self.seq, self.hash) = (last, span.last_hash);
         self.pending.retain(|stored, _| *stored > last);
         self.join_pending();
     }
@@ -153,23 +153,15 @@ impl Heads {
             .record(seq, hash);
     }
 
-    /// Fold one newly stored segment into the head of its stream.
-    pub(crate) fn record_segment(
-        &self,
-        database_id: &str,
-        writer_key: &str,
-        device_id: &str,
-        first: u64,
-        last: u64,
-        hash: String,
-    ) {
+    /// Add one newly stored segment to the head of its stream.
+    pub(crate) fn record_segment(&self, database_id: &str, writer: &str, device: &str, span: Span) {
         let mut streams = self.streams.lock().expect("heads lock");
         streams
-            .entry((database_id.to_owned(), writer_key.to_owned()))
+            .entry((database_id.to_owned(), writer.to_owned()))
             .or_default()
-            .entry(device_id.to_owned())
+            .entry(device.to_owned())
             .or_default()
-            .record_segment(first, last, hash);
+            .record_segment(span);
     }
 
     /// Record that a trim dropped every entry of a stream up to `seq`.
@@ -331,14 +323,7 @@ impl Heads {
                 continue;
             };
             if let Ok(Some(span)) = crate::segment::span(&item) {
-                self.record_segment(
-                    &db,
-                    &writer,
-                    &device,
-                    span.first_seq,
-                    span.last_seq,
-                    span.last_hash,
-                );
+                self.record_segment(&db, &writer, &device, span);
                 continue;
             }
             let Ok(entry) = serde_json::from_value::<SignedEntry>(item) else {

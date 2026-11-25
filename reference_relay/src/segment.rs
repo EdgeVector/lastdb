@@ -156,14 +156,13 @@ impl Store {
         let item = serde_json::to_vec(&segment.item(node_key))
             .map_err(|_| ApiError::invalid("segment"))?;
         atomic_write(&path, &item).await?;
-        self.heads.record_segment(
-            database_id,
-            node_key,
-            device,
-            segment.first_seq,
-            segment.last_seq,
-            segment.last_hash.clone(),
-        );
+        let span = Span {
+            first_seq: segment.first_seq,
+            last_seq: segment.last_seq,
+            last_hash: segment.last_hash.clone(),
+        };
+        self.heads
+            .record_segment(database_id, node_key, device, span);
         Ok(Appended::Stored)
     }
 

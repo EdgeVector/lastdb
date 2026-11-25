@@ -19,7 +19,8 @@ import time
 
 from personal_proof_nodes import (
     ALPHA, BETA, GAMMA, MEBIBYTE, MEMORY_BOUND_BYTES, MARK, converged, create, delete, expect, relay_files,
-    relay_holds_none, replace, stored_entries, wait)
+    relay_holds_none, replace, wait)
+from personal_proof_segments import stored_entries
 from personal_proof_status import prove_installed, prove_taken, swept
 from personal_proof_steps import gamma_replace, gamma_seen, gamma_view
 from record_runs import require

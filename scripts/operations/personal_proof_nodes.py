@@ -18,6 +18,7 @@ sys.path[:0] = [str(_OPS), str(_OPS.parent)]
 from benchmarks.node import Node  # noqa: E402
 from record_runs import held, require  # noqa: E402
 import v1_records as v1  # noqa: E402
+from personal_proof_segments import stored_entries  # noqa: E402
 
 WAIT_SECONDS = 150
 SCALE_WAIT_SECONDS = 1800
@@ -46,7 +47,6 @@ IDS_KEPT, IDS_TRIM_EVERY = 10_000, 2_500
 IDS_BOUND = IDS_KEPT + IDS_TRIM_EVERY + 500
 
 
-
 def wait(what, probe, seconds=WAIT_SECONDS):
     """Poll probe() until it returns a truthy value. Name `what` and the last value on timeout."""
     deadline, last = time.monotonic() + seconds, None
@@ -56,57 +56,6 @@ def wait(what, probe, seconds=WAIT_SECONDS):
             return last
         time.sleep(1)
     raise RuntimeError(f"timed out after {seconds}s waiting for {what}; last value {last!r}")
-
-
-def segment_lines(blob):
-    """The signed entries a log segment's bytes hold: one JSON entry and a newline each."""
-    return [json.loads(line) for line in blob.split(b"\n") if line]
-
-
-def stored_items(directory):
-    """The items a reference relay stream directory holds, ascending by key: `(key, value)`. An
-    item is a signed entry stored at its seq, or a segment item stored at its last seq."""
-    found = [(int(path.stem), path) for path in directory.glob("*.json") if path.stem.isdigit()]
-    return [(key, json.loads(path.read_text())) for key, path in sorted(found)]
-
-
-def stored_entries(directory):
-    """Every entry a reference relay stream directory holds, `{seq: entry}`. A segment item is read
-    from its blob, `<relay data>/blobs/<sha256>`, three levels above `logs/<db>/<node>/<device>`."""
-    blobs = directory.parents[3] / "blobs"
-    entries = {}
-    for key, value in stored_items(directory):
-        segment = value.get("segment")
-        if segment is None:
-            entries[key] = value
-            continue
-        held = segment_lines((blobs / segment["sha256"]).read_bytes())
-        seqs = [entry["writer_seq"] for entry in held]
-        require(seqs == list(range(segment["first_seq"], segment["last_seq"] + 1)),
-                f"the segment at {key} holds entries {seqs[:1]}..{seqs[-1:]}, not {segment['first_seq']}..{key}")
-        entries.update((entry["writer_seq"], entry) for entry in held)
-    return entries
-
-
-def expand_read(entries):
-    """The entries of a `log/read` answer, with each segment item replaced by the entries its blob
-    holds, fetched from the item's `url` with its `headers`."""
-    import hashlib
-    import urllib.request
-
-    found = []
-    for item in entries:
-        segment = item.get("segment") if isinstance(item, dict) else None
-        if segment is None:
-            found.append(item)
-            continue
-        request = urllib.request.Request(segment["url"], headers=segment.get("headers") or {})
-        with urllib.request.urlopen(request, timeout=60) as answer:
-            blob = answer.read()
-        require(hashlib.sha256(blob).hexdigest() == segment["sha256"] and len(blob) == segment["bytes"],
-                f"the segment blob {segment['sha256'][:12]} came back with other bytes")
-        found += segment_lines(blob)
-    return found
 
 
 def free_port():
@@ -177,13 +126,9 @@ class Relay:
         return found
 
     def stream_entries(self, database, device_id):
-        """The seqs of the entries the relay holds of one device stream, under
-        logs/<db>/<node>/<device>/, with the entries of each segment item."""
-        seqs = []
-        for directory in (self.data / "logs").glob(f"{database}/*/{device_id}"):
-            seqs += stored_entries(directory)
-        return sorted(seqs)
-
+        """The seqs of the entries the relay holds of one device stream (segments read as their entries)."""
+        dirs = (self.data / "logs").glob(f"{database}/*/{device_id}")
+        return sorted(seq for directory in dirs for seq in stored_entries(directory))
 
     def stream_floor(self, database, device_id):
         """The last entry of a stream that a trim dropped, from its `floor.json`. 0 when none was."""

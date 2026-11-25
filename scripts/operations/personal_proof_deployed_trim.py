@@ -5,7 +5,8 @@ and afterwards signs requests as A: the repeat of those entries must be answered
 read there must be 410, and the contiguous head that `log/streams` reports must not move. What it cannot
 do on a deployed relay: list the stored entries, read the floors, or read the quota counter.
 """
-from personal_proof_nodes import expand_read, require
+from personal_proof_nodes import require
+from personal_proof_segments import expand_read
 from personal_proof_trim import Ed25519PrivateKey, relay_post
 
 EARLY = (3, 7)

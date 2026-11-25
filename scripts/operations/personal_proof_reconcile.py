@@ -36,7 +36,7 @@ import urllib.error
 import urllib.request
 
 from personal_proof_deployed_trim import node_hex
-from personal_proof_nodes import expand_read, stored_items
+from personal_proof_segments import expand_read, stored_items
 from personal_proof_snapshot import stored_seqs, stream_dirs
 from personal_proof_trim import relay_post
 from record_runs import require
