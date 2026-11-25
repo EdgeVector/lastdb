@@ -23,10 +23,12 @@ from record_runs import definition, system_seed
 import v1_records as v1
 
 NONE_YET = "Snapshot: none yet"
-# The reference relay for the refusal takes no blob larger than this, as Exemem takes none over 64 MiB.
-RELAY_LIMIT_BYTES = 64 * 1024
-# Records written to the refusing home: together they make a data file over the limit.
-BIG_RECORDS, BIG_NOTE_BYTES = 40, 20_000
+# The reference relay for the refusal takes no blob larger than this. It must take every log segment: a
+# segment holds one sent batch, at most 2 MiB of entries (BATCH_BYTES in personal/outgoing.rs) and newlines.
+RELAY_LIMIT_BYTES = 2560 * 1024
+# Records written to the refusing home, WRITE_CHUNK at a time: together they make a data file over the limit,
+# about half their text after compression.
+BIG_RECORDS, BIG_NOTE_BYTES, WRITE_CHUNK = 200, 30_000, 40
 # The refused snapshot is not tried again while this long passes, many sync turns.
 QUIET_SECONDS = 12
 FIELDS = ("state", "taken_at_ms", "files", "bytes", "relay", "manifest_sha256", "through_seq", "snapshot_seq",
@@ -142,7 +144,8 @@ def refused_snapshot(relay, device):
     """A relay that refuses a file over its limit: a clear report, no loop, and the entries still go up."""
     require(refusals(relay) == 0, "the refusing relay refused a blob before the snapshot")
     system_seed(device.node, definition(ALPHA, "Hash", RECORD_FIELDS, description_prefix="Personal proof "))
-    device.write([create_big(i) for i in range(BIG_RECORDS)])
+    for start in range(0, BIG_RECORDS, WRITE_CHUNK):
+        device.write([create_big(i) for i in range(start, min(start + WRITE_CHUNK, BIG_RECORDS))])
     warned = len(device.warnings(all_lines=True))
     wait("the refusing home to upload its writes", device.synced_up)
     env = {k: v for k, v in os.environ.items() if not k.startswith("LASTDB")}
@@ -186,6 +189,6 @@ def refusals(relay):
 
 
 def create_big(index):
-    """A record with a note of about 20 KB, so that the data file passes the limit of the relay."""
+    """A record with a note of BIG_NOTE_BYTES of hex, so that the data file passes the limit of the relay."""
     note = os.urandom(BIG_NOTE_BYTES // 2).hex()
     return v1.create_item(ALPHA, {"hash": f"big-{index}"}, {"id": f"big-{index}", "note": note})
