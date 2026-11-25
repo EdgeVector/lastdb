@@ -72,7 +72,7 @@ pub(crate) async fn log_append(
     body: Bytes,
 ) -> ApiResult<Json<Value>> {
     let verified = auth::verify_request(&headers, "/relay/v1/log/append", &body)?;
-    let req: LogAppendBody = parse_body(&body, crate::MAX_JSON_BODY_BYTES)?;
+    let req: LogAppendBody = parse_body(&body)?;
     verified.check_database(&req.database_id)?;
     require_hex64(&req.database_id, "database_id")?;
     let caller = verified.node_key;
@@ -94,7 +94,7 @@ pub(crate) async fn log_read(
     body: Bytes,
 ) -> ApiResult<Response> {
     let verified = auth::verify_request(&headers, "/relay/v1/log/read", &body)?;
-    let req: LogReadBody = parse_body(&body, SMALL_BODY_BYTES)?;
+    let req: LogReadBody = parse_body(&body)?;
     verified.check_database(&req.database_id)?;
     require_hex64(&req.database_id, "database_id")?;
     let caller = verified.node_key;
@@ -136,6 +136,8 @@ pub(crate) async fn log_read(
                 .await?
         }
     };
+    let prefix = if all_devices { "w:" } else { "d:" };
+    let (entries, cursor) = fit_response(entries, cursor, prefix)?;
     let returned = EntriesReturned(entries.len());
     let mut out = json!({ "entries": entries });
     if let Some(c) = cursor {
@@ -157,7 +159,7 @@ pub(crate) async fn log_streams(
     body: Bytes,
 ) -> ApiResult<Json<Value>> {
     let verified = auth::verify_request(&headers, "/relay/v1/log/streams", &body)?;
-    let req: LogStreamsBody = parse_body(&body, SMALL_BODY_BYTES)?;
+    let req: LogStreamsBody = parse_body(&body)?;
     verified.check_database(&req.database_id)?;
     require_hex64(&req.database_id, "database_id")?;
     let caller = verified.node_key;
@@ -187,7 +189,7 @@ pub(crate) async fn blob_put(
     body: Bytes,
 ) -> ApiResult<Json<Value>> {
     let verified = auth::verify_request(&headers, "/relay/v1/blob/put", &body)?;
-    let req: BlobPutBody = parse_body(&body, SMALL_BODY_BYTES)?;
+    let req: BlobPutBody = parse_body(&body)?;
     verified.check_database(&req.database_id)?;
     require_hex64(&req.database_id, "database_id")?;
     let caller = verified.node_key;
@@ -256,7 +258,7 @@ pub(crate) async fn blob_get(
     body: Bytes,
 ) -> ApiResult<Json<Value>> {
     let verified = auth::verify_request(&headers, "/relay/v1/blob/get", &body)?;
-    let req: BlobGetBody = parse_body(&body, SMALL_BODY_BYTES)?;
+    let req: BlobGetBody = parse_body(&body)?;
     verified.check_database(&req.database_id)?;
     require_hex64(&req.database_id, "database_id")?;
     let caller = verified.node_key;
@@ -283,19 +285,55 @@ pub(crate) async fn blob_get(
     })))
 }
 
-/// The most bytes a request body may have when it carries no entries: a database id, a key,
-/// a sequence number or a digest. `log/append` carries up to 90 entries and is bound by
-/// the limit of the server instead.
-pub(crate) const SMALL_BODY_BYTES: usize = 64 * 1024;
-
-/// Decode a request body whose signature was already verified.
-pub(crate) fn parse_body<T: serde::de::DeserializeOwned>(
-    body: &[u8],
-    limit: usize,
-) -> ApiResult<T> {
-    if body.len() > limit {
-        return Err(ApiError::invalid("body"));
+/// Keep a `log/read` page inside the response limit. A page that stops early ends with a cursor
+/// at the entry after its last one, so the reader continues there. The first entry is always
+/// kept, so a reader always moves forward.
+fn fit_response(
+    mut entries: Vec<Value>,
+    cursor: Option<String>,
+    prefix: &str,
+) -> ApiResult<(Vec<Value>, Option<String>)> {
+    let longest_cursor = format!("{prefix}{}:{}:{}", "0".repeat(64), "0".repeat(64), u64::MAX);
+    let envelope = json!({ "entries": [], "cursor": longest_cursor });
+    let mut used = json_bytes(&envelope)?;
+    let mut cut = None;
+    for (index, entry) in entries.iter().enumerate() {
+        // The entry and the comma before it.
+        let size = json_bytes(entry)? + 1;
+        if index > 0 && used + size > crate::PLATFORM_PAYLOAD_MAX_BYTES {
+            cut = Some(index);
+            break;
+        }
+        used += size;
     }
+    let Some(cut) = cut else {
+        return Ok((entries, cursor));
+    };
+    let last = &entries[cut - 1];
+    let field = |name: &str| last.get(name).and_then(Value::as_str).map(str::to_owned);
+    let (Some(node_key), Some(device_id), Some(seq)) = (
+        field("node_key"),
+        field("device_id"),
+        last.get("writer_seq").and_then(Value::as_u64),
+    ) else {
+        return Err(ApiError::invalid("entries"));
+    };
+    entries.truncate(cut);
+    Ok((
+        entries,
+        Some(format!("{prefix}{node_key}:{device_id}:{}", seq + 1)),
+    ))
+}
+
+fn json_bytes(value: &Value) -> ApiResult<usize> {
+    serde_json::to_vec(value)
+        .map(|bytes| bytes.len())
+        .map_err(|_| ApiError::invalid("entries"))
+}
+
+/// Decode a request body whose signature was already verified. Its size is bound by
+/// `PLATFORM_PAYLOAD_MAX_BYTES`, which the server applies to every request.
+pub(crate) fn parse_body<T: serde::de::DeserializeOwned>(body: &[u8]) -> ApiResult<T> {
     serde_json::from_slice(body).map_err(|_| ApiError::invalid("body"))
 }
 

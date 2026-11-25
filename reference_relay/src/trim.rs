@@ -21,7 +21,7 @@ use crate::auth;
 use crate::error::{ApiError, ApiResult};
 use crate::gate;
 use crate::grant_index::GrantIndex;
-use crate::handlers::{parse_body, AppState, SMALL_BODY_BYTES};
+use crate::handlers::{parse_body, AppState};
 use crate::store::{read_json, require_hex64, Store};
 use crate::trim_plan::{apply, ensure_personal_logs, permits_entry, plan, TrimScope};
 
@@ -39,7 +39,7 @@ pub(crate) async fn log_trim(
     body: Bytes,
 ) -> ApiResult<Json<Value>> {
     let verified = auth::verify_request(&headers, "/relay/v1/log/trim", &body)?;
-    let req: LogTrimBody = parse_body(&body, SMALL_BODY_BYTES)?;
+    let req: LogTrimBody = parse_body(&body)?;
     verified.check_database(&req.database_id)?;
     require_hex64(&req.database_id, "database_id")?;
     let db = gate::parse_id(&req.database_id, "database_id")?;
