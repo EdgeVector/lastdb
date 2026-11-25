@@ -96,21 +96,30 @@ async fn blocking<T: Send + 'static>(
 
 /// The confirmed position of this device. A device with none starts at zero.
 async fn position(ctx: &Ctx<'_>) -> Result<UploadPosition, String> {
-    blocking(ctx, |runtime, identity| {
-        if let Some(found) = runtime.accepted_upload_position(identity)? {
-            return Ok(found);
-        }
-        if runtime.accepted_status().acked != 0 {
-            return Err(SpoolError::Behind);
-        }
-        let first = UploadPosition {
-            writer_seq: 0,
-            spool_through: 0,
-        };
-        runtime.confirm_accepted_upload(identity, 0, first)?;
-        Ok(first)
+    let found = blocking(ctx, |runtime, identity| {
+        runtime.accepted_upload_position(identity)
     })
-    .await
+    .await?;
+    if let Some(found) = found {
+        return Ok(found);
+    }
+    // No upload was recorded yet. The spool starts at the head of this device's chain, which an
+    // earlier spool already sent (zero for a new home), so the stream continues from there.
+    let start = ctx.runtime.accepted_status().acked;
+    let first = UploadPosition {
+        writer_seq: start,
+        spool_through: start,
+    };
+    confirm(ctx, start, first).await?;
+    Ok(first)
+}
+
+/// Record an upload position in the spool, and retire the entries it covers.
+async fn confirm(ctx: &Ctx<'_>, after: u64, position: UploadPosition) -> Result<(), String> {
+    ctx.runtime
+        .confirm_accepted_upload(&ctx.upload, after, position)
+        .await
+        .map_err(|error| format!("the local upload queue failed: {error:?}"))
 }
 
 /// The next entries of the spool, as many as fit in a batch. `None` when the spool is empty.
@@ -199,19 +208,11 @@ async fn finish(
     send::send(ctx, client, batch, birth_known).await?;
     let last = batch.entries.last().ok_or("a batch holds no entry")?;
     commit_head(ctx, last).await?;
-    let (after, through) = (batch.after, batch.through);
-    let writer_seq = last.header().writer_seq;
-    blocking(ctx, move |runtime, identity| {
-        runtime.confirm_accepted_upload(
-            identity,
-            after,
-            UploadPosition {
-                writer_seq,
-                spool_through: through,
-            },
-        )
-    })
-    .await
+    let position = UploadPosition {
+        writer_seq: last.header().writer_seq,
+        spool_through: batch.through,
+    };
+    confirm(ctx, batch.after, position).await
 }
 
 /// Move the own head row to an entry the relay acknowledged. It repeats safely.

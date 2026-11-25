@@ -16,6 +16,9 @@ the two builds' `lastdbd` and `lastdb`, and the `reference_relay` built from the
    batches, replaces, deletes, an alternate key, a file). Every write is acknowledged and on the
    relay, a snapshot is taken with `backup snapshot --wait`, a tail of writes follows, and the
    daemon stops cleanly.
+   If the previous build keeps its spool in `data/disk-run/accepted-v1/`, the one manual upgrade
+   step follows: its state shows every write acknowledged and nothing pending, and the folder is
+   moved out of the home. The build under test refuses a home that still has it.
 2. Build under test: a daemon on the SAME home with the same environment. It starts, `lastdb
    status` reports cloud sync connected with no error and the two builds agree, every record
    reads back equal by key and by alternate key, the file matches, new writes are acknowledged
@@ -178,6 +181,18 @@ def heads(device):
     return state["head"], state["acked"]
 
 
+def leave_old_spool(device, out):
+    """The manual upgrade step: the stopped previous build sent every write, so its spool folder goes."""
+    folder = device.old_spool_dir()
+    if not folder.exists():
+        return False
+    state = device.spool_report()
+    require(state is not None and state["head"] == state["acked"] and not state["pending"],
+            f"the stopped previous build left a spool that is not fully sent: {state!r}")
+    folder.rename(out / "previous-build-spool")
+    return True
+
+
 def prove(relay, previous, devices, out, summary):
     old, upgraded, first, second = devices
     folder, source = out / "file-dir", out / "source-files"
@@ -203,8 +218,11 @@ def prove(relay, previous, devices, out, summary):
     require(old.snapshot() == state and gamma_view(old, folder) == gamma,
             "the previous build does not hold what it was given")
     old.stop()
+    moved = leave_old_spool(old, out)
     print(f"1. {previous['tag']} (commit {previous['source_git_oid'][:9]}) made a connected home of {len(state)} records "
-          f"with a snapshot at head {snapshot_head} and a tail of {tail} writes, all acknowledged", flush=True)
+          f"with a snapshot at head {snapshot_head} and a tail of {tail} writes, all acknowledged"
+          + ("; its sent spool folder was moved out of the home (the manual upgrade step)" if moved else ""),
+          flush=True)
     summary.append(f"The previous build wrote {len(state)} records in three schemas, a file, an alternate key, "
                    f"a snapshot at head {snapshot_head} and a tail of {tail} writes.")
 

@@ -58,8 +58,9 @@ impl PackRuntime {
         .await?;
         self.flush_native().await?;
         let frontier = self.physical.current_root().frontier();
-        self.note_accepted_snapshot(frontier)
-            .map_err(|e| StorageError::invalid(format!("restore snapshot coverage: {e:?}")))
+        self.reset_accepted(frontier)
+            .await
+            .map_err(|e| StorageError::invalid(format!("restore spool reset: {e:?}")))
     }
 
     /// Preserve a home that held data before it began to capture writes, as the cut of its
@@ -96,7 +97,7 @@ impl PackRuntime {
                     "a write was captured before the first snapshot was preserved",
                 ));
             }
-            prearm::stage_and_pin(&runtime.physical, log, &key)
+            prearm::stage_and_pin(&runtime, log, &key)
         })
         .await
     }
@@ -131,6 +132,9 @@ impl PackRuntime {
         let heads = self.stream_head_rows().await?;
         let runtime = Arc::clone(self);
         run_blocking(move || {
+            // Commits acknowledge after an ordered write. The files of a snapshot leave this
+            // machine, so the drive is flushed to the medium first.
+            laststore::flush_drive(runtime.physical.path()).map_err(map)?;
             let _references = crate::storage::local_file_ref::catalog_lock(&runtime)?;
             DatabaseSnapshot::from_roots(&runtime.physical, heads)?
                 .with_local_files(&runtime.physical, &key)

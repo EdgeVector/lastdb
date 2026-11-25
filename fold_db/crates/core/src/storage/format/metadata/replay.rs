@@ -79,7 +79,7 @@ impl ReplayTarget<'_> {
 }
 
 /// The row that holds the newest entry of the stream one device signs.
-fn chain_key(device: &str) -> String {
+pub(in crate::storage) fn chain_key(device: &str) -> String {
     format!("signed-replay-chain:{device}")
 }
 

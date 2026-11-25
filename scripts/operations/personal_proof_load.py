@@ -163,7 +163,7 @@ def scale(relay, a, b, writes):
     ids, accepted = a.id_records(), a.spool_state()["head"]
     require(ids <= IDS_BOUND and (accepted <= IDS_BOUND or ids < accepted // 2),
             f"A holds {ids} id records for {accepted} accepted writes (bound {IDS_BOUND})")
-    report["id_records"] = {"files": ids, "accepted_writes": accepted, "bound": IDS_BOUND}
+    report["id_records"] = {"records": ids, "accepted_writes": accepted, "bound": IDS_BOUND}
     mark = len(relay.lines())
     wait("idle turns", lambda: count_turns(relay, mark) >= 4)
     reads = relay.requests_since(mark, "log/read")

@@ -170,10 +170,10 @@ fn signed_note(
         .sign(previous, order, &plain, file_sha256.as_deref())
         .map_err(refused)?;
     let note = Note {
+        seq,
         mutation_id: mutation_id.to_owned(),
         plaintext_sha256,
         envelope: signed.entry,
-        authored_at_ms: Some(order),
         file: sealed,
     };
     let next = LocalEntry {

@@ -95,7 +95,8 @@ impl RelayClient {
             mutation_log::NodeKey::from_bytes(host.keypair.public_key_bytes()).to_hex();
         let device_id = super::device::device_id(&host.home)?;
         let mut client = Self::new(base, signing_key, node_key_hex, &device_id)?;
-        client.usage = Some(super::usage::Ledger::new(&host.home));
+        let spool_acked = host.db.db_ops().native_runtime().accepted_status().acked;
+        client.usage = Some(super::usage::Ledger::new(&host.home, spool_acked));
         Ok(client)
     }
 

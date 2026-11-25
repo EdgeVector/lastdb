@@ -48,14 +48,14 @@ jobs:
     name: ${{ matrix.lane }}
     needs: build
     runs-on: ubuntu-24.04
-    timeout-minutes: ${{ matrix.lane == 'speed' && 350 || matrix.lane == 'growth' && 130 || 90 }}
+    timeout-minutes: ${{ matrix.lane == 'speed' && 350 || (matrix.lane == 'growth' || matrix.lane == 'capture') && 130 || 90 }}
     strategy:
       # A speed failure must not cancel the independent disk/delete cap.
       fail-fast: false
       matrix:
         lane: >-
           ${{ fromJSON(format('["disk", "growth"{0}{1}]',
-              !inputs.resource_only && ', "speed"' || '',
+              !inputs.resource_only && ', "speed", "capture"' || '',
               !inputs.resource_only && inputs.writer16 && ', "writers"' || '')) }}
     env:
       BENCH_PROFILE: ${{ inputs.profile }}
@@ -113,6 +113,40 @@ jobs:
 
       - name: Require corpus space before measurements
         run: python3 driver/scripts/benchmarks/plan.py disk --profile "$BENCH_PROFILE" --phase measure --require
+
+      - name: Cache the relay build
+        if: matrix.lane == 'capture'
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: driver -> ${{ runner.temp }}/relay-target
+          key: capture-relay
+
+      - name: Build the reference relay from the driver source
+        if: matrix.lane == 'capture'
+        working-directory: driver
+        env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}/relay-target
+        run: cargo build --locked --release -p reference_relay --bin reference_relay
+
+      - name: Measure what capturing a write costs the caller
+        if: matrix.lane == 'capture'
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate }}
+          BASELINE_SHA: ${{ inputs.baseline }}
+        run: |
+          work="$RUNNER_TEMP/capture-work"
+          timeout --signal=TERM --kill-after=120s 90m \
+            python3 driver/scripts/operations/capture_cost.py \
+              --relay-bin "$RUNNER_TEMP/relay-target/release/reference_relay" \
+              --baseline-daemon "$BENCH_BINARY_ROOT/$BASELINE_SHA/lastdbd" \
+              --baseline-cli "$BENCH_BINARY_ROOT/$BASELINE_SHA/lastdb" \
+              --baseline-revision "$BASELINE_SHA" \
+              --candidate-daemon "$BENCH_BINARY_ROOT/$CANDIDATE_SHA/lastdbd" \
+              --candidate-cli "$BENCH_BINARY_ROOT/$CANDIDATE_SHA/lastdb" \
+              --candidate-revision "$CANDIDATE_SHA" \
+              --output "$work"
+          mkdir -p "$BENCH_OUTPUT/capture"
+          cp "$work/capture-cost.json" "$BENCH_OUTPUT/capture/"
 
       - name: Compare 16 durable writers on six fresh generated homes
         if: matrix.lane == 'writers'
@@ -290,3 +324,93 @@ jobs:
           path: ${{ runner.temp }}/benchmark-download-receipt/artifact.json
           retention-days: 14
           if-no-files-found: error
+
+  capture-macos:
+    # The same captured-write measurement on a Mac, where an acknowledgement waits for an ordered
+    # write (F_BARRIERFSYNC). Advisory: it does not decide benchmark-complete.
+    name: capture (macOS, advisory)
+    if: ${{ !inputs.resource_only }}
+    runs-on: macos-15
+    continue-on-error: true
+    timeout-minutes: 180
+    steps:
+      - name: Prepare external result directory
+        run: |
+          echo "CAPTURE_OUTPUT=$RUNNER_TEMP/capture-macos-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_ENV"
+          echo "CAPTURE_PROGRAMS=$RUNNER_TEMP/capture-programs" >> "$GITHUB_ENV"
+
+      - name: Checkout benchmark driver from the workflow revision
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.driver }}
+          path: driver
+          persist-credentials: false
+
+      - name: Checkout candidate
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.candidate }}
+          path: candidate
+          persist-credentials: false
+
+      - name: Checkout baseline
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.baseline }}
+          path: baseline
+          persist-credentials: false
+
+      - name: Cache the Mac builds
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            candidate -> ${{ runner.temp }}/capture-target-candidate
+            baseline -> ${{ runner.temp }}/capture-target-baseline
+            driver -> ${{ runner.temp }}/capture-target-relay
+          key: capture-macos
+
+      - name: Build both programs and the reference relay
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate }}
+          BASELINE_SHA: ${{ inputs.baseline }}
+        run: |
+          set -euo pipefail
+          for pair in "candidate:$CANDIDATE_SHA" "baseline:$BASELINE_SHA"; do
+            label="${pair%%:*}"; sha="${pair#*:}"
+            (cd "$label" && CARGO_TARGET_DIR="$RUNNER_TEMP/capture-target-$label" \
+              FOLDDB_BUILD_VERSION_OVERRIDE="bench-$sha" \
+              cargo build --locked --profile dev-release -p lastdb_node --bin lastdbd --bin lastdb)
+            mkdir -p "$CAPTURE_PROGRAMS/$label"
+            cp "$RUNNER_TEMP/capture-target-$label/dev-release/lastdbd" \
+               "$RUNNER_TEMP/capture-target-$label/dev-release/lastdb" "$CAPTURE_PROGRAMS/$label/"
+            "$CAPTURE_PROGRAMS/$label/lastdbd" --version | grep -F "bench-$sha"
+          done
+          (cd driver && CARGO_TARGET_DIR="$RUNNER_TEMP/capture-target-relay" \
+            cargo build --locked --release -p reference_relay --bin reference_relay)
+
+      - name: Measure what capturing a write costs the caller
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate }}
+          BASELINE_SHA: ${{ inputs.baseline }}
+        run: |
+          work="$RUNNER_TEMP/capture-work"
+          python3 driver/scripts/operations/capture_cost.py \
+            --relay-bin "$RUNNER_TEMP/capture-target-relay/release/reference_relay" \
+            --baseline-daemon "$CAPTURE_PROGRAMS/baseline/lastdbd" \
+            --baseline-cli "$CAPTURE_PROGRAMS/baseline/lastdb" \
+            --baseline-revision "$BASELINE_SHA" \
+            --candidate-daemon "$CAPTURE_PROGRAMS/candidate/lastdbd" \
+            --candidate-cli "$CAPTURE_PROGRAMS/candidate/lastdb" \
+            --candidate-revision "$CANDIDATE_SHA" \
+            --output "$work"
+          mkdir -p "$CAPTURE_OUTPUT"
+          cp "$work/capture-cost.json" "$CAPTURE_OUTPUT/"
+
+      - name: Upload the measurement
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: lastdb-capture-macos-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.CAPTURE_OUTPUT }}/
+          retention-days: 14
+          if-no-files-found: warn

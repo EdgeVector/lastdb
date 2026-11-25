@@ -35,7 +35,7 @@ BATCH = 100
 
 
 def first_snapshot_done(device):
-    """The home named its first snapshot and released the preserved files. Read from the home alone."""
+    """The home named its first snapshot and released the preserved files. Read from the running daemon and its home."""
     state = device.spool_state()
     return (state is not None and state.get("snapshot_required") is False
             and (device.log_dir() / "snapshot-last.json").is_file()

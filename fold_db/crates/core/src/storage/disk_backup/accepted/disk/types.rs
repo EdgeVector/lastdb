@@ -1,14 +1,17 @@
-//! On-disk control and staging types for the accepted write spool.
+//! Records of the spool in the store, and the note a captured write hands to it.
 
 use super::super::body;
+use super::upload::Checkpoint;
 use serde::{Deserialize, Serialize};
 
+/// One captured write, signed, as the commit hands it to the spool.
 #[derive(Clone)]
 pub(in crate::storage) struct Note {
+    /// The sequence number the entry was signed with. It must be the next spool sequence.
+    pub seq: u64,
     pub mutation_id: String,
     pub plaintext_sha256: String,
     pub envelope: Vec<u8>,
-    pub authored_at_ms: Option<u64>,
     pub file: Option<Vec<u8>>,
 }
 
@@ -18,61 +21,64 @@ impl Note {
     }
 }
 
+/// The spool's own row (`accepted_state/state`). The head is not in it: the head is the
+/// last entry record, or `acked` when no entry is left.
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(in crate::storage::disk_backup::accepted) struct State {
     pub(in crate::storage::disk_backup::accepted) version: u16,
+    /// Native frontier when the stream started. A first snapshot must cover it.
     pub(in crate::storage::disk_backup::accepted) opened_frontier: u64,
-    pub(in crate::storage::disk_backup::accepted) head: u64,
+    /// Highest sequence the relay acknowledged. Entries at or below it are gone.
     pub(in crate::storage::disk_backup::accepted) acked: u64,
-    pub(in crate::storage::disk_backup::accepted) retained_bytes: u64,
     /// The writes of the home from before this stream began are in no entry. A first
     /// snapshot must cover them before any entry may be read for upload or acknowledged.
-    /// False for a home that captured from its birth, and for a restore.
-    #[serde(default)]
     pub(in crate::storage::disk_backup::accepted) snapshot_required: bool,
-    pub(in crate::storage::disk_backup::accepted) gap: bool,
-    #[serde(default, skip_serializing)]
-    pub(in crate::storage::disk_backup::accepted) armed: bool,
+    /// Where the upload of this home stands, written with the acknowledgement it confirms.
+    pub(in crate::storage::disk_backup::accepted) upload: Option<Checkpoint>,
 }
 
-#[derive(Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(in crate::storage::disk_backup::accepted) struct Pending {
-    pub(in crate::storage::disk_backup::accepted) version: u16,
-    pub(in crate::storage::disk_backup::accepted) frontier_before: u64,
-    #[serde(default)]
-    pub(in crate::storage::disk_backup::accepted) main_frontier_before: Option<u64>,
-    pub(in crate::storage::disk_backup::accepted) notes: Vec<PendingNote>,
-}
+pub(in crate::storage::disk_backup::accepted) const STATE_VERSION: u16 = 2;
 
+/// What an entry record says about its write, before the signed bytes.
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(in crate::storage::disk_backup::accepted) struct PendingNote {
+pub(in crate::storage::disk_backup::accepted) struct Meta {
     pub(in crate::storage::disk_backup::accepted) sequence: u64,
     pub(in crate::storage::disk_backup::accepted) mutation_id: String,
     pub(in crate::storage::disk_backup::accepted) plaintext_sha256: String,
-    pub(in crate::storage::disk_backup::accepted) envelope_sha256: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(in crate::storage::disk_backup::accepted) authored_at_ms: Option<u64>,
     pub(in crate::storage::disk_backup::accepted) file_sha256: Option<String>,
-    pub(in crate::storage::disk_backup::accepted) envelope_bytes: u64,
     pub(in crate::storage::disk_backup::accepted) file_bytes: u64,
 }
 
-#[derive(Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(in crate::storage::disk_backup::accepted) struct Meta {
-    pub(in crate::storage::disk_backup::accepted) version: u16,
-    #[serde(flatten)]
-    pub(in crate::storage::disk_backup::accepted) note: PendingNote,
+impl Meta {
+    /// Bytes this entry holds in the spool: the signed entry and its sealed file.
+    pub(in crate::storage::disk_backup::accepted) fn weight(&self, signed_bytes: usize) -> u64 {
+        (signed_bytes as u64).saturating_add(self.file_bytes)
+    }
 }
 
-impl std::ops::Deref for Meta {
-    type Target = PendingNote;
-    fn deref(&self) -> &Self::Target {
-        &self.note
-    }
+/// An entry record's value: a big-endian `u32` length, the meta as JSON, the signed entry.
+pub(in crate::storage::disk_backup::accepted) fn encode_entry(
+    meta: &Meta,
+    signed: &[u8],
+) -> Option<Vec<u8>> {
+    let head = serde_json::to_vec(meta).ok()?;
+    let len = u32::try_from(head.len()).ok()?;
+    let mut out = Vec::with_capacity(4 + head.len() + signed.len());
+    out.extend_from_slice(&len.to_be_bytes());
+    out.extend_from_slice(&head);
+    out.extend_from_slice(signed);
+    Some(out)
+}
+
+pub(in crate::storage::disk_backup::accepted) fn decode_entry(
+    value: &[u8],
+) -> Option<(Meta, &[u8])> {
+    let len = u32::from_be_bytes(value.get(..4)?.try_into().ok()?) as usize;
+    let end = 4usize.checked_add(len)?;
+    let meta = serde_json::from_slice(value.get(4..end)?).ok()?;
+    Some((meta, value.get(end..)?))
 }
 
 pub(in crate::storage::disk_backup::accepted) fn spool_cap() -> u64 {
