@@ -62,11 +62,6 @@ impl Memory {
         self.frozen_commits
     }
 
-    /// Log bytes of the active part.
-    pub(super) fn active_bytes(&self) -> u64 {
-        self.active_bytes
-    }
-
     /// Bytes that decide a seal: active log bytes plus the run bytes active tombstones hide.
     pub(super) fn seal_weight(&self) -> u64 {
         self.active_bytes.saturating_add(self.active_hidden)
