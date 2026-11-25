@@ -39,6 +39,12 @@ pub(crate) struct OpenedLink {
     content_key: [u8; 32],
 }
 
+impl OpenedLink {
+    pub(crate) fn database_id(&self) -> &str {
+        self.database_id.as_str()
+    }
+}
+
 impl Drop for OpenedLink {
     fn drop(&mut self) {
         self.content_key.zeroize();

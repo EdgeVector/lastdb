@@ -26,6 +26,7 @@ pub(crate) struct CreateArgs<'a> {
     pub kind: Kind,
     pub spec: Option<PublicationSpec>,
     pub requested_id: Option<String>,
+    pub reserved_ids: &'a [String],
 }
 
 impl Tables {
@@ -83,7 +84,9 @@ impl Tables {
                 return Err(OwnedError::AlreadyRegistered);
             }
         }
-        ensure_not_received(home, &entry.id, args.name)?;
+        if args.reserved_ids.contains(&entry.id) {
+            return Err(OwnedError::AlreadyRegistered);
+        }
         if let (Kind::Shareable, Some(seed)) = (entry.kind, &birth_seed) {
             mint_birth(&entry.id, seed).map_err(|_| OwnedError::Unavailable)?;
         }
@@ -110,17 +113,6 @@ impl Tables {
         }
         Ok(entry)
     }
-}
-
-fn ensure_not_received(home: &Path, id: &str, name: &str) -> Result<(), OwnedError> {
-    let shares = crate::registered_share::list(home).map_err(|_| OwnedError::Unavailable)?;
-    if shares
-        .iter()
-        .any(|share| share.id.as_str() == id || share.name.as_deref() == Some(name))
-    {
-        return Err(OwnedError::AlreadyRegistered);
-    }
-    Ok(())
 }
 
 pub(super) async fn open_all(

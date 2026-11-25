@@ -66,9 +66,10 @@ pub(super) async fn create(req: &UdsRequest, ctx: &AccessContext, host: &Host) -
     let Ok(_share_registry) = crate::share_link::lock_existing_registry(&host.home) else {
         return error_response(503, "database registry is unavailable", ctx);
     };
-    if let Some(response) = share_conflict(host, &body.name, requested_id.as_deref(), ctx) {
-        return response;
-    }
+    let reserved_ids = match share_conflict(host, &body.name, requested_id.as_deref(), ctx) {
+        Ok(ids) => ids,
+        Err(response) => return response,
+    };
     match host
         .owned
         .create(
@@ -80,6 +81,7 @@ pub(super) async fn create(req: &UdsRequest, ctx: &AccessContext, host: &Host) -
                 kind,
                 spec,
                 requested_id,
+                reserved_ids: &reserved_ids,
             },
             |id, seed| {
                 crate::log_sync::birth::mint(&host.home, id, host.keypair.public_key_bytes(), seed)
@@ -137,7 +139,7 @@ pub(super) async fn accept(req: &UdsRequest, ctx: &AccessContext, host: &Host) -
     let _creating = host.owned.lock_creating().await;
     let registered = match host
         .owned
-        .claims(opened.database_id.as_str(), body.name.as_deref())
+        .claims(opened.database_id(), body.name.as_deref())
     {
         Ok(true) => Err(crate::share_cache::ShareCacheError::Invalid(
             "database selector already in use",
@@ -218,22 +220,24 @@ fn share_conflict(
     name: &str,
     id: Option<&str>,
     ctx: &AccessContext,
-) -> Option<UdsResponse> {
-    match registered_share::list(&host.home) {
-        Ok(shares)
-            if shares.iter().any(|share| {
-                share.name.as_deref() == Some(name) || id == Some(share.id.as_str())
-            }) =>
-        {
-            Some(error_response(
-                409,
-                "database name or ID is already registered",
-                ctx,
-            ))
-        }
-        Ok(_) => None,
-        Err(_) => Some(error_response(503, "database registry is unavailable", ctx)),
+) -> Result<Vec<String>, UdsResponse> {
+    let Ok(shares) = registered_share::list(&host.home) else {
+        return Err(error_response(503, "database registry is unavailable", ctx));
+    };
+    if shares
+        .iter()
+        .any(|share| share.name.as_deref() == Some(name) || id == Some(share.id.as_str()))
+    {
+        return Err(error_response(
+            409,
+            "database name or ID is already registered",
+            ctx,
+        ));
     }
+    Ok(shares
+        .into_iter()
+        .map(|share| share.id.as_str().to_owned())
+        .collect())
 }
 
 fn fail(error: OwnedError, ctx: &AccessContext) -> UdsResponse {
