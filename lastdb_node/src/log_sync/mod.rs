@@ -64,7 +64,8 @@ pub(crate) use proposal::{
 };
 pub use relay::hung_relay_must_timeout;
 pub use spawn::spawn;
-pub use wake::{ensure_wake, publish_signed_history_intent, request_wake};
+pub(crate) use wake::wake_loop;
+pub use wake::{publish_signed_history_intent, request_wake};
 
 /// An owned database that a write names.
 pub(crate) struct WriteTarget {

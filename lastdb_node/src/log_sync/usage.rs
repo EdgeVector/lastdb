@@ -150,7 +150,10 @@ fn store(home: &Path, database_id: &str, saved: &mut Saved) -> Result<(), String
         saved.usage.since_ms = fold_db::clock::unix_secs().saturating_mul(1000);
     }
     let bytes = serde_json::to_vec(saved).map_err(|_| "cannot encode the cloud usage record")?;
-    disk::write_private(&path(home, database_id), &bytes)
+    // An account to show, not a record the sync reads back to decide anything. An ordered
+    // write keeps the rename after the data, so a power cut leaves the previous whole file;
+    // that is the loss the module text already accepts for a kill -9.
+    disk::write_private_with(&path(home, database_id), &bytes, disk::Flush::Ordered)
         .map_err(|_| "cannot save the cloud usage record".to_owned())
 }
 

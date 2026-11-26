@@ -9,7 +9,7 @@ use serde_json::Value;
 
 use crate::exec::reply::HostError;
 use crate::host::Host;
-use crate::log_sync::{mirror_owned_write, request_wake, write_target, OwnedMutation};
+use crate::log_sync::{mirror_owned_write, wake_loop, write_target, OwnedMutation};
 
 /// One write item's fields needed to author a signed `data` entry.
 pub(super) struct SignedInput<'a> {
@@ -179,7 +179,7 @@ pub(super) async fn mirror_committed(
     if target.personal {
         // The commit already put the write in the spool of accepted writes, which
         // is the upload queue of the personal database. Nothing is signed here.
-        request_wake(&host.home);
+        wake_loop();
         return Ok(());
     }
     let Err(error) = mirror_owned_write(host, &target.id, signed) else {

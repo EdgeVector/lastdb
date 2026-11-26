@@ -540,6 +540,27 @@ A schema name longer than 128 bytes is omitted. The item still counts on
 the call. `{overflow}` and `other` are ordinary keys, so a real caller,
 schema, or path with that name shares the row.
 
+`write_phases` splits the handler time of every committed `/v1/write`, from
+either socket, into phases that follow one another. It holds `writes` (the
+count) and `phases`, a list in this order with `total_ns` and `slowest_ns` for
+each:
+
+- `parse`: reading the JSON body.
+- `prepare`: checks, schema names, the old record of a delete, field
+  validation, and the wait for a shared database's write lock.
+- `lock_wait`: the wait for the store's write gates.
+- `read_and_stage`: under the gate, reading the old records, checking
+  conditions, signing the spool entry, and staging the batch.
+- `commit`: the commit log write and its ordered flush, until the commit that
+  holds the batch completes.
+- `after_commit`: work after the commit and before the reply, such as waking
+  the sync loop or signing a shared database's entries.
+- `handler`: the whole handler, the sum of the phases above.
+
+A request's time in the call table also holds the wait for a socket worker
+and the reply. `slowest_ns` is the slowest value of that one phase. `lastdb
+ops` prints the phases as a third table with the mean for each.
+
 ## Sharing
 
 A receiver of a whole-database share signs one proposal on the owner socket.

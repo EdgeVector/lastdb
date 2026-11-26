@@ -1,4 +1,5 @@
-//! `lastdb ops`: print completed requests by caller and by schema.
+//! `lastdb ops`: print completed requests by caller and by schema, and the time
+//! committed writes spent in each phase.
 
 use std::fmt::Write;
 use std::io::{self, Write as IoWrite};
@@ -46,6 +47,37 @@ fn print_tables(value: &Value, by_count: bool) -> Result<(), String> {
         &["caller", "schema", "op", "items", "total"],
         &schema_rows,
         &[false, false, false, true, true],
+    );
+    // A daemon older than this command sends no phases.
+    if let Some(phases) = value.get("write_phases") {
+        println!();
+        print_write_phases(phases)?;
+    }
+    Ok(())
+}
+
+/// One line for each phase of `/v1/write`: committed writes, mean, total, and the slowest
+/// single value of that phase.
+fn print_write_phases(value: &Value) -> Result<(), String> {
+    let writes = number(value, "writes")?;
+    let mut rows = Vec::new();
+    for phase in array(value, "phases")? {
+        let total_ns = number(phase, "total_ns")?;
+        let mean = total_ns
+            .checked_div(writes)
+            .map_or_else(|| "-".to_owned(), format_ns);
+        rows.push(vec![
+            text(phase, "phase")?.to_owned(),
+            writes.to_string(),
+            mean,
+            format_ns(total_ns),
+            format_ns(number(phase, "slowest_ns")?),
+        ]);
+    }
+    write_table(
+        &["write phase", "writes", "mean", "total", "slowest"],
+        &rows,
+        &[false, true, true, true, true],
     );
     Ok(())
 }

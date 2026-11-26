@@ -88,6 +88,50 @@ pub(crate) mod blocked {
     }
 }
 
+/// Time one write request spends in the write scope, by phase. Off unless the caller runs the
+/// request inside [`phases::measure`]; then each phase adds a few clock reads.
+pub(crate) mod phases {
+    use std::cell::Cell;
+    use std::future::Future;
+    use std::time::Duration;
+
+    /// The phases of the write scopes one request ran. Nested scopes add nothing: the outer
+    /// scope holds their time.
+    #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+    pub struct WritePhases {
+        /// Waiting for the prepare gate and then for the publication gate.
+        pub lock_wait: Duration,
+        /// Under the prepare gate: reading the old records, checking conditions, signing the
+        /// spool entry and staging the batch.
+        pub read_and_stage: Duration,
+        /// Queueing the batch, the commit log write and its ordered flush, until the commit
+        /// that holds the batch completes.
+        pub commit: Duration,
+    }
+
+    tokio::task_local! { static PHASES: Cell<WritePhases>; }
+
+    /// Run `work` and return the time its write scopes spent in each phase.
+    pub async fn measure<F: Future>(work: F) -> (F::Output, WritePhases) {
+        PHASES
+            .scope(Cell::new(WritePhases::default()), async move {
+                let output = work.await;
+                (output, PHASES.with(Cell::get))
+            })
+            .await
+    }
+
+    pub(super) fn add(lock_wait: Duration, read_and_stage: Duration, commit: Duration) {
+        let _ = PHASES.try_with(|cell| {
+            let mut phases = cell.get();
+            phases.lock_wait += lock_wait;
+            phases.read_and_stage += read_and_stage;
+            phases.commit += commit;
+            cell.set(phases);
+        });
+    }
+}
+
 pub(crate) mod publication {
     use crate::storage::disk_pack::read::{unpoison, ReadContext};
     use crate::storage::disk_pack::transaction::PendingBatch;
@@ -202,7 +246,9 @@ pub(crate) async fn scope<T, E: From<StorageError>>(
     if PendingBatch::current(&runtime).is_some() {
         return future.await;
     }
+    let asked = Instant::now();
     let (gate, held_from) = (runtime.enter_prepare().await, Instant::now());
+    let gate_wait = held_from.duration_since(asked);
     let pending = Arc::new(PendingBatch::new(&runtime));
     let (read_rt, write_pend) = (Arc::clone(&runtime), Arc::clone(&pending));
     let context =
@@ -234,10 +280,16 @@ pub(crate) async fn scope<T, E: From<StorageError>>(
         });
         require_final_record_sizes(data.max_body_bytes, rows)?;
     }
+    let staged = Instant::now();
     if pending.is_empty()? {
         let target = runtime.seal_queue();
         drop(gate);
         runtime.wait_for_queue(target).await?;
+        phases::add(
+            gate_wait,
+            staged.duration_since(held_from),
+            staged.elapsed(),
+        );
         blocked::note(held_from.elapsed());
         return Ok(result);
     }
@@ -248,7 +300,9 @@ pub(crate) async fn scope<T, E: From<StorageError>>(
         .iter()
         .map(|row| (**row).clone())
         .collect();
+    let pub_asked = Instant::now();
     let pub_gate = Arc::clone(&runtime.write_gate).lock_owned().await;
+    let pub_wait = pub_asked.elapsed();
     let owner = Arc::clone(&runtime);
     let prep_batch = Arc::clone(&pending);
     let (prepared, gate, pub_gate) =
@@ -256,6 +310,11 @@ pub(crate) async fn scope<T, E: From<StorageError>>(
     let sequence = runtime.accept_queued(pending, prepared)?;
     drop((pub_gate, gate));
     runtime.wait_for_queue(sequence).await?;
+    phases::add(
+        gate_wait + pub_wait,
+        staged.duration_since(held_from),
+        staged.elapsed().saturating_sub(pub_wait),
+    );
     blocked::note(held_from.elapsed());
     Ok(result)
 }

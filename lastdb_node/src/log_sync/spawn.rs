@@ -84,7 +84,7 @@ async fn run_turn_and_pause(host: &Arc<Host>, histories: &HistoryMap, base: &str
         && (!personal_was_pending
             || host.db.db_ops().native_runtime().accepted_status().acked > pre_acked);
     if shareable_ready || personal_ready {
-        wake::request_wake(&host.home);
+        wake::wake_loop();
     } else if !report.personal_ok || !report.received_upload_ok {
         let _ = wake::consume_wake(&host.home);
     }

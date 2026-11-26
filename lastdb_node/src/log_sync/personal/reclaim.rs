@@ -115,7 +115,7 @@ pub(super) async fn run(
             }
         }
         Ok(Swept::Again) => {
-            crate::log_sync::wake::request_wake(home);
+            crate::log_sync::wake::wake_loop();
             Ok(())
         }
         Ok(Swept::NotDue) => {

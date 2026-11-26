@@ -78,7 +78,7 @@ pub fn mirror_owned_write(
             Ok(batch)
         })
     })??;
-    wake::request_wake(&host.home);
+    wake::wake_loop();
     Ok(())
 }
 

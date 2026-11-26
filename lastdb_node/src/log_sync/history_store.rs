@@ -320,7 +320,9 @@ pub(super) fn load_uploaded(home: &Path, database_id: &str) -> Result<usize, Str
 
 pub(super) fn store_uploaded(home: &Path, database_id: &str, through: usize) -> Result<(), String> {
     let path = log_dir(home, database_id).join("uploaded.json");
-    disk::write_private(&path, through.to_string().as_bytes())
+    // A cursor that a power cut sets back only sends entries again, and the relay answers
+    // `duplicate` for the same bytes. An ordered write keeps the file whole.
+    disk::write_private_with(&path, through.to_string().as_bytes(), disk::Flush::Ordered)
         .map_err(|_| "cannot write upload cursor".into())
 }
 

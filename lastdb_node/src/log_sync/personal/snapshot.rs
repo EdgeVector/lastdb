@@ -125,7 +125,7 @@ pub(super) async fn run(
             let home = host.home.clone();
             upload(host, base, frozen, request).await;
             lane::finish_for(&home, lane_id);
-            crate::log_sync::wake::request_wake(&home);
+            crate::log_sync::wake::wake_loop();
         })
     });
     Ok(())

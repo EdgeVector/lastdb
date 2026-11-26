@@ -77,7 +77,7 @@ fn author_with(
         })
         .map_err(|_| ChainError::Unconfirmed)?;
     if result.is_ok() {
-        super::wake::request_wake(target.home);
+        super::wake::wake_loop();
     }
     result
 }

@@ -50,7 +50,11 @@ pub fn valid_database_name(name: &str) -> bool {
 }
 
 pub mod private_fs {
-    use std::fs::{self, File, OpenOptions};
+    mod flush;
+
+    use flush::{sync_file, sync_folder};
+    pub(crate) use flush::{touch_marker, Flush};
+    use std::fs::{self, OpenOptions};
     use std::io::{self, Read, Write};
     use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
     use std::path::Path;
@@ -93,7 +97,14 @@ pub mod private_fs {
         read_file_limited(path, limit, true)
     }
 
+    /// Write `bytes` to `path` with mode 0600 through a temporary file and a rename, and
+    /// flush it to the medium.
     pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
+        write_private_with(path, bytes, Flush::Full)
+    }
+
+    /// [`write_private`] that waits for the drive only as far as `flush` says.
+    pub(crate) fn write_private_with(path: &Path, bytes: &[u8], flush: Flush) -> io::Result<()> {
         let parent = path
             .parent()
             .filter(|p| !p.as_os_str().is_empty())
@@ -109,7 +120,7 @@ pub mod private_fs {
                 .open(&temporary)?;
             file.set_permissions(fs::Permissions::from_mode(0o600))?;
             file.write_all(bytes)?;
-            file.sync_all()
+            sync_file(&file, flush)
         })();
         if let Err(error) = write {
             let _ = fs::remove_file(&temporary);
@@ -119,10 +130,16 @@ pub mod private_fs {
             let _ = fs::remove_file(&temporary);
             return Err(error);
         }
-        File::open(parent).and_then(|directory| directory.sync_all())
+        sync_folder(parent, flush)
     }
 
+    /// Remove the private file `path` and flush its folder to the medium.
     pub(crate) fn remove_private(path: &Path) -> io::Result<()> {
+        remove_private_with(path, Flush::Full)
+    }
+
+    /// [`remove_private`] that waits for the drive only as far as `flush` says.
+    pub(crate) fn remove_private_with(path: &Path, flush: Flush) -> io::Result<()> {
         match fs::symlink_metadata(path) {
             Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() => {
                 fs::remove_file(path)?;
@@ -140,7 +157,7 @@ pub mod private_fs {
             .parent()
             .filter(|p| !p.as_os_str().is_empty())
             .unwrap_or(Path::new("."));
-        File::open(parent).and_then(|directory| directory.sync_all())
+        sync_folder(parent, flush)
     }
 }
 

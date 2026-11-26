@@ -59,10 +59,11 @@ stream, while `accepted-files/` and `log-sync/` stay outside the snapshot.
     folddb.sock, apps.sock       the daemon's sockets
   log-sync/
     device-id                  the device id of this installation
-    wake                       wakes the sync loop
+    wake                       wakes the daemon's sync loop from the `lastdb` command
     <database id>/
       birth.json               birth salt, signature, and author time for an owned shareable database
       cloud-usage.json         cumulative relay request and byte counts for the database
+      segment.out              transient: the log segment of one upload, removed after it
       incoming/                sealed blobs downloaded while applying another device's stream
       snapshot-last.json       the last snapshot this device published
       snapshot-known.json      what `lastdb status` prints
@@ -247,7 +248,17 @@ The schema definitions the database uses, and their retention (TTL) state.
   and its spool entry are lost together.
 - Nothing that a power cut can still take leaves the machine. Before the sender
   reads a page of entries, before a snapshot is cut, and before a flush receipt,
-  the drive is flushed to the medium (`F_FULLFSYNC` on macOS).
+  the drive is flushed to the medium (`F_FULLFSYNC` on macOS). The sender skips
+  the flush when an earlier flush already covered every entry up to the spool's
+  head.
+- The files under `log-sync/` that only signal or count wait for less. A
+  write wakes the sync loop inside the daemon and touches no file. `wake` is an
+  empty marker with no flush that only the `lastdb` command creates. The
+  segment a sender stages before its upload has no flush, because the next turn
+  builds it again from the spool. `cloud-usage.json` is an ordered write and a
+  rename, so a power cut can lose its newest count but never tear it. A shared
+  database's upload cursor (`uploaded.json`) is an ordered write too: a cursor
+  set back only sends entries again, and the relay answers `duplicate`.
 
 ## What a snapshot is
 

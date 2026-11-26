@@ -70,6 +70,6 @@ pub(crate) fn set_length(
             OwnedError::NotOwned => ChainError::NotFound("database is not registered on this node"),
             _ => ChainError::Unconfirmed,
         })?;
-    super::wake::request_wake(&host.home);
+    super::wake::wake_loop();
     Ok(json!({ "databaseId": entry.id, "leaseLengthMs": length_ms }))
 }
