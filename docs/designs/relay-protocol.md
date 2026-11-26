@@ -44,10 +44,11 @@ store as blobs, named by a publisher-signed `snapshot` entry (see "The
 `snapshot` entry"). The relay stores both like any entry and any blob, and
 reads the entry only when a `log.trim` names it.
 
-**What the relay can read.** In a personal database every payload is sealed,
-and the relay sees the count, sizes and times of entries. In a shared database
-the `data` entries are plain record key and field JSON today, so the relay can
-read them (`signed-history-sharing.md`, "What is not built").
+**What the relay can read.** In a personal database and in a shared database
+every `data` and `schema` payload is sealed with the database read key before
+it is signed. The relay sees the count, sizes and times of entries, and the
+fixed namespace `sealed`. Grant, birth, lease, heads and relays metadata stay
+signed plaintext so the relay can gate without opening content.
 
 File blobs may be dropped after a publisher
 `blob_delete` chain entry that does not name a digest still referenced by

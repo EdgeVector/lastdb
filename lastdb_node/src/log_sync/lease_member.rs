@@ -17,7 +17,10 @@ use super::chain_author;
 use super::chain_error::ChainError;
 use super::history_store;
 use super::mirror::{encode_value, OwnedMutation};
+use super::shared_key;
 use crate::host::Host;
+use crate::personal_seal::Sealer;
+use crate::shared_seal;
 
 /// The answer to a refused direct write, the same as for a database with no lease.
 pub(crate) const REFUSED: &str = "a received database is read only";
@@ -196,6 +199,7 @@ fn sign_all(
     let database = DatabaseId::from_hex(database_id)
         .map_err(|_| ChainError::Invalid("database id is not a 64-hex id"))?;
     let identity = chain_author::identity_of(host)?;
+    let sealer = shared_key::sealer(host, database_id).map_err(|_| ChainError::Unconfirmed)?;
     let stream = VerifiedHistory::stream(identity.node_key, identity.device_id);
     let histories = super::histories_for(host);
     histories
@@ -211,6 +215,7 @@ fn sign_all(
                 database,
                 identity: &identity,
                 cover: &cover,
+                sealer: &sealer,
                 now_ms,
             };
             history_store::commit_authored_batch(&host.home, history, |next| {
@@ -227,6 +232,7 @@ struct BatchCtx<'a> {
     database: DatabaseId,
     identity: &'a chain_author::AuthorIdentity,
     cover: &'a Cover,
+    sealer: &'a Sealer,
     now_ms: u64,
 }
 
@@ -253,12 +259,18 @@ fn stage_direct_batch(
         if let Some(winner) = next.records().get(&key) {
             ctx.cite(winner.entry, winner.position.lamport);
         }
-        let body = data_record(
-            StreamKind::Direct,
-            item.schema.clone(),
-            &item.record_key,
-            value,
-        );
+        let body = shared_seal::seal_data(
+            bctx.sealer,
+            ctx.node_key,
+            ctx.device_id,
+            ctx.next_writer_seq(),
+            data_record(
+                StreamKind::Direct,
+                item.schema.clone(),
+                &item.record_key,
+                value,
+            ),
+        )?;
         let entry =
             author_data(&ctx, &bctx.identity.signing_key, body).map_err(|e| e.to_string())?;
         match next.accept_entry(entry.clone()) {

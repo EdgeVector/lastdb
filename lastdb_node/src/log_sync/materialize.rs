@@ -8,7 +8,7 @@
 use std::sync::Arc;
 
 use fold_db::fold_db_core::FoldDB;
-use mutation_log::{decode_record_payload, SignedEntry, VerifiedHistory};
+use mutation_log::VerifiedHistory;
 
 use crate::host::owned::ResolvedStore;
 use crate::host::Host;
@@ -49,11 +49,10 @@ fn excluded_keys(history: &VerifiedHistory) -> std::collections::BTreeSet<(Strin
     history
         .excluded_entries()
         .into_iter()
-        .filter_map(|entry| match entry {
-            SignedEntry::Data { body, .. } => decode_record_payload(&body.payload)
-                .ok()
-                .map(|payload| (body.namespace.clone(), payload.record_key)),
-            _ => None,
+        .filter_map(|entry| {
+            history
+                .decode_data_entry(entry)
+                .map(|(namespace, payload)| (namespace, payload.record_key))
         })
         .collect()
 }

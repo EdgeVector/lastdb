@@ -19,17 +19,12 @@ use fold_db::fold_db_core::FoldDB;
 use fold_db::record_replacement::RecordTarget;
 use fold_db::schema::types::{CasExpectation, Mutation, MutationType};
 use fold_db::schema::SchemaError;
-use mutation_log::{
-    author_data, author_heads, data_record, decode_record_payload, decode_signature_b64url,
-    entry_hash, EntryHash, Hex32, IncorporatedFrom, NodeKey, Role, SignedEntry, StreamKind,
-};
+use mutation_log::{EntryHash, NodeKey, Role, SignedEntry};
 use serde_json::Value;
-use sha2::{Digest as _, Sha256};
 
-use super::chain_author::AuthorIdentity;
-use super::chain_author::{self, Target};
-use super::chain_error::ChainError;
+use super::chain_author;
 use super::history_store::HistoryMap;
+use super::incorporate_publish::{decline, publish, Ready};
 use super::materialize;
 use crate::host::Host;
 
@@ -77,12 +72,6 @@ enum Decision {
     Decline,
 }
 
-struct Ready {
-    namespace: String,
-    key: String,
-    value: Vec<u8>,
-}
-
 /// The record state a proposal expects, in history terms.
 enum Expect {
     Absent,
@@ -105,10 +94,8 @@ async fn decide(
     database_id: &str,
     entry: &SignedEntry,
 ) -> Result<Decision, String> {
-    let SignedEntry::Data { body, .. } = entry else {
-        return Ok(Decision::Decline);
-    };
-    let Ok(payload) = decode_record_payload(&body.payload) else {
+    let history = histories.snapshot(database_id)?;
+    let Some((namespace, payload)) = history.decode_data_entry(entry) else {
         return Ok(Decision::Decline);
     };
     let Ok(intent) = parse_intent(&payload.value) else {
@@ -117,13 +104,12 @@ async fn decide(
     let proposer = entry.header().node_key;
     let Ok(canon_key) = signed_history_materialize::canonical_record_key_from_joined(
         store,
-        &body.namespace,
+        &namespace,
         &payload.record_key,
     ) else {
         return Ok(Decision::Decline);
     };
-    let key = (body.namespace.clone(), canon_key);
-    let history = histories.snapshot(database_id)?;
+    let key = (namespace.clone(), canon_key);
     signed_history_materialize::reconcile_keys(store, &history, std::slice::from_ref(&key)).await?;
     let standing = Standing {
         role: history.grants().role_of(&proposer),
@@ -310,86 +296,5 @@ fn parse_intent(value: &[u8]) -> Result<Intent, ()> {
         expected,
         fields,
         alternates,
-    })
-}
-
-fn cite_proposal(ctx: &mut mutation_log::AuthorCtx, proposal: &SignedEntry) -> Result<(), String> {
-    let hash = entry_hash(proposal).map_err(|e| e.to_string())?;
-    ctx.cite(hash, proposal.header().lamport);
-    Ok(())
-}
-
-fn publish(
-    host: &Host,
-    histories: &HistoryMap,
-    database_id: &str,
-    identity: &AuthorIdentity,
-    proposal: &SignedEntry,
-    ready: Ready,
-) -> Result<(), String> {
-    let from = citation(proposal)?;
-    let target = Target {
-        home: &host.home,
-        database_id,
-        identity,
-    };
-    chain_author::author_publisher(histories, &target, |mut ctx, history| {
-        if let Some((hash, lamport)) = history.birth_entry() {
-            ctx.cite(hash, lamport);
-        }
-        cite_proposal(&mut ctx, proposal).map_err(|_| ChainError::Unconfirmed)?;
-        let key = (ready.namespace.clone(), ready.key.clone());
-        if let Some(winner) = history.records().get(&key) {
-            ctx.cite(winner.entry, winner.position.lamport);
-        }
-        let mut body = data_record(
-            StreamKind::Direct,
-            ready.namespace,
-            &ready.key,
-            &ready.value,
-        );
-        body.incorporated_from = Some(from);
-        author_data(&ctx, &identity.signing_key, body).map_err(|_| ChainError::Unconfirmed)
-    })
-    .map(|_| ())
-    .map_err(|e| e.reply().message.to_owned())
-}
-
-/// Sign that a proposal is not accepted: a `heads` entry that cites it. The
-/// decision is final, and the proposer's node reads it as `not_accepted`.
-fn decline(
-    host: &Host,
-    histories: &HistoryMap,
-    database_id: &str,
-    identity: &AuthorIdentity,
-    proposal: &SignedEntry,
-) -> Result<(), String> {
-    let target = Target {
-        home: &host.home,
-        database_id,
-        identity,
-    };
-    chain_author::author_publisher(histories, &target, |mut ctx, history| {
-        if let Some((hash, lamport)) = history.birth_entry() {
-            ctx.cite(hash, lamport);
-        }
-        cite_proposal(&mut ctx, proposal).map_err(|_| ChainError::Unconfirmed)?;
-        history.cite_publisher_streams(&mut ctx);
-        author_heads(&ctx, &identity.signing_key, history.publisher_stream_tips())
-            .map_err(|_| ChainError::Unconfirmed)
-    })
-    .map(|_| ())
-    .map_err(|e| e.reply().message.to_owned())
-}
-
-fn citation(proposal: &SignedEntry) -> Result<IncorporatedFrom, String> {
-    let header = proposal.header();
-    let sig = decode_signature_b64url(&header.signature).map_err(|e| e.to_string())?;
-    let digest = Sha256::digest(sig);
-    Ok(IncorporatedFrom {
-        node_key: header.node_key,
-        device_id: header.device_id,
-        writer_seq: header.writer_seq,
-        signature_sha256: Hex32::from_bytes(digest.into()),
     })
 }

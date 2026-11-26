@@ -22,8 +22,18 @@ impl VerifiedHistory {
             SignedEntry::Lease { header, body, .. } => {
                 self.note_lease(hash, position, header, body);
             }
-            SignedEntry::Schema { body, .. } => {
-                self.apply_schema_effect(body, hash, position);
+            SignedEntry::Schema { header, body } => {
+                let Some((namespace, definition)) = self.open_schema(header, body) else {
+                    return;
+                };
+                self.apply_schema_effect(
+                    &crate::entry::SchemaBody {
+                        namespace,
+                        definition,
+                    },
+                    hash,
+                    position,
+                );
             }
             SignedEntry::Heads { body, .. }
                 if self

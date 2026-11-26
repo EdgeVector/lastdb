@@ -1,6 +1,7 @@
 //! Verified history `S` and `accept_entry` application.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::sync::Arc;
 
 use crate::accept::{
     evaluate_with_leases, position_of, stream_id_of, AcceptContext, AcceptOutcome, RejectReason,
@@ -11,10 +12,12 @@ use crate::grants::{AcceptedMeta, GrantState};
 use crate::ids::{DatabaseId, DeviceId, EntryHash, NodeKey, StreamId};
 use crate::kinds::{EntryKind, Role};
 use crate::payload::MaterializedRecord;
+use crate::sealed::SealOpener;
 use crate::wire::entry_hash;
 
 mod effects;
 mod lease;
+mod open;
 mod recompute;
 mod view;
 
@@ -94,6 +97,10 @@ pub struct VerifiedHistory {
     bundle_floor: BTreeMap<(String, String), MaterializedRecord>,
     /// Ordered metadata of every direct and bundle write per record key.
     write_meta: BTreeMap<(String, String), BTreeMap<PosKey, WriteMeta>>,
+    /// Opens sealed data and schema payloads. Absent until the node installs the
+    /// shared or personal database read key. Accepted entries stay sealed; this
+    /// opener is only used when applying, recomputing, or reading content.
+    opener: Option<Arc<dyn SealOpener>>,
 }
 
 impl VerifiedHistory {
@@ -126,6 +133,7 @@ impl VerifiedHistory {
             excluded: BTreeSet::new(),
             bundle_floor: BTreeMap::new(),
             write_meta: BTreeMap::new(),
+            opener: None,
         }
     }
 

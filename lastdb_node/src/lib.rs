@@ -20,4 +20,5 @@ pub(crate) mod registered_share;
 pub(crate) mod share_cache;
 pub mod share_invitation;
 pub(crate) mod share_link;
+pub(crate) mod shared_seal;
 pub mod version;

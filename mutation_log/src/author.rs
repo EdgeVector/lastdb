@@ -38,6 +38,12 @@ pub struct AuthorCtx {
 }
 
 impl AuthorCtx {
+    /// Sequence number the next author helper assigns.
+    #[must_use]
+    pub fn next_writer_seq(&self) -> u64 {
+        self.stream_head.map_or(1, |head| head.writer_seq + 1)
+    }
+
     /// Record a causal dependency `(hash, lamport)`, deduplicating `hash` and
     /// keeping `seen_heads.len() <= MAX_AUTHOR_SEEN_HEADS`.
     pub fn cite(&mut self, hash: EntryHash, lamport: u64) {

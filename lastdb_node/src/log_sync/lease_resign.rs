@@ -8,7 +8,7 @@
 
 use std::collections::BTreeMap;
 
-use mutation_log::{decode_record_payload, entry_hash, EntryHash, SignedEntry, VerifiedHistory};
+use mutation_log::{entry_hash, EntryHash, SignedEntry, VerifiedHistory};
 use serde_json::{json, Map, Value};
 
 use super::chain_author::{self, AuthorIdentity};
@@ -138,14 +138,16 @@ fn excluded_changes(history: &VerifiedHistory, me: &AuthorIdentity, ledger: &Led
     let mut groups: Vec<KeyAccum> = Vec::new();
     let mut index_by_key: BTreeMap<(String, String), usize> = BTreeMap::new();
     for entry in history.excluded_entries() {
-        let SignedEntry::Data { header, body } = entry else {
+        let SignedEntry::Data { header, .. } = entry else {
             continue;
         };
         if header.node_key != me.node_key || header.device_id != me.device_id {
             continue;
         }
-        let (Ok(payload), Ok(hash)) = (decode_record_payload(&body.payload), entry_hash(entry))
-        else {
+        let Some((namespace, payload)) = history.decode_data_entry(entry) else {
+            continue;
+        };
+        let Ok(hash) = entry_hash(entry) else {
             continue;
         };
         let id = id_of(&hash);
@@ -163,7 +165,7 @@ fn excluded_changes(history: &VerifiedHistory, me: &AuthorIdentity, ledger: &Led
             };
             Some(obj)
         };
-        let key = (body.namespace.clone(), payload.record_key);
+        let key = (namespace, payload.record_key);
         if let Some(&idx) = index_by_key.get(&key) {
             groups[idx].ids.push(id);
             groups[idx].final_record = final_record;

@@ -300,7 +300,6 @@ impl VerifiedHistory {
         body: &DataBody,
         is_publisher: bool,
     ) -> Option<(NodeKey, String, RecordPayload)> {
-        let _ = self;
         let merges =
             body.stream == StreamKind::Direct || (is_publisher && body.incorporated_from.is_some());
         if !merges {
@@ -311,8 +310,9 @@ impl VerifiedHistory {
             .as_ref()
             .filter(|_| is_publisher)
             .map_or(header.node_key, |from| from.node_key);
-        let decoded = decode_record_payload(&body.payload).ok()?;
-        Some((author, body.namespace.clone(), decoded))
+        let (namespace, payload) = self.open_data(header, body)?;
+        let decoded = decode_record_payload(&payload).ok()?;
+        Some((author, namespace, decoded))
     }
 
     /// Keep a publisher grant in the per-member role index that

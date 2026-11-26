@@ -23,8 +23,10 @@ use parse::{canonicalize_proposed, envelope, parse, Proposed};
 
 use super::chain_author::{self, Target};
 use super::chain_error::ChainError;
+use super::shared_key;
 use crate::host::Host;
 use crate::registered_share::{self, RegisteredShare};
+use crate::shared_seal;
 
 /// Share-write contribution failures, in the owner route's terms.
 #[derive(Debug)]
@@ -189,6 +191,8 @@ pub(super) fn author_proposal(
         database_id,
         identity: &identity,
     };
+    let sealer =
+        shared_key::sealer(host, database_id).map_err(|_| ContributionError::Unavailable)?;
     chain_author::author_member(&super::histories_for(host), &target, |mut ctx, history| {
         require_submitter(history, &identity.node_key)?;
         if let Some((hash, lamport)) = history.birth_entry() {
@@ -200,7 +204,14 @@ pub(super) fn author_proposal(
                 "this member cannot submit this shared mutation",
             ))?;
         ctx.cite(grant_hash, grant_lamport);
-        let body = data_record(StreamKind::Proposal, namespace, record_key, value);
+        let body = shared_seal::seal_data(
+            &sealer,
+            ctx.node_key,
+            ctx.device_id,
+            ctx.next_writer_seq(),
+            data_record(StreamKind::Proposal, namespace, record_key, value),
+        )
+        .map_err(|_| ChainError::Unconfirmed)?;
         author_data(&ctx, &identity.signing_key, body).map_err(|_| ChainError::Unconfirmed)
     })
     .map_err(|error| contribution_error(&error))
