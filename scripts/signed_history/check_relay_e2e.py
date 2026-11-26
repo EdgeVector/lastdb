@@ -63,7 +63,7 @@ def cleanup_problems(report: dict) -> list[str]:
     for db in cleanup.get("databases") or []:
         back = db.get("readback") or {}
         listed = db.get("blobs_listed")
-        if back.get("blob_list_after") != 0 or back.get("object_get_not_found") != listed:
+        if back.get("blob_list_after") != 0 or back.get("object_gone") != listed:
             found.append(f"cleanup read-back of {db.get('database_id')} is {back!r} for {listed!r} blobs")
     return found
 
@@ -73,7 +73,11 @@ def cleanup_line(report: dict) -> str:
     if not isinstance(cleanup, dict):
         return "cleanup: not run"
     if cleanup.get("ok") is not True:
-        return f"cleanup: FAILED: {cleanup.get('error')}"
+        dropped = ", ".join(
+            f"{db.get('database_id')}: dropped {db.get('blobs_dropped')} blobs ({db.get('released_bytes')} bytes)"
+            for db in cleanup.get("databases") or []
+        )
+        return f"cleanup: FAILED: {cleanup.get('error')} [{dropped}]"
     parts = []
     for db in cleanup.get("databases") or []:
         back = db.get("readback") or {}
@@ -82,7 +86,8 @@ def cleanup_line(report: dict) -> str:
             f"({db.get('released_bytes')} bytes) in {db.get('drop_calls')} blob/drop calls; "
             f"read-back: blob/list lists {back.get('blob_list_after')}, "
             f"blob/get 404 for {back.get('blob_get_not_found')}, "
-            f"object GET 404 for {back.get('object_get_not_found')}; "
+            f"presigned object GET refused for {back.get('object_gone')} "
+            f"(answers {', '.join(back.get('object_answers') or [])}); "
             f"publisher log entries kept: {db.get('publisher_log_entries_kept')}"
         )
     total = f"{cleanup.get('blobs_dropped')} blobs, {cleanup.get('released_bytes')} bytes"

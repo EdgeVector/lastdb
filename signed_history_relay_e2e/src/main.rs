@@ -135,14 +135,12 @@ fn finish(proved: Result<Outcome, String>, cleanup: Option<Value>) -> Outcome {
     });
     if let Some(report) = &cleanup {
         if report["ok"] != Value::Bool(true) {
-            eprintln!(
-                "signed_history_relay_e2e: cleanup failed: {}",
-                report["error"]
-            );
+            let why = report["error"].as_str().unwrap_or("no error given");
+            eprintln!("signed_history_relay_e2e: cleanup failed: {why}");
             outcome.ok = false;
             outcome.report["ok"] = Value::Bool(false);
             if outcome.report["error"].is_null() {
-                outcome.report["error"] = json!(format!("cleanup: {}", report["error"]));
+                outcome.report["error"] = Value::String(format!("cleanup: {why}"));
             }
         }
     }

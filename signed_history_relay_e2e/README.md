@@ -48,7 +48,8 @@ the limit. Failures print `{"ok": false, "error": "..."}` and exit 1.
  "cleanup": {"ok": true, "error": null, "blobs_dropped": 7, "released_bytes": 0, "databases": [
    {"database_id": "<64 hex>", "ok": true, "blobs_recorded": 7, "bytes_recorded": 0, "blobs_listed": 7,
     "bytes_listed": 0, "blobs_dropped": 7, "released_bytes": 0, "absent": 0, "drop_calls": 1,
-    "readback": {"blob_list_after": 0, "blob_get_not_found": 7, "object_get_not_found": 7},
+    "readback": {"blob_list_after": 0, "blob_get_not_found": 7, "object_gone": 7,
+                 "object_answers": ["403 AccessDenied"]},
     "publisher_log_entries_kept": 17}]}}
 ```
 
@@ -62,12 +63,15 @@ On by default (`LASTDB_RELAY_E2E_CLEANUP=true`). After the steps end, also after
 blobs it uploaded, as the publisher of the database it minted (`src/cleanup.rs`; the database id comes from a fresh
 random key, so the run acts on nothing it did not write):
 
-1. `blob/list` names every committed blob of the database; `blob/get` keeps a presigned GET of each object.
+1. `blob/list` names every committed blob of the database; `blob/get` gives a presigned GET of each object, and a
+   one-byte ranged GET of it must succeed (the control for step 4).
 2. One `snapshot` entry goes on a fresh publisher device stream, because `blob/drop` names one. Its manifest digest
    is never uploaded, so no blob has to stay.
 3. `blob/drop` drops the listed blobs (at most 25 per call), naming the head of every publisher stream from
    `log/streams` as its fence; a 409 reads the heads again (3 tries).
-4. Read-back: `blob/list` is empty, `blob/get` of each digest is 404, and each presigned GET is 404 on the object store.
+4. Read-back: `blob/list` is empty, `blob/get` of each digest is 404, and the same unexpired presigned GET is refused
+   by the object store: 404, or 403 when the signing credential may not list the bucket (the store then hides
+   whether the key exists). The control in step 1 shows the URL itself was good.
 
 The report goes under `cleanup`. A failed cleanup sets `ok` to false and exits 1; it fills `error` only when no
 step failed first, so the first failure is never hidden. Log entries stay (a few KB): `log/trim` drops only sealed

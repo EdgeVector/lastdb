@@ -13,7 +13,7 @@ name: Signed history DEV proofs
 # the `exemem_relay_url` input, else the variable EXEMEM_RELAY_URL, else environments.dev.exemem_api. No credentials.
 # Both runs set LASTDB_RELAY_E2E_STREAMS=true (proves log/streams). The Exemem run then deletes the blobs it uploaded
 # (about 315 MB of bundles) with blob/drop, also after a failed step, and reads back that they are gone (blob/list empty,
-# blob/get 404, object GET 404); the job summary prints the result, and a failed cleanup fails the step. Its log entries
+# blob/get 404, presigned object GET refused); the job summary prints the result, and a failed cleanup fails the step. Its log entries
 # (a few KB) stay: no relay route deletes birth, grant or bundle entries. The reference_relay runs set
 # LASTDB_RELAY_E2E_CLEANUP=false: that relay refuses blob/drop on a database with grants, and its data dir is temporary.
 # Job `deployed_relay` runs the personal database proof (`personal_database_proof.py --relay-url`) against the

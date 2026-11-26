@@ -4,13 +4,16 @@
 //!
 //! 1. `blob/list` names every committed blob of the database. The database id comes from a fresh
 //!    random key, so everything it holds was written by this run.
-//! 2. `blob/get` of each blob keeps a presigned GET of the stored object for the read-back.
+//! 2. `blob/get` of each blob gives a presigned GET of the stored object. A one-byte ranged GET
+//!    must succeed now: that is the control for the read-back.
 //! 3. One `snapshot` entry goes on a fresh device stream. `blob/drop` needs one to name. Its
 //!    manifest digest is one the run never uploads, so no blob has to stay for it.
 //! 4. `blob/drop` drops the listed blobs, at most 25 per call, naming the head of each of the
 //!    publisher's streams (`log/streams`) as its fence. A 409 (a head moved) reads the heads again.
-//! 5. Read-back: `blob/list` is empty, `blob/get` of each digest answers 404, and each presigned
-//!    GET taken in step 2 answers 404 from the object store.
+//! 5. Read-back: `blob/list` is empty, `blob/get` of each digest answers 404, and the same
+//!    presigned GET, still unexpired, is refused by the object store. A store answers 404 for a
+//!    missing key, or 403 when the signing credential may not list the bucket; the control in
+//!    step 2 shows the URL itself was good, so either answer means the object is gone.
 //!
 //! Log entries stay. `log/trim` drops only sealed `data`/`schema` and `snapshot` entries of a
 //! personal database, and this database holds birth, grant and bundle entries; no relay route
@@ -25,7 +28,7 @@ use mutation_log::{Hex32, SnapshotBody};
 
 use crate::chain::{Chain, Publisher};
 use crate::grants::http_status;
-use crate::identity::new_device_id;
+use crate::identity::{new_device_id, now_ms};
 use crate::ledger::{Ledger, OwnedDatabase};
 use crate::relay::{header_pairs, RelayClient};
 
@@ -34,33 +37,47 @@ const DROP_BATCH: usize = 25;
 /// Times the drop reads the heads again after a 409.
 const FENCE_ATTEMPTS: u32 = 3;
 
-/// A presigned GET of one stored object, taken before the drop.
+/// A presigned GET of one stored object, taken and tried before the drop.
 struct Presigned {
     sha256: String,
     url: String,
     headers: Vec<(String, String)>,
+    expires_at_ms: Option<u64>,
+}
+
+/// The counts that the `blob/drop` answers add up to.
+#[derive(Default)]
+struct DropCounts {
+    dropped: u64,
+    released: u64,
+    absent: u64,
+    calls: u64,
 }
 
 /// Clean every database in `ledger`. The report has `ok`, `error`, totals and one object per
-/// database. A failure is reported, never swallowed: `ok` is false and `error` says why.
+/// database. A failure is reported, never swallowed: `ok` is false and `error` says why, and the
+/// counts of what was dropped before it stay in the report.
 pub async fn run(http: &reqwest::Client, relay_url: &str, ledger: &Ledger) -> Value {
     let mut databases = Vec::new();
     let mut errors = Vec::new();
     let (mut dropped, mut released) = (0u64, 0u64);
     for owned in ledger.take() {
-        let database_id = owned.database_id.to_hex();
-        match clean(http, relay_url, &owned).await {
-            Ok(report) => {
-                dropped += report["blobs_dropped"].as_u64().unwrap_or(0);
-                released += report["released_bytes"].as_u64().unwrap_or(0);
-                databases.push(report);
-            }
-            Err(error) => {
-                eprintln!("cleanup of database {database_id} failed: {error}");
-                errors.push(format!("database {database_id}: {error}"));
-                databases.push(json!({ "database_id": database_id, "ok": false, "error": error }));
-            }
+        let mut report = json!({
+            "database_id": owned.database_id.to_hex(),
+            "blobs_recorded": owned.blobs.len(),
+            "bytes_recorded": owned.blobs.iter().map(|(_, bytes)| bytes).sum::<u64>(),
+        });
+        let outcome = clean(http, relay_url, &owned, &mut report).await;
+        dropped += report["blobs_dropped"].as_u64().unwrap_or(0);
+        released += report["released_bytes"].as_u64().unwrap_or(0);
+        report["ok"] = Value::Bool(outcome.is_ok());
+        if let Err(error) = outcome {
+            let database_id = owned.database_id.to_hex();
+            eprintln!("cleanup of database {database_id} failed: {error}");
+            errors.push(format!("database {database_id}: {error}"));
+            report["error"] = Value::String(error);
         }
+        databases.push(report);
     }
     let error = (!errors.is_empty()).then(|| errors.join("; "));
     json!({
@@ -72,11 +89,13 @@ pub async fn run(http: &reqwest::Client, relay_url: &str, ledger: &Ledger) -> Va
     })
 }
 
+/// Drop the blobs of one database and read back that they are gone, filling `report` as it goes.
 async fn clean(
     http: &reqwest::Client,
     relay_url: &str,
     owned: &OwnedDatabase,
-) -> Result<Value, String> {
+    report: &mut Value,
+) -> Result<(), String> {
     let device = new_device_id();
     let device_hex = device.to_hex();
     let client = RelayClient::new(relay_url, http, &owned.publisher, owned.database_id, device);
@@ -84,17 +103,16 @@ async fn clean(
         Ok(listed) => listed,
         // A run that stopped before its birth entry was stored committed no blob.
         Err(error) if owned.blobs.is_empty() => {
-            return Ok(json!({
-                "database_id": owned.database_id.to_hex(),
-                "ok": true,
-                "blobs_listed": 0,
-                "blobs_dropped": 0,
-                "released_bytes": 0,
-                "note": format!("blob/list refused and the run committed no blob: {error}"),
-            }));
+            report["blobs_listed"] = json!(0);
+            report["note"] = json!(format!(
+                "blob/list refused and the run committed no blob: {error}"
+            ));
+            return Ok(());
         }
         Err(error) => return Err(format!("blob/list: {error}")),
     };
+    report["blobs_listed"] = json!(listed.len());
+    report["bytes_listed"] = json!(listed.iter().map(|(_, bytes)| bytes).sum::<u64>());
     let mut digests: Vec<String> = listed.iter().map(|(sha256, _)| sha256.clone()).collect();
     for (sha256, _) in &owned.blobs {
         if !digests.contains(sha256) {
@@ -106,9 +124,7 @@ async fn clean(
         presigned.push(presign(&client, sha256).await?);
     }
 
-    let counts = if listed.is_empty() {
-        DropCounts::default()
-    } else {
+    if !listed.is_empty() {
         let publisher = Publisher {
             actor: owned.publisher.clone(),
             database_id: owned.database_id,
@@ -128,46 +144,31 @@ async fn clean(
             .append(std::slice::from_ref(&snapshot))
             .await
             .map_err(|e| format!("snapshot append: {e}"))?;
+        let mut counts = DropCounts::default();
         // The first `listed.len()` digests are the listed ones.
-        let listed_digests = &digests[..listed.len()];
-        drop_all(
+        let dropping = drop_all(
             &client,
             &owned.publisher.node_key_hex(),
             &device_hex,
-            listed_digests,
+            &digests[..listed.len()],
+            &mut counts,
         )
-        .await?
-    };
+        .await;
+        report["blobs_dropped"] = json!(counts.dropped);
+        report["released_bytes"] = json!(counts.released);
+        report["absent"] = json!(counts.absent);
+        report["drop_calls"] = json!(counts.calls);
+        dropping?;
+    }
 
-    let readback = read_back(&client, &digests, &presigned).await?;
+    report["readback"] = read_back(&client, &digests, &presigned).await?;
     let kept = client
         .streams(&owned.publisher.node_key_hex())
         .await
         .map(|streams| streams.iter().map(|s| s.head_seq).sum::<u64>())
         .map_err(|e| format!("log/streams after the drop: {e}"))?;
-    Ok(json!({
-        "database_id": owned.database_id.to_hex(),
-        "ok": true,
-        "blobs_recorded": owned.blobs.len(),
-        "bytes_recorded": owned.blobs.iter().map(|(_, bytes)| bytes).sum::<u64>(),
-        "blobs_listed": listed.len(),
-        "bytes_listed": listed.iter().map(|(_, bytes)| bytes).sum::<u64>(),
-        "blobs_dropped": counts.dropped,
-        "released_bytes": counts.released,
-        "absent": counts.absent,
-        "drop_calls": counts.calls,
-        "readback": readback,
-        "publisher_log_entries_kept": kept,
-    }))
-}
-
-/// The counts that the `blob/drop` answers add up to.
-#[derive(Default)]
-struct DropCounts {
-    dropped: u64,
-    released: u64,
-    absent: u64,
-    calls: u64,
+    report["publisher_log_entries_kept"] = json!(kept);
+    Ok(())
 }
 
 async fn drop_all(
@@ -175,8 +176,8 @@ async fn drop_all(
     publisher_hex: &str,
     snapshot_device: &str,
     digests: &[String],
-) -> Result<DropCounts, String> {
-    let mut counts = DropCounts::default();
+    counts: &mut DropCounts,
+) -> Result<(), String> {
     let mut left = digests;
     let mut attempt = 1;
     'fence: loop {
@@ -223,7 +224,7 @@ async fn drop_all(
                 Err(error) => return Err(format!("blob/drop: {error}")),
             }
         }
-        return Ok(counts);
+        return Ok(());
     }
 }
 
@@ -256,6 +257,7 @@ async fn list_all(client: &RelayClient) -> Result<Vec<(String, u64)>, String> {
     }
 }
 
+/// A presigned GET of the object of `sha256`, and the proof that it works now.
 async fn presign(client: &RelayClient, sha256: &str) -> Result<Presigned, String> {
     let body = json!({ "database_id": client.database_hex, "sha256": sha256 });
     let meta = client
@@ -266,15 +268,45 @@ async fn presign(client: &RelayClient, sha256: &str) -> Result<Presigned, String
         .as_str()
         .ok_or("blob/get has no url")?
         .to_owned();
-    Ok(Presigned {
+    let presigned = Presigned {
         sha256: sha256.to_owned(),
         url,
         headers: header_pairs(&meta["headers"]),
-    })
+        expires_at_ms: meta["expires_at_ms"].as_u64(),
+    };
+    let (status, _) = first_byte(client, &presigned).await?;
+    if !status.is_success() {
+        return Err(format!(
+            "object GET of {sha256} before the drop answered {status}, expected 200 or 206"
+        ));
+    }
+    Ok(presigned)
 }
 
-/// Prove the blobs are gone: none listed, `blob/get` 404 for each digest, and the object store
-/// 404 for each presigned GET taken before the drop.
+/// A one-byte ranged GET of a presigned object URL: its status and the store's error code.
+async fn first_byte(
+    client: &RelayClient,
+    object: &Presigned,
+) -> Result<(StatusCode, String), String> {
+    let mut req = client.http.get(&object.url).header("range", "bytes=0-0");
+    for (name, value) in &object.headers {
+        req = req.header(name.as_str(), value.as_str());
+    }
+    let resp = req
+        .send()
+        .await
+        .map_err(|e| format!("object GET of {}: {e}", object.sha256))?;
+    let status = resp.status();
+    let text = resp.text().await.unwrap_or_default();
+    let code = text
+        .split_once("<Code>")
+        .and_then(|(_, rest)| rest.split_once("</Code>"))
+        .map_or_else(String::new, |(code, _)| code.to_owned());
+    Ok((status, code))
+}
+
+/// Prove the blobs are gone: none listed, `blob/get` 404 for each digest, and each presigned GET
+/// that worked before the drop now refused by the object store (404, or 403 without list rights).
 async fn read_back(
     client: &RelayClient,
     digests: &[String],
@@ -298,26 +330,29 @@ async fn read_back(
             Ok(_) => return Err(format!("blob/get {sha256} still answers after the drop")),
         }
     }
+    let mut answers = Vec::with_capacity(presigned.len());
     for object in presigned {
-        let mut req = client.http.get(&object.url).header("range", "bytes=0-0");
-        for (name, value) in &object.headers {
-            req = req.header(name.as_str(), value.as_str());
-        }
-        let status = req
-            .send()
-            .await
-            .map_err(|e| format!("object GET of {} after the drop: {e}", object.sha256))?
-            .status();
-        if status != StatusCode::NOT_FOUND {
+        if object.expires_at_ms.is_some_and(|at| at <= now_ms()) {
             return Err(format!(
-                "object GET of {} after the drop answered {status}, expected 404",
+                "the presigned GET of {} expired before the read-back",
                 object.sha256
             ));
         }
+        let (status, code) = first_byte(client, object).await?;
+        if !matches!(status, StatusCode::NOT_FOUND | StatusCode::FORBIDDEN) {
+            return Err(format!(
+                "object GET of {} after the drop answered {status} {code}, expected 404 or 403",
+                object.sha256
+            ));
+        }
+        answers.push(format!("{} {code}", status.as_u16()).trim_end().to_owned());
     }
+    answers.sort();
+    answers.dedup();
     Ok(json!({
         "blob_list_after": 0,
         "blob_get_not_found": digests.len(),
-        "object_get_not_found": presigned.len(),
+        "object_gone": presigned.len(),
+        "object_answers": answers,
     }))
 }
