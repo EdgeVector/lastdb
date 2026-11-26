@@ -35,17 +35,23 @@ def large_uploads(relay):
 def file_begins(relay):
     """(refused uploads, begins of the file), from one read of the relay log.
 
-    The log segments that carry the entries are small and go up; every other begin is one of the file. A sync
-    turn can be between its begin and its upload when the log is read, so a last begin with no upload after it
-    is left out.
+    A `blob/put` begin is a put that is followed by an upload before the next put. A commit has no
+    upload after it, so it is not a begin. Log segments that sync before the large file complete
+    (begin, upload, commit); subtracting their successful uploads leaves only the file begins. A
+    sync turn can be between its begin and its upload when the log is read, so a last put with no
+    upload after it is left out.
     """
     lines = relay.lines()
-    begins = [i for i, line in enumerate(lines) if "route=blob/put status=200" in line]
-    if begins and not any("route=blob/upload" in line for line in lines[begins[-1] + 1:]):
-        begins.pop()
+    puts = [i for i, line in enumerate(lines) if "route=blob/put status=200" in line]
+    uploads = [i for i, line in enumerate(lines) if "route=blob/upload" in line]
+    begins = 0
+    for index, at in enumerate(puts):
+        until = puts[index + 1] if index + 1 < len(puts) else len(lines)
+        if any(at < upload < until for upload in uploads):
+            begins += 1
     uploaded = sum(1 for line in lines if "route=blob/upload status=200" in line)
     refused = sum(1 for line in lines if "route=blob/upload status=400" in line)
-    return refused, len(begins) - uploaded
+    return refused, begins - uploaded
 
 
 def prove_upload_retry(args):
