@@ -14,33 +14,21 @@ use axum::extract::State;
 use axum::http::HeaderMap;
 use axum::Json;
 use mutation_log::{verify_entry_signature, DatabaseId, NodeKey, SignedEntry, SnapshotBody};
-use serde::Deserialize;
-use serde_json::{json, Value};
+use relay_protocol::{LogTrim, LogTrimAnswer};
 
-use crate::auth;
 use crate::error::{ApiError, ApiResult};
 use crate::gate;
 use crate::grant_index::GrantIndex;
-use crate::handlers::{parse_body, AppState};
+use crate::handlers::{authenticate, AppState};
 use crate::store::{read_json, require_hex64, Store};
 use crate::trim_plan::{apply, ensure_personal_logs, permits_entry, plan, TrimScope};
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct LogTrimBody {
-    database_id: String,
-    device_id: String,
-    writer_seq: u64,
-}
 
 pub(crate) async fn log_trim(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
     body: Bytes,
-) -> ApiResult<Json<Value>> {
-    let verified = auth::verify_request(&headers, "/relay/v1/log/trim", &body)?;
-    let req: LogTrimBody = parse_body(&body)?;
-    verified.check_database(&req.database_id)?;
+) -> ApiResult<Json<LogTrimAnswer>> {
+    let (verified, req) = authenticate::<LogTrim>(&headers, &body)?;
     require_hex64(&req.database_id, "database_id")?;
     let db = gate::parse_id(&req.database_id, "database_id")?;
     require_hex64(&req.device_id, "device_id")?;
@@ -68,9 +56,11 @@ pub(crate) async fn log_trim(
             return Err(ApiError::invalid("kind"));
         }
         ensure_personal_logs(&scope, &req.device_id, snap_floor, &BTreeMap::new()).await?;
-        return Ok(Json(
-            json!({ "done": true, "entries_deleted": 0, "released_bytes": 0 }),
-        ));
+        return Ok(Json(LogTrimAnswer {
+            done: true,
+            entries_deleted: 0,
+            released_bytes: 0,
+        }));
     }
     let named = SnapshotName {
         database_id: &req.database_id,
@@ -105,9 +95,11 @@ pub(crate) async fn log_trim(
         }
     }
     drop(grants);
-    Ok(Json(
-        json!({ "done": done, "entries_deleted": dropped.0, "released_bytes": dropped.1 }),
-    ))
+    Ok(Json(LogTrimAnswer {
+        done,
+        entries_deleted: dropped.0,
+        released_bytes: dropped.1,
+    }))
 }
 
 /// The caller is the publisher of `db`, and `db` has no grant: it is a personal database.

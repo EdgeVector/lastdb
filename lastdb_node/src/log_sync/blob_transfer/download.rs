@@ -1,12 +1,13 @@
 //! Presigned blob download (`blob.get`) with bounded retries and SHA-256 verification.
 
+use std::collections::BTreeMap;
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
 use app_identity_crypto::hex_lower;
 use futures::StreamExt;
+use relay_protocol::{BlobGet, BlobGetRequest};
 use reqwest::header::{HeaderName, HeaderValue};
-use serde_json::json;
 use sha2::{Digest, Sha256};
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
@@ -33,12 +34,15 @@ impl RelayClient {
     ) -> Result<(), String> {
         mutation_log::Hex32::from_hex(sha256)
             .map_err(|_| "blob digest is not 64 lowercase hex characters".to_owned())?;
-        let body = json!({ "database_id": database_id, "sha256": sha256 });
-        let meta = self.post("/relay/v1/blob/get", database_id, &body).await?;
-        let url = meta["url"].as_str().ok_or("blob.get has no url")?;
+        let request = BlobGetRequest {
+            database_id: database_id.to_owned(),
+            sha256: sha256.to_owned(),
+        };
+        let meta = self.call::<BlobGet>(&request).await?;
+        let url = meta.url.as_str();
         url_guard::validate_presigned_url(&self.base, url)?;
-        let headers = url_guard::presigned_headers(&meta["headers"], false)?;
-        if meta["bytes"].as_u64().is_some_and(|n| n != expect_size) {
+        let headers = url_guard::presigned_headers(&meta.headers, false)?;
+        if meta.bytes != expect_size {
             return Err(format!("blob.get size differs from its entry for {sha256}"));
         }
         let part = part_path(dest, sha256);
@@ -77,7 +81,7 @@ impl RelayClient {
     pub(in crate::log_sync) async fn fetch_bytes(
         &self,
         url: &str,
-        headers: &serde_json::Value,
+        headers: &BTreeMap<String, String>,
         sha256: &str,
         size: u64,
     ) -> Result<Vec<u8>, String> {

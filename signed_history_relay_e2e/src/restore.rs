@@ -92,7 +92,7 @@ async fn pull_stream(
                 "relay returned seq {last_seq} for a read from {from_seq}"
             ));
         }
-        let short = !page.more && (page.entries.len() as u64) < READ_LIMIT;
+        let short = !page.more && (page.entries.len() as u64) < u64::from(READ_LIMIT);
         entries.extend(page.entries);
         if short {
             break;

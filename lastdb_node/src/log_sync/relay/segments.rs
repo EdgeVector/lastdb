@@ -2,10 +2,12 @@
 //! one, and a `log.read` whose segments are fetched and opened in place.
 
 use mutation_log::SignedEntry;
-use serde::Deserialize;
-use serde_json::{json, Value};
+use relay_protocol::{
+    LogAppend, LogAppendRequest, LogRead, LogReadAnswer, LogReadRequest, ReadItem, SegmentAppend,
+    SegmentRef,
+};
 
-use super::{parse_append_counts, RelayClient, BEHIND_THE_TRIM};
+use super::{append_counts, RelayClient, BEHIND_THE_TRIM};
 
 /// One page of a `log.read`.
 pub(in crate::log_sync) struct Page {
@@ -18,21 +20,6 @@ pub(in crate::log_sync) struct Page {
     pub(in crate::log_sync) segments: Vec<String>,
 }
 
-/// A log segment as `log.read` names it.
-#[derive(Deserialize)]
-struct SegmentRef {
-    node_key: String,
-    device_id: String,
-    first_seq: u64,
-    last_seq: u64,
-    last_hash: String,
-    sha256: String,
-    bytes: u64,
-    url: String,
-    #[serde(default)]
-    headers: Value,
-}
-
 impl RelayClient {
     /// Append a log segment of `entries`, consecutive entries of this node's stream, whose bytes
     /// the caller put on the relay as the blob the segment names. Answers `(stored, duplicate)`
@@ -40,14 +27,12 @@ impl RelayClient {
     pub(in crate::log_sync) async fn append_segment(
         &self,
         database_id: &str,
-        segment: &Value,
+        segment: &SegmentAppend,
         entries: &[&SignedEntry],
     ) -> Result<(u64, u64), String> {
-        let body = json!({ "database_id": database_id, "segment": segment });
-        let value = self
-            .post("/relay/v1/log/append", database_id, &body)
-            .await?;
-        let (stored, duplicate) = parse_append_counts(&value, entries.len() as u64);
+        let request = LogAppendRequest::segment(database_id.to_owned(), segment.clone());
+        let answer = self.call::<LogAppend>(&request).await?;
+        let (stored, duplicate) = append_counts(answer, entries.len() as u64);
         if let Some(usage) = &self.usage {
             usage.entries_accepted(database_id, entries, stored.saturating_add(duplicate), true)?;
         }
@@ -80,61 +65,67 @@ impl RelayClient {
         cursor: Option<&str>,
         limit: u32,
     ) -> Result<Page, String> {
-        // OpenAPI LogReadBody names the stream key `writer_key` (hex node key).
-        let mut body = json!({
-            "database_id": database_id,
-            "limit": limit,
-        });
-        if let Some(cursor) = cursor {
-            body["cursor"] = Value::String(cursor.to_owned());
-        } else {
-            body["writer_key"] = Value::String(writer_key.to_owned());
-            body["from_seq"] = json!(from_seq);
-            if let Some(device_id) = device_id {
-                body["device_id"] = Value::String(device_id.to_owned());
-            }
-        }
-        let value = self
-            .post("/relay/v1/log/read", database_id, &body)
+        let request = match cursor {
+            Some(cursor) => LogReadRequest {
+                database_id: database_id.to_owned(),
+                cursor: Some(cursor.to_owned()),
+                limit: Some(limit),
+                ..LogReadRequest::default()
+            },
+            None => LogReadRequest {
+                database_id: database_id.to_owned(),
+                writer_key: Some(writer_key.to_owned()),
+                device_id: device_id.map(str::to_owned),
+                from_seq: Some(from_seq),
+                cursor: None,
+                limit: Some(limit),
+            },
+        };
+        let LogReadAnswer {
+            entries: items,
+            cursor: next,
+        } = self
+            .call_tracked::<LogRead>(&request)
             .await
+            .map(|(answer, _)| answer)
             .map_err(|error| {
-                if error.contains("HTTP 410") {
-                    format!("{BEHIND_THE_TRIM}: {error}")
+                if error.status == Some(410) {
+                    format!("{BEHIND_THE_TRIM}: {}", error.message)
                 } else {
-                    error
+                    error.message
                 }
             })?;
         const BAD: &str = "relay log.read returned invalid entries";
-        let items = value["entries"].as_array().ok_or(BAD)?;
         let skip_below = (cursor.is_none() && device_id.is_some()).then_some(from_seq);
         let mut page = Page {
             entries: Vec::with_capacity(items.len()),
-            cursor: value["cursor"].as_str().map(str::to_owned),
+            cursor: next,
             in_segment: Vec::with_capacity(items.len()),
             segments: Vec::new(),
         };
-        for (index, item) in items.iter().enumerate() {
-            let Some(segment) = item.get("segment") else {
-                page.entries
-                    .push(serde_json::from_value(item.clone()).map_err(|_| BAD.to_owned())?);
-                page.in_segment.push(false);
-                continue;
-            };
-            let segment: SegmentRef =
-                serde_json::from_value(segment.clone()).map_err(|_| BAD.to_owned())?;
-            let entries = self.open_segment(&segment).await?;
-            let from = if index == 0 {
-                skip_below.unwrap_or(0)
-            } else {
-                0
-            };
-            for entry in entries {
-                if entry.header().writer_seq >= from {
-                    page.entries.push(entry);
-                    page.in_segment.push(true);
+        for (index, item) in items.into_iter().enumerate() {
+            match item {
+                ReadItem::Entry(value) => {
+                    page.entries
+                        .push(serde_json::from_value(value).map_err(|_| BAD.to_owned())?);
+                    page.in_segment.push(false);
+                }
+                ReadItem::Segment { segment } => {
+                    let entries = self.open_segment(&segment).await?;
+                    let from = if index == 0 {
+                        skip_below.unwrap_or(0)
+                    } else {
+                        0
+                    };
+                    for entry in entries {
+                        if entry.header().writer_seq >= from {
+                            page.entries.push(entry);
+                            page.in_segment.push(true);
+                        }
+                    }
+                    page.segments.push(segment.sha256);
                 }
             }
-            page.segments.push(segment.sha256);
         }
         Ok(page)
     }

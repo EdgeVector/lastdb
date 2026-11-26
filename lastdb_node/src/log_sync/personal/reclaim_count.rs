@@ -95,7 +95,12 @@ impl<'a> Counter<'a> {
     }
 
     /// A new listing of the relay: every digest that waits and is no longer listed was released.
+    /// First, a blob whose commit this node never saw end and that the relay lists was committed,
+    /// so it counts as put before this sweep can drop it.
     pub(super) fn settle(&mut self, listed: &BTreeMap<String, u64>) -> Result<(), String> {
+        if let Some(usage) = &self.client.usage {
+            usage.confirm_listed(self.database_id, listed)?;
+        }
         if self.named.is_empty() {
             return Ok(());
         }

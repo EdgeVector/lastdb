@@ -32,7 +32,12 @@
 //! - a blob is marked in `pending` right before `stage: "commit"` is sent and unmarked when the
 //!   commit succeeds or receives a definitive HTTP 4xx refusal. A blob that `stage: "begin"` says
 //!   the relay already holds counts only when `pending` already held it from an earlier cut-off
-//!   commit. A blob another device put is not counted again;
+//!   commit. A blob another device put is not counted again. A blob in `pending` that a
+//!   `blob.list` of a sweep lists with its length was committed (the node stopped before it read
+//!   the answer, and sent a different segment after): it counts then, before the sweep can drop
+//!   it as named by nothing, so its release never counts without its put. A commit counts only
+//!   while its blob is in `pending`, so a commit that ends after that, or a second commit of the
+//!   same blob at the same time, does not count it twice;
 //! - a kill -9 in the moment between a relay answer and the write of this file for a snapshot entry
 //!   or a trim answer, which nothing sends again, is not repaired.
 
@@ -42,7 +47,6 @@ use std::sync::Mutex;
 
 use mutation_log::SignedEntry;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 use crate::host::cloud_sync::{CloudSyncStatus, CloudUsage};
 use crate::profile::private_fs as disk;
@@ -265,7 +269,10 @@ impl Ledger {
     ) -> Result<(), String> {
         let _guard = lock();
         let mut saved = load(&self.home, database_id, self.spool_acked)?;
-        saved.pending.remove(sha256);
+        if saved.pending.remove(sha256).is_none() {
+            // A listing confirmed it already, or another commit of the same blob ended first.
+            return Ok(());
+        }
         if counted {
             saved.usage.blobs = saved.usage.blobs.saturating_add(1);
             saved.usage.blob_bytes = saved.usage.blob_bytes.saturating_add(bytes);
@@ -274,9 +281,12 @@ impl Ledger {
     }
 
     /// The relay answered a trim (`entries_deleted`, `released_bytes`).
-    pub(super) fn released(&self, database_id: &str, answer: &Value) -> Result<(), String> {
-        let entries = answer["entries_deleted"].as_u64().unwrap_or(0);
-        let bytes = answer["released_bytes"].as_u64().unwrap_or(0);
+    pub(super) fn released(
+        &self,
+        database_id: &str,
+        answer: &relay_protocol::LogTrimAnswer,
+    ) -> Result<(), String> {
+        let (entries, bytes) = (answer.entries_deleted, answer.released_bytes);
         if entries == 0 && bytes == 0 {
             return Ok(());
         }
@@ -284,6 +294,39 @@ impl Ledger {
         let mut saved = load(&self.home, database_id, self.spool_acked)?;
         saved.usage.released_entries = saved.usage.released_entries.saturating_add(entries);
         saved.usage.released_bytes = saved.usage.released_bytes.saturating_add(bytes);
+        store(&self.home, database_id, &mut saved)
+    }
+
+    /// A `blob.list` of the relay: every blob in `pending` that it lists with the same length was
+    /// committed, so it moves into the confirmed totals.
+    pub(super) fn confirm_listed(
+        &self,
+        database_id: &str,
+        listed: &BTreeMap<String, u64>,
+    ) -> Result<(), String> {
+        let _guard = lock();
+        let Some(raw) = disk::read_limited(&path(&self.home, database_id), LIMIT)
+            .map_err(|_| "cannot read the cloud usage record".to_owned())?
+        else {
+            return Ok(());
+        };
+        let mut saved: Saved = serde_json::from_slice(&raw)
+            .map_err(|_| "the cloud usage record is invalid".to_owned())?;
+        normalize(&self.home, database_id, self.spool_acked, &mut saved);
+        let held: Vec<(String, u64)> = saved
+            .pending
+            .iter()
+            .filter(|(digest, bytes)| listed.get(digest.as_str()) == Some(*bytes))
+            .map(|(digest, bytes)| (digest.clone(), *bytes))
+            .collect();
+        if held.is_empty() {
+            return Ok(());
+        }
+        for (digest, bytes) in held {
+            saved.pending.remove(&digest);
+            saved.usage.blobs = saved.usage.blobs.saturating_add(1);
+            saved.usage.blob_bytes = saved.usage.blob_bytes.saturating_add(bytes);
+        }
         store(&self.home, database_id, &mut saved)
     }
 

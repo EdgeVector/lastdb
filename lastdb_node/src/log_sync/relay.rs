@@ -1,14 +1,18 @@
-//! HTTP client for `/relay/v1/log/*`.
+//! HTTP client for `/relay/v1/log/*`, speaking the types of [`relay_protocol`].
 
 mod http;
 mod segments;
+
+pub(super) use http::CallError;
 
 use std::time::{Duration, Instant};
 
 use app_identity_crypto::SigningKey;
 use mutation_log::{DatabaseId, DeviceId, SignedEntry};
-use serde::Deserialize;
-use serde_json::{json, Value};
+use relay_protocol::{
+    LogAppend, LogAppendAnswer, LogAppendRequest, LogStreams, LogStreamsRequest, LogTrim,
+    LogTrimRequest,
+};
 
 /// Bound a hung peer so the sync loop can return and re-push the log.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -21,13 +25,8 @@ const HUNG_PEER_BUDGET: Duration = Duration::from_secs(45);
 /// Starts the error of a read of entries that the relay dropped after a snapshot.
 pub(super) const BEHIND_THE_TRIM: &str = "this device is behind history that the relay dropped after a snapshot; restore the database into a new home with `lastdb backup restore`";
 
-/// One device stream of a writer as `log.streams` lists it.
-#[derive(Debug, Deserialize)]
-pub(super) struct StreamHead {
-    pub(super) device_id: String,
-    pub(super) head_seq: u64,
-    pub(super) head_hash: String,
-}
+// One device stream of a writer as `log.streams` lists it.
+pub(super) use relay_protocol::StreamHead;
 
 pub(super) struct RelayClient {
     pub(super) base: String,
@@ -53,6 +52,7 @@ impl RelayClient {
     ) -> Result<Self, String> {
         // trace-egress: public — relay gates by grants; node key only in signed headers.
         let http = reqwest::Client::builder()
+            .user_agent(relay_protocol::user_agent(crate::version::build_version()))
             .connect_timeout(CONNECT_TIMEOUT)
             .timeout(REQUEST_TIMEOUT)
             .redirect(reqwest::redirect::Policy::none())
@@ -106,14 +106,14 @@ impl RelayClient {
         database_id: &str,
         entries: &[SignedEntry],
     ) -> Result<(u64, u64), String> {
-        let body = json!({
-            "database_id": database_id,
-            "entries": entries,
-        });
-        let value = self
-            .post("/relay/v1/log/append", database_id, &body)
-            .await?;
-        let (stored, duplicate) = parse_append_counts(&value, entries.len() as u64);
+        let values = entries
+            .iter()
+            .map(serde_json::to_value)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| "cannot encode signed entry".to_owned())?;
+        let request = LogAppendRequest::entries(database_id.to_owned(), values);
+        let answer = self.call::<LogAppend>(&request).await?;
+        let (stored, duplicate) = append_counts(answer, entries.len() as u64);
         if let Some(usage) = &self.usage {
             usage.entries_accepted(
                 database_id,
@@ -152,16 +152,16 @@ impl RelayClient {
         device_id: &str,
         writer_seq: u64,
     ) -> Result<bool, String> {
-        let body = json!({
-            "database_id": database_id,
-            "device_id": device_id,
-            "writer_seq": writer_seq,
-        });
-        let value = self.post("/relay/v1/log/trim", database_id, &body).await?;
+        let request = LogTrimRequest {
+            database_id: database_id.to_owned(),
+            device_id: device_id.to_owned(),
+            writer_seq,
+        };
+        let answer = self.call::<LogTrim>(&request).await?;
         if let Some(usage) = &self.usage {
-            usage.released(database_id, &value)?;
+            usage.released(database_id, &answer)?;
         }
-        Ok(value["done"].as_bool().unwrap_or(false))
+        Ok(answer.done)
     }
 
     /// The device streams of `writer_key` and how far each reaches: for each,
@@ -174,45 +174,22 @@ impl RelayClient {
         database_id: &str,
         writer_key: &str,
     ) -> Result<Vec<StreamHead>, String> {
-        let body = json!({ "database_id": database_id, "writer_key": writer_key });
-        let value = self
-            .post("/relay/v1/log/streams", database_id, &body)
-            .await?;
-        serde_json::from_value(value["streams"].clone())
-            .map_err(|_| "relay log.streams returned an invalid list".to_owned())
-    }
-
-    pub(super) async fn post(
-        &self,
-        path: &str,
-        database_id: &str,
-        body: &Value,
-    ) -> Result<Value, String> {
-        self.post_tracked(path, database_id, body)
-            .await
-            .map(|(value, _)| value)
+        let request = LogStreamsRequest {
+            database_id: database_id.to_owned(),
+            writer_key: writer_key.to_owned(),
+        };
+        Ok(self.call::<LogStreams>(&request).await?.streams)
     }
 }
 
-fn parse_append_counts(value: &Value, sent: u64) -> (u64, u64) {
-    let stored = value["stored"].as_u64().unwrap_or(0);
-    if stored >= sent {
-        (stored, 0)
-    } else if value["duplicate"].as_bool() == Some(true) {
-        (stored, sent.saturating_sub(stored))
+/// `(stored, duplicate)` in entries for an append of `sent` entries. A duplicate answer says that
+/// the entries the relay did not store it held already.
+fn append_counts(answer: LogAppendAnswer, sent: u64) -> (u64, u64) {
+    if answer.stored < sent && answer.duplicate {
+        (answer.stored, sent.saturating_sub(answer.stored))
     } else {
-        (stored, value["duplicate"].as_u64().unwrap_or(0))
+        (answer.stored, 0)
     }
-}
-
-/// The name and value of each string in a JSON object of headers.
-pub(super) fn header_pairs(value: &Value) -> Vec<(String, String)> {
-    let Some(map) = value.as_object() else {
-        return Vec::new();
-    };
-    map.iter()
-        .filter_map(|(name, val)| val.as_str().map(|v| (name.clone(), v.to_owned())))
-        .collect()
 }
 
 /// CI: append against a hung `base` must error inside [`HUNG_PEER_BUDGET`].

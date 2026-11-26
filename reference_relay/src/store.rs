@@ -37,7 +37,7 @@ impl Store {
         &self,
         database_id: &str,
         writer_key: &str,
-    ) -> Vec<heads::ListedStream> {
+    ) -> Vec<relay_protocol::StreamHead> {
         self.heads.list(database_id, writer_key)
     }
 

@@ -39,6 +39,7 @@ sentry-telemetry = ["observability/sentry"]
 cloud_backup_protocol = { path = "../cloud_backup_protocol" }
 database_policy = { path = "../database_policy" }
 mutation_log = { path = "../mutation_log" }
+relay_protocol = { path = "../relay_protocol" }
 signed_history_materialize = { path = "../signed_history_materialize" }
 zeroize = { workspace = true }
 fold_db = { workspace = true }

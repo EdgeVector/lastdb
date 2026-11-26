@@ -1,5 +1,6 @@
-//! The presigned transfer routes of `blob.put` and `blob.get`. Bodies move in
-//! chunks, so the relay's memory does not grow with the size of the blob.
+//! The presigned transfer routes of `blob.put` and `blob.get`, this reference relay's object-store
+//! stand-in (`presign::BLOB_UPLOAD_PATH`, `presign::BLOB_BYTES_PATH`), not protocol routes. Bodies
+//! move in chunks, so the relay's memory does not grow with the size of the blob.
 
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -30,7 +31,7 @@ pub(crate) struct SignedQuery {
     s: String,
 }
 
-/// `PUT /relay/v1/blob/upload/{database_id}/{token}`: the body is streamed to staging.
+/// `PUT {BLOB_UPLOAD_PATH}/{database_id}/{token}`: the body is streamed to staging.
 /// Requires a valid presigned query (`e`, `s`) and `x-amz-checksum-sha256`.
 pub(crate) async fn blob_upload(
     State(state): State<Arc<AppState>>,
@@ -100,7 +101,7 @@ async fn pace_chunk(
     chunk
 }
 
-/// `GET /relay/v1/blob/bytes/{database_id}/{sha256}`: the file is streamed from disk.
+/// `GET {BLOB_BYTES_PATH}/{database_id}/{sha256}`: the file is streamed from disk.
 pub(crate) async fn blob_bytes(
     State(state): State<Arc<AppState>>,
     Path((database_id, sha256)): Path<(String, String)>,

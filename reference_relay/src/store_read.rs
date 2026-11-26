@@ -2,6 +2,7 @@
 
 use std::io::ErrorKind;
 
+use relay_protocol::LogReadRequest;
 use serde_json::Value;
 use tokio::fs;
 
@@ -197,22 +198,11 @@ pub(crate) async fn stored_keys(dir: &std::path::Path, min: u64) -> ApiResult<Ve
     Ok(keys)
 }
 
-#[derive(serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct LogReadBody {
-    pub(crate) database_id: String,
-    pub(crate) writer_key: Option<String>,
-    pub(crate) device_id: Option<String>,
-    pub(crate) from_seq: Option<u64>,
-    pub(crate) cursor: Option<String>,
-    pub(crate) limit: Option<u64>,
-}
-
-pub(crate) fn read_limit(limit: Option<u64>) -> ApiResult<usize> {
+pub(crate) fn read_limit(limit: Option<u32>) -> ApiResult<usize> {
     match limit {
         None => Ok(MAX_BATCH),
         Some(0) => Err(ApiError::invalid("limit")),
-        Some(n) if n > MAX_BATCH as u64 => Err(ApiError::batch_too_large("limit")),
+        Some(n) if u64::from(n) > MAX_BATCH as u64 => Err(ApiError::batch_too_large("limit")),
         Some(n) => Ok(n as usize),
     }
 }
@@ -232,7 +222,7 @@ pub(crate) enum ReadPosition {
     },
 }
 
-pub(crate) fn read_position(req: &LogReadBody) -> ApiResult<ReadPosition> {
+pub(crate) fn read_position(req: &LogReadRequest) -> ApiResult<ReadPosition> {
     if let Some(cursor) = req.cursor.as_deref() {
         if cursor.is_empty() || cursor.len() > 256 || req.from_seq.is_some() {
             return Err(ApiError::invalid("cursor"));

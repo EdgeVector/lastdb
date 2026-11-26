@@ -13,6 +13,7 @@ workspace = true
 app_identity_crypto = { workspace = true }
 base64 = { workspace = true }
 mutation_log = { path = "../mutation_log" }
+relay_protocol = { path = "../relay_protocol" }
 rand = "0.8"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "charset", "http2", "json"] }
 serde_json = { workspace = true }

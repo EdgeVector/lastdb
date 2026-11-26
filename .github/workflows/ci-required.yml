@@ -251,6 +251,65 @@ jobs:
           GH_PAT: ${{ secrets.GH_PAT }}
         run: python3 scripts/lints/lint-cloud-protocol-pin.py
 
+  # The relay contract is the relay_protocol crate. The committed OpenAPI file must be
+  # the one the crate generates, and it may only add under /relay/v1/ (pinned oasdiff).
+  relay_contract:
+    name: relay contract (generated, additions only)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      OASDIFF_VERSION: 1.35.0
+      OASDIFF_SHA256: a8023002fcb2eaa7f5758148a9303cb63d33b939886df312268bc0fc7b939140
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Install Rust
+        run: |
+          rustup toolchain install --profile minimal
+          rustup show active-toolchain
+      - name: Cache cargo and target (relay_contract)
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: relay-contract
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Generate the contract from the crate
+        run: |
+          cargo run --locked --quiet -p relay_protocol --features schema \
+            --bin relay-protocol-openapi >"$RUNNER_TEMP/relay-protocol.openapi.json"
+      - name: Keep the generated contract
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: relay-protocol-openapi-${{ github.run_id }}
+          path: ${{ runner.temp }}/relay-protocol.openapi.json
+          retention-days: 14
+      - name: The committed contract is the generated one
+        run: |
+          if ! diff -u docs/designs/relay-protocol.openapi.json "$RUNNER_TEMP/relay-protocol.openapi.json"; then
+            echo "::error::docs/designs/relay-protocol.openapi.json is not what relay_protocol generates. Run: cargo run -p relay_protocol --features schema --bin relay-protocol-openapi > docs/designs/relay-protocol.openapi.json (or take the artifact of this run)."
+            exit 1
+          fi
+      - name: Install oasdiff (pinned, checksum checked)
+        run: |
+          set -euo pipefail
+          archive="oasdiff_${OASDIFF_VERSION}_linux_amd64.tar.gz"
+          curl -fsSL -o "$RUNNER_TEMP/$archive" \
+            "https://github.com/oasdiff/oasdiff/releases/download/v${OASDIFF_VERSION}/$archive"
+          echo "$OASDIFF_SHA256  $RUNNER_TEMP/$archive" | sha256sum --check --strict
+          mkdir -p "$RUNNER_TEMP/oasdiff"
+          tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP/oasdiff" oasdiff
+      - name: Only additions under /relay/v1/
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before || '' }}
+          BREAK_APPROVED: ${{ contains(github.event.pull_request.labels.*.name, 'relay-contract-break-approved') }}
+        run: |
+          approved=()
+          if [ "$BREAK_APPROVED" = "true" ]; then approved=(--break-approved); fi
+          python3 scripts/ci/relay_contract_breaking.py --base "$BASE_SHA" \
+            --head-file "$RUNNER_TEMP/relay-protocol.openapi.json" \
+            --oasdiff "$RUNNER_TEMP/oasdiff/oasdiff" "${approved[@]}"
+
   # Starts EdgeVector/people DEV sharing on people main against this LastDB
   # SHA (PR head, push SHA, or workflow_dispatch input). People keeps the
   # recipes and the DEV publisher secrets; this job only dispatches and waits.
@@ -280,6 +339,7 @@ jobs:
       - supply_chain
       - record_home
       - protocol_pin
+      - relay_contract
       - installed_app_gate
       - people_dev_sharing
     if: ${{ always() }}
@@ -293,7 +353,7 @@ jobs:
           echo "Required job results: $RESULTS"
           # Every non-test required job must succeed.
           # A skip is a failure.
-          if [ "$RESULTS" != "success,success,success,success,success,success,success,success,success,success" ]; then
+          if [ "$RESULTS" != "success,success,success,success,success,success,success,success,success,success,success" ]; then
             echo "A required job did not succeed"
             exit 1
           fi

@@ -20,6 +20,11 @@
 //! deletes those. The report counts the publisher's entries that stay. The `log.streams`
 //! database (`streams.rs`) holds entries only, no blob, and is not listed here.
 
+use std::collections::BTreeMap;
+
+use relay_protocol::{
+    BlobDrop, BlobDropRequest, BlobGet, BlobGetRequest, BlobList, BlobListRequest, StreamPosition,
+};
 use reqwest::StatusCode;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -30,7 +35,7 @@ use crate::chain::{Chain, Publisher};
 use crate::grants::http_status;
 use crate::identity::{new_device_id, now_ms};
 use crate::ledger::{Ledger, OwnedDatabase};
-use crate::relay::{header_pairs, RelayClient};
+use crate::relay::RelayClient;
 
 /// The most digests one `blob/drop` may name.
 const DROP_BATCH: usize = 25;
@@ -41,8 +46,8 @@ const FENCE_ATTEMPTS: u32 = 3;
 struct Presigned {
     sha256: String,
     url: String,
-    headers: Vec<(String, String)>,
-    expires_at_ms: Option<u64>,
+    headers: BTreeMap<String, String>,
+    expires_at_ms: u64,
 }
 
 /// The counts that the `blob/drop` answers add up to.
@@ -190,30 +195,31 @@ async fn drop_all(
             .find(|s| s.device_id == snapshot_device)
             .map(|s| s.head_seq)
             .ok_or("log/streams does not list the cleanup snapshot stream")?;
-        let heads: Vec<Value> = streams
+        let heads: Vec<StreamPosition> = streams
             .iter()
             .filter(|s| s.device_id != snapshot_device)
-            .map(|s| json!({ "device_id": s.device_id, "writer_seq": s.head_seq }))
+            .map(|s| StreamPosition {
+                device_id: s.device_id.clone(),
+                writer_seq: s.head_seq,
+            })
             .collect();
         while !left.is_empty() {
             let batch = &left[..left.len().min(DROP_BATCH)];
-            let body = json!({
-                "database_id": client.database_hex,
-                "snapshot": { "device_id": snapshot_device, "writer_seq": snapshot_seq },
-                "heads": heads,
-                "sha256": batch,
-            });
+            let request = BlobDropRequest {
+                database_id: client.database_hex.clone(),
+                snapshot: StreamPosition {
+                    device_id: snapshot_device.to_owned(),
+                    writer_seq: snapshot_seq,
+                },
+                heads: heads.clone(),
+                sha256: batch.to_vec(),
+            };
             counts.calls += 1;
-            match client.post("/relay/v1/blob/drop", &body).await {
+            match client.call::<BlobDrop>(&request).await {
                 Ok(answer) => {
-                    let count = |field: &str| {
-                        answer[field]
-                            .as_u64()
-                            .ok_or_else(|| format!("blob/drop answer has no {field}: {answer}"))
-                    };
-                    counts.dropped += count("dropped")?;
-                    counts.released += count("released_bytes")?;
-                    counts.absent += count("absent")?;
+                    counts.dropped += answer.dropped;
+                    counts.released += answer.released_bytes;
+                    counts.absent += answer.absent;
                     left = &left[batch.len()..];
                 }
                 Err(error) if http_status(&error) == Some(409) && attempt < FENCE_ATTEMPTS => {
@@ -233,46 +239,30 @@ async fn list_all(client: &RelayClient) -> Result<Vec<(String, u64)>, String> {
     let mut found = Vec::new();
     let mut after: Option<String> = None;
     loop {
-        let mut body = json!({ "database_id": client.database_hex });
-        if let Some(after) = &after {
-            body["after"] = Value::String(after.clone());
-        }
-        let page = client.post("/relay/v1/blob/list", &body).await?;
-        for blob in page["blobs"]
-            .as_array()
-            .ok_or("blob/list has no blobs list")?
-        {
-            let sha256 = blob["sha256"]
-                .as_str()
-                .ok_or("blob/list item has no sha256")?;
-            let bytes = blob["bytes"]
-                .as_u64()
-                .ok_or("blob/list item has no bytes")?;
-            found.push((sha256.to_owned(), bytes));
-        }
-        match page["next"].as_str() {
-            Some(next) => after = Some(next.to_owned()),
-            None => return Ok(found),
-        }
+        let request = BlobListRequest {
+            database_id: client.database_hex.clone(),
+            after: after.take(),
+        };
+        let page = client.call::<BlobList>(&request).await?;
+        found.extend(page.blobs.into_iter().map(|blob| (blob.sha256, blob.bytes)));
+        let Some(next) = page.next else {
+            return Ok(found);
+        };
+        after = Some(next);
     }
 }
 
 /// A presigned GET of the object of `sha256`, and the proof that it works now.
 async fn presign(client: &RelayClient, sha256: &str) -> Result<Presigned, String> {
-    let body = json!({ "database_id": client.database_hex, "sha256": sha256 });
     let meta = client
-        .post("/relay/v1/blob/get", &body)
+        .call::<BlobGet>(&blob_get(client, sha256))
         .await
         .map_err(|e| format!("blob/get before the drop: {e}"))?;
-    let url = meta["url"]
-        .as_str()
-        .ok_or("blob/get has no url")?
-        .to_owned();
     let presigned = Presigned {
         sha256: sha256.to_owned(),
-        url,
-        headers: header_pairs(&meta["headers"]),
-        expires_at_ms: meta["expires_at_ms"].as_u64(),
+        url: meta.url,
+        headers: meta.headers,
+        expires_at_ms: meta.expires_at_ms,
     };
     let (status, _) = first_byte(client, &presigned).await?;
     if !status.is_success() {
@@ -281,6 +271,14 @@ async fn presign(client: &RelayClient, sha256: &str) -> Result<Presigned, String
         ));
     }
     Ok(presigned)
+}
+
+/// A `blob/get` of `sha256` in the client's database.
+fn blob_get(client: &RelayClient, sha256: &str) -> BlobGetRequest {
+    BlobGetRequest {
+        database_id: client.database_hex.clone(),
+        sha256: sha256.to_owned(),
+    }
 }
 
 /// A one-byte ranged GET of a presigned object URL: its status and the store's error code.
@@ -323,8 +321,7 @@ async fn read_back(
         ));
     }
     for sha256 in digests {
-        let body = json!({ "database_id": client.database_hex, "sha256": sha256 });
-        match client.post("/relay/v1/blob/get", &body).await {
+        match client.call::<BlobGet>(&blob_get(client, sha256)).await {
             Err(error) if http_status(&error) == Some(404) => {}
             Err(error) => return Err(format!("blob/get {sha256} after the drop: {error}")),
             Ok(_) => return Err(format!("blob/get {sha256} still answers after the drop")),
@@ -332,7 +329,7 @@ async fn read_back(
     }
     let mut answers = Vec::with_capacity(presigned.len());
     for object in presigned {
-        if object.expires_at_ms.is_some_and(|at| at <= now_ms()) {
+        if object.expires_at_ms <= now_ms() {
             return Err(format!(
                 "the presigned GET of {} expired before the read-back",
                 object.sha256

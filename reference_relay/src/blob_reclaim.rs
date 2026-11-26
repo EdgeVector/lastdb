@@ -15,14 +15,14 @@ use axum::body::Bytes;
 use axum::extract::State;
 use axum::http::HeaderMap;
 use axum::Json;
-use serde::Deserialize;
-use serde_json::{json, Value};
+use relay_protocol::{
+    BlobDrop, BlobDropAnswer, BlobDropRequest, BlobList, BlobListAnswer, BlobListed, StreamPosition,
+};
 use tokio::fs;
 
-use crate::auth;
 use crate::error::{ApiError, ApiResult};
 use crate::gate;
-use crate::handlers::{parse_body, AppState};
+use crate::handlers::{authenticate, AppState};
 use crate::store::{is_hex64, require_hex64, Store};
 use crate::trim::{personal_owner, snapshot_entry, SnapshotName};
 
@@ -33,24 +33,14 @@ const MAX_HEADS: usize = 32;
 /// The most digests one `blob/drop` may name.
 const MAX_DROPS: usize = 25;
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct BlobListBody {
-    database_id: String,
-    #[serde(default)]
-    after: Option<String>,
-}
-
 /// `blob/list`: the committed blobs of a database, ascending by digest, for any node that may
 /// read the database.
 pub(crate) async fn blob_list(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
     body: Bytes,
-) -> ApiResult<Json<Value>> {
-    let verified = auth::verify_request(&headers, "/relay/v1/blob/list", &body)?;
-    let req: BlobListBody = parse_body(&body)?;
-    verified.check_database(&req.database_id)?;
+) -> ApiResult<Json<BlobListAnswer>> {
+    let (verified, req) = authenticate::<BlobList>(&headers, &body)?;
     require_hex64(&req.database_id, "database_id")?;
     let db = gate::parse_id(&req.database_id, "database_id")?;
     state.check_read(&db, &verified.node_key).await?;
@@ -66,36 +56,17 @@ pub(crate) async fn blob_list(
     }
     let more = listed.len() > LIST_PAGE;
     listed.truncate(LIST_PAGE);
-    let blobs: Vec<Value> = listed
-        .iter()
-        .map(|(sha256, bytes)| json!({ "sha256": sha256, "bytes": bytes }))
+    let next = listed.last().filter(|_| more).map(|(last, _)| last.clone());
+    let blobs = listed
+        .into_iter()
+        .map(|(sha256, bytes)| BlobListed { sha256, bytes })
         .collect();
-    let mut out = json!({ "blobs": blobs });
-    if let Some((last, _)) = listed.last().filter(|_| more) {
-        out["next"] = Value::String(last.clone());
-    }
-    Ok(Json(out))
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct StreamAt {
-    device_id: String,
-    writer_seq: u64,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct BlobDropBody {
-    database_id: String,
-    snapshot: StreamAt,
-    heads: Vec<StreamAt>,
-    sha256: Vec<String>,
+    Ok(Json(BlobListAnswer { blobs, next }))
 }
 
 /// The shape of a drop: at most [`MAX_HEADS`] heads, each stream once, none of them the snapshot
 /// stream, each at an entry; 1 to [`MAX_DROPS`] digests, each once.
-fn check_drop_body(req: &BlobDropBody) -> ApiResult<()> {
+fn check_drop_body(req: &BlobDropRequest) -> ApiResult<()> {
     require_hex64(&req.database_id, "database_id")?;
     require_hex64(&req.snapshot.device_id, "snapshot")?;
     if req.snapshot.writer_seq == 0 {
@@ -142,10 +113,8 @@ pub(crate) async fn blob_drop(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
     body: Bytes,
-) -> ApiResult<Json<Value>> {
-    let verified = auth::verify_request(&headers, "/relay/v1/blob/drop", &body)?;
-    let req: BlobDropBody = parse_body(&body)?;
-    verified.check_database(&req.database_id)?;
+) -> ApiResult<Json<BlobDropAnswer>> {
+    let (verified, req) = authenticate::<BlobDrop>(&headers, &body)?;
     check_drop_body(&req)?;
     let db = gate::parse_id(&req.database_id, "database_id")?;
     let writer = verified.node_key.to_hex();
@@ -154,7 +123,7 @@ pub(crate) async fn blob_drop(
     let _blob_guard = state.blob_lock.lock().await;
     let grants = state.grants.lock().await;
     personal_owner(&grants, &db, &verified.node_key)?;
-    let read = |at: &StreamAt| {
+    let read = |at: &StreamPosition| {
         state
             .store
             .heads
@@ -209,9 +178,11 @@ pub(crate) async fn blob_drop(
             None => absent += 1,
         }
     }
-    Ok(Json(
-        json!({ "dropped": dropped, "released_bytes": released, "absent": absent }),
-    ))
+    Ok(Json(BlobDropAnswer {
+        dropped,
+        released_bytes: released,
+        absent,
+    }))
 }
 
 impl Store {
