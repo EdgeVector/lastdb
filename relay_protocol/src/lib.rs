@@ -53,6 +53,15 @@ pub mod headers {
     pub const SIGNATURE: &str = "X-LastDB-Signature";
 }
 
+/// The `User-Agent` a LastDB node sends on every relay request: `lastdb/<build version>`. It is
+/// not signed and grants nothing; a relay logs it with each refusal and failure, so a failure in
+/// production names the version that sent it. A relay reduces it before logging (at most 80
+/// characters of ASCII letters, digits, `/ . - + _ ( ) ;` and spaces).
+#[must_use]
+pub fn user_agent(build_version: &str) -> String {
+    format!("lastdb/{build_version}")
+}
+
 /// The bytes a request signature covers:
 /// `POST\n<path>\n<protocol>\n<node_key>\n<database_id>\n<body_sha256 hex>\n<issued_at>\n<nonce>`.
 #[must_use]

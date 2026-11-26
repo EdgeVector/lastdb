@@ -52,6 +52,7 @@ impl RelayClient {
     ) -> Result<Self, String> {
         // trace-egress: public — relay gates by grants; node key only in signed headers.
         let http = reqwest::Client::builder()
+            .user_agent(relay_protocol::user_agent(crate::version::build_version()))
             .connect_timeout(CONNECT_TIMEOUT)
             .timeout(REQUEST_TIMEOUT)
             .redirect(reqwest::redirect::Policy::none())

@@ -83,6 +83,9 @@ POST /relay/v1/blob/drop
 
 Batching/caps match cloud-api. **Every** relay request is signed
 (`nodeSignature` + `X-LastDB-Relay-Protocol: 1`), including reads.
+A node also sends `User-Agent: lastdb/<build version>` (`relay_protocol::user_agent`). It is not
+signed and grants nothing; a relay logs it with every refusal and failure, so a failure names the
+version that caused it.
 
 ### Request signature (`nodeSignature`)
 
