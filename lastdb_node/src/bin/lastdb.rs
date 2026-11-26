@@ -134,7 +134,11 @@ fn run(cli: Cli) -> Result<(), String> {
         }) => create_database(cli.data_dir, &name, private, json),
         Command::Admin(a) => run_admin(cli.data_dir, a),
         Command::App(a) => app_command(cli.data_dir, a),
-        Command::Ops { by_count, json } => ops_cmds::ops(cli.data_dir, by_count, json),
+        Command::Ops {
+            by_count,
+            json,
+            since,
+        } => ops_cmds::ops(cli.data_dir, by_count, json, since.as_deref()),
         c => {
             let t = DatabaseTarget::open(cli.data_dir, cli.db.as_deref())?;
             match c {

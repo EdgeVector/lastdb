@@ -1,7 +1,8 @@
 //! Route label for one completed request. Known routes are `'static`. An
 //! unknown path is copied into a fixed buffer, truncated on a char boundary.
+//! Also the caller and client of a request, and the slot of its error code.
 
-use super::{CALL_CLIP, OTHER};
+use super::{Completed, CALL_CLIP, OTHER, OWNER, UNKNOWN};
 
 #[derive(Clone, Copy)]
 pub(crate) struct CallLabel {
@@ -144,4 +145,40 @@ fn placeholder(path: &str) -> Option<&'static str> {
 fn schema_suffix(suffix: &str) -> Option<&'static str> {
     let name = suffix.strip_prefix("schema/")?;
     (!name.is_empty() && !name.contains('/')).then_some("/api/databases/{database}/schema/{schema}")
+}
+
+pub(super) fn caller_of<'a>(done: &'a Completed<'a>) -> &'a str {
+    if !done.apps {
+        return OWNER;
+    }
+    header(done.headers, "X-LastDB-App")
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .unwrap_or(UNKNOWN)
+}
+
+pub(super) fn client_of<'a>(done: &'a Completed<'a>) -> &'a str {
+    if done.apps {
+        return "";
+    }
+    header(done.headers, "X-LastDB-Client").map_or("", str::trim)
+}
+
+fn header<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'a str> {
+    headers
+        .iter()
+        .find_map(|(key, value)| key.eq_ignore_ascii_case(name).then_some(value.as_str()))
+}
+
+pub(super) const fn code_at(status: u16) -> usize {
+    match status {
+        400 | 422 => 0,
+        401 | 403 => 1,
+        404 => 2,
+        409 => 3,
+        413 => 4,
+        423 | 429 | 503 => 5,
+        405 => 6,
+        _ => 7,
+    }
 }

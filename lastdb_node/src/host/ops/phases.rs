@@ -1,5 +1,6 @@
 //! Time that committed `POST /v1/write` requests spent in each phase of the handler, summed
-//! since the node started. Counters only: no lock, nothing on disk.
+//! since the node started. Counters only: a write takes no lock. The ops history sample takes
+//! the change since the previous sample (see `sample`).
 //!
 //! The phases follow one another, so for one write they add up to `handler`:
 //! - `parse`: reading the JSON body;
@@ -17,6 +18,7 @@
 //! of that phase, not of one write.
 
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Mutex, PoisonError};
 use std::time::Duration;
 
 use serde_json::{json, Value};
@@ -62,6 +64,10 @@ pub(super) struct PhaseTotals {
     writes: AtomicU64,
     total_ns: [AtomicU64; 7],
     slowest_ns: [AtomicU64; 7],
+    /// The slowest value of each phase since the last history sample.
+    recent_slowest_ns: [AtomicU64; 7],
+    /// `writes`, then each `total_ns`, at the last history sample.
+    mark: Mutex<[u64; 8]>,
 }
 
 impl Default for PhaseTotals {
@@ -70,6 +76,8 @@ impl Default for PhaseTotals {
             writes: AtomicU64::new(0),
             total_ns: std::array::from_fn(|_| AtomicU64::new(0)),
             slowest_ns: std::array::from_fn(|_| AtomicU64::new(0)),
+            recent_slowest_ns: std::array::from_fn(|_| AtomicU64::new(0)),
+            mark: Mutex::new([0; 8]),
         }
     }
 }
@@ -80,7 +88,36 @@ impl PhaseTotals {
         for (index, ns) in times.nanos().into_iter().enumerate() {
             self.total_ns[index].fetch_add(ns, Ordering::Relaxed);
             self.slowest_ns[index].fetch_max(ns, Ordering::Relaxed);
+            self.recent_slowest_ns[index].fetch_max(ns, Ordering::Relaxed);
         }
+    }
+
+    /// The writes and phase times since the previous sample, in the shape of [`Self::value`],
+    /// with the slowest value since then. Null when no write committed since then. A write
+    /// that commits while the sample runs may fall partly in the next sample.
+    pub(super) fn sample(&self) -> Value {
+        let mut mark = self.mark.lock().unwrap_or_else(PoisonError::into_inner);
+        let writes = self.writes.load(Ordering::Relaxed);
+        let added = writes.saturating_sub(mark[0]);
+        if added == 0 {
+            return Value::Null;
+        }
+        mark[0] = writes;
+        let phases: Vec<Value> = NAMES
+            .iter()
+            .enumerate()
+            .map(|(index, name)| {
+                let total = self.total_ns[index].load(Ordering::Relaxed);
+                let value = json!({
+                    "phase": name,
+                    "total_ns": total.saturating_sub(mark[index + 1]),
+                    "slowest_ns": self.recent_slowest_ns[index].swap(0, Ordering::Relaxed),
+                });
+                mark[index + 1] = total;
+                value
+            })
+            .collect();
+        json!({ "writes": added, "phases": phases })
     }
 
     pub(super) fn value(&self) -> Value {

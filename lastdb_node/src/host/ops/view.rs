@@ -57,7 +57,7 @@ pub(super) fn sort_schemas(schemas: &mut [Value]) {
     });
 }
 
-fn text_or_null(value: &str) -> Value {
+pub(super) fn text_or_null(value: &str) -> Value {
     if value.is_empty() {
         Value::Null
     } else {

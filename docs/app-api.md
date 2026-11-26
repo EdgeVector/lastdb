@@ -508,8 +508,9 @@ only when the request declared one and the retention step finished.
 
 `GET /api/ops` on the owner socket returns the requests completed since the
 node started. The app socket answers `not_found` for this route. The counts
-are in memory only. They start at zero when the node starts. They are not
-written to disk, and a backup does not include them.
+are in memory. They start at zero when the node starts. Once a minute the
+daemon also appends the change to the ops history (below); a backup does not
+include either.
 
 `lastdb ops` prints the same counts as aligned text, sorted by total time.
 `--by-count` sorts by request count. `--json` prints the route's JSON on
@@ -560,6 +561,49 @@ each:
 A request's time in the call table also holds the wait for a socket worker
 and the reply. `slowest_ns` is the slowest value of that one phase. `lastdb
 ops` prints the phases as a third table with the mean for each.
+
+#### Ops history
+
+The daemon keeps its own request history, so a window can span restarts and
+upgrades. Once a minute, and once more when it stops, it appends one JSON
+line to `<home>/ops-history/ops-<unix seconds>.jsonl`, where the number is the
+time the file started. A line holds the requests completed since the line
+before, not running totals:
+
+- `ts` (unix seconds), `pid`, `start_ts` (the daemon's start), `uptime_secs`,
+  `build`, and `interval_secs`, the time since the line before, or since the
+  daemon started for its first line.
+- `calls` and `schemas` in the shape of `GET /api/ops`, only the rows with a
+  new request. A call row's `slowest_ns` is the slowest request in that
+  interval.
+- `write_phases` in the shape of `GET /api/ops`, with the slowest value of
+  each phase in that interval, or null when no write committed.
+- `commit_log`: `flushes` and `flush_micros` in the interval, and
+  `memory_commits` and `memory_bytes` at the time of the line. Null when the
+  store has no commit log.
+
+A file holds at most one UTC day and 4 MiB. When a file starts, the daemon
+first removes each file whose data is older than 14 days, then the oldest
+files until the folder holds at most 64 MiB with room for the new file. The
+daemon holds one open file and no lines in memory. The files are diagnostic:
+they are written without a flush to the drive, so a power cut or a crash can
+lose the last minutes. They are not records and they are outside `data/`. A
+snapshot names only the store's own files, so no backup, snapshot, or upload
+includes them.
+
+`lastdb ops --since <duration>` reads the history files of the node home
+directly, so it works while the daemon is stopped. The duration is a count
+and a unit: `s`, `m`, `h`, or `d`, for example `10m`, `24h`, or `7d`. It sums
+the lines written in that window, across restarts, and prints the window it
+covers (a line covers the minute before it), the call table with a mean
+column (total over count), the schema table, the write phase table, and the
+commit log. `slowest` is the slowest single request in the window's lines.
+`--by-count` sorts as for `lastdb ops`. `--json` prints the sum: a `window`
+object (`since_secs`, `from_ts`, `to_ts`, `lines`, `daemons`, `builds`,
+`skipped_lines`, `skipped_files`), `calls` with `mean_ns`, `schemas`,
+`write_phases`, and `commit_log` with `mean_flush_micros`,
+`max_memory_commits`, and `max_memory_bytes`. `GET /api/ops` does not take a
+window.
 
 ## Sharing
 

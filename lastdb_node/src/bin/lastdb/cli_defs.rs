@@ -120,13 +120,21 @@ pub(super) enum Command {
     /// `other`. The schema table holds at most 256 rows and folds the same
     /// way. At most 32 unknown paths are kept. A further unknown path keeps
     /// its caller and uses `other`.
+    ///
+    /// With `--since`, the command reads the ops history files in the node
+    /// home instead of asking the daemon. The daemon writes one line a minute
+    /// and keeps 14 days, at most 64 MiB. The window sums across restarts.
     Ops {
         /// Sort by request count. The default sort is total time.
         #[arg(long)]
         by_count: bool,
-        /// Print the route JSON on stdout and nothing else.
+        /// Print the JSON on stdout and nothing else.
         #[arg(long)]
         json: bool,
+        /// Show the requests of a recent window from the ops history, such
+        /// as `10m`, `24h` or `7d` (units s, m, h, d).
+        #[arg(long, value_name = "DURATION")]
+        since: Option<String>,
     },
     /// Write one conditional record.
     ///
