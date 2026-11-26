@@ -18,8 +18,8 @@ pub(crate) fn seal_data(
     writer_seq: u64,
     body: DataBody,
 ) -> Result<DataBody, String> {
-    let plain =
-        pack_hiding_namespace(&body.namespace, &body.payload).map_err(|error| error.to_owned())?;
+    let plain = pack_hiding_namespace(&body.namespace, &body.payload)
+        .map_err(std::borrow::ToOwned::to_owned)?;
     Ok(DataBody {
         namespace: SEALED_NAMESPACE.to_owned(),
         payload: sealer.seal(node_key, device_id, writer_seq, &plain)?,
@@ -33,10 +33,10 @@ pub(crate) fn seal_schema(
     node_key: mutation_log::NodeKey,
     device_id: mutation_log::DeviceId,
     writer_seq: u64,
-    body: SchemaBody,
+    body: &SchemaBody,
 ) -> Result<SchemaBody, String> {
     let plain = pack_hiding_namespace(&body.namespace, &body.definition)
-        .map_err(|error| error.to_owned())?;
+        .map_err(std::borrow::ToOwned::to_owned)?;
     Ok(SchemaBody {
         namespace: SEALED_NAMESPACE.to_owned(),
         definition: sealer.seal(node_key, device_id, writer_seq, &plain)?,

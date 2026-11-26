@@ -172,7 +172,7 @@ fn ensure_schema(
         author.node_key,
         author.device_id,
         author.next_writer_seq(),
-        SchemaBody {
+        &SchemaBody {
             namespace: name.to_owned(),
             definition,
         },

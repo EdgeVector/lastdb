@@ -2,7 +2,6 @@
 
 use std::collections::BTreeSet;
 
-use crate::entry::SignedEntry;
 use crate::ids::{EntryHash, NodeKey};
 use crate::payload::{MaterializedRecord, RecordPosition};
 
