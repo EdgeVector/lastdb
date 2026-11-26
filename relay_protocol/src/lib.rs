@@ -39,7 +39,9 @@ pub const PROTOCOL: &str = "1";
 /// and CI refuses a change to the generated contract that does not raise it. A relay names the
 /// revision it serves on every answer in [`answer_headers::REVISION`] as [`revision`]; a node
 /// uses an addition only where [`supports`] says the relay serves it.
-pub const REVISION: u32 = 1;
+///
+/// Revision 2 adds [`Feature::ContractProbe`] and nothing on the wire.
+pub const REVISION: u32 = 2;
 
 /// The revision as a relay announces it and the OpenAPI document names it:
 /// `<PROTOCOL>.<REVISION>`, for example `1.1`.
@@ -71,21 +73,34 @@ pub mod answer_headers {
 /// with the revision it arrived in. A node never chooses on the relay's name or `User-Agent`;
 /// it asks [`supports`]. When the relay is too old, the node leaves out an optional field or holds
 /// that one operation with a status that says the relay must be upgraded, and keeps no older
-/// fallback path. No addition has needed this yet, so the list is empty.
+/// fallback path.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum Feature {}
+pub enum Feature {
+    /// A placeholder that changes nothing on the wire. A relay of revision 2 or later serves it.
+    /// It exists so that the node reads each relay's revision and asks [`supports`] against real
+    /// relays before the first real addition depends on it. When the first real feature arrives,
+    /// it takes the next revision and this variant goes; revision 2 stays taken.
+    ContractProbe,
+}
 
 impl Feature {
+    /// Every feature, oldest first. A node reports each one for its relay.
+    pub const ALL: [Self; 1] = [Self::ContractProbe];
+
     /// The revision that first serves the feature.
     #[must_use]
     pub const fn since(self) -> u32 {
-        match self {}
+        match self {
+            Self::ContractProbe => 2,
+        }
     }
 
     /// The name a status message uses for the feature.
     #[must_use]
     pub const fn name(self) -> &'static str {
-        match self {}
+        match self {
+            Self::ContractProbe => "contract_probe",
+        }
     }
 }
 

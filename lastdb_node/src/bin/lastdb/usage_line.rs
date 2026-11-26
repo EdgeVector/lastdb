@@ -1,4 +1,5 @@
-//! The cloud usage lines of `lastdb status`, from `cloud_sync.databases.<id>.usage` of `/api/status`.
+//! The cloud usage lines of `lastdb status`, from `cloud_sync.databases.<id>.usage` of `/api/status`,
+//! and the relay contract line, from `cloud_sync.relay`.
 
 use serde_json::Value;
 
@@ -56,4 +57,32 @@ pub(crate) fn usage_lines(sync: &Value) -> Vec<String> {
             ))
         })
         .collect()
+}
+
+/// `Relay contract: 1.2, serves contract_probe` from `cloud_sync.relay`, once the relay answered.
+/// Features the relay does not serve follow as `does not serve ...`.
+pub(crate) fn relay_contract_line(sync: &Value) -> Option<String> {
+    let relay = sync.get("relay")?;
+    let revision = relay.get("revision")?.as_u64()?;
+    let mut line = format!("Relay contract: {}.{revision}", relay_protocol::PROTOCOL);
+    let features = relay
+        .get("features")
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    let named = |supported: bool| {
+        features
+            .iter()
+            .filter(|feature| feature.get("supported").and_then(Value::as_bool) == Some(supported))
+            .filter_map(|feature| feature.get("name").and_then(Value::as_str))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    for (supported, verb) in [(true, "serves"), (false, "does not serve")] {
+        let names = named(supported);
+        if !names.is_empty() {
+            line.push_str(&format!(", {verb} {names}"));
+        }
+    }
+    Some(line)
 }

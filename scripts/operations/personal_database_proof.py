@@ -13,6 +13,9 @@ as its own stream and applies the other streams through the store's last-writer 
    syncs first. A record that A deleted does not come back when an older edit of B arrives after.
 4. A third home restored from the phrase equals A and B, key by key.
 5. The bytes the relay stored hold no record key, no record value and no schema name.
+5r. A reports the contract revision its relay names, and which features that relay serves, as the
+    relay restarts as itself, as a relay of revision 1.1 and as one from before revisions
+    (`personal_proof_revision.py`).
 6. Alternate keys and files: B, C and a fourth home D read the records of A by their alternate
    key, after a move and a delete, and read the file of a record with the relay stopped.
 7. A restarts with the relay stopped, and signs the next entry on the right sequence. The relay
@@ -100,6 +103,7 @@ from personal_proof_trim import trimmed_relay_restores  # noqa: E402
 from personal_proof_usage import AccountedDevice as Device  # noqa: E402
 from personal_proof_status import prove_none_yet, refused_snapshot, RELAY_LIMIT_BYTES  # noqa: E402
 from personal_proof_retries import prove_retries  # noqa: E402
+from personal_proof_revision import prove_revision  # noqa: E402
 from personal_proof_lane import prove_lane  # noqa: E402
 from personal_proof_merge import prove_merge  # noqa: E402
 from personal_proof_uplink import prove_uplink  # noqa: E402
@@ -150,6 +154,7 @@ def prove(relay, relay2, relay3, relay4, a, b, c, d, e, f, g, h, j, k, m, n, p, 
     wait("A and B to upload", lambda: a.synced_up() and b.synced_up())
     report["relay"] = prove_hidden(relay, state, signed)
     print(f"5. no key, value or schema name in {report['relay']['relay_files']} relay files", flush=True)
+    report["relay_revision"] = prove_revision(relay, a)
 
     report["alternates_and_files"] = alternates_and_files(relay, a, b, c, d, phrase, out)
     report["merge"] = prove_merge(relay, a, b, c, out)

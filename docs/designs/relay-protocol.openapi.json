@@ -886,7 +886,7 @@
   "info": {
     "description": "Generated from the relay_protocol crate by `cargo run -p relay_protocol --features schema --bin relay-protocol-openapi`. Do not edit: change the types. Behavior: docs/designs/relay-protocol.md.",
     "title": "LastDB relay protocol",
-    "version": "1.1"
+    "version": "1.2"
   },
   "openapi": "3.1.0",
   "paths": {

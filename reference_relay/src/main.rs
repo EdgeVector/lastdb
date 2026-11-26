@@ -32,7 +32,7 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use axum::extract::{DefaultBodyLimit, Request};
+use axum::extract::{DefaultBodyLimit, Request, State};
 use axum::http::HeaderValue;
 use axum::middleware::{self, Next};
 use axum::response::Response;
@@ -90,6 +90,32 @@ struct Cli {
     /// the proof uses it.
     #[arg(long, value_parser = ["close-once", "400"])]
     upload_fault: Option<String>,
+    /// The revision this relay names in `X-LastDB-Relay-Revision`: `1.<n>` at most the revision
+    /// of this build, to act as a relay of that older revision, or `none` to name none, as a relay
+    /// from before revisions. The default is the revision of this build. Only the proof uses it.
+    #[arg(long)]
+    announce_revision: Option<String>,
+}
+
+/// The value of `X-LastDB-Relay-Revision` this relay sends, `None` to send none.
+fn announced_revision(option: Option<&str>) -> Result<Option<HeaderValue>, String> {
+    let value = match option {
+        None => relay_protocol::revision(),
+        Some("none") => return Ok(None),
+        Some(value) => match relay_protocol::parse_revision(value) {
+            Some(revision) if revision <= relay_protocol::REVISION => value.trim().to_owned(),
+            _ => {
+                return Err(format!(
+                    "--announce-revision {value:?}: expected none or {}.<n> up to {}",
+                    relay_protocol::PROTOCOL,
+                    relay_protocol::revision()
+                ))
+            }
+        },
+    };
+    HeaderValue::from_str(&value)
+        .map(Some)
+        .map_err(|e| format!("--announce-revision: {e}"))
 }
 
 #[tokio::main]
@@ -102,6 +128,7 @@ async fn main() {
 
 async fn run() -> Result<(), String> {
     let cli = Cli::parse();
+    let announced = announced_revision(cli.announce_revision.as_deref())?;
     let store = Store::open(cli.data_dir.clone())
         .await
         .map_err(|e| format!("open data-dir: {e:?}"))?;
@@ -150,7 +177,7 @@ async fn run() -> Result<(), String> {
         app = app.layer(middleware::from_fn_with_state(refusals, refusal::refuse));
     }
     let app = app
-        .layer(middleware::from_fn(announce_revision))
+        .layer(middleware::from_fn_with_state(announced, announce_revision))
         .layer(middleware::from_fn(request_log::log_request))
         .with_state(state);
     axum::serve(listener, app)
@@ -159,17 +186,19 @@ async fn run() -> Result<(), String> {
 }
 
 /// Every answer of a protocol route, a refusal included, names the contract revision this relay
-/// serves (`relay_protocol::answer_headers::REVISION`). The object-store stand-in routes are not
-/// protocol routes and do not.
-async fn announce_revision(request: Request, next: Next) -> Response {
+/// serves (`relay_protocol::answer_headers::REVISION`), or none when `--announce-revision none`.
+/// The object-store stand-in routes are not protocol routes and do not.
+async fn announce_revision(
+    State(announced): State<Option<HeaderValue>>,
+    request: Request,
+    next: Next,
+) -> Response {
     let protocol = Route::from_path(request.uri().path()).is_some();
     let mut response = next.run(request).await;
-    if protocol {
-        if let Ok(value) = HeaderValue::from_str(&relay_protocol::revision()) {
-            response
-                .headers_mut()
-                .insert(relay_protocol::answer_headers::REVISION, value);
-        }
+    if let Some(value) = announced.filter(|_| protocol) {
+        response
+            .headers_mut()
+            .insert(relay_protocol::answer_headers::REVISION, value);
     }
     response
 }

@@ -140,6 +140,9 @@ async fn one_turn(host: &Arc<Host>, histories: &HistoryMap, base: &str) -> TurnR
     let received_upload_ok = upload_received_logs(host, &client).await;
     // Phase f: per-share errors stay soft (see pull_received_shares).
     pull_received_shares(host, histories, &client).await;
+    if let Some(revision) = client.announced_revision() {
+        host.cloud_sync.record_relay_revision(revision);
+    }
     TurnReport {
         turn_error,
         personal_ok,
