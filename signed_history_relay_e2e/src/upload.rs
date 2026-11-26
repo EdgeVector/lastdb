@@ -18,7 +18,8 @@ use sha2::{Digest, Sha256};
 use crate::blob::{bundle_changes, encode_changes, BundleCipher, BUNDLE_RECORDS, VALUE_TEXT_BYTES};
 use crate::chain::{Chain, Publisher};
 use crate::grants::{self, Scene};
-use crate::identity::{new_device_id, now_ms, Actor, DbBirth};
+use crate::identity::{new_device_id, now_ms, Actor};
+use crate::ledger::Ledger;
 
 const DAY_MS: u64 = 86_400_000;
 use crate::relay::RelayClient;
@@ -38,6 +39,8 @@ pub struct UploadPlan {
     pub concurrency: usize,
     /// Node granted `read`; it performs the restore.
     pub reader: NodeKey,
+    /// Where the database and each committed blob are recorded for the cleanup.
+    pub ledger: Ledger,
 }
 
 pub struct UploadReport {
@@ -65,7 +68,7 @@ pub async fn bootstrap(http: &reqwest::Client, plan: &UploadPlan) -> Result<Uplo
     let started = Instant::now();
     let owner = Actor::generate();
     let [member_actor, submit_actor, read_actor] = [(); 3].map(|()| Actor::generate());
-    let birth = DbBirth::generate(owner.node_key);
+    let birth = plan.ledger.mint(&owner);
     let publisher = Publisher {
         actor: owner,
         database_id: birth.database_id,
@@ -107,7 +110,7 @@ pub async fn bootstrap(http: &reqwest::Client, plan: &UploadPlan) -> Result<Uplo
     let records = plan.total_bytes.div_ceil(VALUE_TEXT_BYTES).max(1);
     let bundles = records.div_ceil(BUNDLE_RECORDS);
     let mut puts: Vec<PutBundle> = stream::iter(0..bundles)
-        .map(|index| put_bundle(&client_a, &cipher, index, records))
+        .map(|index| put_bundle(&client_a, &cipher, &plan.ledger, index, records))
         .buffer_unordered(plan.concurrency)
         .try_collect()
         .await?;
@@ -165,6 +168,7 @@ pub async fn bootstrap(http: &reqwest::Client, plan: &UploadPlan) -> Result<Uplo
 async fn put_bundle(
     client: &RelayClient,
     cipher: &Arc<BundleCipher>,
+    ledger: &Ledger,
     index: u64,
     records: u64,
 ) -> Result<PutBundle, String> {
@@ -187,6 +191,7 @@ async fn put_bundle(
     }
     let sha256 = Hex32::from_bytes(digest);
     client.blob_put(&sha256.to_hex(), blob).await?;
+    ledger.blob(&client.database_hex, &sha256.to_hex(), size);
     Ok(PutBundle {
         index,
         sha256,

@@ -7,6 +7,7 @@ use mutation_log::{
 use rand::RngCore;
 
 /// One Ed25519 node identity.
+#[derive(Clone)]
 pub struct Actor {
     pub signing_key: SigningKey,
     pub node_key: NodeKey,

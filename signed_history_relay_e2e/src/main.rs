@@ -10,13 +10,19 @@
 //! `LASTDB_RELAY_E2E_STREAMS=true` proves `log.streams` and
 //! `LASTDB_RELAY_E2E_BLOB_FILE_BYTES=<n>` proves a large file through the blob
 //! routes.
+//!
+//! Afterwards the run deletes the blobs it uploaded (`cleanup.rs`), also when a step failed, and
+//! reports it under `cleanup`. A failed cleanup fails the run without replacing the first error.
+//! `LASTDB_RELAY_E2E_CLEANUP=false` keeps the data (the reference_relay runs in CI).
 
 mod blob;
 mod blob_file;
 mod blob_stream;
 mod chain;
+mod cleanup;
 mod grants;
 mod identity;
+mod ledger;
 mod materialize;
 mod relay;
 mod restore;
@@ -32,6 +38,7 @@ use serde_json::{json, Value};
 
 use blob::VALUE_TEXT_BYTES;
 use identity::{new_device_id, Actor};
+use ledger::Ledger;
 use relay::RelayClient;
 use upload::UploadPlan;
 
@@ -61,6 +68,9 @@ struct Cli {
     /// Scratch directory for the restored FoldDB (never `~/.lastdb`).
     #[arg(long, env = "LASTDB_RELAY_E2E_WORK_DIR")]
     work_dir: Option<PathBuf>,
+    /// Delete the blobs this run uploaded once the steps end (`cleanup.rs`). `false` keeps them.
+    #[arg(long, env = "LASTDB_RELAY_E2E_CLEANUP", default_value_t = true, action = clap::ArgAction::Set)]
+    cleanup: bool,
 }
 
 struct Outcome {
@@ -101,22 +111,60 @@ async fn run(cli: &Cli) -> Result<Outcome, String> {
         return Err("refusing a work dir under ~/.lastdb".into());
     }
     std::fs::create_dir_all(&work).map_err(|e| format!("work dir: {e}"))?;
-    let outcome = prove(cli, relay_url, &work).await;
+    let http = relay::http_client()?;
+    let ledger = Ledger::default();
+    let proved = prove(cli, &http, relay_url, &work, &ledger).await;
     let _ = std::fs::remove_dir_all(&work);
+    let cleanup = if cli.cleanup {
+        Some(cleanup::run(&http, relay_url, &ledger).await)
+    } else {
+        None
+    };
+    Ok(finish(proved, cleanup))
+}
+
+/// The run's outcome with the cleanup report under `cleanup`. A step error stays in `error`; a
+/// failed cleanup makes the run fail and fills `error` only when no step failed first.
+fn finish(proved: Result<Outcome, String>, cleanup: Option<Value>) -> Outcome {
+    let mut outcome = proved.unwrap_or_else(|error| {
+        eprintln!("signed_history_relay_e2e: {error}");
+        Outcome {
+            ok: false,
+            report: json!({ "ok": false, "error": error }),
+        }
+    });
+    if let Some(report) = &cleanup {
+        if report["ok"] != Value::Bool(true) {
+            let why = report["error"].as_str().unwrap_or("no error given");
+            eprintln!("signed_history_relay_e2e: cleanup failed: {why}");
+            outcome.ok = false;
+            outcome.report["ok"] = Value::Bool(false);
+            if outcome.report["error"].is_null() {
+                outcome.report["error"] = Value::String(format!("cleanup: {why}"));
+            }
+        }
+    }
+    outcome.report["cleanup"] = cleanup.unwrap_or_default();
     outcome
 }
 
-async fn prove(cli: &Cli, relay_url: &str, work: &Path) -> Result<Outcome, String> {
-    let http = relay::http_client()?;
+async fn prove(
+    cli: &Cli,
+    http: &reqwest::Client,
+    relay_url: &str,
+    work: &Path,
+    ledger: &Ledger,
+) -> Result<Outcome, String> {
     let concurrency = cli.concurrency.clamp(1, 8);
     let reader = Actor::generate();
     let up = upload::bootstrap(
-        &http,
+        http,
         &UploadPlan {
             relay_url: relay_url.to_owned(),
             total_bytes: cli.total_bytes,
             concurrency,
             reader: reader.node_key,
+            ledger: ledger.clone(),
         },
     )
     .await?;
@@ -128,7 +176,7 @@ async fn prove(cli: &Cli, relay_url: &str, work: &Path) -> Result<Outcome, Strin
     let started = Instant::now();
     let client = RelayClient::new(
         relay_url,
-        &http,
+        http,
         &reader,
         up.invite.database_id,
         new_device_id(),
@@ -160,21 +208,15 @@ async fn prove(cli: &Cli, relay_url: &str, work: &Path) -> Result<Outcome, Strin
         ));
     }
 
-    let (streams_steps, blob_file) = opt_in_steps(cli, &http, relay_url, work).await?;
+    let (streams_steps, blob_file) = opt_in_steps(cli, http, relay_url, work).await?;
 
     let limit = cli.limit_seconds;
-    let nongrantee_ok = up.nongrantee_http_status == 403;
-    let ok = up.seconds < limit && restore_seconds < limit && nongrantee_ok;
-    let error = if !nongrantee_ok {
-        Some(format!(
-            "nongrantee_http_status={} (expected 403)",
-            up.nongrantee_http_status
-        ))
-    } else if !ok {
-        Some(format!("a phase took {limit}s or longer"))
-    } else {
-        None
-    };
+    let (ok, error) = verdict(
+        limit,
+        up.seconds,
+        restore_seconds,
+        up.nongrantee_http_status,
+    );
     Ok(Outcome {
         ok,
         report: json!({
@@ -201,6 +243,23 @@ async fn prove(cli: &Cli, relay_url: &str, work: &Path) -> Result<Outcome, Strin
             "blob_file_stream": blob_file,
         }),
     })
+}
+
+/// Both phases under `limit` seconds and a 403 for the never-granted node; else why not.
+fn verdict(limit: f64, upload: f64, restore: f64, nongrantee: u16) -> (bool, Option<String>) {
+    if nongrantee != 403 {
+        return (
+            false,
+            Some(format!(
+                "nongrantee_http_status={nongrantee} (expected 403)"
+            )),
+        );
+    }
+    if upload < limit && restore < limit {
+        (true, None)
+    } else {
+        (false, Some(format!("a phase took {limit}s or longer")))
+    }
 }
 
 /// The opt-in steps: the step names of `log.streams`, and the large-file report.

@@ -34,6 +34,7 @@ Environment (flags exist for each):
 | `LASTDB_RELAY_E2E_WORK_DIR` | temp dir | Scratch FoldDB for the restore; removed on exit |
 | `LASTDB_RELAY_E2E_STREAMS` | off | `true` also proves `log.streams` (see "Opt-in steps") |
 | `LASTDB_RELAY_E2E_BLOB_FILE_BYTES` | 0 (off) | Also puts and gets one generated file of this size through the blob routes, from and to disk |
+| `LASTDB_RELAY_E2E_CLEANUP` | true | Delete the blobs the run uploaded at the end (see "Cleanup"); `false` keeps them |
 
 stdout ends with exactly one JSON object; progress goes to stderr. Exit 0 only when both phases are under
 the limit. Failures print `{"ok": false, "error": "..."}` and exit 1.
@@ -43,12 +44,40 @@ the limit. Failures print `{"ok": false, "error": "..."}` and exit 1.
  "bytes_uploaded": 0, "record_text_bytes": 0, "records": 6400, "member_records": 1, "bundles": 7,
  "roles": ["read", "write", "revoked"], "grant_revoke_ok": true, "revoked_http_status": 403,
  "streams_discovered": 3, "history_seconds": 0.0, "materialize_seconds": 0.0,
- "generate_encrypt_cpu_seconds": 0.0, "database_id": "<64 hex>"}
+ "generate_encrypt_cpu_seconds": 0.0, "database_id": "<64 hex>",
+ "cleanup": {"ok": true, "error": null, "blobs_dropped": 7, "released_bytes": 0, "databases": [
+   {"database_id": "<64 hex>", "ok": true, "blobs_recorded": 7, "bytes_recorded": 0, "blobs_listed": 7,
+    "bytes_listed": 0, "blobs_dropped": 7, "released_bytes": 0, "absent": 0, "drop_calls": 1,
+    "readback": {"blob_list_after": 0, "blob_get_not_found": 7, "object_gone": 7,
+                 "object_answers": ["403 AccessDenied"]},
+    "publisher_log_entries_kept": 17}]}}
 ```
 
 `upload_seconds` covers key and birth setup, generating and encrypting every bundle, `blob.put` of every blob,
 and `log.append` of the chain. `restore_seconds` covers stream discovery, `log.read`, `blob.get`, decrypt,
 `AcceptEntry` and the FoldDB materialize. Checks run after the timer stops.
+
+## Cleanup
+
+On by default (`LASTDB_RELAY_E2E_CLEANUP=true`). After the steps end, also after one failed, the run deletes the
+blobs it uploaded, as the publisher of the database it minted (`src/cleanup.rs`; the database id comes from a fresh
+random key, so the run acts on nothing it did not write):
+
+1. `blob/list` names every committed blob of the database; `blob/get` gives a presigned GET of each object, and a
+   one-byte ranged GET of it must succeed (the control for step 4).
+2. One `snapshot` entry goes on a fresh publisher device stream, because `blob/drop` names one. Its manifest digest
+   is never uploaded, so no blob has to stay.
+3. `blob/drop` drops the listed blobs (at most 25 per call), naming the head of every publisher stream from
+   `log/streams` as its fence; a 409 reads the heads again (3 tries).
+4. Read-back: `blob/list` is empty, `blob/get` of each digest is 404, and the same unexpired presigned GET is refused
+   by the object store: 404, or 403 when the signing credential may not list the bucket (the store then hides
+   whether the key exists). The control in step 1 shows the URL itself was good.
+
+The report goes under `cleanup`. A failed cleanup sets `ok` to false and exits 1; it fills `error` only when no
+step failed first, so the first failure is never hidden. Log entries stay (a few KB): `log/trim` drops only sealed
+entries of a personal database, and no relay route deletes birth, grant or bundle entries. The `log.streams`
+database holds no blob. The Exemem relay allows `blob/drop` to the publisher of any database; `reference_relay`
+allows it only on a personal database (no grants), so CI's reference_relay runs set `LASTDB_RELAY_E2E_CLEANUP=false`.
 
 ## Opt-in steps
 
