@@ -3,6 +3,7 @@
 pub(crate) mod record_store;
 pub(crate) mod schema_store;
 
+pub use crate::storage::disk_pack::transaction::phases::WritePhases;
 pub use crate::storage::format::metadata::{Change, ChangePage, CHANGES_PAGE};
 pub use record_store::{RecordDeleteLedgerEntry, RecordStore};
 pub use schema_store::{RetentionFloors, SchemaStore};
@@ -100,6 +101,12 @@ impl Default for WriterWatch {
             quiet: Duration::from_secs(secs),
         }
     }
+}
+
+/// Run one write request and return the time its write scopes spent waiting for the write
+/// gates, reading and staging, and committing. See [`WritePhases`].
+pub async fn measure_write_phases<F: std::future::Future>(work: F) -> (F::Output, WritePhases) {
+    transaction::phases::measure(work).await
 }
 
 impl WriterWatch {

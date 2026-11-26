@@ -11,7 +11,7 @@ mod scope;
 
 pub(crate) use super::record_warm;
 pub use scope::PackReadScope;
-pub(crate) use scope::{after_commit, blocked, publication, scope, traits};
+pub(crate) use scope::{after_commit, blocked, phases, publication, scope, traits};
 
 type Coord = (String, String);
 type AfterCommit = Pin<Box<dyn Future<Output = StorageResult<()>> + Send>>;

@@ -19,8 +19,12 @@
 //! `{overflow}` and `other` are ordinary keys. A real caller, schema, or path
 //! with one of those names shares the row. Once a key exists, recording it
 //! only adds to the counters.
+//!
+//! `write_phases` splits the time of committed `/v1/write` requests by phase
+//! (see `phases`). It has no rows and no caps.
 
 mod body;
+mod phases;
 mod scan;
 mod view;
 
@@ -29,6 +33,7 @@ use std::time::Duration;
 
 use serde_json::{json, Value};
 
+pub(crate) use phases::WriteTimes;
 pub(crate) use scan::{call_of, CallLabel};
 
 const MAX_CALLS: usize = 256;
@@ -172,12 +177,14 @@ pub(crate) struct Completed<'a> {
 
 pub(crate) struct Ops {
     inner: Mutex<Tables>,
+    writes: phases::PhaseTotals,
 }
 
 impl Default for Ops {
     fn default() -> Self {
         Self {
             inner: Mutex::new(Tables::new()),
+            writes: phases::PhaseTotals::default(),
         }
     }
 }
@@ -205,6 +212,11 @@ impl Ops {
         }
     }
 
+    /// Add the phases of one committed `/v1/write` request.
+    pub(crate) fn record_write(&self, times: &WriteTimes) {
+        self.writes.add(times);
+    }
+
     pub(crate) fn snapshot(&self, uptime_secs: u64) -> Value {
         let tables = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
         let mut calls: Vec<Value> = tables.calls.iter().map(view::call_value).collect();
@@ -212,7 +224,12 @@ impl Ops {
         drop(tables);
         view::sort_calls(&mut calls);
         view::sort_schemas(&mut schemas);
-        json!({ "uptime_secs": uptime_secs, "calls": calls, "schemas": schemas })
+        json!({
+            "uptime_secs": uptime_secs,
+            "calls": calls,
+            "schemas": schemas,
+            "write_phases": self.writes.value(),
+        })
     }
 }
 

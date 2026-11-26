@@ -105,7 +105,10 @@ async fn send_segment(
         .join(&ctx.database_id)
         .join(SEGMENT_FILE);
     let file = path.clone();
-    tokio::task::spawn_blocking(move || disk::write_private(&file, &bytes))
+    // A staging copy that `blob_put` reads back in this turn and that is removed after it.
+    // The spool holds the entries, so a lost copy is built again by the next turn: nothing
+    // waits for the drive.
+    tokio::task::spawn_blocking(move || disk::write_private_with(&file, &bytes, disk::Flush::None))
         .await
         .map_err(|_| "the segment writer stopped".to_owned())?
         .map_err(|error| format!("cannot write the log segment: {error}"))?;
@@ -124,7 +127,7 @@ async fn send_segment(
             Err(error) => break Err(error),
         }
     };
-    let _ = disk::remove_private(&path);
+    let _ = disk::remove_private_with(&path, disk::Flush::None);
     result
 }
 

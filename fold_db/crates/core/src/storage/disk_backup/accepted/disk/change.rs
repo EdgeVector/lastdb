@@ -235,6 +235,8 @@ impl Log {
         inner.history = false;
         if change.clears {
             inner.head = 0;
+            // The numbers start again, so an earlier flush covers none of them.
+            self.flushed.store(0, std::sync::atomic::Ordering::Release);
             inner.retained = 0;
             inner.since_trim = 0;
             inner.ids = 0;

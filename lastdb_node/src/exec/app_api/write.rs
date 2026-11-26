@@ -8,8 +8,10 @@
 mod delete_alternates;
 
 use std::collections::{BTreeMap, HashMap};
+use std::time::Instant;
 
 use fold_db::access::AccessContext;
+use fold_db::db_operations::{measure_write_phases, WritePhases};
 use fold_db::record_replacement::RecordTarget;
 use fold_db::schema::types::{CasExpectation, FileWrite, KeyValue, Mutation, MutationType};
 use serde::Deserialize;
@@ -20,6 +22,7 @@ use super::{bad, fail, ok, require_exact_name, require_write};
 use crate::exec::mutation::commit_mutations;
 use crate::exec::reply::HostError;
 use crate::exec::schema_routes::resolve_schema_name;
+use crate::host::ops::WriteTimes;
 use crate::host::Host;
 use crate::lastdb_uds::uds_http::{UdsRequest, UdsResponse};
 
@@ -100,11 +103,30 @@ pub(in crate::exec) async fn write_route(
 }
 
 async fn write(req: &UdsRequest, host: &Host) -> Result<Value, HostError> {
+    let started = Instant::now();
     let items = parse(req)?;
-    run(host, items).await
+    let mut times = WriteTimes {
+        parse: started.elapsed(),
+        ..WriteTimes::default()
+    };
+    let written = run_timed(host, items, &mut times).await?;
+    times.handler = started.elapsed();
+    host.ops.record_write(&times);
+    Ok(written)
 }
 
-pub(super) async fn run(host: &Host, mut items: Vec<WriteItem>) -> Result<Value, HostError> {
+pub(super) async fn run(host: &Host, items: Vec<WriteItem>) -> Result<Value, HostError> {
+    run_timed(host, items, &mut WriteTimes::default()).await
+}
+
+/// Commit `items` and fill every phase of `times` but `parse` and `handler`.
+async fn run_timed(
+    host: &Host,
+    mut items: Vec<WriteItem>,
+    times: &mut WriteTimes,
+) -> Result<Value, HostError> {
+    let begun = Instant::now();
+    let mut core = WritePhases::default();
     for (index, item) in items.iter().enumerate() {
         require_write(&item.schema).map_err(|error| error.at(index))?;
     }
@@ -148,9 +170,9 @@ pub(super) async fn run(host: &Host, mut items: Vec<WriteItem>) -> Result<Value,
                 mutation.writer = Some(writer.clone());
             }
         }
-        let receipt = commit_mutations(host, mutations)
-            .await
-            .map_err(|error| name_conflict(error, &located))?;
+        let (receipt, phases) = measure_write_phases(commit_mutations(host, mutations)).await;
+        core = phases;
+        let receipt = receipt.map_err(|error| name_conflict(error, &located))?;
         let revisions: Vec<Value> = receipt
             .mutation_ids
             .iter()
@@ -159,10 +181,20 @@ pub(super) async fn run(host: &Host, mut items: Vec<WriteItem>) -> Result<Value,
         Ok((revisions, signed))
     })
     .await?;
+    let committed = Instant::now();
     // Owned databases, leased received databases, and the personal database:
     // mirror onto the signed log while holding `_shared_lock`.
     super::write_signed::mirror_committed(host, database.as_deref(), &signed, &mut revisions)
         .await?;
+    let core_total = core.lock_wait + core.read_and_stage + core.commit;
+    *times = WriteTimes {
+        prepare: committed.duration_since(begun).saturating_sub(core_total),
+        lock_wait: core.lock_wait,
+        read_and_stage: core.read_and_stage,
+        commit: core.commit,
+        after_commit: committed.elapsed(),
+        ..*times
+    };
     Ok(json!({ "written": revisions.len(), "revisions": revisions }))
 }
 

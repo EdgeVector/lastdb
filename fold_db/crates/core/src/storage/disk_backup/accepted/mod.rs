@@ -211,7 +211,9 @@ impl PackRuntime {
     ///
     /// A commit acknowledges a write after an ordered write, which does not force the drive's
     /// cache to the medium. Before any entry leaves this machine the whole drive is flushed, so
-    /// the relay never holds a write that a power loss could still take from this home.
+    /// the relay never holds a write that a power loss could still take from this home. A flush
+    /// that already covered every entry up to the head is not repeated: the next pages of one
+    /// turn, and a turn with no new write, cost no flush.
     pub fn accepted_prefix(&self, after: u64, limit: u32) -> Result<Page, Error> {
         let Some(log) = &self.accepted else {
             return idle_prefix(after, limit);
@@ -219,7 +221,10 @@ impl PackRuntime {
         // Every entry up to this head was committed before the flush starts, so the flush
         // covers it. An entry committed during the flush waits for the next page.
         let flushed = log.status().head;
-        laststore::flush_drive(self.physical.path()).map_err(|_| Error::Unavailable)?;
+        if flushed > log.flushed_through() {
+            laststore::flush_drive(self.physical.path()).map_err(|_| Error::Unavailable)?;
+            log.note_flushed(flushed);
+        }
         log.prefix(&self.physical, after, limit, flushed)
     }
 

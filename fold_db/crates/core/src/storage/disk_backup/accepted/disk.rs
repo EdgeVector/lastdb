@@ -18,6 +18,7 @@ use crate::storage::error::StorageResult;
 use inner::{fresh, read_page};
 use laststore::disk_run::home::HomeMutation;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard};
 use types::{id_ok, sha_ok, spool_cap, State};
 use upload::Checkpoint;
@@ -82,6 +83,9 @@ pub(in crate::storage) struct Change {
 pub(in crate::storage) struct Log {
     files: PathBuf,
     inner: Mutex<Inner>,
+    /// The spool head that a full drive flush of this run of the program covered: every entry
+    /// at or below it is on the medium. It starts at zero, so the first upload flushes.
+    flushed: AtomicU64,
 }
 
 impl Log {
@@ -108,7 +112,18 @@ impl Log {
         Ok(Self {
             files: dir,
             inner: Mutex::new(inner),
+            flushed: AtomicU64::new(0),
         })
+    }
+
+    /// The spool head that an earlier full drive flush covered.
+    pub(in crate::storage::disk_backup) fn flushed_through(&self) -> u64 {
+        self.flushed.load(Ordering::Acquire)
+    }
+
+    /// Record that a full drive flush that began after the commit of entry `head` returned.
+    pub(in crate::storage::disk_backup) fn note_flushed(&self, head: u64) {
+        self.flushed.fetch_max(head, Ordering::AcqRel);
     }
 
     pub(in crate::storage::disk_backup) fn status(&self) -> Status {

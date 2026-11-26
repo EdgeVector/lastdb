@@ -14,8 +14,11 @@ const WAKE_FILE: &str = "wake";
 /// the timer ended (a grant revoke could sit authored but not uploaded).
 const WAKE_POLL: Duration = Duration::from_millis(50);
 
+/// Ask the sync loop to run a turn now. Every committed personal write calls this before
+/// its reply, so it waits for no drive flush: the marker is a signal, not a record. A marker
+/// lost to a power cut costs nothing, because the loop runs a turn when it starts.
 pub fn request_wake(home: &Path) {
-    let _ = disk::write_private(&home.join("log-sync").join(WAKE_FILE), b"1");
+    let _ = disk::touch_marker(&wake_path(home));
 }
 
 pub fn ensure_wake(home: &Path) {
