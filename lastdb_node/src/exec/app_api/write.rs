@@ -189,9 +189,7 @@ async fn run_timed(
     let core_total = core.lock_wait + core.read_and_stage + core.commit;
     *times = WriteTimes {
         prepare: committed.duration_since(begun).saturating_sub(core_total),
-        lock_wait: core.lock_wait,
-        read_and_stage: core.read_and_stage,
-        commit: core.commit,
+        core,
         after_commit: committed.elapsed(),
         ..*times
     };

@@ -17,6 +17,7 @@ use crate::schema::types::{KeyValue, Mutation, Schema};
 use crate::schema::{SchemaCore, SchemaError};
 use crate::storage::disk_backup::accepted;
 use crate::storage::disk_pack::transaction;
+use crate::storage::disk_pack::transaction::phases::{self, Step};
 
 pub use crate::storage::format::metadata::{ReplayStamp, ReplayStreamHead};
 pub use replay::ReplayAttachmentSlots;
@@ -113,51 +114,59 @@ impl MutationManager {
                 .iter()
                 .map(|m| m.imported_written_at.map(|ns| ns / 1_000_000))
                 .collect();
-            let (groups, _) = self.prepare_write_groups(&mut mutations, &keys).await?;
+            let groups = self.prepare_write_groups(&mut mutations, &keys);
+            let (groups, _) = phases::step(Step::OldRecords, groups).await?;
             let captured = accepted::capture_enabled(&runtime);
-            let previous = if captured {
-                self.db_ops
+            let (previous, replay, stamps) = phases::step(Step::Stamps, async {
+                let previous = if captured {
+                    self.db_ops
+                        .metadata()
+                        .local_replay_head(&self.writer_id)
+                        .await?
+                } else {
+                    None
+                };
+                let _ = self
+                    .prepare_mutation_author_clocks(&mut mutations, previous.as_ref(), captured)
+                    .await?;
+                let replay = self.local_replay_stamps(&mutations, previous.as_ref(), captured)?;
+                let listed: Vec<_> = mutations
+                    .iter()
+                    .map(|m| {
+                        let deleted =
+                            matches!(m.mutation_type, MutationType::Delete | MutationType::Purge);
+                        (m.schema_name.as_str(), &m.key_value, deleted)
+                    })
+                    .collect();
+                let stamps = self
+                    .db_ops
                     .metadata()
-                    .local_replay_head(&self.writer_id)
-                    .await?
-            } else {
-                None
-            };
-            let _ = self
-                .prepare_mutation_author_clocks(&mut mutations, previous.as_ref(), captured)
-                .await?;
-            let replay = self.local_replay_stamps(&mutations, previous.as_ref(), captured)?;
-            let listed: Vec<_> = mutations
-                .iter()
-                .map(|m| {
-                    let deleted =
-                        matches!(m.mutation_type, MutationType::Delete | MutationType::Purge);
-                    (m.schema_name.as_str(), &m.key_value, deleted)
-                })
-                .collect();
-            let stamps = self
-                .db_ops
-                .metadata()
-                .stage_local_stamps(&listed, &explicit_ms)
-                .await?;
+                    .stage_local_stamps(&listed, &explicit_ms)
+                    .await?;
+                Ok::<_, SchemaError>((previous, replay, stamps))
+            })
+            .await?;
             let revs = mutations
                 .iter()
                 .zip(&stamps)
                 .map(|(m, s)| (m.uuid.clone(), s.revision()))
                 .collect();
             // Canonical keys and validated CAS/fields are already in place before signing.
-            let signed = self
-                .db_ops
-                .records()
-                .stage_accepted_mutations(&mutations, previous)
-                .await?;
-            if let Some(head) = &signed {
-                self.db_ops.metadata().stage_local_replay_head(head).await?;
-            }
+            phases::step(Step::SpoolEntry, async {
+                let signed = self
+                    .db_ops
+                    .records()
+                    .stage_accepted_mutations(&mutations, previous)
+                    .await?;
+                if let Some(head) = &signed {
+                    self.db_ops.metadata().stage_local_replay_head(head).await?;
+                }
+                Ok::<_, SchemaError>(())
+            })
+            .await?;
             let ids = mutations.iter().map(|m| m.uuid.clone()).collect();
-            let _ = self
-                .stage_prepared_groups(groups, mutations, stamps, replay)
-                .await?;
+            let staged = self.stage_prepared_groups(groups, mutations, stamps, replay);
+            let _ = phases::step(Step::Stage, staged).await?;
             Ok::<_, SchemaError>((ids, revs))
         })
         .await?;

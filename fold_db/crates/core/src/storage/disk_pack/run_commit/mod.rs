@@ -2,6 +2,7 @@
 
 mod publish;
 
+use super::transaction::phases::Mark;
 use super::transaction::PendingBatch;
 use super::*;
 use std::sync::MutexGuard;
@@ -278,6 +279,7 @@ impl PackRuntime {
                 return;
             }
         }
+        transaction::mark_turn(&requests, Mark::Delivered);
         {
             let mut q = self.lock_queue();
             q.sealed = false;
@@ -296,6 +298,7 @@ impl PackRuntime {
             let seq = q.requests.last().map_or(q.next_sequence, |(_, s)| *s);
             (q.prepared.take(), reqs, seq)
         };
+        transaction::mark_turn(&requests, Mark::Turn);
         let hidden: Vec<_> = requests
             .iter()
             .flat_map(|p| p.changed_coordinates())
@@ -318,6 +321,7 @@ impl PackRuntime {
         for pending in &requests {
             pending.publications.finish()?;
         }
+        transaction::mark_turn(&requests, Mark::Install);
         Ok((seq, requests))
     }
 }

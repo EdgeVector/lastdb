@@ -2,6 +2,7 @@
 
 use super::PreparedCommit;
 use crate::storage::disk_pack::physical::{V2Home, V2Root, CAS_COLLECTION};
+use crate::storage::disk_pack::transaction::phases::Mark;
 use crate::storage::disk_pack::transaction::{self, batch_bytes, PendingBatch};
 use crate::storage::disk_pack::{
     cas_delete, creation_refusal, map, record_warm, PackRuntime, StorageError, StorageResult,
@@ -105,9 +106,11 @@ impl PackRuntime {
         // The spool records of the captured writes go into the main home in this same commit, so
         // a write and its entry become durable together.
         mutations.extend(self.prepare_accepted(before, &notes)?);
+        transaction::mark_turn(reqs, Mark::SpoolRecords);
         let result = (|| {
             cas_delete::require_clear(v2)?;
             commit_split(v2, mutations)?;
+            transaction::mark_turn(reqs, Mark::LogFlush);
             self.publish_accepted()
         })();
         if let Err(error) = result {
