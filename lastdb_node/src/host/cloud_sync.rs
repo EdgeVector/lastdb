@@ -20,6 +20,47 @@ pub(crate) struct CloudSyncStatus {
     pub(crate) snapshot: SnapshotStatus,
     /// What the relay held of the personal database after the last sweep of this node.
     pub(crate) reclaim: ReclaimStatus,
+    /// The contract revision of the relay this node syncs with, and which features it serves.
+    pub(crate) relay: RelayStatus,
+}
+
+/// The object `cloud_sync.relay` of `/api/status`: what the relay this node syncs with named on
+/// its last answer of a sync turn. Both fields are empty until the relay answered.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+pub(crate) struct RelayStatus {
+    /// The contract revision within protocol `relay_protocol::PROTOCOL` (2 for `1.2`); 0 for a
+    /// relay from before revisions, which names none.
+    pub(crate) revision: Option<u32>,
+    /// Each `relay_protocol::Feature`, and whether this relay serves it.
+    pub(crate) features: Vec<FeatureStatus>,
+}
+
+/// One feature of [`RelayStatus`].
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub(crate) struct FeatureStatus {
+    pub(crate) name: &'static str,
+    /// The revision that first serves it.
+    pub(crate) since: u32,
+    /// `relay_protocol::supports` for the relay's revision.
+    pub(crate) supported: bool,
+}
+
+impl RelayStatus {
+    /// The status of a relay that named `revision`.
+    fn of(revision: u32) -> Self {
+        let features = relay_protocol::Feature::ALL
+            .into_iter()
+            .map(|feature| FeatureStatus {
+                name: feature.name(),
+                since: feature.since(),
+                supported: relay_protocol::supports(Some(revision), feature),
+            })
+            .collect();
+        Self {
+            revision: Some(revision),
+            features,
+        }
+    }
 }
 
 /// What the last finished sweep of this node found on the relay: the object `cloud_sync.reclaim`
@@ -188,6 +229,7 @@ impl CloudSyncTracker {
                 databases: BTreeMap::new(),
                 snapshot: SnapshotStatus::default(),
                 reclaim: ReclaimStatus::default(),
+                relay: RelayStatus::default(),
             }),
             wake_notify: Arc::new(Notify::new()),
         }
@@ -265,6 +307,14 @@ impl CloudSyncTracker {
     /// last sweep that finished.
     pub(crate) fn mark_reclaim(&self, message: Option<String>) {
         self.lock().reclaim.message = message;
+    }
+
+    /// The contract revision the relay named on its last answer of a sync turn.
+    pub(crate) fn record_relay_revision(&self, revision: u32) {
+        let mut guard = self.lock();
+        if guard.relay.revision != Some(revision) {
+            guard.relay = RelayStatus::of(revision);
+        }
     }
 
     /// Drop the sticky top-level last_error after a successful sync turn.

@@ -6,7 +6,8 @@ and the node key come from it, and the relay bills the account that the node key
 account, API key or secret is involved. Each run therefore writes to a personal database of its
 own and restores nothing of an earlier run.
 
-What runs: A writes singles, batches, an alternate key and a file in three schemas; B restores
+What runs: A writes singles, batches, an alternate key and a file in three schemas, and reports the
+contract revision the relay names (`personal_proof_revision.py`); B restores
 from the phrase alone and equals A; A and B edit one record apart (both offline, in both orders
 of syncing) and converge by edit time; A snapshots and writes more; C restores from the phrase
 alone, installs the snapshot and replays only the tail; C and A exchange writes; a snapshot of a
@@ -27,6 +28,7 @@ from personal_proof_deployed_trim import after_trim, before_trim, node_hex
 from personal_proof_blobs import list_blobs
 from personal_proof_reclaim import cloud_rounds
 from personal_proof_reconcile import reconcile_deployed
+from personal_proof_revision import shows_revision
 from personal_proof_snapshot import last_record, views, write_after
 from personal_proof_status import swept
 from personal_proof_steps import gamma_create, gamma_replace, gamma_view
@@ -302,6 +304,7 @@ def prove_deployed(relay, devices, out, entry_audit):
     folders = folders_of(devices)
     expected, report["a_writes"] = step("A writes", a_writes, relay, a, state, out)
     signed = report["a_writes"]["entries"]
+    report["relay_revision"] = step("A reports the relay's contract revision", shows_revision, relay, a)
     report["b_restore"] = step("B restores from the phrase", b_restores, a, b, phrase, state, expected, folders, signed)
     report["edit_apart"] = step("edit apart, both orders", edit_apart, relay, a, b, state)
     first, tail, extra = step("snapshot and tail", snapshot_then_tail, relay, a, b, state, expected, folders)

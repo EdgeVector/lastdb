@@ -41,6 +41,9 @@ pub(super) struct RelayClient {
     /// The account of what this device put, for a client that syncs a home. A client that only
     /// reads has none.
     pub(super) usage: Option<super::usage::Ledger>,
+    /// The contract revision the relay named on its last answer (0 when it named none), or
+    /// `None` before the relay answered. See [`Self::announced_revision`].
+    revision: std::sync::Mutex<Option<u32>>,
 }
 
 impl RelayClient {
@@ -86,7 +89,39 @@ impl RelayClient {
             transfer,
             download,
             usage: None,
+            revision: std::sync::Mutex::new(None),
         })
+    }
+
+    /// The contract revision the relay named on its last answer, `Some(0)` for a relay from
+    /// before revisions, and `None` when the relay has not answered this client yet. A node asks
+    /// `relay_protocol::supports` with it before it uses an addition.
+    pub(super) fn announced_revision(&self) -> Option<u32> {
+        *self
+            .revision
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// Keep the revision of one answer. A 200 answer is the relay's own, so one with no revision
+    /// header is a relay from before revisions (0). Any other answer counts only when it names a
+    /// revision: a gateway or proxy in front of the relay can answer for it with no header.
+    fn note_answer(&self, success: bool, headers: &reqwest::header::HeaderMap) {
+        let named = headers
+            .get(relay_protocol::answer_headers::REVISION)
+            .map(|value| {
+                value
+                    .to_str()
+                    .ok()
+                    .and_then(relay_protocol::parse_revision)
+                    .unwrap_or(0)
+            });
+        if let Some(revision) = named.or(success.then_some(0)) {
+            *self
+                .revision
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(revision);
+        }
     }
 
     /// A client for the relay at `base` with this node's keys and device id.

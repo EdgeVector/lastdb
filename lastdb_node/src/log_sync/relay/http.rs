@@ -103,6 +103,7 @@ impl RelayClient {
                 }
             };
             let status = resp.status();
+            self.note_answer(status.is_success(), resp.headers());
             let text = match read_bounded_text(resp, path).await {
                 Ok(Ok(text)) => text,
                 Ok(Err(limit_err)) => return Err(CallError::text(limit_err)),

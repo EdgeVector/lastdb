@@ -698,6 +698,15 @@ made required, a changed type or a removed route is a breaking change and needs 
   the node leaves out the optional field, or holds that one operation with a status that says
   the relay must be upgraded. There is no older fallback path and no release-time check that a
   LastDB release is not ahead of the deployed relay. Nothing chooses on a `User-Agent`.
+- The node keeps the revision of its relay's last answer in a sync turn (a 200 answer with no
+  header is revision 0; another answer counts only when it names one, since a gateway can answer
+  for the relay) and reports it with every feature and whether the relay serves it:
+  `cloud_sync.relay` of `/api/status` and the `Relay contract:` line of `lastdb status`.
+- Revision 2 adds `Feature::ContractProbe` and nothing on the wire. It is a placeholder so the
+  revision check runs against real relays before a real addition needs it. The first real
+  feature takes revision 3 and removes it. The personal database proof restarts the reference
+  relay as revision 1.1 and as a relay from before revisions (`--announce-revision`) and
+  requires the node to follow; against the DEV relay it checks the revision DEV serves.
 - An addition that every relay in use already serves needs no `Feature`: the relay adds first,
   as before.
 - `ci-required` job `relay_contract` regenerates the OpenAPI file and fails when the
