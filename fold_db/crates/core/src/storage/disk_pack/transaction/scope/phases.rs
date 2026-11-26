@@ -25,8 +25,8 @@ pub struct WritePhases {
     pub old_records: Duration,
     /// Part of `read_and_stage`: the local replay head, the author clocks and the field stamps.
     pub stamps: Duration,
-    /// Part of `read_and_stage`: checking that the mutation id of a captured write is new, and
-    /// encoding and signing its spool entry.
+    /// Part of `read_and_stage`: checking that the mutation id of a captured write is new (the
+    /// only read of the stored ids), and encoding and signing its spool entry.
     pub spool_entry: Duration,
     /// Part of `read_and_stage`: staging the new records and their alternate entries.
     pub stage: Duration,
@@ -34,7 +34,7 @@ pub struct WritePhases {
     /// holds the batch completes.
     pub commit: Duration,
     /// Part of `commit`: the space and queue checks on a blocking thread, the mutation id check
-    /// against the queued writes and the stored ids, and joining the queue.
+    /// against the queued writes, and joining the queue. It does not read the stored ids again.
     pub queue: Duration,
     /// Part of `commit`: from joining the queue until the queue turn that commits the batch
     /// holds both gates. A commit of another caller (a spool confirmation) runs first here.

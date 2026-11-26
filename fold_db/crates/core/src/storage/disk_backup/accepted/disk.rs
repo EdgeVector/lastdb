@@ -143,9 +143,18 @@ impl Log {
         self.lock()?.refuse_gap()
     }
 
+    /// Whether the spool takes `notes` after the queued, uncommitted writes: no gap, the id and
+    /// sha formats, the sequence room, and the spool cap.
+    ///
+    /// It does not read the id records. `stage_records` and `stage_schema_note` read them for
+    /// every well-formed id before the note is staged (the format check below refuses any
+    /// other id), and the caller has held the prepare gate since that read: `scope()` takes the
+    /// gate before the batch exists and keeps it until the write has joined the queue. Only a
+    /// commit adds id records, and every commit of the home holds the prepare gate (a queue
+    /// turn, or an `enter_write` caller), so no id record is added between that read and this
+    /// check. The caller compares the ids with the queued writes.
     pub(in crate::storage) fn check_admissible(
         &self,
-        physical: &V2Home,
         queued_notes: usize,
         queued_bytes: u64,
         notes: &[Note],
@@ -168,10 +177,6 @@ impl Log {
             batch_bytes = batch_bytes
                 .checked_add(note.byte_weight())
                 .ok_or(Error::Spool)?;
-        }
-        let ids: Vec<String> = notes.iter().map(|note| note.mutation_id.clone()).collect();
-        if store::read_ids(physical, &ids)?.iter().any(Option::is_some) {
-            return Err(Error::Conflict);
         }
         let total = inner
             .retained
@@ -197,8 +202,8 @@ impl Log {
     ///
     /// This runs inside the commit turn and does not read the id records. A repeated mutation
     /// id was refused before the write joined the queue: `stage_records` reads the id records
-    /// under the prepare gate, and [`Self::check_admissible`] compares the ids with every queued,
-    /// uncommitted write and reads the id records again under both gates. Only a queue turn adds
+    /// under the prepare gate, and `precheck_accepted_queue` compares the ids with every queued,
+    /// uncommitted write under both gates (see [`Self::check_admissible`]). Only a queue turn adds
     /// id records. A turn holds the prepare gate, and a sealed queue admits no new write and
     /// lets no other commit in until the turn completes, so no id is added between those checks
     /// and this commit that they did not see. The `seen` set below still refuses a repeat inside

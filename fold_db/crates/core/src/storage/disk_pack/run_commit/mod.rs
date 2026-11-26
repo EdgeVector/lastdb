@@ -183,7 +183,9 @@ impl PackRuntime {
                     .ok_or_else(|| StorageError::write_limit("accepted stream spool is full"))?;
             }
         }
-        log.check_admissible(&self.physical, queued_notes, queued_bytes, &incoming)
+        // The stored ids were read under the prepare gate this caller still holds, when the
+        // notes were staged; see `Log::check_admissible`.
+        log.check_admissible(queued_notes, queued_bytes, &incoming)
             .map(|()| batch_bytes)
             .map_err(crate::storage::disk_backup::accepted::storage)
     }
