@@ -21,9 +21,12 @@ use mutation_log::{
     entry_hash, stream_id_of, AcceptOutcome, DatabaseId, EntryHash, EntryKind, SignedEntry,
     StreamId, VerifiedHistory,
 };
+use zeroize::Zeroizing;
 
 use crate::host::Host;
 use crate::profile::private_fs as disk;
+
+use super::shared_key;
 
 const LOG_LIMIT: usize = 16 * 1024 * 1024;
 const CURSOR_LIMIT: usize = 32;
@@ -37,11 +40,12 @@ pub(crate) fn histories_for(host: &Host) -> Arc<HistoryMap> {
         .get_or_init(|| Mutex::new(HashMap::new()))
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    Arc::clone(
-        homes
-            .entry(host.home.clone())
-            .or_insert_with(|| Arc::new(HistoryMap::new(&host.home))),
-    )
+    Arc::clone(homes.entry(host.home.clone()).or_insert_with(|| {
+        Arc::new(HistoryMap::new(
+            &host.home,
+            Zeroizing::new(host.keypair.secret_key_bytes()),
+        ))
+    }))
 }
 
 /// Process-wide histories, shared by the sync loop and every request handler.
@@ -51,6 +55,8 @@ pub(crate) fn histories_for(host: &Host) -> Arc<HistoryMap> {
 /// empty history is created in its place.
 pub(crate) struct HistoryMap {
     home: PathBuf,
+    /// Node seed used to derive the publisher's shared database read key.
+    node_seed: Zeroizing<[u8; 32]>,
     inner: Mutex<HashMap<String, VerifiedHistory>>,
     /// Exact entry hashes stored in `received.json`, per database.
     received: Mutex<HashMap<String, Vec<EntryHash>>>,
@@ -61,9 +67,10 @@ pub(crate) struct HistoryMap {
 }
 
 impl HistoryMap {
-    fn new(home: &Path) -> Self {
+    fn new(home: &Path, node_seed: Zeroizing<[u8; 32]>) -> Self {
         Self {
             home: home.to_path_buf(),
+            node_seed,
             inner: Mutex::new(HashMap::new()),
             received: Mutex::new(HashMap::new()),
             materialize_retry: Mutex::new(HashSet::new()),
@@ -201,6 +208,7 @@ impl HistoryMap {
             )
         });
         let mut history = VerifiedHistory::new(id);
+        shared_key::attach_opener(&mut history, &self.home, &self.node_seed, &database_id)?;
         for entry in entries {
             if let AcceptOutcome::Reject { reason } = history.accept_entry(entry) {
                 tracing::warn!(target: "lastdbd::log_sync", ?reason, "stored entry was rejected on replay");

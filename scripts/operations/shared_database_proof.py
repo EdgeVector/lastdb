@@ -180,7 +180,61 @@ def converge(members, key, note, creator, updater):
         wait(f"{member.name} to hold {key}={note} by {creator[:8]}/{updater[:8]}", probe)
 
 
-def prove(pub, a, b, c, proposals):
+def log_entry_files(member):
+    """authored.json and received.json for this member's shared database."""
+    base = member.node.home / "log-sync" / str(member.db)
+    for name in ("authored.json", "received.json"):
+        path = base / name
+        if path.is_file():
+            yield path
+
+
+def iter_entries(data):
+    """Yield signed-entry objects from a log file or a single relay entry file."""
+    try:
+        loaded = json.loads(data)
+    except ValueError:
+        return
+    if isinstance(loaded, list):
+        for entry in loaded:
+            if isinstance(entry, dict):
+                yield entry
+        return
+    if isinstance(loaded, dict) and "kind" in loaded:
+        yield loaded
+        return
+    if isinstance(loaded, dict):
+        for entry in loaded.get("entries", []):
+            if isinstance(entry, dict):
+                yield entry
+
+
+def prove_sealed(members, relay_data):
+    """Data and schema entries on disk and on the relay carry no plain content."""
+    # Distinctive cleartext that must never appear once payloads are sealed.
+    secrets = [SCHEMA, '"note":"from-a"', '"note":"from-b"', '"note":"seed"']
+    paths = [path for member in members for path in log_entry_files(member)]
+    if relay_data is not None:
+        paths += [path for path in Path(relay_data).rglob("*") if path.is_file()]
+    require(paths, "no log or relay files to check for sealed content")
+    sealed = 0
+    for path in paths:
+        data = path.read_bytes()
+        for secret in secrets:
+            require(secret.encode() not in data,
+                    f"{path} holds plaintext {secret!r}")
+        for entry in iter_entries(data):
+            if entry.get("kind") not in ("data", "schema"):
+                continue
+            body = entry.get("body") or {}
+            require(body.get("namespace") == "sealed",
+                    f"{path} holds a {entry.get('kind')} entry that is not sealed")
+            sealed += 1
+    require(sealed > 0, "no sealed data or schema entry was found")
+    return {"files": len(paths), "sealed_entries": sealed}
+
+
+def prove(pub, a, b, c, proposals, relay_data=None):
     members = (pub, a, b, c)
     pub.db = pub.act(action="create", name="circles", sharingMode="whole_database")["database"]["id"]
     schema = definition(SCHEMA, "Hash", ["id", "note"], description_prefix="Shared proof ")
@@ -242,6 +296,9 @@ def prove(pub, a, b, c, proposals):
     settle({"a-replace-k1": proposals["a-replace-k1"]}, {"a-replace-k1": "published"})
     converge(members, "k1", "a2", a.key, a.key)
     print("5. at submit: B's replace of A's record not accepted; A's own replace published", flush=True)
+    sealed = prove_sealed(members, relay_data)
+    print(f"6. sealed on disk and relay: {sealed}", flush=True)
+    OUTCOMES["sealed"] = sealed
 
 
 def main():
@@ -251,6 +308,8 @@ def main():
     parser.add_argument("--relay-url", required=True)
     parser.add_argument("--revision", required=True)
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--relay-data", type=Path,
+                        help="reference relay data dir; scanned so plaintext never reaches the relay")
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
     members = [Member(name, args, args.output) for name in ("publisher", "member-a", "member-b", "member-c")]
@@ -258,7 +317,7 @@ def main():
     try:
         for member in members:
             member.start()
-        prove(*members, proposals)
+        prove(*members, proposals, relay_data=args.relay_data)
     except Exception as error:  # noqa: BLE001 the failure is printed with its evidence, then raised
         failure = error
         print(f"FAILED: {error}", file=sys.stderr)

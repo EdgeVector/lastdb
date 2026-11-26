@@ -19,6 +19,7 @@ modules = [
   "personal_identity",
   "personal_seal",
   "profile",
+  "shared_seal",
 ]
 
 [[layer]]

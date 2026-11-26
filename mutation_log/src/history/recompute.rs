@@ -4,7 +4,7 @@ use std::collections::BTreeSet;
 
 use crate::entry::SignedEntry;
 use crate::ids::{EntryHash, NodeKey};
-use crate::payload::{decode_record_payload, MaterializedRecord, RecordPosition};
+use crate::payload::{MaterializedRecord, RecordPosition};
 
 use super::lease::pos_key;
 use super::VerifiedHistory;
@@ -66,13 +66,11 @@ impl VerifiedHistory {
     pub(super) fn recompute_written_by(&mut self, changed: &[EntryHash]) {
         let mut keys: BTreeSet<(String, String)> = BTreeSet::new();
         for hash in changed {
-            let Some(SignedEntry::Data { body, .. }) =
-                self.accepted.get(hash).map(|meta| &meta.entry)
-            else {
+            let Some(entry) = self.accepted.get(hash).map(|meta| &meta.entry) else {
                 continue;
             };
-            if let Ok(decoded) = decode_record_payload(&body.payload) {
-                keys.insert((body.namespace.clone(), decoded.record_key));
+            if let Some((namespace, decoded)) = self.decode_data_entry(entry) {
+                keys.insert((namespace, decoded.record_key));
             }
         }
         let mut outcome: Vec<((String, String), Option<MaterializedRecord>)> = Vec::new();
@@ -108,10 +106,8 @@ impl VerifiedHistory {
                 .or_else(|| self.bundle_floor.get(key).filter(|r| r.entry == win.entry))
                 .map(|r| r.value.clone())?
         } else {
-            let SignedEntry::Data { body, .. } = &self.accepted.get(&win.entry)?.entry else {
-                return None;
-            };
-            decode_record_payload(&body.payload).ok()?.value
+            let entry = &self.accepted.get(&win.entry)?.entry;
+            self.decode_data_entry(entry)?.1.value
         };
         Some(MaterializedRecord {
             position: win.position,

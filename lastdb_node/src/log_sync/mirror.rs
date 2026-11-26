@@ -6,9 +6,10 @@
 //! chain entry for the database. A `schema` entry is authored before data when
 //! the namespace is new or its FoldDB definition has changed.
 //!
-//! A shareable database signs one `data` entry for each mutation, in clear. The
-//! personal database is not mirrored here: its writes reach the signed log from
-//! the spool of accepted writes (see `personal`).
+//! A shareable database seals each `data` and `schema` entry with the shared
+//! database read key before it is signed. The personal database is not
+//! mirrored here: its writes reach the signed log from the spool of accepted
+//! writes (see `personal`).
 
 use fold_db::fold_db_core::FoldDB;
 use fold_db::schema::types::MutationType;
@@ -23,8 +24,11 @@ use super::chain_author;
 use super::chain_author::AuthorIdentity;
 use super::history_store;
 use super::materialize;
+use super::shared_key;
 use super::wake;
 use crate::host::Host;
+use crate::personal_seal::Sealer;
+use crate::shared_seal;
 
 /// One FoldDB mutation to carry as a signed direct `data` entry.
 pub struct OwnedMutation {
@@ -40,6 +44,7 @@ pub(super) struct MirrorCtx<'a> {
     pub(super) identity: &'a AuthorIdentity,
     pub(super) store: &'a FoldDB,
     material: &'a BirthMaterial,
+    sealer: Sealer,
 }
 
 /// Author signed entries for an owned write and wake sync.
@@ -66,6 +71,7 @@ pub fn mirror_owned_write(
         identity: &identity,
         store: &store,
         material: &material,
+        sealer: shared_key::sealer(host, database_id)?,
     };
     histories.with_mut(database_id, |history| {
         history_store::commit_authored_batch(&host.home, history, |next| {
@@ -119,6 +125,7 @@ pub(super) fn publish_declared_schemas(host: &Host, database_id: &str) -> Result
         identity: &identity,
         store: &store,
         material: &material,
+        sealer: shared_key::sealer(host, database_id)?,
     };
     super::histories_for(host).with_mut(database_id, |history| {
         if history.owner().is_none() {
@@ -160,10 +167,16 @@ fn ensure_schema(
     if let Some((hash, lamport)) = history.schema_entry(name) {
         author.cite(hash, lamport);
     }
-    let body = SchemaBody {
-        namespace: name.to_owned(),
-        definition,
-    };
+    let body = shared_seal::seal_schema(
+        &ctx.sealer,
+        author.node_key,
+        author.device_id,
+        author.next_writer_seq(),
+        SchemaBody {
+            namespace: name.to_owned(),
+            definition,
+        },
+    )?;
     let entry =
         author_schema(&author, &ctx.identity.signing_key, body).map_err(|e| e.to_string())?;
     stage(history, batch, entry)
@@ -204,12 +217,18 @@ fn author_one(
         author.cite(winner.entry, winner.position.lamport);
     }
     let value = encode_value(item)?;
-    let body = data_record(
-        StreamKind::Direct,
-        item.schema.clone(),
-        &item.record_key,
-        &value,
-    );
+    let body = shared_seal::seal_data(
+        &ctx.sealer,
+        author.node_key,
+        author.device_id,
+        author.next_writer_seq(),
+        data_record(
+            StreamKind::Direct,
+            item.schema.clone(),
+            &item.record_key,
+            &value,
+        ),
+    )?;
     let entry = author_data(&author, &ctx.identity.signing_key, body).map_err(|e| e.to_string())?;
     stage(history, batch, entry)
 }
