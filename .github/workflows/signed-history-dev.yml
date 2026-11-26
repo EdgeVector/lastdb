@@ -8,10 +8,11 @@ name: Signed history DEV proofs
 # append/read (403), ~300 MiB of
 # signed bundles, and a discovering restore into FoldDB. Both phases must finish
 # under 60 s. Job `log_sync_relay_timeout` proves the node RelayClient's ~30s
-# request timeout against a hung TCP peer. When `exemem_relay_url` (workflow input) or the repository variable
-# EXEMEM_RELAY_URL is set, the same binary also runs against that relay. No credentials.
-# The reference_relay run also sets LASTDB_RELAY_E2E_STREAMS=true (proves log/streams);
-# the Exemem run does not, until that relay implements the route.
+# request timeout against a hung TCP peer. Job `relay_e2e` then runs the same binary against the Exemem DEV relay,
+# with the same scope and the same relay URL as job `deployed_relay` (below): output `deployed` of job `scope`, and
+# the `exemem_relay_url` input, else the variable EXEMEM_RELAY_URL, else environments.dev.exemem_api. No credentials.
+# Both runs set LASTDB_RELAY_E2E_STREAMS=true (proves log/streams). The Exemem run leaves its fresh database on the
+# DEV relay (about 315 MB of bundles); the binary does not reclaim it.
 # Job `deployed_relay` runs the personal database proof (`personal_database_proof.py --relay-url`) against the
 # Exemem DEV relay. Each run
 # makes a fresh identity (a new seed, offline), so it writes to a personal database of its own. The relay bills the
@@ -181,14 +182,15 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   relay_e2e:
-    name: relay e2e (reference_relay, optional exemem)
+    name: relay e2e (reference_relay, Exemem DEV relay)
     needs: scope
     if: ${{ needs.scope.outputs.run == 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 75
     env:
       CARGO_BUILD_JOBS: "2"
-      EXEMEM_RELAY_URL: ${{ inputs.exemem_relay_url || vars.EXEMEM_RELAY_URL }}
+      EXEMEM_RELAY_INPUT: ${{ inputs.exemem_relay_url || vars.EXEMEM_RELAY_URL }}
+      DEPLOYED: ${{ needs.scope.outputs.deployed }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -226,14 +228,19 @@ jobs:
             --expect-line 'route=log/streams status=200$' \
             --expect-line 'route=log/streams status=403$' \
             --expect-line 'route=log/read status=200 entries=[0-9]+$'
-      - name: Run signed_history_relay_e2e against the exemem relay
-        if: ${{ env.EXEMEM_RELAY_URL != '' }}
+      - name: Run signed_history_relay_e2e against the Exemem DEV relay
+        if: ${{ needs.scope.outputs.deployed == 'true' }}
         run: |
           set -euo pipefail
           OUT="${RUNNER_TEMP}/relay-e2e"
           mkdir -p "$OUT"
+          url="${EXEMEM_RELAY_INPUT:-}"
+          if [[ -z "$url" ]]; then
+            url="$(jq -er '.environments.dev.exemem_api' lastdb_node/environments.json)"
+          fi
+          echo "EXEMEM_RELAY_URL=${url%/}" >> "$GITHUB_ENV"
           export LASTDB_RELAY_E2E_BIN="$PWD/target/release/signed_history_relay_e2e"
-          export RELAY_URL="${EXEMEM_RELAY_URL%/}"
+          export RELAY_URL="${url%/}"
           export LASTDB_RELAY_E2E_STREAMS=true
           "$LASTDB_RELAY_E2E_BIN" | tee "$OUT/exemem.stdout"
           python3 scripts/signed_history/check_relay_e2e.py "$OUT/exemem.stdout" exemem --expect-streams
@@ -259,10 +266,10 @@ jobs:
             echo "## Signed history relay e2e"
             echo "Source: $GITHUB_SHA"
             echo "Binary: signed_history_relay_e2e (LASTDB_RELAY_E2E_BIN). Scenarios: signed append/read, grant + revoke (403), never-granted append/read (403), ~300 MiB signed bundles, discovering restore into FoldDB, and log/streams (steps streams_*). No credentials."
-            if [[ -z "${EXEMEM_RELAY_URL}" ]]; then
-              echo "Exemem relay: skipped (no exemem_relay_url input or EXEMEM_RELAY_URL variable)."
+            if [[ "${DEPLOYED}" != true ]]; then
+              echo "Exemem relay: not run (this pull request changes no file of the personal sync or the relays; job scope, output deployed)."
             else
-              echo "Exemem relay: ${EXEMEM_RELAY_URL}"
+              echo "Exemem relay: ${EXEMEM_RELAY_URL:-not chosen (the step failed before it chose a relay)}"
             fi
             for f in reference exemem; do
               if [[ -f "${RUNNER_TEMP}/relay-e2e/$f.stdout" ]]; then
