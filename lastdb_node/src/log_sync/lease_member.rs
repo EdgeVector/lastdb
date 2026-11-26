@@ -219,7 +219,7 @@ fn sign_all(
             .map_err(|_| cause.take().unwrap_or(ChainError::Unconfirmed))
         })
         .map_err(|_| ChainError::Unconfirmed)??;
-    super::wake::request_wake(&host.home);
+    super::wake::wake_loop();
     Ok(())
 }
 

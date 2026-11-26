@@ -148,7 +148,7 @@ pub(super) async fn accept(req: &UdsRequest, ctx: &AccessContext, host: &Host) -
         Err(_) => Err(crate::share_cache::ShareCacheError::Io),
     };
     if registered.is_ok() {
-        crate::log_sync::request_wake(&host.home);
+        crate::log_sync::wake_loop();
     }
     registration_reply(registered, ctx, host)
 }

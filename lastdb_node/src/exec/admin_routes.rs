@@ -349,7 +349,7 @@ pub(super) async fn backup_snapshot(
             };
             HostError::new(status, e)
         })?;
-        crate::log_sync::ensure_wake(&host.home);
+        crate::log_sync::wake_loop();
         host.cloud_sync.wake();
         Ok(json!({ "database_id": id, "nonce": nonce }))
     }
@@ -364,7 +364,7 @@ pub(super) fn cloud_wake(req: &UdsRequest, ctx: &AccessContext, host: &Host) -> 
             &req.body,
             "invalid /api/cloud/wake body: expected an empty JSON object",
         )?;
-        crate::log_sync::ensure_wake(&host.home);
+        crate::log_sync::wake_loop();
         host.cloud_sync.wake();
         Ok(json!({}))
     })();
