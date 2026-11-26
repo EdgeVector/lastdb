@@ -279,7 +279,7 @@ impl PackRuntime {
                 return;
             }
         }
-        transaction::mark_turn(&requests, Mark::Deliver);
+        transaction::mark_turn(&requests, Mark::Delivered);
         {
             let mut q = self.lock_queue();
             q.sealed = false;

@@ -119,7 +119,7 @@ pub(in crate::storage::disk_pack) enum Mark {
     /// The commit is installed.
     Install,
     /// The post-commit work of the turn is done.
-    Deliver,
+    Delivered,
 }
 
 /// The moments a queue turn reached for one batch. The turn runs in its own task, so it marks
