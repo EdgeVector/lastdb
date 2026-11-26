@@ -8,16 +8,41 @@
 
 use std::path::PathBuf;
 
-use serde::Deserialize;
+use relay_protocol::SegmentAppend;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::error::{ApiError, ApiResult};
 use crate::store::{atomic_write, is_hex64, EntryKey, Store};
 
-/// The `segment` of a `log.append` body.
-#[derive(Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct SegmentBody {
+/// Check the fields of the `segment` of a `log.append`, each with its own error field.
+pub(crate) fn check(segment: &SegmentAppend) -> ApiResult<()> {
+    if !is_hex64(&segment.device_id) {
+        return Err(ApiError::invalid("segment.device_id"));
+    }
+    if segment.first_seq == 0 {
+        return Err(ApiError::invalid("segment.first_seq"));
+    }
+    if segment.last_seq < segment.first_seq {
+        return Err(ApiError::invalid("segment.last_seq"));
+    }
+    if !is_hex64(&segment.last_hash) {
+        return Err(ApiError::invalid("segment.last_hash"));
+    }
+    if !is_hex64(&segment.sha256) {
+        return Err(ApiError::invalid("segment.sha256"));
+    }
+    if segment.bytes == 0 {
+        return Err(ApiError::invalid("segment.bytes"));
+    }
+    Ok(())
+}
+
+/// The `segment` of a stored segment item (storage, not the wire): the appended segment and its
+/// writer. A read answers it as a `relay_protocol::SegmentRef` with the presigned URL of its blob.
+#[derive(Serialize, Deserialize)]
+pub(crate) struct StoredSegment {
+    pub(crate) node_key: String,
     pub(crate) device_id: String,
     pub(crate) first_seq: u64,
     pub(crate) last_seq: u64,
@@ -26,46 +51,17 @@ pub(crate) struct SegmentBody {
     pub(crate) bytes: u64,
 }
 
-impl SegmentBody {
-    /// Check the fields, each with its own error field.
-    pub(crate) fn check(&self) -> ApiResult<()> {
-        if !is_hex64(&self.device_id) {
-            return Err(ApiError::invalid("segment.device_id"));
+impl StoredSegment {
+    fn new(node_key: &str, segment: &SegmentAppend) -> Self {
+        Self {
+            node_key: node_key.to_owned(),
+            device_id: segment.device_id.clone(),
+            first_seq: segment.first_seq,
+            last_seq: segment.last_seq,
+            last_hash: segment.last_hash.clone(),
+            sha256: segment.sha256.clone(),
+            bytes: segment.bytes,
         }
-        if self.first_seq == 0 {
-            return Err(ApiError::invalid("segment.first_seq"));
-        }
-        if self.last_seq < self.first_seq {
-            return Err(ApiError::invalid("segment.last_seq"));
-        }
-        if !is_hex64(&self.last_hash) {
-            return Err(ApiError::invalid("segment.last_hash"));
-        }
-        if !is_hex64(&self.sha256) {
-            return Err(ApiError::invalid("segment.sha256"));
-        }
-        if self.bytes == 0 {
-            return Err(ApiError::invalid("segment.bytes"));
-        }
-        Ok(())
-    }
-
-    /// How many entries the segment holds.
-    pub(crate) fn count(&self) -> u64 {
-        self.last_seq - self.first_seq + 1
-    }
-
-    /// The stored item.
-    fn item(&self, node_key: &str) -> Value {
-        json!({ "segment": {
-            "node_key": node_key,
-            "device_id": self.device_id,
-            "first_seq": self.first_seq,
-            "last_seq": self.last_seq,
-            "last_hash": self.last_hash,
-            "sha256": self.sha256,
-            "bytes": self.bytes,
-        }})
     }
 }
 
@@ -126,7 +122,7 @@ impl Store {
         &self,
         database_id: &str,
         node_key: &str,
-        segment: &SegmentBody,
+        segment: &SegmentAppend,
     ) -> ApiResult<Appended> {
         let device = segment.device_id.as_str();
         let head = self
@@ -159,8 +155,8 @@ impl Store {
                 .await
                 .map_err(|_| ApiError::invalid("data_dir"))?;
         }
-        let item = serde_json::to_vec(&segment.item(node_key))
-            .map_err(|_| ApiError::invalid("segment"))?;
+        let item = json!({ "segment": StoredSegment::new(node_key, segment) });
+        let item = serde_json::to_vec(&item).map_err(|_| ApiError::invalid("segment"))?;
         atomic_write(&path, &item).await?;
         let span = Span {
             first_seq: segment.first_seq,

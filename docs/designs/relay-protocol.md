@@ -4,9 +4,16 @@ Status: built. The reference relay in this repository and the Exemem relay
 (DEV and PROD) serve it. First written as a design on 2026-11-19; `log.streams`,
 the `snapshot` entry and `log.trim` were added on 2026-11-22 and 2026-11-23, `blob.list`
 and `blob.drop` on 2026-11-24.
-Companion to `docs/designs/cloud-api.md`. Wire:
-`docs/designs/relay-protocol.openapi.json`. What a node keeps on disk is in
+Companion to `docs/designs/cloud-api.md`. What a node keeps on disk is in
 `docs/home-format.md`.
+
+**The wire has one definition: the `relay_protocol` crate** (Tom, 2026-11-26). Its types
+are every route, request, answer, header, error code and the signed message. The node, the
+reference relay and the Exemem relay use only those types; none of them writes its own copy
+of a request or answer shape. `docs/designs/relay-protocol.openapi.json` is generated from
+the crate (`cargo run -p relay_protocol --features schema --bin relay-protocol-openapi`)
+and is never edited by hand. This document says what the routes do; the crate says what
+they carry. See "Contract rule" below.
 
 **Goal:** smallest open protocol so anyone can stand up a relay if ExeMem
 goes down. Signed data is relay-independent. ExeMem = conforming relay +
@@ -666,6 +673,25 @@ value between half and all of it, so a call adds at most 1.75 s of waiting. The 
 `nonce` of a request it refuses, so every retry is signed again with a new nonce and time. A retried
 `log.append` is a duplicate the relay already counts, and a second `blob.put` commit of the same
 digest and length answers like the first.
+
+## Contract rule
+
+Within protocol `1` (`/relay/v1/`) a change may only add: a new route, a new optional
+request field, a new answer field, a new error code. A removed or renamed field, a field
+made required, a changed type or a removed route is a breaking change and needs protocol
+`2` under `/relay/v2/`, served beside v1 until no client sends v1.
+
+- Answer types accept fields they do not know, so an older node reads a newer relay's
+  answer. Request types refuse fields they do not know (`deny_unknown_fields`), so a relay
+  never silently drops what a newer node asked for.
+- The relay adds first. A field a node starts to send ships in a relay release before the
+  node release that sends it.
+- `ci-required` job `relay_contract` regenerates the OpenAPI file and fails when the
+  committed file differs, then runs a pinned `oasdiff breaking` against the base commit's
+  file and fails on any WARN or ERR. The label `relay-contract-break-approved` lets a
+  reviewed break through (removing v1 once v2 serves every client).
+- Exemem builds its relay from the same crate through its `fold/` submodule, so the relay
+  it deploys carries the contract of that `fold/` commit.
 
 ## CI conformance
 

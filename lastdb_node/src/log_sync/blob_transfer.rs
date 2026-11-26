@@ -23,12 +23,12 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use relay_protocol::{BlobPut, BlobPutRequest, BlobPutStage, ErrorCode};
 use reqwest::header::{HeaderName, HeaderValue};
-use serde_json::json;
 use tokio::fs;
 use tokio::io::AsyncSeekExt;
 
-use super::relay::{RelayClient, STALL_TIMEOUT};
+use super::relay::{CallError, RelayClient, STALL_TIMEOUT};
 
 /// Bytes read from the file per chunk of an upload.
 const CHUNK_BYTES: usize = 64 * 1024;
@@ -39,12 +39,10 @@ const CHUNK_BYTES: usize = 64 * 1024;
 pub(super) const SIZE_REFUSED: &str = "the relay refused the blob size";
 
 /// True when `error` is the answer of a relay to a blob that is larger than it accepts.
-fn is_size_refusal(error: &str) -> bool {
-    let body = error
-        .find('{')
-        .and_then(|at| serde_json::from_str::<serde_json::Value>(&error[at..]).ok());
-    error.contains("HTTP 400")
-        && body.is_some_and(|body| body["code"] == "invalid_request" && body["field"] == "bytes")
+fn is_size_refusal(error: &CallError) -> bool {
+    error
+        .refusal(400)
+        .is_some_and(|answer| answer.code == ErrorCode::InvalidRequest && answer.field == "bytes")
 }
 
 /// The error with its causes (`source` chain), since reqwest alone says "error sending request",
@@ -155,39 +153,36 @@ impl RelayClient {
             .await
             .map_err(|e| format!("blob file: {e}"))?;
         let size = len.saturating_sub(start);
-        let stage = |stage: &str| {
-            json!({
-                "database_id": database_id,
-                "sha256": sha256,
-                "bytes": size,
-                "stage": stage,
-            })
+        let stage = |stage: BlobPutStage| BlobPutRequest {
+            database_id: database_id.to_owned(),
+            sha256: sha256.to_owned(),
+            bytes: size,
+            stage,
         };
         let begin = self
-            .post("/relay/v1/blob/put", database_id, &stage("begin"))
+            .call_tracked::<BlobPut>(&stage(BlobPutStage::Begin))
             .await
+            .map(|(answer, _)| answer)
             .map_err(|error| {
                 if size > 0 && is_size_refusal(&error) {
                     format!("{SIZE_REFUSED}: {size} bytes")
                 } else {
-                    error
+                    error.message
                 }
             })?;
-        if begin["upload"].is_null() && begin["sha256"].as_str() == Some(sha256) {
+        if begin.upload.is_none() && begin.sha256 == sha256 {
             if let Some(usage) = &self.usage {
                 usage.complete_pending_blob(database_id, sha256, size)?;
             }
             return Ok(());
         }
-        let url = begin["upload"]["url"]
-            .as_str()
-            .ok_or("blob.put begin has no upload.url")?;
-        url_guard::validate_presigned_url(&self.base, url)?;
-        let headers = url_guard::presigned_headers(&begin["upload"]["headers"], true)?;
+        let upload = begin.upload.ok_or("blob.put begin has no upload.url")?;
+        url_guard::validate_presigned_url(&self.base, &upload.url)?;
+        let headers = url_guard::presigned_headers(&upload.headers, true)?;
         let file = Arc::new(file.into_std().await);
-        self.upload_with_retries(url, &headers, &file, start, size)
+        self.upload_with_retries(&upload.url, &headers, &file, start, size)
             .await?;
-        self.commit_blob(database_id, sha256, size, &stage("commit"))
+        self.commit_blob(database_id, sha256, size, &stage(BlobPutStage::Commit))
             .await
     }
 
@@ -240,12 +235,12 @@ impl RelayClient {
         database_id: &str,
         sha256: &str,
         size: u64,
-        body: &serde_json::Value,
+        request: &BlobPutRequest,
     ) -> Result<(), String> {
         if let Some(usage) = &self.usage {
             usage.blob_begins(database_id, sha256, size)?;
         }
-        match self.post("/relay/v1/blob/put", database_id, body).await {
+        match self.call_tracked::<BlobPut>(request).await {
             Ok(_) => {
                 if let Some(usage) = &self.usage {
                     usage.blob_ends(database_id, sha256, size, true)?;
@@ -253,10 +248,13 @@ impl RelayClient {
                 Ok(())
             }
             Err(error) => {
-                if let Some(usage) = self.usage.as_ref().filter(|_| error.contains("HTTP 4")) {
+                let refused = error
+                    .status
+                    .is_some_and(|status| (400..500).contains(&status));
+                if let Some(usage) = self.usage.as_ref().filter(|_| refused) {
                     usage.blob_ends(database_id, sha256, size, false)?;
                 }
-                Err(error)
+                Err(error.message)
             }
         }
     }

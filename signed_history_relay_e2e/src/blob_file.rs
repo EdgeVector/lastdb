@@ -9,12 +9,12 @@ use std::path::Path;
 
 use app_identity_crypto::hex_lower;
 use futures::StreamExt;
-use serde_json::json;
+use relay_protocol::{BlobGet, BlobGetRequest, BlobPut, BlobPutStage};
 use sha2::{Digest, Sha256};
 use tokio::fs;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-use crate::relay::{header_pairs, RelayClient};
+use crate::relay::RelayClient;
 
 const CHUNK_BYTES: usize = 64 * 1024;
 
@@ -25,22 +25,14 @@ impl RelayClient {
     /// it right and commit. Returns how many wrong uploads were refused.
     pub async fn prove_upload_verified(&self, body: &[u8]) -> Result<u32, String> {
         let sha256 = hex_lower(&Sha256::digest(body));
-        let stage_body = |stage: &str| {
-            json!({
-                "database_id": self.database_hex,
-                "sha256": sha256,
-                "bytes": body.len(),
-                "stage": stage,
-            })
-        };
+        let size = body.len() as u64;
         let begin = self
-            .post("/relay/v1/blob/put", &stage_body("begin"))
+            .call::<BlobPut>(&self.blob_put_request(&sha256, size, BlobPutStage::Begin))
             .await?;
-        let url = begin["upload"]["url"]
-            .as_str()
-            .ok_or("blob.put begin has no upload.url")?
-            .to_owned();
-        let headers: Vec<(String, String)> = header_pairs(&begin["upload"]["headers"])
+        let upload = begin.upload.ok_or("blob.put begin has no upload.url")?;
+        let url = upload.url;
+        let headers: Vec<(String, String)> = upload
+            .headers
             .into_iter()
             .filter(|(name, _)| !name.eq_ignore_ascii_case("content-length"))
             .collect();
@@ -91,7 +83,7 @@ impl RelayClient {
         if !right.is_success() {
             return Err(format!("upload with the returned headers: HTTP {right}"));
         }
-        self.post("/relay/v1/blob/put", &stage_body("commit"))
+        self.call::<BlobPut>(&self.blob_put_request(&sha256, size, BlobPutStage::Commit))
             .await?;
         Ok(refused)
     }
@@ -122,29 +114,19 @@ impl RelayClient {
             .await
             .map_err(|e| format!("blob file: {e}"))?
             .len();
-        let stage_body = |stage: &str| {
-            json!({
-                "database_id": self.database_hex,
-                "sha256": sha256,
-                "bytes": size,
-                "stage": stage,
-            })
-        };
         let begin = self
-            .post("/relay/v1/blob/put", &stage_body("begin"))
+            .call::<BlobPut>(&self.blob_put_request(sha256, size, BlobPutStage::Begin))
             .await?;
-        if begin["upload"].is_null() && begin["sha256"].as_str() == Some(sha256) {
+        if begin.upload.is_none() && begin.sha256 == sha256 {
             return Ok(());
         }
-        let url = begin["upload"]["url"]
-            .as_str()
-            .ok_or("blob.put begin has no upload.url")?;
+        let upload = begin.upload.ok_or("blob.put begin has no upload.url")?;
         let mut req = self
             .http
-            .put(url)
+            .put(&upload.url)
             .header("content-length", size)
             .body(file_body(file));
-        for (name, value) in header_pairs(&begin["upload"]["headers"]) {
+        for (name, value) in upload.headers {
             // The content-length is set above; a second one makes the object store answer 400.
             if name.eq_ignore_ascii_case("content-length") {
                 continue;
@@ -159,7 +141,7 @@ impl RelayClient {
         if !status.is_success() {
             return Err(format!("blob upload HTTP {status}"));
         }
-        self.post("/relay/v1/blob/put", &stage_body("commit"))
+        self.call::<BlobPut>(&self.blob_put_request(sha256, size, BlobPutStage::Commit))
             .await?;
         Ok(())
     }
@@ -172,14 +154,16 @@ impl RelayClient {
         expect_size: u64,
         dest: &Path,
     ) -> Result<String, String> {
-        let body = json!({ "database_id": self.database_hex, "sha256": sha256 });
-        let meta = self.post("/relay/v1/blob/get", &body).await?;
-        let url = meta["url"].as_str().ok_or("blob.get has no url")?;
-        if meta["bytes"].as_u64().is_some_and(|n| n != expect_size) {
+        let request = BlobGetRequest {
+            database_id: self.database_hex.clone(),
+            sha256: sha256.to_owned(),
+        };
+        let meta = self.call::<BlobGet>(&request).await?;
+        if meta.bytes != expect_size {
             return Err(format!("blob.get size differs from the entry for {sha256}"));
         }
-        let mut req = self.http.get(url);
-        for (name, value) in header_pairs(&meta["headers"]) {
+        let mut req = self.http.get(&meta.url);
+        for (name, value) in meta.headers {
             req = req.header(name, value);
         }
         let resp = req

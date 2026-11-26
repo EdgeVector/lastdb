@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::task::{Context, Poll, Waker};
 use std::time::Duration;
 
-use serde_json::Value;
+use relay_protocol::ErrorAnswer;
 
 pub(crate) const RETRIES: u32 = 3;
 const RETRY_BASE: Duration = Duration::from_millis(250);
@@ -19,29 +19,12 @@ pub(crate) fn retryable_transport(error: &reqwest::Error, elapsed: Duration) -> 
 }
 
 /// Whether the relay indicates the same request may succeed after a brief wait:
-/// gateway errors (`502..=504`), `500 unavailable`, and transient `429 rate_limited`.
+/// gateway errors (`502..=504`), and an error answer that [`ErrorAnswer::is_transient`] calls
+/// transient with the status of its code (`500 unavailable`, transient `429 rate_limited`).
 pub(crate) fn is_transient(status: u16, body: &str) -> bool {
-    if matches!(status, 502..=504) {
-        return true;
-    }
-    let reply: Value = serde_json::from_str(body).unwrap_or(Value::Null);
-    let (code, field) = (
-        reply["code"].as_str(),
-        reply["field"].as_str().unwrap_or(""),
-    );
-    match (status, code) {
-        (500, Some("unavailable")) => true,
-        (429, Some("rate_limited")) => {
-            !field.ends_with(".configuration")
-                && (field.starts_with("provider.")
-                    || field.starts_with("log.streams.")
-                    || matches!(
-                        field,
-                        "mutation_log.read" | "quota.read" | "payment.read" | "payment.clock"
-                    ))
-        }
-        _ => false,
-    }
+    matches!(status, 502..=504)
+        || serde_json::from_str::<ErrorAnswer>(body)
+            .is_ok_and(|answer| answer.code.status() == status && answer.is_transient())
 }
 
 /// Jittered wait before retry `retried` (`0..RETRIES`): half to full of `250ms * 2^retried`.

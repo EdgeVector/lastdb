@@ -118,13 +118,6 @@ pub(crate) struct HeadToken {
     pub(crate) beyond: bool,
 }
 
-/// One line of the `log/streams` answer.
-pub(crate) struct ListedStream {
-    pub(crate) device_id: String,
-    pub(crate) head_seq: u64,
-    pub(crate) head_hash: String,
-}
-
 type WriterKey = (String, String);
 type Devices = BTreeMap<String, StreamHead>;
 
@@ -248,15 +241,20 @@ impl Heads {
         })
     }
 
-    /// The streams of one writer that hold seq 1, sorted by device id.
-    pub(crate) fn list(&self, database_id: &str, writer_key: &str) -> Vec<ListedStream> {
+    /// The streams of one writer that hold seq 1, sorted by device id, as `log/streams` lists
+    /// them.
+    pub(crate) fn list(
+        &self,
+        database_id: &str,
+        writer_key: &str,
+    ) -> Vec<relay_protocol::StreamHead> {
         let streams = self.streams.lock().expect("heads lock");
         let key = (database_id.to_owned(), writer_key.to_owned());
         streams.get(&key).map_or_else(Vec::new, |devices| {
             devices
                 .iter()
                 .filter(|(_, head)| head.seq >= 1)
-                .map(|(device_id, head)| ListedStream {
+                .map(|(device_id, head)| relay_protocol::StreamHead {
                     device_id: device_id.clone(),
                     head_seq: head.seq,
                     head_hash: head.hash.clone(),

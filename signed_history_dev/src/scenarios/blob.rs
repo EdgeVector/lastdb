@@ -82,12 +82,11 @@ async fn upload_blob(
     let begin = client
         .blob_put_begin(database_id, digest, payload.len() as u64)
         .await?;
-    let url = begin["upload"]["url"]
-        .as_str()
-        .ok_or_else(|| "blob.put begin missing upload.url".to_owned())?
-        .to_owned();
+    let upload = begin
+        .upload
+        .ok_or_else(|| "blob.put begin missing upload.url".to_owned())?;
     client
-        .blob_upload(&url, &begin["upload"]["headers"], payload)
+        .blob_upload(&upload.url, &upload.headers, payload)
         .await?;
     client
         .blob_put_commit(database_id, digest, payload.len() as u64)
@@ -103,11 +102,7 @@ async fn restore_download(
 ) -> Result<f64, String> {
     let start = Instant::now();
     let meta = client.blob_get(database_id, digest).await?;
-    let url = meta["url"]
-        .as_str()
-        .ok_or_else(|| "blob.get missing url".to_owned())?
-        .to_owned();
-    let bytes = client.blob_download(&url).await?;
+    let bytes = client.blob_download(&meta.url).await?;
     if bytes.len() != expect_len {
         return Err(format!(
             "downloaded {} bytes, expected {expect_len}",

@@ -12,6 +12,15 @@ type HmacSha256 = Hmac<Sha256>;
 
 const TTL_MS: u64 = 900_000;
 
+/// The path prefix of a presigned upload, `{BLOB_UPLOAD_PATH}/{database_id}/{token}`, and of a
+/// presigned download, `{BLOB_BYTES_PATH}/{database_id}/{sha256}`. These are this reference
+/// relay's stand-in for an object store (a hosted relay presigns its object store's URLs
+/// instead). They are not routes of the relay protocol (`relay_protocol::Route`), and no request
+/// signature covers them: the HMAC query of the presigned URL does.
+pub(crate) const BLOB_UPLOAD_PATH: &str = "/relay/v1/blob/upload";
+/// See [`BLOB_UPLOAD_PATH`].
+pub(crate) const BLOB_BYTES_PATH: &str = "/relay/v1/blob/bytes";
+
 #[derive(Clone, Copy)]
 struct SignedTarget<'a> {
     method: &'a str,
@@ -37,9 +46,8 @@ pub(crate) fn make_get_url(
         },
         expires_at_ms,
     );
-    let url = format!(
-        "{public_base}/relay/v1/blob/bytes/{database_id}/{sha256}?e={expires_at_ms}&s={sig}"
-    );
+    let url =
+        format!("{public_base}{BLOB_BYTES_PATH}/{database_id}/{sha256}?e={expires_at_ms}&s={sig}");
     (url, expires_at_ms)
 }
 
@@ -61,9 +69,8 @@ pub(crate) fn make_put_url(
         },
         expires_at_ms,
     );
-    let url = format!(
-        "{public_base}/relay/v1/blob/upload/{database_id}/{token}?e={expires_at_ms}&s={sig}"
-    );
+    let url =
+        format!("{public_base}{BLOB_UPLOAD_PATH}/{database_id}/{token}?e={expires_at_ms}&s={sig}");
     (url, expires_at_ms)
 }
 

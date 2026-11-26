@@ -1,7 +1,7 @@
 //! In-repo reference relay for CI signed-history proofs.
 //!
 //! `reference_relay --listen 127.0.0.1:0 --data-dir DIR` prints the bound
-//! address, then serves the relay OpenAPI surface and writes one line per request to stderr. HTTP `nodeSignature` is
+//! address, then serves every `relay_protocol::Route` and writes one line per request to stderr. HTTP `nodeSignature` is
 //! verified, then access is gated by a per-database grant index built from
 //! publisher-signed `birth` / `grant` entries (rebuilt from the stored logs on
 //! open). No `AcceptEntry`: record payloads are never decrypted or applied.
@@ -36,12 +36,14 @@ use axum::middleware;
 use axum::routing::{get, post, put};
 use axum::Router;
 use clap::Parser;
+use relay_protocol::Route;
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;
 
 use blob_http::{blob_bytes, blob_upload};
 use blob_reclaim::{blob_drop, blob_list};
 use handlers::{blob_get, blob_put, log_append, log_read, log_streams, AppState};
+use presign::{BLOB_BYTES_PATH, BLOB_UPLOAD_PATH};
 use store::Store;
 use trim::log_trim;
 
@@ -122,20 +124,21 @@ async fn run() -> Result<(), String> {
         upload_fault_done: std::sync::atomic::AtomicBool::new(false),
     });
     let mut app = Router::new()
-        .route("/relay/v1/log/append", post(log_append))
-        .route("/relay/v1/log/read", post(log_read))
-        .route("/relay/v1/log/streams", post(log_streams))
-        .route("/relay/v1/log/trim", post(log_trim))
-        .route("/relay/v1/blob/put", post(blob_put))
-        .route("/relay/v1/blob/get", post(blob_get))
-        .route("/relay/v1/blob/list", post(blob_list))
-        .route("/relay/v1/blob/drop", post(blob_drop))
+        .route(Route::LogAppend.path(), post(log_append))
+        .route(Route::LogRead.path(), post(log_read))
+        .route(Route::LogStreams.path(), post(log_streams))
+        .route(Route::LogTrim.path(), post(log_trim))
+        .route(Route::BlobPut.path(), post(blob_put))
+        .route(Route::BlobGet.path(), post(blob_get))
+        .route(Route::BlobList.path(), post(blob_list))
+        .route(Route::BlobDrop.path(), post(blob_drop))
+        // The object-store stand-in behind the presigned URLs; not protocol routes.
         .route(
-            "/relay/v1/blob/upload/{database_id}/{token}",
+            &format!("{BLOB_UPLOAD_PATH}/{{database_id}}/{{token}}"),
             put(blob_upload),
         )
         .route(
-            "/relay/v1/blob/bytes/{database_id}/{sha256}",
+            &format!("{BLOB_BYTES_PATH}/{{database_id}}/{{sha256}}"),
             get(blob_bytes),
         )
         .layer(DefaultBodyLimit::max(PLATFORM_PAYLOAD_MAX_BYTES));

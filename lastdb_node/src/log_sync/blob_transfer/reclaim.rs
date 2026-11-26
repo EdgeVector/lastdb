@@ -3,10 +3,11 @@
 
 use std::collections::BTreeMap;
 
-use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use relay_protocol::{
+    BlobDrop, BlobDropRequest, BlobList, BlobListAnswer, BlobListRequest, BlobListed, ErrorCode,
+};
 
-use crate::log_sync::relay::RelayClient;
+use crate::log_sync::relay::{CallError, RelayClient};
 
 /// The most digests one `blob.drop` names.
 pub(in crate::log_sync) const DROP_BATCH: usize = 25;
@@ -14,36 +15,19 @@ pub(in crate::log_sync) const DROP_BATCH: usize = 25;
 pub(in crate::log_sync) const DROP_HEADS: usize = 32;
 
 /// A stream and the sequence number of its head, as a `blob.drop` names it.
-#[derive(Clone, Debug, Serialize)]
-pub(in crate::log_sync) struct HeadAt {
-    pub(in crate::log_sync) device_id: String,
-    pub(in crate::log_sync) writer_seq: u64,
-}
+pub(in crate::log_sync) type HeadAt = relay_protocol::StreamPosition;
 
-/// What one `blob.drop` did.
-#[derive(Clone, Copy, Debug, Default, Deserialize)]
-pub(in crate::log_sync) struct Dropped {
-    /// Stored files the relay dropped in this call.
-    pub(in crate::log_sync) dropped: u64,
-    /// The bytes it released for them.
-    pub(in crate::log_sync) released_bytes: u64,
-    /// Digests of the call that the relay did not hold: dropped earlier, or never there.
-    pub(in crate::log_sync) absent: u64,
-}
-
-#[derive(Deserialize)]
-struct Listed {
-    sha256: String,
-    bytes: u64,
-}
+/// What one `blob.drop` did: stored files the relay dropped in this call (`dropped`), the bytes
+/// it released for them (`released_bytes`), and digests of the call that the relay did not hold,
+/// dropped earlier or never there (`absent`).
+pub(in crate::log_sync) type Dropped = relay_protocol::BlobDropAnswer;
 
 /// True when `error` is the answer of a relay whose stream heads moved since the caller listed
 /// them: HTTP 409 with the code `heads`.
-fn heads_moved(error: &str) -> bool {
-    let body = error
-        .find('{')
-        .and_then(|at| serde_json::from_str::<Value>(&error[at..]).ok());
-    error.contains("HTTP 409") && body.is_some_and(|body| body["code"] == "heads")
+fn heads_moved(error: &CallError) -> bool {
+    error
+        .refusal(409)
+        .is_some_and(|answer| answer.code == ErrorCode::Heads)
 }
 
 /// Maximum total blobs accepted across all pages of one `blob.list` scan.
@@ -58,13 +42,11 @@ impl RelayClient {
         let mut found = BTreeMap::new();
         let mut after: Option<String> = None;
         loop {
-            let mut body = json!({ "database_id": database_id });
-            if let Some(after) = &after {
-                body["after"] = Value::String(after.clone());
-            }
-            let value = self.post("/relay/v1/blob/list", database_id, &body).await?;
-            let page: Vec<Listed> = serde_json::from_value(value["blobs"].clone())
-                .map_err(|_| "relay blob.list returned an invalid list".to_owned())?;
+            let request = BlobListRequest {
+                database_id: database_id.to_owned(),
+                after: after.clone(),
+            };
+            let BlobListAnswer { blobs: page, next } = self.call::<BlobList>(&request).await?;
             validate_blob_page(&page, after.as_deref())?;
             if found.len().saturating_add(page.len()) > MAX_LISTED_BLOBS {
                 return Err("relay blob.list exceeded 1000000 blobs".into());
@@ -73,17 +55,15 @@ impl RelayClient {
             for blob in page {
                 found.insert(blob.sha256, blob.bytes);
             }
-            let next = match value.get("next") {
-                None | Some(Value::Null) => return Ok(found),
-                Some(Value::String(s)) => s,
-                Some(_) => return Err("relay blob.list returned an invalid next cursor".into()),
+            let Some(next) = next else {
+                return Ok(found);
             };
-            mutation_log::Hex32::from_hex(next)
+            mutation_log::Hex32::from_hex(&next)
                 .map_err(|_| "relay blob.list returned an invalid next cursor".to_owned())?;
             let Some(last) = last_digest else {
                 return Err("relay blob.list returned a next cursor for an empty page".into());
             };
-            if next != &last {
+            if next != last {
                 return Err("relay blob.list next cursor does not match the last digest".into());
             }
             after = Some(last);
@@ -103,27 +83,21 @@ impl RelayClient {
         heads: &[HeadAt],
         sha256: &[String],
     ) -> Result<Option<(Dropped, bool)>, String> {
-        let body = json!({
-            "database_id": database_id,
-            "snapshot": snapshot,
-            "heads": heads,
-            "sha256": sha256,
-        });
-        let (value, retried) = match self
-            .post_tracked("/relay/v1/blob/drop", database_id, &body)
-            .await
-        {
-            Ok(pair) => pair,
-            Err(error) if heads_moved(&error) => return Ok(None),
-            Err(error) => return Err(error),
+        let request = BlobDropRequest {
+            database_id: database_id.to_owned(),
+            snapshot: snapshot.clone(),
+            heads: heads.to_vec(),
+            sha256: sha256.to_vec(),
         };
-        serde_json::from_value(value)
-            .map(|dropped| Some((dropped, retried)))
-            .map_err(|_| "relay blob.drop returned an invalid answer".to_owned())
+        match self.call_tracked::<BlobDrop>(&request).await {
+            Ok(pair) => Ok(Some(pair)),
+            Err(error) if heads_moved(&error) => Ok(None),
+            Err(error) => Err(error.message),
+        }
     }
 }
 
-fn validate_blob_page(page: &[Listed], after: Option<&str>) -> Result<(), String> {
+fn validate_blob_page(page: &[BlobListed], after: Option<&str>) -> Result<(), String> {
     let mut prev = after;
     for blob in page {
         mutation_log::Hex32::from_hex(&blob.sha256)

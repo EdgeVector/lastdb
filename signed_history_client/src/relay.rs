@@ -1,11 +1,14 @@
-//! HTTP client for `/relay/v1/log/*`.
+//! HTTP client for `/relay/v1/log/*`, speaking the types of [`relay_protocol`].
 
 use std::time::{Duration, Instant};
 
 use app_identity_crypto::{hex_lower, sign, SigningKey};
 use base64::Engine as _;
 use mutation_log::SignedEntry;
-use serde_json::{json, Value};
+use relay_protocol::{
+    headers, Endpoint, LogAppend, LogAppendAnswer, LogAppendRequest, LogRead, LogReadRequest,
+    ReadItem,
+};
 use sha2::{Digest, Sha256};
 
 use crate::retry::{async_sleep, is_transient, retry_wait, retryable_transport, RETRIES};
@@ -72,14 +75,14 @@ impl RelayClient {
         while offset < entries.len() {
             let take = next_append_chunk_len(database_id, &entries[offset..])?;
             let chunk = &entries[offset..offset + take];
-            let body = json!({
-                "database_id": database_id,
-                "entries": chunk,
-            });
-            let value = self
-                .post("/relay/v1/log/append", database_id, &body)
-                .await?;
-            let (stored, dup) = parse_append_counts(&value, chunk.len() as u64);
+            let values = chunk
+                .iter()
+                .map(serde_json::to_value)
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|_| "cannot encode signed entry".to_owned())?;
+            let request = LogAppendRequest::entries(database_id.to_owned(), values);
+            let answer = self.call::<LogAppend>(&request).await?;
+            let (stored, dup) = append_counts(answer, chunk.len() as u64);
             total_stored = total_stored.saturating_add(stored);
             total_dup = total_dup.saturating_add(dup);
             offset += take;
@@ -97,26 +100,41 @@ impl RelayClient {
         cursor: Option<&str>,
         limit: u32,
     ) -> Result<(Vec<SignedEntry>, Option<String>), String> {
-        let mut body = json!({
-            "database_id": database_id,
-            "limit": limit,
-        });
-        if let Some(cursor) = cursor {
-            body["cursor"] = Value::String(cursor.to_owned());
-        } else {
-            body["writer_key"] = Value::String(writer_key.to_owned());
-            body["device_id"] = Value::String(device_id.to_owned());
-            body["from_seq"] = json!(from_seq);
-        }
-        let value = self.post("/relay/v1/log/read", database_id, &body).await?;
-        let entries: Vec<SignedEntry> = serde_json::from_value(value["entries"].clone())
-            .map_err(|_| "relay log.read returned invalid entries".to_owned())?;
-        let next = value["cursor"].as_str().map(str::to_owned);
-        Ok((entries, next))
+        let request = match cursor {
+            Some(cursor) => LogReadRequest {
+                database_id: database_id.to_owned(),
+                cursor: Some(cursor.to_owned()),
+                limit: Some(limit),
+                ..LogReadRequest::default()
+            },
+            None => LogReadRequest {
+                database_id: database_id.to_owned(),
+                writer_key: Some(writer_key.to_owned()),
+                device_id: Some(device_id.to_owned()),
+                from_seq: Some(from_seq),
+                cursor: None,
+                limit: Some(limit),
+            },
+        };
+        let answer = self.call::<LogRead>(&request).await?;
+        // This client reads inline entries only: a log segment is not an entry it can restore.
+        let entries = answer
+            .entries
+            .into_iter()
+            .map(|item| match item {
+                ReadItem::Entry(value) => serde_json::from_value::<SignedEntry>(value).ok(),
+                ReadItem::Segment { .. } => None,
+            })
+            .collect::<Option<Vec<_>>>()
+            .ok_or_else(|| "relay log.read returned invalid entries".to_owned())?;
+        Ok((entries, answer.cursor))
     }
 
-    async fn post(&self, path: &str, database_id: &str, body: &Value) -> Result<Value, String> {
-        let raw = serde_json::to_vec(body).map_err(|_| "cannot encode relay body")?;
+    /// Send `request` to the route of `E` and parse its 200 answer.
+    async fn call<E: Endpoint>(&self, request: &E::Request) -> Result<E::Answer, String> {
+        let path = E::ROUTE.path();
+        let database_id = E::database_id(request);
+        let raw = serde_json::to_vec(request).map_err(|_| "cannot encode relay body")?;
         let url = format!("{}{path}", self.base);
         let mut retried = 0u32;
         loop {
@@ -153,8 +171,13 @@ impl RelayClient {
                 BodyRead::Fatal(err) => return Err(err),
             };
             if status.is_success() {
-                return serde_json::from_str(&text)
-                    .map_err(|_| "relay response is not JSON".into());
+                return serde_json::from_str(&text).map_err(|error| {
+                    if error.is_data() {
+                        format!("relay {path} returned an invalid answer")
+                    } else {
+                        "relay response is not JSON".into()
+                    }
+                });
             }
             if retried < RETRIES && is_transient(status.as_u16(), &text) {
                 async_sleep(retry_wait(retried)).await;
@@ -238,31 +261,35 @@ fn sign_headers(
         .map_or_else(|_| "0".into(), |d| d.as_secs().to_string());
     let nonce = hex_lower(&rand_32());
     let body_hash = hex_lower(&Sha256::digest(body));
-    let message = format!(
-        "POST\n{path}\n1\n{node_key_hex}\n{database_id}\n{body_hash}\n{issued_at}\n{nonce}"
+    let message = relay_protocol::signed_message(
+        path,
+        node_key_hex,
+        database_id,
+        &body_hash,
+        &issued_at,
+        &nonce,
     );
     let sig = sign(key, message.as_bytes());
     let signature = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(sig);
     Ok(vec![
-        ("X-LastDB-Relay-Protocol", "1".into()),
-        ("X-LastDB-Node-Key", node_key_hex.to_owned()),
-        ("X-LastDB-Database-Id", database_id.to_owned()),
-        ("X-LastDB-Device-Id", device_id.to_owned()),
-        ("X-LastDB-Issued-At", issued_at),
-        ("X-LastDB-Nonce", nonce),
-        ("X-LastDB-Signature", signature),
+        (headers::PROTOCOL, relay_protocol::PROTOCOL.into()),
+        (headers::NODE_KEY, node_key_hex.to_owned()),
+        (headers::DATABASE_ID, database_id.to_owned()),
+        (headers::DEVICE_ID, device_id.to_owned()),
+        (headers::ISSUED_AT, issued_at),
+        (headers::NONCE, nonce),
+        (headers::SIGNATURE, signature),
         ("content-type", "application/json".into()),
     ])
 }
 
-fn parse_append_counts(value: &Value, sent: u64) -> (u64, u64) {
-    let stored = value["stored"].as_u64().unwrap_or(0);
-    if stored >= sent {
-        (stored, 0)
-    } else if value["duplicate"].as_bool() == Some(true) {
-        (stored, sent.saturating_sub(stored))
+/// `(stored, duplicate)` in entries for an append of `sent` entries. A duplicate answer says that
+/// the entries the relay did not store it held already.
+fn append_counts(answer: LogAppendAnswer, sent: u64) -> (u64, u64) {
+    if answer.stored < sent && answer.duplicate {
+        (answer.stored, sent.saturating_sub(answer.stored))
     } else {
-        (stored, value["duplicate"].as_u64().unwrap_or(0))
+        (answer.stored, 0)
     }
 }
 

@@ -8,10 +8,10 @@
 //! Relay-supplied headers must be valid HTTP header pairs and may not set framing, host, proxy,
 //! cookie, or cloud metadata-service headers.
 
+use std::collections::BTreeMap;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 use reqwest::header::{HeaderName, HeaderValue};
-use serde_json::Value;
 
 const MAX_PRESIGNED_HEADERS: usize = 32;
 const MAX_HEADER_NAME_BYTES: usize = 128;
@@ -52,31 +52,25 @@ pub(in crate::log_sync) fn validate_presigned_url(
 /// For uploads, a relay-supplied `content-length` is ignored because the caller sets the exact
 /// file byte length itself.
 pub(in crate::log_sync) fn presigned_headers(
-    headers: &Value,
+    headers: &BTreeMap<String, String>,
     is_upload: bool,
 ) -> Result<Vec<(HeaderName, HeaderValue)>, String> {
-    match headers {
-        Value::Null => return Ok(Vec::new()),
-        Value::Object(map) => {
-            if map.len() > MAX_PRESIGNED_HEADERS || !map.values().all(Value::is_string) {
-                return Err("relay returned invalid presigned headers".into());
-            }
-        }
-        _ => return Err("relay returned invalid presigned headers".into()),
+    if headers.len() > MAX_PRESIGNED_HEADERS {
+        return Err("relay returned invalid presigned headers".into());
     }
     let mut out = Vec::new();
-    for (name, value) in crate::log_sync::relay::header_pairs(headers) {
+    for (name, value) in headers {
         if is_upload && name.eq_ignore_ascii_case("content-length") {
             continue;
         }
-        if !is_allowed_header_name(&name) || value.len() > MAX_HEADER_VALUE_BYTES {
+        if !is_allowed_header_name(name) || value.len() > MAX_HEADER_VALUE_BYTES {
             return Err(format!(
                 "relay returned disallowed presigned header '{name}'"
             ));
         }
         let header_name = HeaderName::from_bytes(name.as_bytes())
             .map_err(|_| "relay returned an invalid presigned header name".to_owned())?;
-        let header_value = HeaderValue::from_str(&value)
+        let header_value = HeaderValue::from_str(value)
             .map_err(|_| "relay returned an invalid presigned header value".to_owned())?;
         out.push((header_name, header_value));
     }

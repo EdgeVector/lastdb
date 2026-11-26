@@ -18,6 +18,8 @@ members = [
 
     # Canonical native cloud backup wire contract; no runtime activation.
     "cloud_backup_protocol",
+    # The relay protocol: the one definition of every relay route, request, answer and error. No I/O.
+    "relay_protocol",
     # Spec catalog and share admission. No I/O.
     "database_policy",
     # Pure published-log state machine (personal and shareable logs; whole-database shares keep a separate pending inbox). No I/O.

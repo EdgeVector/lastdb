@@ -8,12 +8,12 @@ use axum::http::HeaderMap;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
 use mutation_log::NodeKey;
+use relay_protocol::{headers, signed_message, PROTOCOL};
 use sha2::{Digest, Sha256};
 
 use crate::error::{ApiError, ApiResult};
 
 const SKEW_SECS: u64 = 60;
-const PROTOCOL: &str = "1";
 
 /// Verified caller of one relay request.
 pub(crate) struct Caller {
@@ -32,26 +32,29 @@ impl Caller {
     }
 }
 
-/// Verify `X-LastDB-*` headers over the raw request body for `path`.
-///
-/// Signed material (OpenAPI `nodeSignature`):
-/// `POST\n<path>\n<protocol>\n<node_key>\n<database_id>\n<body_sha256>\n<issued_at>\n<nonce>`.
-pub(crate) fn verify_request(headers: &HeaderMap, path: &str, body: &[u8]) -> ApiResult<Caller> {
-    let protocol = header(headers, "x-lastdb-relay-protocol")?;
+/// Verify the protocol's request headers ([`relay_protocol::headers`]) over the raw request body
+/// for `path`. The signature covers [`signed_message`].
+pub(crate) fn verify_request(map: &HeaderMap, path: &str, body: &[u8]) -> ApiResult<Caller> {
+    let protocol = header(map, headers::PROTOCOL)?;
     if protocol != PROTOCOL {
         return Err(ApiError::upgrade_required("request.protocol"));
     }
-    let node_key = header(headers, "x-lastdb-node-key")?;
-    let database_id = header(headers, "x-lastdb-database-id")?;
-    let device_id = header(headers, "x-lastdb-device-id")?;
-    let issued_at = header(headers, "x-lastdb-issued-at")?;
-    let nonce = header(headers, "x-lastdb-nonce")?;
-    let signature = header(headers, "x-lastdb-signature")?;
+    let node_key = header(map, headers::NODE_KEY)?;
+    let database_id = header(map, headers::DATABASE_ID)?;
+    let device_id = header(map, headers::DEVICE_ID)?;
+    let issued_at = header(map, headers::ISSUED_AT)?;
+    let nonce = header(map, headers::NONCE)?;
+    let signature = header(map, headers::SIGNATURE)?;
     validate_formats(&node_key, &database_id, &device_id, &issued_at, &nonce)?;
     check_skew(&issued_at)?;
     let body_hash = hex_lower(&Sha256::digest(body));
-    let message = format!(
-        "POST\n{path}\n{PROTOCOL}\n{node_key}\n{database_id}\n{body_hash}\n{issued_at}\n{nonce}"
+    let message = signed_message(
+        path,
+        &node_key,
+        &database_id,
+        &body_hash,
+        &issued_at,
+        &nonce,
     );
     let vk = verifying_key_hex(&node_key)?;
     let sig = decode_signature(&signature)?;
@@ -64,12 +67,14 @@ pub(crate) fn verify_request(headers: &HeaderMap, path: &str, body: &[u8]) -> Ap
     })
 }
 
-fn header(headers: &HeaderMap, name: &str) -> ApiResult<String> {
-    headers
-        .get(name)
+/// The value of header `name`. A missing one is 401 with the name in snake case after
+/// `x-lastdb-` (`X-LastDB-Node-Key` is field `node_key`).
+fn header(map: &HeaderMap, name: &str) -> ApiResult<String> {
+    map.get(name)
         .and_then(|v| v.to_str().ok())
         .map(str::to_owned)
         .ok_or_else(|| {
+            let name = name.to_ascii_lowercase();
             ApiError::unauthorized(name.trim_start_matches("x-lastdb-").replace('-', "_"))
         })
 }

@@ -42,7 +42,6 @@ use std::sync::Mutex;
 
 use mutation_log::SignedEntry;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 use crate::host::cloud_sync::{CloudSyncStatus, CloudUsage};
 use crate::profile::private_fs as disk;
@@ -274,9 +273,12 @@ impl Ledger {
     }
 
     /// The relay answered a trim (`entries_deleted`, `released_bytes`).
-    pub(super) fn released(&self, database_id: &str, answer: &Value) -> Result<(), String> {
-        let entries = answer["entries_deleted"].as_u64().unwrap_or(0);
-        let bytes = answer["released_bytes"].as_u64().unwrap_or(0);
+    pub(super) fn released(
+        &self,
+        database_id: &str,
+        answer: &relay_protocol::LogTrimAnswer,
+    ) -> Result<(), String> {
+        let (entries, bytes) = (answer.entries_deleted, answer.released_bytes);
         if entries == 0 && bytes == 0 {
             return Ok(());
         }

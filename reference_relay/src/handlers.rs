@@ -1,5 +1,6 @@
 //! Relay HTTP handlers. Each authenticated call is gated by the grant index in `gate.rs`.
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use axum::body::Bytes;
@@ -8,21 +9,25 @@ use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use mutation_log::{DatabaseId, NodeKey};
-use serde::Deserialize;
-use serde_json::{json, Value};
+use relay_protocol::{
+    AppendBody, BlobGet, BlobGetAnswer, BlobPut, BlobPutAnswer, BlobPutRequest, BlobPutStage,
+    Endpoint, LogAppend, LogAppendAnswer, LogRead, LogReadAnswer, LogReadRequest, LogStreams,
+    LogStreamsAnswer, ReadItem, Upload,
+};
+use serde::Serialize;
+use serde_json::Value;
 use tokio::sync::Mutex;
 
-use crate::auth;
+use crate::auth::{self, Caller};
 use crate::blob_store::checksum_header;
 use crate::error::{ApiError, ApiResult};
 use crate::gate;
 use crate::grant_index::GrantIndex;
 use crate::presign;
 use crate::request_log::EntriesReturned;
-use crate::segment::SegmentBody;
-use crate::segment_api::{append_segment, entries_held, present_segments};
+use crate::segment_api::{append_segment, entries_held, read_items};
 use crate::store::{now_ms, require_hex64, Store};
-use crate::store_read::{read_limit, read_position, LogReadBody, ReadPosition};
+use crate::store_read::{read_limit, read_position, ReadPosition};
 
 /// Shared process state.
 pub(crate) struct AppState {
@@ -72,27 +77,30 @@ pub(crate) async fn log_append(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
     body: Bytes,
-) -> ApiResult<Json<Value>> {
-    let verified = auth::verify_request(&headers, "/relay/v1/log/append", &body)?;
-    let req: LogAppendBody = parse_body(&body)?;
-    verified.check_database(&req.database_id)?;
+) -> ApiResult<Json<LogAppendAnswer>> {
+    let (verified, req) = authenticate::<LogAppend>(&headers, &body)?;
     require_hex64(&req.database_id, "database_id")?;
     let caller = verified.node_key;
     let db = gate::parse_id(&req.database_id, "database_id")?;
-    let entries = match (req.entries, req.segment) {
-        (Some(entries), None) => entries,
-        (None, Some(segment)) => return append_segment(&state, &db, &caller, &segment).await,
-        _ => return Err(ApiError::invalid("segment")),
+    let entries = match req.body() {
+        Ok(AppendBody::Entries(entries)) => entries,
+        Ok(AppendBody::Segment(segment)) => {
+            return append_segment(&state, &db, &caller, segment).await;
+        }
+        Err(field) => return Err(ApiError::invalid(field)),
     };
-    let signed = gate::parse_entries(&entries)?;
+    let signed = gate::parse_entries(entries)?;
     let mut grants = state.grants.lock().await;
     let plan = gate::authorize_append(&grants, &db, &caller, &signed)?;
     let (stored, duplicate) = state
         .store
-        .append_entries(&req.database_id, &entries)
+        .append_entries(&req.database_id, entries)
         .await?;
     plan.commit(&mut grants, db);
-    Ok(Json(json!({ "stored": stored, "duplicate": duplicate })))
+    Ok(Json(LogAppendAnswer {
+        stored: u64::from(stored),
+        duplicate,
+    }))
 }
 
 pub(crate) async fn log_read(
@@ -100,8 +108,8 @@ pub(crate) async fn log_read(
     headers: HeaderMap,
     body: Bytes,
 ) -> ApiResult<Response> {
-    let verified = auth::verify_request(&headers, "/relay/v1/log/read", &body)?;
-    let req: LogReadBody = parse_body(&body)?;
+    let verified = auth::verify_request(&headers, LogRead::ROUTE.path(), &body)?;
+    let req = parse_log_read(&body)?;
     verified.check_database(&req.database_id)?;
     require_hex64(&req.database_id, "database_id")?;
     let caller = verified.node_key;
@@ -115,7 +123,7 @@ pub(crate) async fn log_read(
         .check_log_read(&db, &caller, writer_key, all_devices)
         .await?;
     let limit = read_limit(req.limit)?;
-    let (mut entries, cursor) = match position {
+    let (stored, cursor) = match position {
         ReadPosition::Device {
             writer_key,
             device_id,
@@ -144,18 +152,15 @@ pub(crate) async fn log_read(
         }
     };
     let prefix = if all_devices { "w:" } else { "d:" };
-    present_segments(&state, &req.database_id, &mut entries);
-    let (entries, cursor) = fit_response(entries, cursor, prefix)?;
+    let items = read_items(&state, &req.database_id, stored)?;
+    let (entries, cursor) = fit_response(items, cursor, prefix)?;
     // The request log counts entries, so a segment counts the entries it holds.
     let returned = EntriesReturned(entries_held(&entries));
-    let mut out = json!({ "entries": entries });
-    if let Some(c) = cursor {
-        out["cursor"] = Value::String(c);
-    }
-    if json_bytes(&out)? > crate::PLATFORM_PAYLOAD_MAX_BYTES {
+    let answer = LogReadAnswer { entries, cursor };
+    if json_bytes(&answer)? > crate::PLATFORM_PAYLOAD_MAX_BYTES {
         return Err(ApiError::batch_too_large("entries"));
     }
-    let mut response = Json(out).into_response();
+    let mut response = Json(answer).into_response();
     response.extensions_mut().insert(returned);
     Ok(response)
 }
@@ -169,10 +174,8 @@ pub(crate) async fn log_streams(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
     body: Bytes,
-) -> ApiResult<Json<Value>> {
-    let verified = auth::verify_request(&headers, "/relay/v1/log/streams", &body)?;
-    let req: LogStreamsBody = parse_body(&body)?;
-    verified.check_database(&req.database_id)?;
+) -> ApiResult<Json<LogStreamsAnswer>> {
+    let (verified, req) = authenticate::<LogStreams>(&headers, &body)?;
     require_hex64(&req.database_id, "database_id")?;
     let caller = verified.node_key;
     let db = gate::parse_id(&req.database_id, "database_id")?;
@@ -180,28 +183,17 @@ pub(crate) async fn log_streams(
     state
         .check_log_read(&db, &caller, &req.writer_key, true)
         .await?;
-    let streams: Vec<Value> = state
-        .store
-        .list_streams(&req.database_id, &req.writer_key)
-        .into_iter()
-        .map(|s| {
-            json!({
-                "device_id": s.device_id,
-                "head_seq": s.head_seq,
-                "head_hash": s.head_hash,
-            })
-        })
-        .collect();
-    Ok(Json(json!({ "streams": streams })))
+    let streams = state.store.list_streams(&req.database_id, &req.writer_key);
+    Ok(Json(LogStreamsAnswer { streams }))
 }
 
 pub(crate) async fn blob_put(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
     body: Bytes,
-) -> ApiResult<Json<Value>> {
-    let verified = auth::verify_request(&headers, "/relay/v1/blob/put", &body)?;
-    let req: BlobPutBody = parse_body(&body)?;
+) -> ApiResult<Json<BlobPutAnswer>> {
+    let verified = auth::verify_request(&headers, BlobPut::ROUTE.path(), &body)?;
+    let (req, stage) = parse_blob_put(&body)?;
     verified.check_database(&req.database_id)?;
     require_hex64(&req.database_id, "database_id")?;
     let caller = verified.node_key;
@@ -211,21 +203,25 @@ pub(crate) async fn blob_put(
     if req.bytes == 0 {
         return Err(ApiError::invalid("bytes"));
     }
-    match req.stage.as_str() {
-        "begin" => blob_begin(&state, &req).await,
-        "commit" => {
+    match stage {
+        Some(BlobPutStage::Begin) => blob_begin(&state, &req).await,
+        Some(BlobPutStage::Commit) => {
             let _blob_guard = state.blob_lock.lock().await;
             state
                 .store
                 .stage_commit(&req.database_id, &req.sha256, req.bytes)
                 .await?;
-            Ok(Json(json!({ "stage": "commit", "sha256": req.sha256 })))
+            Ok(Json(BlobPutAnswer {
+                stage: BlobPutStage::Commit,
+                sha256: req.sha256,
+                upload: None,
+            }))
         }
-        _ => Err(ApiError::invalid("stage")),
+        None => Err(ApiError::invalid("stage")),
     }
 }
 
-async fn blob_begin(state: &AppState, req: &BlobPutBody) -> ApiResult<Json<Value>> {
+async fn blob_begin(state: &AppState, req: &BlobPutRequest) -> ApiResult<Json<BlobPutAnswer>> {
     if state.max_blob_bytes.is_some_and(|limit| req.bytes > limit) {
         return Err(ApiError::invalid("bytes"));
     }
@@ -236,10 +232,11 @@ async fn blob_begin(state: &AppState, req: &BlobPutBody) -> ApiResult<Json<Value
             .has_blob(&req.database_id, &req.sha256, req.bytes)
             .await?
         {
-            return Ok(Json(json!({
-                "stage": "begin",
-                "sha256": req.sha256,
-            })));
+            return Ok(Json(BlobPutAnswer {
+                stage: BlobPutStage::Begin,
+                sha256: req.sha256.clone(),
+                upload: None,
+            }));
         }
         state
             .store
@@ -253,28 +250,33 @@ async fn blob_begin(state: &AppState, req: &BlobPutBody) -> ApiResult<Json<Value
         &token,
         now_ms(),
     );
-    Ok(Json(json!({
-        "stage": "begin",
-        "sha256": req.sha256,
-        "upload": {
-            "url": url,
-            "headers": {
-                "content-type": "application/octet-stream",
-                "x-amz-checksum-sha256": checksum_header(&req.sha256)
-            },
-            "expires_at_ms": expires_at_ms
-        }
-    })))
+    let headers = BTreeMap::from([
+        (
+            "content-type".to_owned(),
+            "application/octet-stream".to_owned(),
+        ),
+        (
+            "x-amz-checksum-sha256".to_owned(),
+            checksum_header(&req.sha256),
+        ),
+    ]);
+    Ok(Json(BlobPutAnswer {
+        stage: BlobPutStage::Begin,
+        sha256: req.sha256.clone(),
+        upload: Some(Upload {
+            url,
+            headers,
+            expires_at_ms,
+        }),
+    }))
 }
 
 pub(crate) async fn blob_get(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
     body: Bytes,
-) -> ApiResult<Json<Value>> {
-    let verified = auth::verify_request(&headers, "/relay/v1/blob/get", &body)?;
-    let req: BlobGetBody = parse_body(&body)?;
-    verified.check_database(&req.database_id)?;
+) -> ApiResult<Json<BlobGetAnswer>> {
+    let (verified, req) = authenticate::<BlobGet>(&headers, &body)?;
     require_hex64(&req.database_id, "database_id")?;
     let caller = verified.node_key;
     let db = gate::parse_id(&req.database_id, "database_id")?;
@@ -294,25 +296,28 @@ pub(crate) async fn blob_get(
         &req.sha256,
         now_ms(),
     );
-    Ok(Json(json!({
-        "url": url,
-        "headers": {},
-        "expires_at_ms": expires_at_ms,
-        "bytes": bytes,
-        "sha256": req.sha256
-    })))
+    Ok(Json(BlobGetAnswer {
+        url,
+        headers: BTreeMap::new(),
+        expires_at_ms,
+        bytes,
+        sha256: req.sha256,
+    }))
 }
 
 /// Keep a `log/read` page inside the response limit. A page that stops early ends with a cursor
 /// at the entry after its last one, so the reader continues there. The first entry is always
 /// kept, so a reader always moves forward.
 fn fit_response(
-    mut entries: Vec<Value>,
+    mut entries: Vec<ReadItem>,
     cursor: Option<String>,
     prefix: &str,
-) -> ApiResult<(Vec<Value>, Option<String>)> {
+) -> ApiResult<(Vec<ReadItem>, Option<String>)> {
     let longest_cursor = format!("{prefix}{}:{}:{}", "0".repeat(64), "0".repeat(64), u64::MAX);
-    let envelope = json!({ "entries": [], "cursor": longest_cursor });
+    let envelope = LogReadAnswer {
+        entries: Vec::new(),
+        cursor: Some(longest_cursor),
+    };
     let mut used = json_bytes(&envelope)?;
     let mut cut = None;
     for (index, entry) in entries.iter().enumerate() {
@@ -328,17 +333,22 @@ fn fit_response(
         return Ok((entries, cursor));
     };
     // A segment carries its stream and ends at `last_seq`; an entry at `writer_seq`.
-    let last = &entries[cut - 1];
-    let (last, seq_field) = match last.get("segment") {
-        Some(segment) => (segment, "last_seq"),
-        None => (last, "writer_seq"),
+    let (node_key, device_id, seq) = match &entries[cut - 1] {
+        ReadItem::Segment { segment } => (
+            Some(segment.node_key.clone()),
+            Some(segment.device_id.clone()),
+            Some(segment.last_seq),
+        ),
+        ReadItem::Entry(entry) => {
+            let field = |name: &str| entry.get(name).and_then(Value::as_str).map(str::to_owned);
+            (
+                field("node_key"),
+                field("device_id"),
+                entry.get("writer_seq").and_then(Value::as_u64),
+            )
+        }
     };
-    let field = |name: &str| last.get(name).and_then(Value::as_str).map(str::to_owned);
-    let (Some(node_key), Some(device_id), Some(seq)) = (
-        field("node_key"),
-        field("device_id"),
-        last.get(seq_field).and_then(Value::as_u64),
-    ) else {
+    let (Some(node_key), Some(device_id), Some(seq)) = (node_key, device_id, seq) else {
         return Err(ApiError::invalid("entries"));
     };
     let next_seq = seq
@@ -351,7 +361,7 @@ fn fit_response(
     ))
 }
 
-fn json_bytes(value: &Value) -> ApiResult<usize> {
+fn json_bytes<T: Serialize>(value: &T) -> ApiResult<usize> {
     serde_json::to_vec(value)
         .map(|bytes| bytes.len())
         .map_err(|_| ApiError::invalid("entries"))
@@ -363,35 +373,48 @@ pub(crate) fn parse_body<T: serde::de::DeserializeOwned>(body: &[u8]) -> ApiResu
     serde_json::from_slice(body).map_err(|_| ApiError::invalid("body"))
 }
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct LogAppendBody {
-    database_id: String,
-    #[serde(default)]
-    entries: Option<Vec<Value>>,
-    #[serde(default)]
-    segment: Option<SegmentBody>,
+/// Verify a request to endpoint `E`, parse its body as `E::Request`, and check that the signed
+/// database header names the body's database. A body that does not parse is 400
+/// `invalid_request`, field `body`.
+pub(crate) fn authenticate<E: Endpoint>(
+    headers: &HeaderMap,
+    body: &[u8],
+) -> ApiResult<(Caller, E::Request)> {
+    let verified = auth::verify_request(headers, E::ROUTE.path(), body)?;
+    let req: E::Request = parse_body(body)?;
+    verified.check_database(E::database_id(&req))?;
+    Ok((verified, req))
 }
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct LogStreamsBody {
-    database_id: String,
-    writer_key: String,
+/// A `log.read` body. A `limit` above what the protocol type holds parses as `u32::MAX`, so
+/// [`read_limit`] refuses it as `batch_too_large`, field `limit`, in its place among the checks.
+fn parse_log_read(body: &[u8]) -> ApiResult<LogReadRequest> {
+    if let Ok(req) = serde_json::from_slice::<LogReadRequest>(body) {
+        return Ok(req);
+    }
+    let mut value: Value = parse_body(body)?;
+    let Some(limit) = value
+        .get_mut("limit")
+        .filter(|limit| limit.as_u64().is_some_and(|n| n > u64::from(u32::MAX)))
+    else {
+        return Err(ApiError::invalid("body"));
+    };
+    *limit = Value::from(u32::MAX);
+    serde_json::from_value(value).map_err(|_| ApiError::invalid("body"))
 }
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct BlobPutBody {
-    database_id: String,
-    stage: String,
-    bytes: u64,
-    sha256: String,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct BlobGetBody {
-    database_id: String,
-    sha256: String,
+/// A `blob.put` body and its stage. A `stage` string other than `begin` or `commit` parses with
+/// no stage, so it is refused as field `stage` after the checks before it.
+fn parse_blob_put(body: &[u8]) -> ApiResult<(BlobPutRequest, Option<BlobPutStage>)> {
+    if let Ok(req) = serde_json::from_slice::<BlobPutRequest>(body) {
+        let stage = Some(req.stage);
+        return Ok((req, stage));
+    }
+    let mut value: Value = parse_body(body)?;
+    let Some(stage) = value.get_mut("stage").filter(|stage| stage.is_string()) else {
+        return Err(ApiError::invalid("body"));
+    };
+    *stage = Value::from("begin");
+    let req = serde_json::from_value(value).map_err(|_| ApiError::invalid("body"))?;
+    Ok((req, None))
 }

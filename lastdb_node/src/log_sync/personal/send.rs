@@ -6,7 +6,7 @@
 //! entries are.
 
 use mutation_log::{entry_hash, SignedEntry};
-use serde_json::json;
+use relay_protocol::SegmentAppend;
 
 use super::files::sha256_hex;
 use super::outgoing::Batch;
@@ -88,16 +88,15 @@ async fn send_segment(
             .map_err(|_| "cannot encode signed entry".to_owned())?;
         bytes.push(b'\n');
     }
-    let sha256 = sha256_hex(&bytes);
     let header = last.header();
-    let segment = json!({
-        "device_id": header.device_id.to_hex(),
-        "first_seq": first.header().writer_seq,
-        "last_seq": header.writer_seq,
-        "last_hash": entry_hash(last).map_err(|e| e.to_string())?.to_hex(),
-        "sha256": sha256,
-        "bytes": bytes.len(),
-    });
+    let segment = SegmentAppend {
+        device_id: header.device_id.to_hex(),
+        first_seq: first.header().writer_seq,
+        last_seq: header.writer_seq,
+        last_hash: entry_hash(last).map_err(|e| e.to_string())?.to_hex(),
+        sha256: sha256_hex(&bytes),
+        bytes: bytes.len() as u64,
+    };
     let path = ctx
         .host
         .home
@@ -115,7 +114,10 @@ async fn send_segment(
     let mut tried = 0;
     let result = loop {
         tried += 1;
-        if let Err(error) = client.blob_put(&ctx.database_id, &sha256, &path).await {
+        if let Err(error) = client
+            .blob_put(&ctx.database_id, &segment.sha256, &path)
+            .await
+        {
             break Err(error);
         }
         match client

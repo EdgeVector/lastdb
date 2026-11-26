@@ -9,6 +9,7 @@ use axum::http::Method;
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use mutation_log::NodeKey;
+use relay_protocol::headers;
 
 use crate::auth;
 use crate::error::ApiError;
@@ -82,7 +83,7 @@ pub(crate) async fn refuse(
     };
     let nonce = parts
         .headers
-        .get("x-lastdb-nonce")
+        .get(headers::NONCE)
         .and_then(|value| value.to_str().ok())
         .map(str::to_owned);
     if let Some(nonce) = nonce {

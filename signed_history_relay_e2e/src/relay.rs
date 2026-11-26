@@ -1,5 +1,6 @@
 //! Relay client: OpenAPI `nodeSignature` over `log.*` and `blob.*`, plus presigned transfers.
 
+use std::collections::BTreeMap;
 use std::time::Duration;
 
 use app_identity_crypto::{hex_lower, sign, SigningKey};
@@ -7,16 +8,18 @@ use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
 use bytes::Bytes;
 use mutation_log::{DatabaseId, DeviceId, SignedEntry};
-use serde_json::{json, Value};
+use relay_protocol::{
+    headers, BlobGet, BlobGetRequest, BlobPut, BlobPutRequest, BlobPutStage, Endpoint, LogAppend,
+    LogAppendRequest, LogRead, LogReadRequest, LogStreams, LogStreamsRequest, ReadItem,
+};
 use sha2::{Digest, Sha256};
 
 use crate::identity::{nonce_hex, now_ms, Actor};
 
-const PROTOCOL: &str = "1";
 const ATTEMPTS: u32 = 4;
 const APPEND_BATCH: usize = 90;
 /// Largest `log.read` page the relay protocol allows.
-pub const READ_LIMIT: u64 = 90;
+pub const READ_LIMIT: u32 = 90;
 
 /// Shared HTTP client for relay calls and presigned transfers.
 pub fn http_client() -> Result<reqwest::Client, String> {
@@ -28,13 +31,8 @@ pub fn http_client() -> Result<reqwest::Client, String> {
         .map_err(|e| format!("http client: {e}"))
 }
 
-/// One line of `log.streams`.
-#[derive(Debug, PartialEq, Eq)]
-pub struct StreamHead {
-    pub device_id: String,
-    pub head_seq: u64,
-    pub head_hash: String,
-}
+// One line of `log.streams`.
+pub use relay_protocol::StreamHead;
 
 /// One page of `log.read`.
 pub struct LogPage {
@@ -80,8 +78,13 @@ impl RelayClient {
     /// `log.append`, split into relay-sized batches.
     pub async fn append(&self, entries: &[SignedEntry]) -> Result<(), String> {
         for chunk in entries.chunks(APPEND_BATCH) {
-            let body = json!({ "database_id": self.database_hex, "entries": chunk });
-            self.post("/relay/v1/log/append", &body).await?;
+            let values = chunk
+                .iter()
+                .map(serde_json::to_value)
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| format!("encode body: {e}"))?;
+            let request = LogAppendRequest::entries(self.database_hex.clone(), values);
+            self.call::<LogAppend>(&request).await?;
         }
         Ok(())
     }
@@ -93,117 +96,122 @@ impl RelayClient {
         device_hex: &str,
         from_seq: u64,
     ) -> Result<LogPage, String> {
-        let body = json!({
-            "database_id": self.database_hex,
-            "writer_key": writer_key,
-            "device_id": device_hex,
-            "from_seq": from_seq,
-            "limit": READ_LIMIT,
-        });
-        let value = self.post("/relay/v1/log/read", &body).await?;
-        let entries = serde_json::from_value(value["entries"].clone())
-            .map_err(|e| format!("log.read entries: {e}"))?;
-        Ok(LogPage {
-            entries,
-            more: value["cursor"].is_string(),
+        self.read_page(LogReadRequest {
+            database_id: self.database_hex.clone(),
+            writer_key: Some(writer_key.to_owned()),
+            device_id: Some(device_hex.to_owned()),
+            from_seq: Some(from_seq),
+            cursor: None,
+            limit: Some(READ_LIMIT),
         })
+        .await
     }
 
     /// `log.read` of every device of `writer_key` from seq 1 (no `device_id`).
     pub async fn read_writer(&self, writer_key: &str) -> Result<LogPage, String> {
-        let body = json!({
-            "database_id": self.database_hex,
-            "writer_key": writer_key,
-            "limit": READ_LIMIT,
-        });
-        let value = self.post("/relay/v1/log/read", &body).await?;
-        let entries = serde_json::from_value(value["entries"].clone())
-            .map_err(|e| format!("log.read entries: {e}"))?;
+        self.read_page(LogReadRequest {
+            database_id: self.database_hex.clone(),
+            writer_key: Some(writer_key.to_owned()),
+            limit: Some(READ_LIMIT),
+            ..LogReadRequest::default()
+        })
+        .await
+    }
+
+    /// One `log.read` page of inline entries. This client never appends a log segment, so a
+    /// segment in the page is an error.
+    async fn read_page(&self, request: LogReadRequest) -> Result<LogPage, String> {
+        let answer = self.call::<LogRead>(&request).await?;
+        let entries = answer
+            .entries
+            .into_iter()
+            .map(|item| match item {
+                ReadItem::Entry(value) => serde_json::from_value::<SignedEntry>(value)
+                    .map_err(|e| format!("log.read entries: {e}")),
+                ReadItem::Segment { .. } => {
+                    Err("log.read entries: a log segment, which this client does not read".into())
+                }
+            })
+            .collect::<Result<Vec<_>, String>>()?;
         Ok(LogPage {
             entries,
-            more: value["cursor"].is_string(),
+            more: answer.cursor.is_some(),
         })
     }
 
     /// `log.streams`: the device streams of `writer_key`, sorted by device id.
     pub async fn streams(&self, writer_key: &str) -> Result<Vec<StreamHead>, String> {
-        let body = json!({ "database_id": self.database_hex, "writer_key": writer_key });
-        let value = self.post("/relay/v1/log/streams", &body).await?;
-        let list = value["streams"]
-            .as_array()
-            .ok_or("log.streams has no streams list")?;
-        list.iter()
-            .map(|item| {
-                Ok(StreamHead {
-                    device_id: item["device_id"]
-                        .as_str()
-                        .ok_or("log.streams item has no device_id")?
-                        .to_owned(),
-                    head_seq: item["head_seq"]
-                        .as_u64()
-                        .ok_or("log.streams item has no head_seq")?,
-                    head_hash: item["head_hash"]
-                        .as_str()
-                        .ok_or("log.streams item has no head_hash")?
-                        .to_owned(),
-                })
-            })
-            .collect()
+        let request = LogStreamsRequest {
+            database_id: self.database_hex.clone(),
+            writer_key: writer_key.to_owned(),
+        };
+        Ok(self.call::<LogStreams>(&request).await?.streams)
+    }
+
+    /// A `blob.put` request of one stage for this client's database.
+    pub(crate) fn blob_put_request(
+        &self,
+        sha256: &str,
+        bytes: u64,
+        stage: BlobPutStage,
+    ) -> BlobPutRequest {
+        BlobPutRequest {
+            database_id: self.database_hex.clone(),
+            sha256: sha256.to_owned(),
+            bytes,
+            stage,
+        }
     }
 
     /// `blob.put` begin, presigned upload, commit.
     pub async fn blob_put(&self, sha256: &str, body: Bytes) -> Result<(), String> {
         let size = body.len() as u64;
-        let stage_body = |stage: &str| {
-            json!({
-                "database_id": self.database_hex,
-                "sha256": sha256,
-                "bytes": size,
-                "stage": stage,
-            })
-        };
         let begin = self
-            .post("/relay/v1/blob/put", &stage_body("begin"))
+            .call::<BlobPut>(&self.blob_put_request(sha256, size, BlobPutStage::Begin))
             .await?;
-        if begin["upload"].is_null() && begin["sha256"].as_str() == Some(sha256) {
+        if begin.upload.is_none() && begin.sha256 == sha256 {
             return Ok(());
         }
-        let url = begin["upload"]["url"]
-            .as_str()
-            .ok_or("blob.put begin has no upload.url")?
-            .to_owned();
-        let headers = header_pairs(&begin["upload"]["headers"]);
-        self.upload(&url, &headers, body).await?;
-        self.post("/relay/v1/blob/put", &stage_body("commit"))
+        let upload = begin.upload.ok_or("blob.put begin has no upload.url")?;
+        self.upload(&upload.url, &upload.headers, body).await?;
+        self.call::<BlobPut>(&self.blob_put_request(sha256, size, BlobPutStage::Commit))
             .await?;
         Ok(())
     }
 
     /// `blob.get` then presigned download.
     pub async fn blob_get(&self, sha256: &str, expect_size: u64) -> Result<Bytes, String> {
-        let body = json!({ "database_id": self.database_hex, "sha256": sha256 });
-        let meta = self.post("/relay/v1/blob/get", &body).await?;
-        let url = meta["url"]
-            .as_str()
-            .ok_or("blob.get has no url")?
-            .to_owned();
-        if meta["bytes"].as_u64().is_some_and(|n| n != expect_size) {
+        let request = BlobGetRequest {
+            database_id: self.database_hex.clone(),
+            sha256: sha256.to_owned(),
+        };
+        let meta = self.call::<BlobGet>(&request).await?;
+        if meta.bytes != expect_size {
             return Err(format!(
                 "blob.get size differs from the bundle entry for {sha256}"
             ));
         }
-        self.download(&url, &header_pairs(&meta["headers"])).await
+        self.download(&meta.url, &meta.headers).await
     }
 
-    pub(crate) async fn post(&self, path: &str, body: &Value) -> Result<Value, String> {
-        let raw = serde_json::to_vec(body).map_err(|e| format!("encode body: {e}"))?;
+    /// Send `request` to the route of `E` and parse its 200 answer, retrying a transport failure,
+    /// a 5xx and a 429.
+    pub(crate) async fn call<E: Endpoint>(
+        &self,
+        request: &E::Request,
+    ) -> Result<E::Answer, String> {
+        let path = E::ROUTE.path();
+        let raw = serde_json::to_vec(request).map_err(|e| format!("encode body: {e}"))?;
         let mut last = String::new();
         for attempt in 0..ATTEMPTS {
             if attempt > 0 {
                 backoff(attempt).await;
             }
             match self.post_once(path, &raw).await {
-                Ok(value) => return Ok(value),
+                Ok(text) => {
+                    return serde_json::from_str(&text)
+                        .map_err(|e| format!("relay {path} json: {e}"));
+                }
                 Err(failure) if failure.retryable => last = failure.message,
                 Err(failure) => return Err(failure.message),
             }
@@ -211,7 +219,8 @@ impl RelayClient {
         Err(last)
     }
 
-    async fn post_once(&self, path: &str, raw: &[u8]) -> Result<Value, Failure> {
+    /// One signed POST: the text of a 200 answer.
+    async fn post_once(&self, path: &str, raw: &[u8]) -> Result<String, Failure> {
         let mut req = self
             .http
             .post(format!("{}{path}", self.base))
@@ -234,30 +243,31 @@ impl RelayClient {
                 retryable: retry_status(status),
             });
         }
-        serde_json::from_str(&text).map_err(|e| Failure {
-            message: format!("relay {path} json: {e}"),
-            retryable: false,
-        })
+        Ok(text)
     }
 
-    /// `POST\n<path>\n1\n<node_key>\n<database_id>\n<body_sha256>\n<issued_at>\n<nonce>`.
+    /// [`relay_protocol::signed_message`] signed by this client's node key.
     fn sign_headers(&self, path: &str, raw: &[u8]) -> [(&'static str, String); 8] {
         let issued_at = (now_ms() / 1000).to_string();
         let nonce = nonce_hex();
         let body_hash = hex_lower(&Sha256::digest(raw));
-        let message = format!(
-            "POST\n{path}\n{PROTOCOL}\n{}\n{}\n{body_hash}\n{issued_at}\n{nonce}",
-            self.node_key_hex, self.database_hex
+        let message = relay_protocol::signed_message(
+            path,
+            &self.node_key_hex,
+            &self.database_hex,
+            &body_hash,
+            &issued_at,
+            &nonce,
         );
         let signature = URL_SAFE_NO_PAD.encode(sign(&self.signing_key, message.as_bytes()));
         [
-            ("X-LastDB-Relay-Protocol", PROTOCOL.to_owned()),
-            ("X-LastDB-Node-Key", self.node_key_hex.clone()),
-            ("X-LastDB-Database-Id", self.database_hex.clone()),
-            ("X-LastDB-Device-Id", self.device_hex.clone()),
-            ("X-LastDB-Issued-At", issued_at),
-            ("X-LastDB-Nonce", nonce),
-            ("X-LastDB-Signature", signature),
+            (headers::PROTOCOL, relay_protocol::PROTOCOL.to_owned()),
+            (headers::NODE_KEY, self.node_key_hex.clone()),
+            (headers::DATABASE_ID, self.database_hex.clone()),
+            (headers::DEVICE_ID, self.device_hex.clone()),
+            (headers::ISSUED_AT, issued_at),
+            (headers::NONCE, nonce),
+            (headers::SIGNATURE, signature),
             ("content-type", "application/json".to_owned()),
         ]
     }
@@ -265,7 +275,7 @@ impl RelayClient {
     async fn upload(
         &self,
         url: &str,
-        headers: &[(String, String)],
+        headers: &BTreeMap<String, String>,
         body: Bytes,
     ) -> Result<(), String> {
         let mut last = String::new();
@@ -295,7 +305,11 @@ impl RelayClient {
         Err(last)
     }
 
-    async fn download(&self, url: &str, headers: &[(String, String)]) -> Result<Bytes, String> {
+    async fn download(
+        &self,
+        url: &str,
+        headers: &BTreeMap<String, String>,
+    ) -> Result<Bytes, String> {
         let mut last = String::new();
         for attempt in 0..ATTEMPTS {
             if attempt > 0 {
@@ -330,13 +344,4 @@ fn retry_status(status: reqwest::StatusCode) -> bool {
 
 async fn backoff(attempt: u32) {
     tokio::time::sleep(Duration::from_millis(250u64 << attempt)).await;
-}
-
-pub(crate) fn header_pairs(value: &Value) -> Vec<(String, String)> {
-    let Some(map) = value.as_object() else {
-        return Vec::new();
-    };
-    map.iter()
-        .filter_map(|(name, val)| val.as_str().map(|v| (name.clone(), v.to_owned())))
-        .collect()
 }
