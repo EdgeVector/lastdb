@@ -63,11 +63,9 @@ fn print_write_phases(value: &Value) -> Result<(), String> {
     let mut rows = Vec::new();
     for phase in array(value, "phases")? {
         let total_ns = number(phase, "total_ns")?;
-        let mean = if writes == 0 {
-            "-".to_owned()
-        } else {
-            format_ns(total_ns / writes)
-        };
+        let mean = total_ns
+            .checked_div(writes)
+            .map_or_else(|| "-".to_owned(), format_ns);
         rows.push(vec![
             text(phase, "phase")?.to_owned(),
             writes.to_string(),
