@@ -5,8 +5,8 @@ use schemars::JsonSchema;
 use serde_json::{json, Map, Value};
 
 use crate::{
-    headers, BlobDrop, BlobGet, BlobList, BlobPut, Endpoint, ErrorAnswer, LogAppend, LogRead,
-    LogStreams, LogTrim, PROTOCOL,
+    answer_headers, headers, revision, BlobDrop, BlobGet, BlobList, BlobPut, Endpoint, ErrorAnswer,
+    LogAppend, LogRead, LogStreams, LogTrim,
 };
 
 /// Every request and answer type, so one schema run collects them all as named definitions.
@@ -74,7 +74,7 @@ pub fn document() -> Value {
         "openapi": "3.1.0",
         "info": {
             "title": "LastDB relay protocol",
-            "version": PROTOCOL,
+            "version": revision(),
             "description": "Generated from the relay_protocol crate by `cargo run -p relay_protocol --features schema --bin relay-protocol-openapi`. Do not edit: change the types. Behavior: docs/designs/relay-protocol.md."
         },
         "paths": paths,
@@ -87,11 +87,19 @@ where
     E::Request: JsonSchema,
     E::Answer: JsonSchema,
 {
+    let announced = json!({
+        (answer_headers::REVISION): {
+            "description": "The contract revision the relay serves, `<protocol>.<revision>` (info.version names the revision of this document). A relay from before revision 1 does not send it.",
+            "required": true,
+            "schema": { "type": "string", "pattern": "^1\\.[0-9]+$" }
+        }
+    });
     let mut responses = Map::new();
     responses.insert(
         "200".to_owned(),
         json!({
             "description": "OK",
+            "headers": announced.clone(),
             "content": { "application/json": { "schema": reference::<E::Answer>() } }
         }),
     );
@@ -100,6 +108,7 @@ where
             status.to_string(),
             json!({
                 "description": "Refused",
+                "headers": announced.clone(),
                 "content": { "application/json": { "schema": reference::<ErrorAnswer>() } }
             }),
         );

@@ -7,11 +7,18 @@ generated one using a pinned oasdiff and fails on any change it rates WARN or ER
 protocol 1 a change may only add. The label `relay-contract-break-approved` lets a reviewed
 break through, for example removing /relay/v1/ once /relay/v2/ serves every client.
 
+Every change to the generated contract must also raise its revision (info.version,
+`<protocol>.<revision>`, from relay_protocol::REVISION): a relay announces the revision it
+serves and a node asks relay_protocol::supports before it uses an addition, so two different
+contracts must never carry the same revision. A base version without a revision (`1`, before
+revisions) counts as revision 0.
+
 A base file that was not generated (written by hand, before the crate) is not compared: there
 is no earlier contract of the same kind to break.
 """
 
 import argparse
+import json
 import subprocess
 import sys
 import tempfile
@@ -26,6 +33,31 @@ def base_file(base: str) -> str | None:
         ["git", "show", f"{base}:{CONTRACT}"], capture_output=True, text=True, check=False
     )
     return shown.stdout if shown.returncode == 0 else None
+
+
+def revision_of(document: dict) -> tuple[str, int] | None:
+    """(protocol, revision) of info.version: `1.4` is ("1", 4), `1` is ("1", 0)."""
+    version = str(document.get("info", {}).get("version", ""))
+    protocol, _, revision = version.partition(".")
+    if not protocol.isdigit() or (revision and not revision.isdigit()):
+        return None
+    return protocol, int(revision or 0)
+
+
+def check_revision(base_text: str, head_text: str) -> str | None:
+    """None when the revision rule holds, else the error."""
+    base, head = json.loads(base_text), json.loads(head_text)
+    if base == head:
+        return None
+    base_rev, head_rev = revision_of(base), revision_of(head)
+    if head_rev is None:
+        return f"the generated contract has no revision: info.version {head.get('info', {}).get('version')!r}"
+    if base_rev is None or base_rev[0] != head_rev[0]:
+        return None  # another protocol: the breaking check below decides
+    if head_rev[1] <= base_rev[1]:
+        return (f"the contract changed but its revision did not rise (base {base_rev[0]}.{base_rev[1]}, "
+                f"head {head_rev[0]}.{head_rev[1]}): raise relay_protocol::REVISION by one")
+    return None
 
 
 def main() -> int:
@@ -48,6 +80,12 @@ def main() -> int:
         print(f"relay contract: the base file at {args.base} was written by hand; "
               "this change makes it generated, so there is no generated contract to compare")
         return 0
+
+    revision_error = check_revision(text, args.head_file.read_text(encoding="utf-8"))
+    if revision_error:
+        print(f"::error::relay contract: {revision_error}")
+        return 1
+    print("relay contract: the revision rule holds")
 
     with tempfile.TemporaryDirectory() as scratch:
         base_path = Path(scratch) / "base.json"

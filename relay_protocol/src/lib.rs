@@ -13,8 +13,10 @@
 //! Within protocol 1 a change may only add: a route, an optional request field, or an answer field.
 //! It may not remove or rename a route or field, change a type, make an optional request field
 //! required, narrow the values a field accepts, or change what an existing field means. Answer
-//! types accept fields they do not know; request types refuse them, as a relay does. A relay serves
-//! an addition before any client sends it. A breaking change is protocol 2, under `/relay/v2/`.
+//! types accept fields they do not know; request types refuse them, as a relay does. Each change
+//! raises [`REVISION`], which a relay announces on every answer; a node uses an addition that not
+//! every relay serves only where [`supports`] says the relay does. A breaking change is protocol 2,
+//! under `/relay/v2/`.
 //!
 //! Signed log entries are not defined here: an entry is the JSON of `mutation_log::SignedEntry`,
 //! carried as a JSON value, and `mutation_log` is its one definition.
@@ -31,6 +33,68 @@ pub use log::*;
 
 /// The protocol version every request names in [`headers::PROTOCOL`].
 pub const PROTOCOL: &str = "1";
+
+/// The contract revision within [`PROTOCOL`]. It rises by one with each change to the contract
+/// (each is an addition: a route, an optional request field, an answer field, an error status),
+/// and CI refuses a change to the generated contract that does not raise it. A relay names the
+/// revision it serves on every answer in [`answer_headers::REVISION`] as [`revision`]; a node
+/// uses an addition only where [`supports`] says the relay serves it.
+pub const REVISION: u32 = 1;
+
+/// The revision as a relay announces it and the OpenAPI document names it:
+/// `<PROTOCOL>.<REVISION>`, for example `1.1`.
+#[must_use]
+pub fn revision() -> String {
+    format!("{PROTOCOL}.{REVISION}")
+}
+
+/// The revision a relay announced, from the value of [`answer_headers::REVISION`]. `None` when the
+/// value is not `<PROTOCOL>.<n>`: another protocol, or not a revision at all.
+#[must_use]
+pub fn parse_revision(value: &str) -> Option<u32> {
+    let (protocol, revision) = value.trim().split_once('.')?;
+    if protocol != PROTOCOL || revision.is_empty() || !revision.bytes().all(|b| b.is_ascii_digit())
+    {
+        return None;
+    }
+    revision.parse().ok()
+}
+
+/// The answer headers. A relay sends them on every answer of a route, a refusal included.
+pub mod answer_headers {
+    /// The contract revision the relay serves, as [`crate::revision`] writes it. A relay from
+    /// before revision 1 does not send it; a node reads its absence as revision 0.
+    pub const REVISION: &str = "X-LastDB-Relay-Revision";
+}
+
+/// An addition to the contract that a node uses only on a relay that serves it, named once here
+/// with the revision it arrived in. A node never chooses on the relay's name or `User-Agent`;
+/// it asks [`supports`]. When the relay is too old, the node leaves out an optional field or holds
+/// that one operation with a status that says the relay must be upgraded, and keeps no older
+/// fallback path. No addition has needed this yet, so the list is empty.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Feature {}
+
+impl Feature {
+    /// The revision that first serves the feature.
+    #[must_use]
+    pub const fn since(self) -> u32 {
+        match self {}
+    }
+
+    /// The name a status message uses for the feature.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {}
+    }
+}
+
+/// Whether a relay that announced `revision` (`None`: it announced none, revision 0) serves
+/// `feature`.
+#[must_use]
+pub fn supports(revision: Option<u32>, feature: Feature) -> bool {
+    revision.unwrap_or(0) >= feature.since()
+}
 
 /// The request headers. Every request carries all of them: the relay checks the signature over
 /// [`signed_message`] before it reads the body.
@@ -135,9 +199,11 @@ impl Route {
     #[must_use]
     pub const fn error_statuses(self) -> &'static [u16] {
         match self {
-            Self::LogAppend | Self::BlobDrop => &[400, 401, 403, 404, 409, 426, 429, 500],
-            Self::LogRead => &[400, 401, 403, 410, 426, 429, 500],
-            Self::LogStreams | Self::BlobPut | Self::BlobList => &[400, 401, 403, 426, 429, 500],
+            Self::LogAppend | Self::BlobPut | Self::BlobDrop => {
+                &[400, 401, 403, 404, 409, 426, 429, 500]
+            }
+            Self::LogRead => &[400, 401, 403, 404, 410, 426, 429, 500],
+            Self::LogStreams | Self::BlobList => &[400, 401, 403, 426, 429, 500],
             Self::LogTrim | Self::BlobGet => &[400, 401, 403, 404, 426, 429, 500],
         }
     }

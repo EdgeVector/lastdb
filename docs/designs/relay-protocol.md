@@ -653,15 +653,16 @@ platform set that number. Once brain text moved into ~44 KB entries, every full
 | 400 | `batch_too_large` | batch caps |
 | 401 | `unauthorized` | bad or missing request signature |
 | 403 | `forbidden` | no current grant for this `node_key` / role |
-| 404 | `not_found` | missing log/blob (incl. after `blob_delete`); `log.trim` names no stored snapshot entry |
+| 403 | `payment_required` | ExeMem billing refuses the publisher (field `payment.subscription`) |
+| 404 | `not_found` | missing log/blob (incl. after `blob_delete`); `blob.put` commit of a blob not uploaded; `log.read` of a segment whose blob is gone (`segment.sha256`); `log.trim` names no stored snapshot entry |
+| 409 | `conflict` | a segment or entry out of order (`segment.first_seq`, `entries.writer_seq`); `blob.put` commit that differs from the stored blob |
 | 409 | `heads` | `blob.drop`: a stream is not as the caller named it, or the caller did not name it (field `snapshot` or `heads`); nothing was dropped, compute the list again |
 | 410 | `trimmed` | `log.read` starts at an entry that `log.trim` dropped |
 | 426 | `upgrade_required` | `request.protocol` |
 | 429 | `rate_limited` | quota / rate limits (publisher-billed) |
 | 500 | `unavailable` | unknown or service Dynamo errors; retry (same as 429) |
 
-`payment_required` when ExeMem billing refuses the publisher. Relay grant
-refusals use **403** `forbidden` (spam/cost gate), not AcceptEntry. A 500
+Relay grant refusals use **403** `forbidden` (spam/cost gate), not AcceptEntry. A 500
 `unavailable` is not a chain conflict and is not final.
 
 **What a client does with a refusal.** A 429 carries a `field`. A field that names a provider
@@ -687,10 +688,21 @@ made required, a changed type or a removed route is a breaking change and needs 
 - Answer types accept fields they do not know, so an older node reads a newer relay's
   answer. Request types refuse fields they do not know (`deny_unknown_fields`), so a relay
   never silently drops what a newer node asked for.
-- The relay adds first. A field a node starts to send ships in a relay release before the
-  node release that sends it.
+- Every change to the contract raises its revision, `relay_protocol::REVISION`. The OpenAPI
+  `info.version` is `<protocol>.<revision>` (for example `1.1`), and every answer of a relay,
+  a refusal included, names the revision it serves in `X-LastDB-Relay-Revision`. A relay from
+  before revisions sends no header; a node reads that as revision 0.
+- A node never assumes the relay is new enough. An addition a node uses only where the relay
+  serves it is a `relay_protocol::Feature`, named once with the revision it arrived in; the
+  node asks `relay_protocol::supports(revision, feature)` per relay. When the relay is too old,
+  the node leaves out the optional field, or holds that one operation with a status that says
+  the relay must be upgraded. There is no older fallback path and no release-time check that a
+  LastDB release is not ahead of the deployed relay. Nothing chooses on a `User-Agent`.
+- An addition that every relay in use already serves needs no `Feature`: the relay adds first,
+  as before.
 - `ci-required` job `relay_contract` regenerates the OpenAPI file and fails when the
-  committed file differs, then runs a pinned `oasdiff breaking` against the base commit's
+  committed file differs, fails when the contract changed but its revision did not rise, then
+  runs a pinned `oasdiff breaking` against the base commit's
   file and fails on any WARN or ERR. The label `relay-contract-break-approved` lets a
   reviewed break through (removing v1 once v2 serves every client).
 - Exemem builds its relay from the same crate through its `fold/` submodule, so the relay

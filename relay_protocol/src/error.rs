@@ -13,7 +13,7 @@ pub enum ErrorCode {
     BatchTooLarge,
     /// 401: a bad or missing request signature.
     Unauthorized,
-    /// 402: billing refuses the publisher.
+    /// 403: billing refuses the publisher.
     PaymentRequired,
     /// 403: no current grant for this node key and role, or not the publisher.
     Forbidden,
@@ -45,8 +45,7 @@ impl ErrorCode {
         match self {
             Self::InvalidRequest | Self::BatchTooLarge => 400,
             Self::Unauthorized => 401,
-            Self::PaymentRequired => 402,
-            Self::Forbidden => 403,
+            Self::PaymentRequired | Self::Forbidden => 403,
             Self::NotFound => 404,
             Self::Conflict | Self::Heads => 409,
             Self::Trimmed => 410,
