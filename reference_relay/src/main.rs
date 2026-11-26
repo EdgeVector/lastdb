@@ -32,8 +32,10 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use axum::extract::DefaultBodyLimit;
-use axum::middleware;
+use axum::extract::{DefaultBodyLimit, Request};
+use axum::http::HeaderValue;
+use axum::middleware::{self, Next};
+use axum::response::Response;
 use axum::routing::{get, post, put};
 use axum::Router;
 use clap::Parser;
@@ -148,11 +150,28 @@ async fn run() -> Result<(), String> {
         app = app.layer(middleware::from_fn_with_state(refusals, refusal::refuse));
     }
     let app = app
+        .layer(middleware::from_fn(announce_revision))
         .layer(middleware::from_fn(request_log::log_request))
         .with_state(state);
     axum::serve(listener, app)
         .await
         .map_err(|e| format!("serve: {e}"))
+}
+
+/// Every answer of a protocol route, a refusal included, names the contract revision this relay
+/// serves (`relay_protocol::answer_headers::REVISION`). The object-store stand-in routes are not
+/// protocol routes and do not.
+async fn announce_revision(request: Request, next: Next) -> Response {
+    let protocol = Route::from_path(request.uri().path()).is_some();
+    let mut response = next.run(request).await;
+    if protocol {
+        if let Ok(value) = HeaderValue::from_str(&relay_protocol::revision()) {
+            response
+                .headers_mut()
+                .insert(relay_protocol::answer_headers::REVISION, value);
+        }
+    }
+    response
 }
 
 async fn load_or_create_secret(root: &std::path::Path) -> Result<Vec<u8>, String> {
