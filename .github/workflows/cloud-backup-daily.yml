@@ -19,3 +19,15 @@ jobs:
     name: Signed-history DEV proofs
     if: github.ref == 'refs/heads/main'
     uses: ./.github/workflows/signed-history-dev.yml
+
+  notify:
+    name: Notify on failure
+    needs: [signed_history]
+    if: always() && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      issues: write
+    uses: ./.github/workflows/notify-scheduled-failure.yml
+    with:
+      workflow_file: cloud-backup-daily.yml
+      job_results: ${{ needs.signed_history.result }}
