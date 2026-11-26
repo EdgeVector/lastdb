@@ -1,2172 +1,2131 @@
 {
-  "openapi": "3.1.0",
-  "info": {
-    "title": "LastDB relay protocol",
-    "version": "1.0.0-design",
-    "description": "Append-only log (except product erase); blobs; signed requests; spam/cost grant gate from publisher birth/grant entries; bundles via blob.put/get; no AcceptEntry on the relay; no snapshots."
-  },
-  "paths": {
-    "/relay/v1/log/append": {
-      "post": {
-        "summary": "Append signed log entries (append-only; log/trim drops what a snapshot covers)",
-        "parameters": [
-          {
-            "$ref": "#/components/parameters/NodeKey"
-          },
-          {
-            "$ref": "#/components/parameters/DatabaseId"
-          },
-          {
-            "$ref": "#/components/parameters/DeviceId"
-          },
-          {
-            "$ref": "#/components/parameters/IssuedAt"
-          },
-          {
-            "$ref": "#/components/parameters/Nonce"
-          },
-          {
-            "$ref": "#/components/parameters/Signature"
-          },
-          {
-            "$ref": "#/components/parameters/RelayProtocol"
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/LogAppendBody"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/LogAppendResult"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "request auth",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "quota / rate limit",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                },
-                "examples": {
-                  "rate_limited": {
-                    "value": {
-                      "code": "rate_limited",
-                      "field": "quota"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "unknown or service error; retry",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                },
-                "examples": {
-                  "unavailable": {
-                    "value": {
-                      "code": "unavailable",
-                      "field": "provider.dynamo"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "arg paths / grants.any.role / batch.response, entries.signature, incorporated_from",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                },
-                "examples": {
-                  "invalid_request": {
-                    "value": {
-                      "code": "invalid_request",
-                      "field": "example"
-                    }
-                  },
-                  "batch_too_large": {
-                    "value": {
-                      "code": "batch_too_large",
-                      "field": "example"
-                    }
-                  },
-                  "grants_any_role": {
-                    "summary": "any grantee must be read",
-                    "value": {
-                      "code": "invalid_request",
-                      "field": "grants.any.role"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "426": {
-            "description": "request.protocol",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                },
-                "examples": {
-                  "upgrade_required": {
-                    "value": {
-                      "code": "upgrade_required",
-                      "field": "example"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "no current grant for this node_key / role",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                },
-                "examples": {
-                  "forbidden": {
-                    "value": {
-                      "code": "forbidden",
-                      "field": "grant"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "conflicting entry at an existing writer_seq",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                },
-                "examples": {
-                  "conflict": {
-                    "value": {
-                      "code": "conflict",
-                      "field": "entries.writer_seq"
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "nodeSignature": []
-          }
-        ],
-        "description": "Requires nodeSignature. Accepted for the publisher, or for a current submit or write grant when the entries are data (proposal or direct) on the caller's own stream (the nodes decide whether a lease covers a direct entry; an uncovered one is stored and ignored), and for a current write grant when the entries are bundles on the caller's own stream; the publisher kinds, lease among them, are the publisher's alone. Revoke cuts off new appends immediately (403). Spam/cost gate only \u2014 not AcceptEntry."
-      }
-    },
-    "/relay/v1/log/read": {
-      "post": {
-        "summary": "Read signed log entries from seq 1 or cursor",
-        "parameters": [
-          {
-            "$ref": "#/components/parameters/NodeKey"
-          },
-          {
-            "$ref": "#/components/parameters/DatabaseId"
-          },
-          {
-            "$ref": "#/components/parameters/DeviceId"
-          },
-          {
-            "$ref": "#/components/parameters/IssuedAt"
-          },
-          {
-            "$ref": "#/components/parameters/Nonce"
-          },
-          {
-            "$ref": "#/components/parameters/Signature"
-          },
-          {
-            "$ref": "#/components/parameters/RelayProtocol"
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/LogReadBody"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/LogReadResult"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "request auth",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "quota / rate limit",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                },
-                "examples": {
-                  "rate_limited": {
-                    "value": {
-                      "code": "rate_limited",
-                      "field": "quota"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "unknown or service error; retry",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                },
-                "examples": {
-                  "unavailable": {
-                    "value": {
-                      "code": "unavailable",
-                      "field": "provider.dynamo"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "arg paths / grants.any.role / batch.response, entries.signature, incorporated_from",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                },
-                "examples": {
-                  "invalid_request": {
-                    "value": {
-                      "code": "invalid_request",
-                      "field": "example"
-                    }
-                  },
-                  "batch_too_large": {
-                    "value": {
-                      "code": "batch_too_large",
-                      "field": "example"
-                    }
-                  },
-                  "grants_any_role": {
-                    "summary": "any grantee must be read",
-                    "value": {
-                      "code": "invalid_request",
-                      "field": "grants.any.role"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "426": {
-            "description": "request.protocol",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                },
-                "examples": {
-                  "upgrade_required": {
-                    "value": {
-                      "code": "upgrade_required",
-                      "field": "example"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "410": {
-          "description": "the entries from from_seq were dropped by a trim after a snapshot; restore from the snapshot",
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/Error"
-              },
-              "examples": {
-                "trimmed": {
-                  "value": {
-                    "code": "trimmed",
-                    "field": "from_seq"
-                  }
-                }
-              }
-            }
-          }
-        },
-        "403": {
-            "description": "no current grant for this node_key / role",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                },
-                "examples": {
-                  "forbidden": {
-                    "value": {
-                      "code": "forbidden",
-                      "field": "grant"
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "nodeSignature": []
-          }
-        ],
-        "description": "Requires nodeSignature. Allowed with a current read grant, or grant#any/read (any signed caller). Not unsigned/anonymous."
-      }
-    },
-    "/relay/v1/log/streams": {
-      "post": {
-        "summary": "List the device streams of one writer and the contiguous head of each",
-        "parameters": [
-          {
-            "$ref": "#/components/parameters/NodeKey"
-          },
-          {
-            "$ref": "#/components/parameters/DatabaseId"
-          },
-          {
-            "$ref": "#/components/parameters/DeviceId"
-          },
-          {
-            "$ref": "#/components/parameters/IssuedAt"
-          },
-          {
-            "$ref": "#/components/parameters/Nonce"
-          },
-          {
-            "$ref": "#/components/parameters/Signature"
-          },
-          {
-            "$ref": "#/components/parameters/RelayProtocol"
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/LogStreamsBody"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/LogStreamsResult"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "request auth",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "quota / rate limit",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                },
-                "examples": {
-                  "rate_limited": {
-                    "value": {
-                      "code": "rate_limited",
-                      "field": "quota"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "unknown or service error; retry",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                },
-                "examples": {
-                  "unavailable": {
-                    "value": {
-                      "code": "unavailable",
-                      "field": "provider.dynamo"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "arg paths / grants.any.role / batch.response, entries.signature, incorporated_from",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                },
-                "examples": {
-                  "invalid_request": {
-                    "value": {
-                      "code": "invalid_request",
-                      "field": "example"
-                    }
-                  },
-                  "batch_too_large": {
-                    "value": {
-                      "code": "batch_too_large",
-                      "field": "example"
-                    }
-                  },
-                  "grants_any_role": {
-                    "summary": "any grantee must be read",
-                    "value": {
-                      "code": "invalid_request",
-                      "field": "grants.any.role"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "426": {
-            "description": "request.protocol",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                },
-                "examples": {
-                  "upgrade_required": {
-                    "value": {
-                      "code": "upgrade_required",
-                      "field": "example"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "no current grant for this node_key / role",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                },
-                "examples": {
-                  "forbidden": {
-                    "value": {
-                      "code": "forbidden",
-                      "field": "grant"
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "nodeSignature": []
-          }
-        ],
-        "description": "Requires nodeSignature. Allowed exactly when an all-devices log/read of the same writer_key is allowed (the same check decides both): a current read grant, the publisher, or grant#any/read. A caller with no grant, and a revoked member, get 403 forbidden. A writer with no stream gets an empty list, not an error. head_seq is the contiguous head: the highest writer_seq such that every sequence number from 1 up to it is stored on that stream; entries stored beyond a gap do not count until the gap is filled. head_hash is the entry hash of that entry. A stream whose seq 1 is not stored is not listed."
-      }
-    },
-    "/relay/v1/log/trim": {
-      "post": {
-        "summary": "Drop the entries that a snapshot covers (owner, personal database)",
-        "parameters": [
-          {
-            "$ref": "#/components/parameters/NodeKey"
-          },
-          {
-            "$ref": "#/components/parameters/DatabaseId"
-          },
-          {
-            "$ref": "#/components/parameters/DeviceId"
-          },
-          {
-            "$ref": "#/components/parameters/IssuedAt"
-          },
-          {
-            "$ref": "#/components/parameters/Nonce"
-          },
-          {
-            "$ref": "#/components/parameters/Signature"
-          },
-          {
-            "$ref": "#/components/parameters/RelayProtocol"
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/LogTrimBody"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/LogTrimResult"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "request auth",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "quota / rate limit",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                },
-                "examples": {
-                  "rate_limited": {
-                    "value": {
-                      "code": "rate_limited",
-                      "field": "quota"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "unknown or service error; retry",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                },
-                "examples": {
-                  "unavailable": {
-                    "value": {
-                      "code": "unavailable",
-                      "field": "provider.dynamo"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "arg paths / grants.any.role / batch.response, entries.signature, incorporated_from",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                },
-                "examples": {
-                  "invalid_request": {
-                    "value": {
-                      "code": "invalid_request",
-                      "field": "example"
-                    }
-                  },
-                  "batch_too_large": {
-                    "value": {
-                      "code": "batch_too_large",
-                      "field": "example"
-                    }
-                  },
-                  "grants_any_role": {
-                    "summary": "any grantee must be read",
-                    "value": {
-                      "code": "invalid_request",
-                      "field": "grants.any.role"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "426": {
-            "description": "request.protocol",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                },
-                "examples": {
-                  "upgrade_required": {
-                    "value": {
-                      "code": "upgrade_required",
-                      "field": "example"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "404": {
-          "description": "the named snapshot entry is not stored",
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/Error"
-              },
-              "examples": {
-                "not_found": {
-                  "value": {
-                    "code": "not_found",
-                    "field": "writer_seq"
-                  }
-                }
-              }
-            }
-          }
-        },
-        "403": {
-            "description": "caller is not the publisher (field publisher), or an entry that would be dropped is not sealed (field namespace)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                },
-                "examples": {
-                  "forbidden": {
-                    "value": {
-                      "code": "forbidden",
-                      "field": "publisher"
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "nodeSignature": []
-          }
-        ],
-        "description": "Requires nodeSignature from the publisher. Names one snapshot entry on the snapshot stream. The relay reads that stored entry, checks its signature, and drops the entries up to each stream position in its through list, and the snapshot entries before it. It never drops a blob. Positions come only from the stored entry. A call does a bounded amount of work; repeat until done is true. Only sealed data and schema entries and snapshot entries are dropped."
-      }
-    },
-    "/relay/v1/blob/put": {
-      "post": {
-        "summary": "Put blob",
-        "parameters": [
-          {
-            "$ref": "#/components/parameters/NodeKey"
-          },
-          {
-            "$ref": "#/components/parameters/DatabaseId"
-          },
-          {
-            "$ref": "#/components/parameters/DeviceId"
-          },
-          {
-            "$ref": "#/components/parameters/IssuedAt"
-          },
-          {
-            "$ref": "#/components/parameters/Nonce"
-          },
-          {
-            "$ref": "#/components/parameters/Signature"
-          },
-          {
-            "$ref": "#/components/parameters/RelayProtocol"
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/BlobPutBody"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/BlobPutResult"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "request auth",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "quota / rate limit",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                },
-                "examples": {
-                  "rate_limited": {
-                    "value": {
-                      "code": "rate_limited",
-                      "field": "quota"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "unknown or service error; retry",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                },
-                "examples": {
-                  "unavailable": {
-                    "value": {
-                      "code": "unavailable",
-                      "field": "provider.dynamo"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "arg paths / grants.any.role / batch.response, entries.signature, incorporated_from",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                },
-                "examples": {
-                  "invalid_request": {
-                    "value": {
-                      "code": "invalid_request",
-                      "field": "example"
-                    }
-                  },
-                  "batch_too_large": {
-                    "value": {
-                      "code": "batch_too_large",
-                      "field": "example"
-                    }
-                  },
-                  "grants_any_role": {
-                    "summary": "any grantee must be read",
-                    "value": {
-                      "code": "invalid_request",
-                      "field": "grants.any.role"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "426": {
-            "description": "request.protocol",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                },
-                "examples": {
-                  "upgrade_required": {
-                    "value": {
-                      "code": "upgrade_required",
-                      "field": "example"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "no current grant for this node_key / role",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                },
-                "examples": {
-                  "forbidden": {
-                    "value": {
-                      "code": "forbidden",
-                      "field": "grant"
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "nodeSignature": []
-          }
-        ],
-        "description": "Requires nodeSignature. Accepted for the publisher or a current write grant. Revoke cuts off new puts immediately (403). Spam/cost gate only \u2014 not AcceptEntry. Begin returns the presigned upload described by `Upload`; the relay never reads the uploaded bytes at commit, it confirms their length and `x-amz-checksum-sha256` recorded by the object store. A digest the relay already holds answers begin with HTTP 200 and no `upload`."
-      }
-    },
-    "/relay/v1/blob/get": {
-      "post": {
-        "summary": "Get blob via presigned URL only",
-        "parameters": [
-          {
-            "$ref": "#/components/parameters/NodeKey"
-          },
-          {
-            "$ref": "#/components/parameters/DatabaseId"
-          },
-          {
-            "$ref": "#/components/parameters/DeviceId"
-          },
-          {
-            "$ref": "#/components/parameters/IssuedAt"
-          },
-          {
-            "$ref": "#/components/parameters/Nonce"
-          },
-          {
-            "$ref": "#/components/parameters/Signature"
-          },
-          {
-            "$ref": "#/components/parameters/RelayProtocol"
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/BlobGetBody"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PresignedGet"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "request auth",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "blob.sha256 (including after blob_delete)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "quota / rate limit",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                },
-                "examples": {
-                  "rate_limited": {
-                    "value": {
-                      "code": "rate_limited",
-                      "field": "quota"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "unknown or service error; retry",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                },
-                "examples": {
-                  "unavailable": {
-                    "value": {
-                      "code": "unavailable",
-                      "field": "provider.dynamo"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "arg paths / grants.any.role / batch.response, entries.signature, incorporated_from",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                },
-                "examples": {
-                  "invalid_request": {
-                    "value": {
-                      "code": "invalid_request",
-                      "field": "example"
-                    }
-                  },
-                  "batch_too_large": {
-                    "value": {
-                      "code": "batch_too_large",
-                      "field": "example"
-                    }
-                  },
-                  "grants_any_role": {
-                    "summary": "any grantee must be read",
-                    "value": {
-                      "code": "invalid_request",
-                      "field": "grants.any.role"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "426": {
-            "description": "request.protocol",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                },
-                "examples": {
-                  "upgrade_required": {
-                    "value": {
-                      "code": "upgrade_required",
-                      "field": "example"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "no current grant for this node_key / role",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                },
-                "examples": {
-                  "forbidden": {
-                    "value": {
-                      "code": "forbidden",
-                      "field": "grant"
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "nodeSignature": []
-          }
-        ],
-        "description": "Requires nodeSignature. Allowed with a current read grant, or grant#any/read (any signed caller). Not unsigned/anonymous."
-      }
-    },
-    "/relay/v1/blob/list": {
-      "post": {
-        "summary": "List the committed blobs of a database",
-        "parameters": [
-          {
-            "$ref": "#/components/parameters/NodeKey"
-          },
-          {
-            "$ref": "#/components/parameters/DatabaseId"
-          },
-          {
-            "$ref": "#/components/parameters/DeviceId"
-          },
-          {
-            "$ref": "#/components/parameters/IssuedAt"
-          },
-          {
-            "$ref": "#/components/parameters/Nonce"
-          },
-          {
-            "$ref": "#/components/parameters/Signature"
-          },
-          {
-            "$ref": "#/components/parameters/RelayProtocol"
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/BlobListBody"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/BlobListResult"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "request auth",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "quota / rate limit",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                },
-                "examples": {
-                  "rate_limited": {
-                    "value": {
-                      "code": "rate_limited",
-                      "field": "quota"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "unknown or service error; retry",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                },
-                "examples": {
-                  "unavailable": {
-                    "value": {
-                      "code": "unavailable",
-                      "field": "provider.dynamo"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "arg paths / grants.any.role / batch.response, entries.signature, incorporated_from",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                },
-                "examples": {
-                  "invalid_request": {
-                    "value": {
-                      "code": "invalid_request",
-                      "field": "example"
-                    }
-                  },
-                  "batch_too_large": {
-                    "value": {
-                      "code": "batch_too_large",
-                      "field": "example"
-                    }
-                  },
-                  "grants_any_role": {
-                    "summary": "any grantee must be read",
-                    "value": {
-                      "code": "invalid_request",
-                      "field": "grants.any.role"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "426": {
-            "description": "request.protocol",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                },
-                "examples": {
-                  "upgrade_required": {
-                    "value": {
-                      "code": "upgrade_required",
-                      "field": "example"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "caller may not read the database",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                },
-                "examples": {
-                  "forbidden": {
-                    "value": {
-                      "code": "forbidden",
-                      "field": "role"
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "nodeSignature": []
-          }
-        ],
-        "description": "Requires nodeSignature from a node that may read the database. Answers the committed blobs ascending by digest, at most 1,000 in a page. `next` is present when more follow; pass it as `after`."
-      }
-    },
-    "/relay/v1/blob/drop": {
-      "post": {
-        "summary": "Drop the blobs the publisher names, while the stream heads it saw are the heads (personal database)",
-        "parameters": [
-          {
-            "$ref": "#/components/parameters/NodeKey"
-          },
-          {
-            "$ref": "#/components/parameters/DatabaseId"
-          },
-          {
-            "$ref": "#/components/parameters/DeviceId"
-          },
-          {
-            "$ref": "#/components/parameters/IssuedAt"
-          },
-          {
-            "$ref": "#/components/parameters/Nonce"
-          },
-          {
-            "$ref": "#/components/parameters/Signature"
-          },
-          {
-            "$ref": "#/components/parameters/RelayProtocol"
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/BlobDropBody"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/BlobDropResult"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "request auth",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "quota / rate limit",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                },
-                "examples": {
-                  "rate_limited": {
-                    "value": {
-                      "code": "rate_limited",
-                      "field": "quota"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "unknown or service error; retry",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                },
-                "examples": {
-                  "unavailable": {
-                    "value": {
-                      "code": "unavailable",
-                      "field": "provider.dynamo"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "arg paths / grants.any.role / batch.response, entries.signature, incorporated_from",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                },
-                "examples": {
-                  "invalid_request": {
-                    "value": {
-                      "code": "invalid_request",
-                      "field": "example"
-                    }
-                  },
-                  "batch_too_large": {
-                    "value": {
-                      "code": "batch_too_large",
-                      "field": "example"
-                    }
-                  },
-                  "grants_any_role": {
-                    "summary": "any grantee must be read",
-                    "value": {
-                      "code": "invalid_request",
-                      "field": "grants.any.role"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "426": {
-            "description": "request.protocol",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                },
-                "examples": {
-                  "upgrade_required": {
-                    "value": {
-                      "code": "upgrade_required",
-                      "field": "example"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "caller is not the publisher (field publisher), or the database has a grant (field grant)",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                },
-                "examples": {
-                  "forbidden": {
-                    "value": {
-                      "code": "forbidden",
-                      "field": "publisher"
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "a named stream is not as named (field `snapshot` for the snapshot stream, `heads` for a listed stream), or the publisher has a stream that the call does not name (field `heads`). Nothing was dropped",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                },
-                "examples": {
-                  "heads": {
-                    "value": {
-                      "code": "heads",
-                      "field": "heads"
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "nodeSignature": []
-          }
-        ],
-        "description": "Requires nodeSignature from the publisher. `snapshot` names the head of the snapshot stream; the relay reads that stored entry, checks its signature and kind, and refuses a list that holds the manifest it names. `heads` are the stream heads the caller saw (the snapshot stream is not among them). One call is one step: every named stream still ends at the named entry and holds no entry above it, the publisher has no stream that the call does not name, each blob record that exists goes with its pending record, and the summed bytes are released once. A digest with no committed record is counted as `absent`. When a stream is not as named, or a stream of the publisher is not named, nothing is dropped and the answer is 409 `heads`."
-      }
-    }
-  },
   "components": {
-    "parameters": {
-      "NodeKey": {
-        "name": "X-LastDB-Node-Key",
-        "in": "header",
-        "required": true,
-        "schema": {
-          "type": "string",
-          "pattern": "^[0-9a-f]{64}$",
-          "minLength": 64,
-          "maxLength": 64
-        }
-      },
-      "DeviceId": {
-        "name": "X-LastDB-Device-Id",
-        "in": "header",
-        "required": true,
-        "schema": {
-          "type": "string",
-          "pattern": "^[0-9a-f]{64}$",
-          "minLength": 64,
-          "maxLength": 64,
-          "description": "Hex32 device stream id (32 bytes)"
-        }
-      },
-      "IssuedAt": {
-        "name": "X-LastDB-Issued-At",
-        "in": "header",
-        "required": true,
-        "schema": {
-          "type": "string",
-          "pattern": "^[0-9]+$",
-          "maxLength": 20,
-          "description": "Unix seconds"
-        }
-      },
-      "Nonce": {
-        "name": "X-LastDB-Nonce",
-        "in": "header",
-        "required": true,
-        "schema": {
-          "type": "string",
-          "pattern": "^[0-9a-f]{64}$",
-          "minLength": 64,
-          "maxLength": 64
-        }
-      },
-      "Signature": {
-        "name": "X-LastDB-Signature",
-        "in": "header",
-        "required": true,
-        "schema": {
-          "type": "string",
-          "minLength": 86,
-          "maxLength": 88
-        }
-      },
-      "RelayProtocol": {
-        "name": "X-LastDB-Relay-Protocol",
-        "in": "header",
-        "required": true,
-        "schema": {
-          "type": "integer",
-          "enum": [
-            1
-          ]
-        }
-      },
-      "DatabaseId": {
-        "name": "X-LastDB-Database-Id",
-        "in": "header",
-        "required": true,
-        "schema": {
-          "type": "string",
-          "pattern": "^[0-9a-f]{64}$",
-          "minLength": 64,
-          "maxLength": 64
-        },
-        "description": "Target database_id; covered by nodeSignature"
-      }
-    },
     "schemas": {
-      "Error": {
-        "type": "object",
-        "required": [
-          "code",
-          "field"
-        ],
-        "additionalProperties": false,
+      "BlobDropAnswer": {
+        "description": "The answer to a `blob.drop`.",
         "properties": {
-          "code": {
-            "type": "string",
-            "enum": [
-              "unauthorized",
-              "forbidden",
-              "invalid_request",
-              "not_found",
-              "conflict",
-              "heads",
-              "rate_limited",
-              "upgrade_required",
-              "trimmed",
-              "batch_too_large",
-              "payment_required",
-              "unavailable"
-            ]
+          "absent": {
+            "description": "Named digests with no committed blob.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
           },
-          "field": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 128
-          },
-          "minimum_version": {
-            "type": "integer",
-            "minimum": 1
-          }
-        }
-      },
-      "SignedEntry": {
-        "type": "object",
-        "description": "Opaque signed entry; store key (database_id,node_key,device_id,writer_seq). seen_heads may cite any stream by hash. A snapshot entry (kind snapshot, namespace snapshot) is signed by the publisher and carries manifest_sha256, manifest_bytes and through[] of {device_id,writer_seq,entry_hash,order}; the relay stores it like any publisher entry. A lease entry (kind lease, namespace lease) is signed by the publisher and carries expires_at_ms, closes_at_ms (later than expires_at_ms) and closed[] of {node_key,device_id,writer_seq}, ascending by node_key then device_id; the relay stores it unread, and only the publisher may append it.",
-        "required": [
-          "kind",
-          "database_id",
-          "node_key",
-          "device_id",
-          "writer_seq",
-          "prev_hash",
-          "signature"
-        ],
-        "additionalProperties": true,
-        "properties": {
-          "kind": {
-            "type": "string",
-            "enum": [
-              "birth",
-              "data",
-              "bundle",
-              "grant",
-              "schema",
-              "blob_delete",
-              "heads",
-              "relays",
-              "snapshot",
-              "lease"
-            ]
-          },
-          "database_id": {
-            "type": "string",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          },
-          "node_key": {
-            "type": "string",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          },
-          "device_id": {
-            "type": "string",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          },
-          "writer_seq": {
-            "type": "integer",
-            "minimum": 1
-          },
-          "prev_hash": {
-            "type": "string",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          },
-          "signature": {
-            "type": "string",
-            "pattern": "^[A-Za-z0-9_-]{86}$",
-            "minLength": 86,
-            "maxLength": 86
-          }
-        }
-      },
-      "Upload": {
-        "type": "object",
-        "required": [
-          "url",
-          "headers",
-          "expires_at_ms"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "url": {
-            "type": "string",
-            "format": "uri",
-            "maxLength": 8192
-          },
-          "headers": {
-            "type": "object",
-            "additionalProperties": {
-              "type": "string",
-              "maxLength": 1024
-            },
-            "maxProperties": 32
-          },
-          "expires_at_ms": {
-            "type": "integer",
-            "minimum": 0
-          }
-        },
-        "description": "A presigned single PUT. The client sends the file bytes with every header pair in `headers` except a `content-length` (the client sets its own, equal to the `bytes` of the begin request). `headers` carries `x-amz-checksum-sha256`, the base64 of the 32 bytes of the blob's SHA-256; the store or relay refuses a body of another length or digest (HTTP 400) and a request without that header. `content-type` may also appear. A client must not add other headers the relay did not return."
-      },
-      "PresignedGet": {
-        "type": "object",
-        "required": [
-          "url",
-          "headers",
-          "expires_at_ms",
-          "bytes",
-          "sha256"
-        ],
-        "additionalProperties": false,
-        "description": "Exactly one download path: presigned URL",
-        "properties": {
-          "url": {
-            "type": "string",
-            "format": "uri",
-            "maxLength": 8192
-          },
-          "headers": {
-            "type": "object",
-            "additionalProperties": {
-              "type": "string",
-              "maxLength": 1024
-            },
-            "maxProperties": 32
-          },
-          "expires_at_ms": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "bytes": {
-            "type": "integer",
-            "minimum": 1
-          },
-          "sha256": {
-            "type": "string",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          }
-        }
-      },
-      "LogAppendBody": {
-        "type": "object",
-        "required": [
-          "database_id",
-          "entries"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "database_id": {
-            "type": "string",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          },
-          "entries": {
-            "type": "array",
-            "minItems": 1,
-            "maxItems": 90,
-            "items": {
-              "$ref": "#/components/schemas/SignedEntry"
-            }
-          }
-        }
-      },
-      "LogAppendResult": {
-        "type": "object",
-        "required": [
-          "stored"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "stored": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "duplicate": {
-            "type": "boolean"
-          }
-        }
-      },
-      "LogReadBody": {
-        "type": "object",
-        "required": [
-          "database_id"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "database_id": {
-            "type": "string",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          },
-          "writer_key": {
-            "type": "string",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          },
-          "device_id": {
-            "type": "string",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          },
-          "from_seq": {
-            "type": "integer",
-            "minimum": 1
-          },
-          "cursor": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 256,
-            "description": "Pagination only; never expires"
-          },
-          "limit": {
-            "type": "integer",
-            "minimum": 1,
-            "maximum": 90
-          }
-        }
-      },
-      "LogReadResult": {
-        "type": "object",
-        "required": [
-          "entries"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "cursor": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 256
-          },
-          "entries": {
-            "type": "array",
-            "maxItems": 90,
-            "items": {
-              "$ref": "#/components/schemas/SignedEntry"
-            }
-          }
-        }
-      },
-      "LogStreamsBody": {
-        "type": "object",
-        "required": [
-          "database_id",
-          "writer_key"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "database_id": {
-            "type": "string",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          },
-          "writer_key": {
-            "type": "string",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          }
-        }
-      },
-      "StreamHead": {
-        "type": "object",
-        "required": [
-          "device_id",
-          "head_seq",
-          "head_hash"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "device_id": {
-            "type": "string",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64,
-            "description": "Hex32 device stream id (32 bytes)"
-          },
-          "head_seq": {
-            "type": "integer",
-            "minimum": 1,
-            "description": "Highest writer_seq such that every sequence number from 1 up to it is stored on this stream"
-          },
-          "head_hash": {
-            "type": "string",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64,
-            "description": "Entry hash (SHA-256 of signed_bytes || signature) of the entry at head_seq"
-          }
-        }
-      },
-      "LogStreamsResult": {
-        "type": "object",
-        "required": [
-          "streams"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "streams": {
-            "type": "array",
-            "description": "Sorted by device_id",
-            "items": {
-              "$ref": "#/components/schemas/StreamHead"
-            }
-          }
-        }
-      },
-      "LogTrimBody": {
-        "type": "object",
-        "required": [
-          "database_id",
-          "device_id",
-          "writer_seq"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "database_id": {
-            "type": "string",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          },
-          "device_id": {
-            "type": "string",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64,
-            "description": "Hex32 id of the snapshot stream"
-          },
-          "writer_seq": {
-            "type": "integer",
-            "minimum": 1,
-            "description": "Sequence number of the snapshot entry whose positions are dropped. Snapshot entries before it are dropped too; it and newer ones stay."
-          }
-        }
-      },
-      "LogTrimResult": {
-        "type": "object",
-        "required": [
-          "done",
-          "entries_deleted",
-          "released_bytes"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "done": {
-            "type": "boolean",
-            "description": "False when the call stopped at its work limit. Call again."
-          },
-          "entries_deleted": {
-            "type": "integer",
-            "minimum": 0
+          "dropped": {
+            "description": "Blobs dropped.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
           },
           "released_bytes": {
-            "type": "integer",
+            "description": "Their summed length, released from the publisher's stored bytes.",
+            "format": "uint64",
             "minimum": 0,
-            "description": "Length of the entries this call dropped, as the relay stored them. Exemem subtracts it from the publisher's quota counter. The node adds it to its account of what trims released (`cloud-usage.json`)."
+            "type": "integer"
           }
-        }
-      },
-      "BlobPutBody": {
-        "type": "object",
+        },
         "required": [
-          "database_id",
-          "stage",
-          "bytes",
-          "sha256"
+          "dropped",
+          "released_bytes",
+          "absent"
         ],
+        "type": "object"
+      },
+      "BlobDropRequest": {
         "additionalProperties": false,
+        "description": "`blob.drop`: drop named blobs while the publisher's streams are exactly as named. Publisher of\na personal database only.",
         "properties": {
           "database_id": {
-            "type": "string",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
+            "description": "The database, 64 lowercase hex.",
+            "type": "string"
           },
-          "stage": {
-            "type": "string",
-            "enum": [
-              "begin",
-              "commit"
-            ]
-          },
-          "bytes": {
-            "type": "integer",
-            "minimum": 1
-          },
-          "sha256": {
-            "type": "string",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          }
-        }
-      },
-      "BlobPutResult": {
-        "type": "object",
-        "required": [
-          "stage",
-          "sha256"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "stage": {
-            "type": "string",
-            "enum": [
-              "begin",
-              "commit"
-            ]
-          },
-          "sha256": {
-            "type": "string",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          },
-          "upload": {
-            "$ref": "#/components/schemas/Upload"
-          }
-        }
-      },
-      "BlobGetBody": {
-        "type": "object",
-        "required": [
-          "database_id",
-          "sha256"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "database_id": {
-            "type": "string",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          },
-          "sha256": {
-            "type": "string",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          }
-        }
-      },
-      "BlobListBody": {
-        "type": "object",
-        "required": [
-          "database_id"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "database_id": {
-            "type": "string",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
-          },
-          "after": {
-            "type": "string",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64,
-            "description": "the `next` of the page before"
-          }
-        }
-      },
-      "BlobListResult": {
-        "type": "object",
-        "required": [
-          "blobs"
-        ],
-        "additionalProperties": false,
-        "properties": {
-          "blobs": {
-            "type": "array",
-            "maxItems": 1000,
+          "heads": {
+            "description": "The head of every other stream of the publisher, as `log.streams` listed them. At most 32.",
             "items": {
-              "type": "object",
-              "required": [
-                "sha256",
-                "bytes"
-              ],
-              "additionalProperties": false,
-              "properties": {
-                "sha256": {
-                  "type": "string",
-                  "pattern": "^[0-9a-f]{64}$",
-                  "minLength": 64,
-                  "maxLength": 64
-                },
-                "bytes": {
-                  "type": "integer",
-                  "minimum": 1
-                }
-              }
-            }
+              "$ref": "#/components/schemas/StreamPosition"
+            },
+            "type": "array"
           },
-          "next": {
-            "type": "string",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64,
-            "description": "present when more blobs follow"
+          "sha256": {
+            "description": "The blobs to drop: 1 to 25 digests, each once, 64 lowercase hex.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/StreamPosition",
+            "description": "The head of the publisher's snapshot stream. Its manifest may not be dropped."
           }
-        }
-      },
-      "BlobDropBody": {
-        "type": "object",
+        },
         "required": [
           "database_id",
           "snapshot",
           "heads",
           "sha256"
         ],
-        "additionalProperties": false,
+        "type": "object"
+      },
+      "BlobGetAnswer": {
+        "description": "The answer to a `blob.get`: exactly one download path, a presigned URL.",
         "properties": {
-          "database_id": {
-            "type": "string",
-            "pattern": "^[0-9a-f]{64}$",
-            "minLength": 64,
-            "maxLength": 64
+          "bytes": {
+            "description": "The length of the blob.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
           },
-          "snapshot": {
-            "type": "object",
-            "required": [
-              "device_id",
-              "writer_seq"
-            ],
-            "additionalProperties": false,
-            "properties": {
-              "device_id": {
-                "type": "string",
-                "pattern": "^[0-9a-f]{64}$",
-                "minLength": 64,
-                "maxLength": 64
-              },
-              "writer_seq": {
-                "type": "integer",
-                "minimum": 1
-              }
-            }
+          "expires_at_ms": {
+            "description": "When `url` stops working, unix milliseconds.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
           },
-          "heads": {
-            "type": "array",
-            "maxItems": 32,
-            "items": {
-              "type": "object",
-              "required": [
-                "device_id",
-                "writer_seq"
-              ],
-              "additionalProperties": false,
-              "properties": {
-                "device_id": {
-                  "type": "string",
-                  "pattern": "^[0-9a-f]{64}$",
-                  "minLength": 64,
-                  "maxLength": 64
-                },
-                "writer_seq": {
-                  "type": "integer",
-                  "minimum": 1
-                }
-              }
-            }
+          "headers": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "default": {},
+            "description": "Headers to send with the GET, exactly as given.",
+            "type": "object"
           },
           "sha256": {
-            "type": "array",
-            "minItems": 1,
-            "maxItems": 25,
-            "uniqueItems": true,
-            "items": {
-              "type": "string",
-              "pattern": "^[0-9a-f]{64}$",
-              "minLength": 64,
-              "maxLength": 64
-            }
+            "description": "The SHA-256 of the blob, 64 lowercase hex.",
+            "type": "string"
+          },
+          "url": {
+            "description": "Presigned GET.",
+            "type": "string"
           }
-        }
-      },
-      "BlobDropResult": {
-        "type": "object",
+        },
         "required": [
-          "dropped",
-          "released_bytes",
-          "absent"
+          "url",
+          "expires_at_ms",
+          "bytes",
+          "sha256"
         ],
+        "type": "object"
+      },
+      "BlobGetRequest": {
         "additionalProperties": false,
+        "description": "`blob.get`: a presigned download of one blob.",
         "properties": {
-          "dropped": {
-            "type": "integer",
-            "minimum": 0
+          "database_id": {
+            "description": "The database, 64 lowercase hex.",
+            "type": "string"
+          },
+          "sha256": {
+            "description": "The SHA-256 of the blob, 64 lowercase hex.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "database_id",
+          "sha256"
+        ],
+        "type": "object"
+      },
+      "BlobListAnswer": {
+        "description": "One page of a `blob.list`, at most 1,000 blobs.",
+        "properties": {
+          "blobs": {
+            "description": "The committed blobs of this page.",
+            "items": {
+              "$ref": "#/components/schemas/BlobListed"
+            },
+            "type": "array"
+          },
+          "next": {
+            "description": "Present when more follow: pass it as `after`.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "blobs"
+        ],
+        "type": "object"
+      },
+      "BlobListRequest": {
+        "additionalProperties": false,
+        "description": "`blob.list`: the committed blobs of a database, ascending by digest, a page at a time.",
+        "properties": {
+          "after": {
+            "description": "The `next` of the previous page.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "database_id": {
+            "description": "The database, 64 lowercase hex.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "database_id"
+        ],
+        "type": "object"
+      },
+      "BlobListed": {
+        "description": "One committed blob.",
+        "properties": {
+          "bytes": {
+            "description": "The length of the blob.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "sha256": {
+            "description": "The SHA-256 of the blob, 64 lowercase hex.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sha256",
+          "bytes"
+        ],
+        "type": "object"
+      },
+      "BlobPutAnswer": {
+        "description": "The answer to a `blob.put`.",
+        "properties": {
+          "sha256": {
+            "description": "The SHA-256 of the blob, 64 lowercase hex.",
+            "type": "string"
+          },
+          "stage": {
+            "$ref": "#/components/schemas/BlobPutStage",
+            "description": "The stage this answers."
+          },
+          "upload": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Upload"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "On a begin for a blob the relay does not hold: where to upload it. Absent when the blob is\ncommitted already, and on a commit."
+          }
+        },
+        "required": [
+          "stage",
+          "sha256"
+        ],
+        "type": "object"
+      },
+      "BlobPutRequest": {
+        "additionalProperties": false,
+        "description": "`blob.put`: begin or commit the upload of one blob, named by the SHA-256 of its bytes.",
+        "properties": {
+          "bytes": {
+            "description": "The length of the blob. A relay that holds a limit on one blob answers a larger begin with\n400 `invalid_request`, field `bytes`.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "database_id": {
+            "description": "The database, 64 lowercase hex.",
+            "type": "string"
+          },
+          "sha256": {
+            "description": "The SHA-256 of the blob, 64 lowercase hex.",
+            "type": "string"
+          },
+          "stage": {
+            "$ref": "#/components/schemas/BlobPutStage",
+            "description": "Begin or commit."
+          }
+        },
+        "required": [
+          "database_id",
+          "sha256",
+          "bytes",
+          "stage"
+        ],
+        "type": "object"
+      },
+      "BlobPutStage": {
+        "description": "The two steps of a `blob.put`.",
+        "oneOf": [
+          {
+            "const": "begin",
+            "description": "Ask for a presigned upload. A blob the relay holds already is answered without `upload`.",
+            "type": "string"
+          },
+          {
+            "const": "commit",
+            "description": "Confirm the upload. The relay checks the length and the recorded checksum and reads no\nobject bytes.",
+            "type": "string"
+          }
+        ]
+      },
+      "ErrorAnswer": {
+        "description": "The body of every answer other than 200.",
+        "properties": {
+          "code": {
+            "$ref": "#/components/schemas/ErrorCode",
+            "description": "The class of the refusal."
+          },
+          "field": {
+            "default": "",
+            "description": "What it is about: a request field (`segment.first_seq`), a gate (`publisher`, `grant`), or\na provider (`provider.dynamo`).",
+            "type": "string"
+          },
+          "grant": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GrantDenial"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "On 403 with field `grant`: the grant index the relay consulted, for diagnosis. A relay may\nleave it out."
+          },
+          "minimum_version": {
+            "description": "On 426: the lowest protocol version the relay serves.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "type": "object"
+      },
+      "ErrorCode": {
+        "description": "The class of a refusal. The HTTP status goes with it (see [`ErrorCode::status`]).",
+        "oneOf": [
+          {
+            "const": "invalid_request",
+            "description": "400: a field is malformed or out of range; `field` names it.",
+            "type": "string"
+          },
+          {
+            "const": "batch_too_large",
+            "description": "400: a batch is over its cap.",
+            "type": "string"
+          },
+          {
+            "const": "unauthorized",
+            "description": "401: a bad or missing request signature.",
+            "type": "string"
+          },
+          {
+            "const": "payment_required",
+            "description": "402: billing refuses the publisher.",
+            "type": "string"
+          },
+          {
+            "const": "forbidden",
+            "description": "403: no current grant for this node key and role, or not the publisher.",
+            "type": "string"
+          },
+          {
+            "const": "not_found",
+            "description": "404: a missing entry or blob.",
+            "type": "string"
+          },
+          {
+            "const": "conflict",
+            "description": "409: the stream is not where the request needs it (a segment out of order).",
+            "type": "string"
+          },
+          {
+            "const": "heads",
+            "description": "409 on `blob.drop`: a stream is not as the caller named it, or was not named. Nothing was\ndropped; compute the list again.",
+            "type": "string"
+          },
+          {
+            "const": "trimmed",
+            "description": "410 on `log.read`: the read starts at an entry that `log.trim` dropped.",
+            "type": "string"
+          },
+          {
+            "const": "upgrade_required",
+            "description": "426: the request names another protocol version.",
+            "type": "string"
+          },
+          {
+            "const": "rate_limited",
+            "description": "429: a quota, rate or provider limit. `field` says whether the same request can succeed a\nmoment later (see [`ErrorAnswer::is_transient`]).",
+            "type": "string"
+          },
+          {
+            "const": "unavailable",
+            "description": "500: an unknown or provider failure; retry.",
+            "type": "string"
+          },
+          {
+            "const": "unknown",
+            "description": "A code this build does not know. Never sent.",
+            "type": "string"
+          }
+        ]
+      },
+      "GrantDenial": {
+        "description": "The grant index a relay consulted for a 403 with field `grant`.",
+        "properties": {
+          "any_read": {
+            "description": "Whether `grant#any` gives read.",
+            "type": "boolean"
+          },
+          "any_role": {
+            "description": "The role `grant#any` gives, when there is one.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "caller": {
+            "description": "The caller's node key.",
+            "type": "string"
+          },
+          "database_id": {
+            "description": "The database whose index was read.",
+            "type": "string"
+          },
+          "has_publisher": {
+            "description": "Whether the index has a publisher.",
+            "type": "boolean"
+          },
+          "member_role": {
+            "description": "The caller's role, when it has one.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "publisher": {
+            "description": "Whether the caller is the publisher.",
+            "type": "boolean"
+          },
+          "publisher_node_key": {
+            "description": "The publisher's node key, when known.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "subjects": {
+            "default": [],
+            "description": "The grant records consulted.",
+            "items": {
+              "$ref": "#/components/schemas/GrantSubject"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "database_id",
+          "caller",
+          "has_publisher",
+          "any_read",
+          "publisher"
+        ],
+        "type": "object"
+      },
+      "GrantSubject": {
+        "description": "One grant record a relay consulted.",
+        "properties": {
+          "grantee": {
+            "description": "The grantee's node key, or `any`.",
+            "type": "string"
+          },
+          "record_id": {
+            "description": "The record's id.",
+            "type": "string"
+          },
+          "role": {
+            "description": "The role it gives.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "record_id",
+          "grantee",
+          "role"
+        ],
+        "type": "object"
+      },
+      "LogAppendAnswer": {
+        "description": "The answer to a `log.append`, counted in entries.",
+        "properties": {
+          "duplicate": {
+            "description": "Present and true when some or all of the entries were on the relay already. They count in\n`stored`, but nothing was written or charged for them.",
+            "type": "boolean"
+          },
+          "stored": {
+            "description": "Entries of this call the relay now holds, counting those it held already; for a segment,\nthe entries the segment holds. Equal to the entries sent when the call succeeds.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "stored"
+        ],
+        "type": "object"
+      },
+      "LogAppendRequest": {
+        "additionalProperties": false,
+        "description": "`log.append`: signed entries on the caller's streams, or one log segment on the caller's\nstream. Exactly one of `entries` and `segment` (else 400 `invalid_request`, field `segment`);\n[`LogAppendRequest::body`] reads which.",
+        "properties": {
+          "database_id": {
+            "description": "The database, 64 lowercase hex.",
+            "type": "string"
+          },
+          "entries": {
+            "description": "Signed entries, each the JSON of a `mutation_log::SignedEntry`, in stream order.",
+            "items": true,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "segment": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SegmentAppend"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A log segment: entries whose bytes the caller put on the relay as one blob."
+          }
+        },
+        "required": [
+          "database_id"
+        ],
+        "type": "object"
+      },
+      "LogReadAnswer": {
+        "description": "One page of a `log.read`. A page stops before the answer would pass 6 MB, so a short page is\nnot the end of a stream: the reader follows `cursor`.",
+        "properties": {
+          "cursor": {
+            "description": "Present when more may follow: pass it as `cursor`.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "entries": {
+            "description": "The entries in stream order; a stored segment stands in its place as one item.",
+            "items": {
+              "$ref": "#/components/schemas/ReadItem"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "entries"
+        ],
+        "type": "object"
+      },
+      "LogReadRequest": {
+        "additionalProperties": false,
+        "description": "`log.read`: one writer's entries, from `from_seq` of one device stream or across every device\nstream, or the page after `cursor`.",
+        "properties": {
+          "cursor": {
+            "description": "The `cursor` of the previous page; it carries the writer, the device and the position.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "database_id": {
+            "description": "The database, 64 lowercase hex.",
+            "type": "string"
+          },
+          "device_id": {
+            "description": "One device stream, 64 lowercase hex. Without it, every device stream of the writer.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "from_seq": {
+            "description": "The first sequence number to read (default 1). A read of one device stream from a\nposition a trim dropped answers 410 `trimmed`.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "limit": {
+            "description": "At most this many items (an entry or a segment each).",
+            "format": "uint32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "writer_key": {
+            "description": "The writer's node key, 64 lowercase hex. Required without `cursor`.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "database_id"
+        ],
+        "type": "object"
+      },
+      "LogStreamsAnswer": {
+        "description": "The answer to a `log.streams`. A writer with no stream gets an empty list.",
+        "properties": {
+          "streams": {
+            "description": "The streams, ascending by `device_id`. A stream whose entry 1 is not stored is not listed.",
+            "items": {
+              "$ref": "#/components/schemas/StreamHead"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "streams"
+        ],
+        "type": "object"
+      },
+      "LogStreamsRequest": {
+        "additionalProperties": false,
+        "description": "`log.streams`: one writer's device streams.",
+        "properties": {
+          "database_id": {
+            "description": "The database, 64 lowercase hex.",
+            "type": "string"
+          },
+          "writer_key": {
+            "description": "The writer's node key, 64 lowercase hex.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "database_id",
+          "writer_key"
+        ],
+        "type": "object"
+      },
+      "LogTrimAnswer": {
+        "description": "The answer to a `log.trim`. A call does a bounded amount of work; the caller repeats while\n`done` is false and adds the counts of every answer.",
+        "properties": {
+          "done": {
+            "description": "Nothing more to drop.",
+            "type": "boolean"
+          },
+          "entries_deleted": {
+            "description": "Entries this call dropped, those of dropped segments included.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
           },
           "released_bytes": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "absent": {
-            "type": "integer",
-            "minimum": 0
+            "description": "The stored length of the inline entries this call dropped.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
           }
-        }
+        },
+        "required": [
+          "done",
+          "entries_deleted",
+          "released_bytes"
+        ],
+        "type": "object"
+      },
+      "LogTrimRequest": {
+        "additionalProperties": false,
+        "description": "`log.trim`: drop what the `snapshot` entry at `writer_seq` of stream `device_id` covers.\nPublisher of a personal database only.",
+        "properties": {
+          "database_id": {
+            "description": "The database, 64 lowercase hex.",
+            "type": "string"
+          },
+          "device_id": {
+            "description": "The snapshot stream, 64 lowercase hex.",
+            "type": "string"
+          },
+          "writer_seq": {
+            "description": "The sequence number of the snapshot entry.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "database_id",
+          "device_id",
+          "writer_seq"
+        ],
+        "type": "object"
+      },
+      "ReadItem": {
+        "anyOf": [
+          {
+            "description": "A stored log segment, in its place in the stream.",
+            "properties": {
+              "segment": {
+                "$ref": "#/components/schemas/SegmentRef",
+                "description": "The segment and a presigned download of its blob."
+              }
+            },
+            "required": [
+              "segment"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "One signed entry, the JSON of a `mutation_log::SignedEntry`."
+          }
+        ],
+        "description": "One item of a `log.read` page."
+      },
+      "SegmentAppend": {
+        "additionalProperties": false,
+        "description": "A log segment in a `log.append`: the signed entries `first_seq` through `last_seq` of the\ncaller's stream `device_id`, whose bytes are the blob `sha256` (each entry's JSON followed by\none `\\n`, in order). The blob is committed through `blob.put` before the append.",
+        "properties": {
+          "bytes": {
+            "description": "The length of the blob, at least 1.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "device_id": {
+            "description": "The stream, 64 lowercase hex.",
+            "type": "string"
+          },
+          "first_seq": {
+            "description": "The first entry's sequence number, at least 1.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "last_hash": {
+            "description": "The entry hash of entry `last_seq`, 64 lowercase hex.",
+            "type": "string"
+          },
+          "last_seq": {
+            "description": "The last entry's sequence number, at least `first_seq`.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "sha256": {
+            "description": "The SHA-256 of the blob, 64 lowercase hex.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "device_id",
+          "first_seq",
+          "last_seq",
+          "last_hash",
+          "sha256",
+          "bytes"
+        ],
+        "type": "object"
+      },
+      "SegmentRef": {
+        "description": "A stored log segment as `log.read` names it, with the `blob.get` answer for its blob. The\nreader checks that the blob holds exactly entries `first_seq` through `last_seq` of the\nstream, in order, and that the last one's hash is `last_hash`.",
+        "properties": {
+          "bytes": {
+            "description": "The length of the blob.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "device_id": {
+            "description": "The stream, 64 lowercase hex.",
+            "type": "string"
+          },
+          "expires_at_ms": {
+            "description": "When `url` stops working, unix milliseconds.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "first_seq": {
+            "description": "The first entry's sequence number.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "headers": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "default": {},
+            "description": "Headers to send with the GET, exactly as given.",
+            "type": "object"
+          },
+          "last_hash": {
+            "description": "The entry hash of entry `last_seq`, 64 lowercase hex.",
+            "type": "string"
+          },
+          "last_seq": {
+            "description": "The last entry's sequence number.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "node_key": {
+            "description": "The writer, 64 lowercase hex.",
+            "type": "string"
+          },
+          "sha256": {
+            "description": "The SHA-256 of the blob, 64 lowercase hex.",
+            "type": "string"
+          },
+          "url": {
+            "description": "Presigned GET of the blob.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "node_key",
+          "device_id",
+          "first_seq",
+          "last_seq",
+          "last_hash",
+          "sha256",
+          "bytes",
+          "url",
+          "expires_at_ms"
+        ],
+        "type": "object"
+      },
+      "StreamHead": {
+        "description": "One device stream and its contiguous head.",
+        "properties": {
+          "device_id": {
+            "description": "The stream, 64 lowercase hex.",
+            "type": "string"
+          },
+          "head_hash": {
+            "description": "The entry hash of entry `head_seq`, 64 lowercase hex.",
+            "type": "string"
+          },
+          "head_seq": {
+            "description": "The highest sequence number such that every one from 1 up to it is stored.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "device_id",
+          "head_seq",
+          "head_hash"
+        ],
+        "type": "object"
+      },
+      "StreamPosition": {
+        "additionalProperties": false,
+        "description": "One stream at one entry.",
+        "properties": {
+          "device_id": {
+            "description": "The stream, 64 lowercase hex.",
+            "type": "string"
+          },
+          "writer_seq": {
+            "description": "The sequence number.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "device_id",
+          "writer_seq"
+        ],
+        "type": "object"
+      },
+      "Upload": {
+        "description": "A presigned upload. The client sends exactly `headers` (they carry the checksum the store\nenforces), except `content-length`, which it sets itself.",
+        "properties": {
+          "expires_at_ms": {
+            "description": "When `url` stops working, unix milliseconds.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "headers": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "default": {},
+            "description": "Headers to send with the PUT.",
+            "type": "object"
+          },
+          "url": {
+            "description": "Presigned PUT.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "expires_at_ms"
+        ],
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "description": "Generated from the relay_protocol crate by `cargo run -p relay_protocol --features schema --bin relay-protocol-openapi`. Do not edit: change the types. Behavior: docs/designs/relay-protocol.md.",
+    "title": "LastDB relay protocol",
+    "version": "1"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/relay/v1/blob/drop": {
+      "post": {
+        "operationId": "blobDrop",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-LastDB-Relay-Protocol",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-LastDB-Node-Key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-LastDB-Database-Id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-LastDB-Device-Id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-LastDB-Issued-At",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-LastDB-Nonce",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-LastDB-Signature",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BlobDropRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BlobDropAnswer"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorAnswer"
+                }
+              }
+            },
+            "description": "Refused"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorAnswer"
+                }
+              }
+            },
+            "description": "Refused"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorAnswer"
+                }
+              }
+            },
+            "description": "Refused"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorAnswer"
+                }
+              }
+            },
+            "description": "Refused"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorAnswer"
+                }
+              }
+            },
+            "description": "Refused"
+          },
+          "426": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorAnswer"
+                }
+              }
+            },
+            "description": "Refused"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorAnswer"
+                }
+              }
+            },
+            "description": "Refused"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorAnswer"
+                }
+              }
+            },
+            "description": "Refused"
+          }
+        },
+        "summary": "Drop named blobs (personal database, publisher only)."
       }
     },
-    "securitySchemes": {
-      "nodeSignature": {
-        "type": "apiKey",
-        "in": "header",
-        "name": "X-LastDB-Signature",
-        "description": "Ed25519 request signature. Signed material: POST\\n<path>\\n<protocol>\\n<node_key>\\n<database_id>\\n<body_sha256 hex>\\n<issued_at>\\n<nonce>. Companion headers: X-LastDB-Node-Key, X-LastDB-Database-Id, X-LastDB-Issued-At, X-LastDB-Nonce, X-LastDB-Relay-Protocol. Skew \u00b160s. Required on every relay request (including reads). grant#any means any signed caller may read \u2014 not unsigned access. Append/put also require a current write (or submit for proposals) grant; missing/bad sig \u2192 401; no grant \u2192 403 forbidden."
+    "/relay/v1/blob/get": {
+      "post": {
+        "operationId": "blobGet",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-LastDB-Relay-Protocol",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-LastDB-Node-Key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-LastDB-Database-Id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-LastDB-Device-Id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-LastDB-Issued-At",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-LastDB-Nonce",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-LastDB-Signature",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BlobGetRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BlobGetAnswer"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorAnswer"
+                }
+              }
+            },
+            "description": "Refused"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorAnswer"
+                }
+              }
+            },
+            "description": "Refused"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorAnswer"
+                }
+              }
+            },
+            "description": "Refused"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorAnswer"
+                }
+              }
+            },
+            "description": "Refused"
+          },
+          "426": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorAnswer"
+                }
+              }
+            },
+            "description": "Refused"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorAnswer"
+                }
+              }
+            },
+            "description": "Refused"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorAnswer"
+                }
+              }
+            },
+            "description": "Refused"
+          }
+        },
+        "summary": "Get a presigned download of one blob."
+      }
+    },
+    "/relay/v1/blob/list": {
+      "post": {
+        "operationId": "blobList",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-LastDB-Relay-Protocol",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-LastDB-Node-Key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-LastDB-Database-Id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-LastDB-Device-Id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-LastDB-Issued-At",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-LastDB-Nonce",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-LastDB-Signature",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BlobListRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BlobListAnswer"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorAnswer"
+                }
+              }
+            },
+            "description": "Refused"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorAnswer"
+                }
+              }
+            },
+            "description": "Refused"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorAnswer"
+                }
+              }
+            },
+            "description": "Refused"
+          },
+          "426": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorAnswer"
+                }
+              }
+            },
+            "description": "Refused"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorAnswer"
+                }
+              }
+            },
+            "description": "Refused"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorAnswer"
+                }
+              }
+            },
+            "description": "Refused"
+          }
+        },
+        "summary": "List the committed blobs of a database."
+      }
+    },
+    "/relay/v1/blob/put": {
+      "post": {
+        "operationId": "blobPut",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-LastDB-Relay-Protocol",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-LastDB-Node-Key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-LastDB-Database-Id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-LastDB-Device-Id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-LastDB-Issued-At",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-LastDB-Nonce",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-LastDB-Signature",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BlobPutRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BlobPutAnswer"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorAnswer"
+                }
+              }
+            },
+            "description": "Refused"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorAnswer"
+                }
+              }
+            },
+            "description": "Refused"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorAnswer"
+                }
+              }
+            },
+            "description": "Refused"
+          },
+          "426": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorAnswer"
+                }
+              }
+            },
+            "description": "Refused"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorAnswer"
+                }
+              }
+            },
+            "description": "Refused"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorAnswer"
+                }
+              }
+            },
+            "description": "Refused"
+          }
+        },
+        "summary": "Begin or commit the upload of one blob."
+      }
+    },
+    "/relay/v1/log/append": {
+      "post": {
+        "operationId": "logAppend",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-LastDB-Relay-Protocol",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-LastDB-Node-Key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-LastDB-Database-Id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-LastDB-Device-Id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-LastDB-Issued-At",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-LastDB-Nonce",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-LastDB-Signature",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LogAppendRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogAppendAnswer"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorAnswer"
+                }
+              }
+            },
+            "description": "Refused"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorAnswer"
+                }
+              }
+            },
+            "description": "Refused"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorAnswer"
+                }
+              }
+            },
+            "description": "Refused"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorAnswer"
+                }
+              }
+            },
+            "description": "Refused"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorAnswer"
+                }
+              }
+            },
+            "description": "Refused"
+          },
+          "426": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorAnswer"
+                }
+              }
+            },
+            "description": "Refused"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorAnswer"
+                }
+              }
+            },
+            "description": "Refused"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorAnswer"
+                }
+              }
+            },
+            "description": "Refused"
+          }
+        },
+        "summary": "Store signed entries, or one log segment, on the caller's stream."
+      }
+    },
+    "/relay/v1/log/read": {
+      "post": {
+        "operationId": "logRead",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-LastDB-Relay-Protocol",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-LastDB-Node-Key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-LastDB-Database-Id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-LastDB-Device-Id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-LastDB-Issued-At",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-LastDB-Nonce",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-LastDB-Signature",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LogReadRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogReadAnswer"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorAnswer"
+                }
+              }
+            },
+            "description": "Refused"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorAnswer"
+                }
+              }
+            },
+            "description": "Refused"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorAnswer"
+                }
+              }
+            },
+            "description": "Refused"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorAnswer"
+                }
+              }
+            },
+            "description": "Refused"
+          },
+          "426": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorAnswer"
+                }
+              }
+            },
+            "description": "Refused"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorAnswer"
+                }
+              }
+            },
+            "description": "Refused"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorAnswer"
+                }
+              }
+            },
+            "description": "Refused"
+          }
+        },
+        "summary": "Read one writer's entries."
+      }
+    },
+    "/relay/v1/log/streams": {
+      "post": {
+        "operationId": "logStreams",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-LastDB-Relay-Protocol",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-LastDB-Node-Key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-LastDB-Database-Id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-LastDB-Device-Id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-LastDB-Issued-At",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-LastDB-Nonce",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-LastDB-Signature",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LogStreamsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogStreamsAnswer"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorAnswer"
+                }
+              }
+            },
+            "description": "Refused"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorAnswer"
+                }
+              }
+            },
+            "description": "Refused"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorAnswer"
+                }
+              }
+            },
+            "description": "Refused"
+          },
+          "426": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorAnswer"
+                }
+              }
+            },
+            "description": "Refused"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorAnswer"
+                }
+              }
+            },
+            "description": "Refused"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorAnswer"
+                }
+              }
+            },
+            "description": "Refused"
+          }
+        },
+        "summary": "List one writer's device streams and how far each reaches."
+      }
+    },
+    "/relay/v1/log/trim": {
+      "post": {
+        "operationId": "logTrim",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-LastDB-Relay-Protocol",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-LastDB-Node-Key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-LastDB-Database-Id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-LastDB-Device-Id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-LastDB-Issued-At",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-LastDB-Nonce",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-LastDB-Signature",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LogTrimRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogTrimAnswer"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorAnswer"
+                }
+              }
+            },
+            "description": "Refused"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorAnswer"
+                }
+              }
+            },
+            "description": "Refused"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorAnswer"
+                }
+              }
+            },
+            "description": "Refused"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorAnswer"
+                }
+              }
+            },
+            "description": "Refused"
+          },
+          "426": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorAnswer"
+                }
+              }
+            },
+            "description": "Refused"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorAnswer"
+                }
+              }
+            },
+            "description": "Refused"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorAnswer"
+                }
+              }
+            },
+            "description": "Refused"
+          }
+        },
+        "summary": "Drop what a snapshot entry covers (personal database, publisher only)."
       }
     }
   }

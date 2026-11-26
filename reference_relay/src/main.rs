@@ -7,6 +7,7 @@
 //! open). No `AcceptEntry`: record payloads are never decrypted or applied.
 
 mod auth;
+mod blob_api;
 mod blob_http;
 mod blob_reclaim;
 mod blob_store;
@@ -40,9 +41,10 @@ use relay_protocol::Route;
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;
 
+use blob_api::{blob_get, blob_put};
 use blob_http::{blob_bytes, blob_upload};
 use blob_reclaim::{blob_drop, blob_list};
-use handlers::{blob_get, blob_put, log_append, log_read, log_streams, AppState};
+use handlers::{log_append, log_read, log_streams, AppState};
 use presign::{BLOB_BYTES_PATH, BLOB_UPLOAD_PATH};
 use store::Store;
 use trim::log_trim;

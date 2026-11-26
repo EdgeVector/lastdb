@@ -92,8 +92,9 @@ pub struct ErrorAnswer {
     pub minimum_version: Option<u32>,
     /// On 403 with field `grant`: the grant index the relay consulted, for diagnosis. A relay may
     /// leave it out.
+    // Boxed: rare and large, and every error result carries this type (clippy result_large_err).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub grant: Option<GrantDenial>,
+    pub grant: Option<Box<GrantDenial>>,
 }
 
 impl ErrorAnswer {
