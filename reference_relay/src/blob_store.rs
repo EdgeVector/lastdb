@@ -3,8 +3,8 @@
 //! Upload: `stage_begin` records the claimed size and digest under `staging/<database_id>/`,
 //! `stage_put` streams the request body to a unique `.part.<id>` file while hashing it, and
 //! refuses the file unless `x-amz-checksum-sha256`, byte count, and SHA-256 match the claim.
-//! `stage_commit` moves the verified file into `blobs/<sha256>` and records per-database
-//! ownership at `blobs/<database_id>/<sha256>`, and removes the pending records of the digest.
+//! `stage_commit` records per-database ownership at `blobs/<database_id>/<sha256>` first, then
+//! moves the verified file into `blobs/<sha256>`, and removes the pending records of the digest.
 //! Download opens the file only when that database owns the digest, and the HTTP layer streams
 //! it in chunks. `blob_reclaim` lists the blobs a database owns and drops them.
 
@@ -80,6 +80,9 @@ impl Store {
             return Ok(false);
         }
         let Ok(meta) = fs::metadata(self.blob_path(sha256)).await else {
+            // A commit that wrote the marker and stopped before the content: drop the claim so a
+            // later begin can stage the bytes again. `blob.list` already skips such markers.
+            let _ = fs::remove_file(self.db_blob_marker(database_id, sha256)).await;
             return Ok(false);
         };
         if meta.len() != bytes {
@@ -216,9 +219,9 @@ impl Store {
         if len != bytes {
             return Err(ApiError::invalid("bytes"));
         }
-        fs::rename(&staging, self.blob_path(sha256))
-            .await
-            .map_err(|_| ApiError::invalid("data_dir"))?;
+        // Claim ownership before the content is visible under `blobs/`. A crash between the old
+        // order (rename, then marker) left a content file that `blob.list` and `blob.drop` cannot
+        // name; with log segments a retry often uses another digest, so that file stayed forever.
         let marker = self.db_blob_marker(database_id, sha256);
         if let Some(parent) = marker.parent() {
             fs::create_dir_all(parent)
@@ -226,6 +229,9 @@ impl Store {
                 .map_err(|_| ApiError::invalid("data_dir"))?;
         }
         atomic_write(&marker, b"").await?;
+        fs::rename(&staging, self.blob_path(sha256))
+            .await
+            .map_err(|_| ApiError::invalid("data_dir"))?;
         // No pending record of the digest outlives its commit.
         self.clear_pending(database_id, sha256).await;
         Ok(())

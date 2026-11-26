@@ -35,9 +35,10 @@
 //!   commit. A blob another device put is not counted again. A blob in `pending` that a
 //!   `blob.list` of a sweep lists with its length was committed (the node stopped before it read
 //!   the answer, and sent a different segment after): it counts then, before the sweep can drop
-//!   it as named by nothing, so its release never counts without its put. A commit counts only
-//!   while its blob is in `pending`, so a commit that ends after that, or a second commit of the
-//!   same blob at the same time, does not count it twice;
+//!   it as named by nothing, so its release never counts without its put. A `pending` digest the
+//!   same listing does not hold is abandoned without counting: the commit never published it. A
+//!   commit counts only while its blob is in `pending`, so a commit that ends after that, or a
+//!   second commit of the same blob at the same time, does not count it twice;
 //! - a kill -9 in the moment between a relay answer and the write of this file for a snapshot entry
 //!   or a trim answer, which nothing sends again, is not repaired.
 
@@ -297,8 +298,10 @@ impl Ledger {
         store(&self.home, database_id, &mut saved)
     }
 
-    /// A `blob.list` of the relay: every blob in `pending` that it lists with the same length was
-    /// committed, so it moves into the confirmed totals.
+    /// A `blob.list` of the relay during a sweep (after the send step): every blob in `pending`
+    /// that it lists with the same length was committed, so it moves into the confirmed totals.
+    /// Every other `pending` digest is abandoned without counting: the commit never published a
+    /// listed blob (cut off before the relay claimed it, or the claim has no content yet).
     pub(super) fn confirm_listed(
         &self,
         database_id: &str,
@@ -313,21 +316,25 @@ impl Ledger {
         let mut saved: Saved = serde_json::from_slice(&raw)
             .map_err(|_| "the cloud usage record is invalid".to_owned())?;
         normalize(&self.home, database_id, self.spool_acked, &mut saved);
-        let held: Vec<(String, u64)> = saved
-            .pending
-            .iter()
-            .filter(|(digest, bytes)| listed.get(digest.as_str()) == Some(*bytes))
-            .map(|(digest, bytes)| (digest.clone(), *bytes))
-            .collect();
-        if held.is_empty() {
+        if saved.pending.is_empty() {
             return Ok(());
         }
-        for (digest, bytes) in held {
-            saved.pending.remove(&digest);
-            saved.usage.blobs = saved.usage.blobs.saturating_add(1);
-            saved.usage.blob_bytes = saved.usage.blob_bytes.saturating_add(bytes);
+        let pending = std::mem::take(&mut saved.pending);
+        let mut changed = false;
+        for (digest, bytes) in pending {
+            if listed.get(digest.as_str()) == Some(&bytes) {
+                saved.usage.blobs = saved.usage.blobs.saturating_add(1);
+                saved.usage.blob_bytes = saved.usage.blob_bytes.saturating_add(bytes);
+                changed = true;
+            } else {
+                // Not listed: the commit did not land as a held blob. Drop the cut-off mark.
+                changed = true;
+            }
         }
-        store(&self.home, database_id, &mut saved)
+        if changed {
+            store(&self.home, database_id, &mut saved)?;
+        }
+        Ok(())
     }
 
     /// The relay answered a `blob.drop`: it dropped `blobs` stored files of `bytes` in all.
