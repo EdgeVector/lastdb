@@ -1,5 +1,5 @@
 //! `lastdb ops`: print completed requests by caller and by schema, and the time
-//! committed writes spent in each phase.
+//! committed writes spent in each phase. `--since` reads the ops history instead.
 
 use std::fmt::Write;
 use std::io::{self, Write as IoWrite};
@@ -9,13 +9,20 @@ use serde_json::Value;
 
 use super::uds_client::{get_path, resolve_client_home_and_socket, split_http_200};
 
+#[path = "ops_cmds/since.rs"]
+mod since;
+
 const TIMEOUT: Duration = Duration::from_secs(30);
 
 pub(super) fn ops(
     data_dir: Option<std::path::PathBuf>,
     by_count: bool,
     json: bool,
+    window: Option<&str>,
 ) -> Result<(), String> {
+    if let Some(window) = window {
+        return since::ops_since(data_dir, window, by_count, json);
+    }
     let (_, socket) = resolve_client_home_and_socket(data_dir)?;
     let raw = get_path(&socket, "/api/ops", TIMEOUT)?;
     let body = split_http_200(raw.as_bytes(), "ops")?;
@@ -25,22 +32,25 @@ pub(super) fn ops(
     }
     let value: Value =
         serde_json::from_slice(body).map_err(|error| format!("invalid ops JSON: {error}"))?;
-    print_tables(&value, by_count)
+    print_tables(&value, by_count, false)
 }
 
-fn print_tables(value: &Value, by_count: bool) -> Result<(), String> {
+/// The call, schema and write phase tables. `mean` adds a mean column to the call table.
+fn print_tables(value: &Value, by_count: bool, mean: bool) -> Result<(), String> {
     let mut calls = call_lines(array(value, "calls")?)?;
     let mut schemas = schema_lines(array(value, "schemas")?)?;
     sort_calls(&mut calls, by_count);
     sort_schemas(&mut schemas, by_count);
-    let call_rows: Vec<Vec<String>> = calls.iter().map(CallLine::cells).collect();
-    write_table(
-        &[
-            "caller", "call", "count", "items", "total", "slowest", "refused",
-        ],
-        &call_rows,
-        &[false, false, true, true, true, true, false],
-    );
+    let call_rows: Vec<Vec<String>> = calls.iter().map(|line| line.cells(mean)).collect();
+    let mut header = vec![
+        "caller", "call", "count", "items", "total", "slowest", "refused",
+    ];
+    let mut right = vec![false, false, true, true, true, true, false];
+    if mean {
+        header.insert(5, "mean");
+        right.insert(5, true);
+    }
+    write_table(&header, &call_rows, &right);
     println!();
     let schema_rows: Vec<Vec<String>> = schemas.iter().map(SchemaLine::cells).collect();
     write_table(
@@ -94,8 +104,8 @@ struct CallLine {
 }
 
 impl CallLine {
-    fn cells(&self) -> Vec<String> {
-        vec![
+    fn cells(&self, mean: bool) -> Vec<String> {
+        let mut cells = vec![
             shown_caller(&self.caller, &self.client),
             self.call.clone(),
             self.count.to_string(),
@@ -103,7 +113,12 @@ impl CallLine {
             format_ns(self.total_ns),
             format_ns(self.slowest_ns),
             self.refused.clone(),
-        ]
+        ];
+        if mean {
+            let value = self.total_ns.checked_div(self.count).unwrap_or(0);
+            cells.insert(5, format_ns(value));
+        }
+        cells
     }
 }
 

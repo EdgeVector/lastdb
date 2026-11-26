@@ -68,6 +68,8 @@ pub struct CommitLogStats {
     pub flushes: u64,
     /// Mean time of one append and its ordered flush, in microseconds.
     pub mean_flush_micros: u64,
+    /// Time of all appends and their ordered flushes, in microseconds.
+    pub total_flush_micros: u64,
     /// Slowest append and ordered flush, in microseconds.
     pub slowest_flush_micros: u64,
     /// Logged commits that no run holds yet.
@@ -228,10 +230,12 @@ impl CommitLog {
     /// Flush counts since open, and the memory layer of `mem`.
     pub(super) fn stats(&self, mem: &Memory) -> CommitLogStats {
         let flushes = self.flushes.load(Ordering::Relaxed);
+        let flush_nanos = self.flush_nanos.load(Ordering::Relaxed);
         let micros = |nanos: u64| nanos / 1000;
         CommitLogStats {
             flushes,
-            mean_flush_micros: micros(self.flush_nanos.load(Ordering::Relaxed) / flushes.max(1)),
+            mean_flush_micros: micros(flush_nanos / flushes.max(1)),
+            total_flush_micros: micros(flush_nanos),
             slowest_flush_micros: micros(self.slowest_nanos.load(Ordering::Relaxed)),
             memory_commits: mem.commits(),
             memory_bytes: mem.bytes(),

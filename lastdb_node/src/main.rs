@@ -49,6 +49,10 @@ fn spawn_background(
             jobs::ttl_sweep::spawn_periodic(Arc::clone(host), Arc::clone(stop)),
         ),
         ("log sync", sync),
+        (
+            "ops history",
+            jobs::ops_history::spawn_periodic(Arc::clone(host), Arc::clone(stop)),
+        ),
     ]
 }
 

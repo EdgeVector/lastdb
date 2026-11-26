@@ -1,6 +1,7 @@
-//! Host jobs: periodic TTL sweeps.
+//! Host jobs: periodic TTL sweeps and the ops history.
 
 mod erase;
+pub mod ops_history;
 
 pub mod ttl_sweep {
     use std::sync::atomic::{AtomicBool, Ordering};

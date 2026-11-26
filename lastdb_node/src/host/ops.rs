@@ -1,5 +1,6 @@
-//! In-memory counts of completed requests. Nothing here is written to disk
-//! or included in a backup. The tables start empty when the node starts.
+//! In-memory counts of completed requests. The tables start empty when the
+//! node starts. Once a minute the ops history job writes the change since the
+//! previous minute (see `sample`) to a local file that no backup includes.
 //!
 //! Caps, and what happens at each cap:
 //! - 256 call rows of (caller, client, route). The next new key counts on
@@ -25,6 +26,7 @@
 
 mod body;
 mod phases;
+mod sample;
 mod scan;
 mod view;
 
@@ -111,6 +113,7 @@ struct CallRow {
     items: u64,
     refused: [u64; 8],
     unknown: bool,
+    mark: sample::CallMark,
 }
 
 impl CallRow {
@@ -125,8 +128,9 @@ impl CallRow {
         self.total_ns = self.total_ns.saturating_add(ns);
         self.slowest_ns = self.slowest_ns.max(ns);
         self.items = self.items.saturating_add(items);
+        self.mark.recent_slowest_ns = self.mark.recent_slowest_ns.max(ns);
         if status >= 400 {
-            let slot = &mut self.refused[code_at(status)];
+            let slot = &mut self.refused[scan::code_at(status)];
             *slot = slot.saturating_add(1);
         }
     }
@@ -139,6 +143,8 @@ struct SchemaRow {
     op: Op,
     items: u64,
     total_ns: u64,
+    /// Items and total time at the last history sample.
+    mark: (u64, u64),
 }
 
 impl SchemaRow {
@@ -191,8 +197,8 @@ impl Default for Ops {
 
 impl Ops {
     pub(crate) fn record(&self, done: &Completed<'_>) {
-        let caller = scan::clip(caller_of(done), CALL_CLIP);
-        let client = scan::clip(client_of(done), CALL_CLIP);
+        let caller = scan::clip(scan::caller_of(done), CALL_CLIP);
+        let client = scan::clip(scan::client_of(done), CALL_CLIP);
         let ns = u64::try_from(done.elapsed.as_nanos()).unwrap_or(u64::MAX);
         let scan = match done.call.as_str() {
             "/v1/read" => body::items(done.body, b"reads"),
@@ -338,6 +344,7 @@ impl Tables {
                 op,
                 items,
                 total_ns: ns,
+                mark: (0, 0),
             });
         }
     }
@@ -360,41 +367,6 @@ fn blank_call(
         items: 0,
         refused: [0; 8],
         unknown,
-    }
-}
-
-fn caller_of<'a>(done: &'a Completed<'a>) -> &'a str {
-    if !done.apps {
-        return OWNER;
-    }
-    header(done.headers, "X-LastDB-App")
-        .map(str::trim)
-        .filter(|id| !id.is_empty())
-        .unwrap_or(UNKNOWN)
-}
-
-fn client_of<'a>(done: &'a Completed<'a>) -> &'a str {
-    if done.apps {
-        return "";
-    }
-    header(done.headers, "X-LastDB-Client").map_or("", str::trim)
-}
-
-fn header<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'a str> {
-    headers
-        .iter()
-        .find_map(|(key, value)| key.eq_ignore_ascii_case(name).then_some(value.as_str()))
-}
-
-const fn code_at(status: u16) -> usize {
-    match status {
-        400 | 422 => 0,
-        401 | 403 => 1,
-        404 => 2,
-        409 => 3,
-        413 => 4,
-        423 | 429 | 503 => 5,
-        405 => 6,
-        _ => 7,
+        mark: sample::CallMark::default(),
     }
 }
