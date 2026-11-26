@@ -308,7 +308,7 @@ impl PackRuntime {
         let Some(log) = &self.accepted else {
             return Ok(Vec::new());
         };
-        log.prepare(&self.physical, before, notes).map_err(storage)
+        log.prepare(before, notes).map_err(storage)
     }
 
     pub(in crate::storage) fn publish_accepted(&self) -> StorageResult<()> {
