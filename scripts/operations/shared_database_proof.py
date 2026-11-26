@@ -226,8 +226,8 @@ def prove_sealed(members, relay_data):
         for entry in iter_entries(data):
             if entry.get("kind") not in ("data", "schema"):
                 continue
-            body = entry.get("body") or {}
-            require(body.get("namespace") == "sealed",
+            # SignedEntry flattens the body, so namespace sits on the entry.
+            require(entry.get("namespace") == "sealed",
                     f"{path} holds a {entry.get('kind')} entry that is not sealed")
             sealed += 1
     require(sealed > 0, "no sealed data or schema entry was found")
