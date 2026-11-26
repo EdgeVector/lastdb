@@ -1,11 +1,12 @@
-//! Authoring of the publisher's device streams (birth, grants, revoke, bundles, heads).
+//! Authoring of the publisher's device streams (birth, grants, revoke, bundles, heads, and the
+//! cleanup's snapshot).
 
 use app_identity_crypto::SigningKey;
 use mutation_log::{
     author_birth, author_bundle, author_data, author_grant, author_heads, author_lease,
-    decode_signature_b64url, entry_hash, grant_raise, grant_reduce, AuthorCtx, BundleBody,
-    DataBody, DatabaseId, DeviceHead, DeviceId, EncodeError, Grantee, Hex32, IncorporatedFrom,
-    LeaseBody, NodeKey, Role, SignedEntry, StreamHead, StreamKind,
+    author_snapshot, decode_signature_b64url, entry_hash, grant_raise, grant_reduce, AuthorCtx,
+    BundleBody, DataBody, DatabaseId, DeviceHead, DeviceId, EncodeError, Grantee, Hex32,
+    IncorporatedFrom, LeaseBody, NodeKey, Role, SignedEntry, SnapshotBody, StreamHead, StreamKind,
 };
 
 use sha2::{Digest, Sha256};
@@ -176,5 +177,10 @@ impl Publisher {
 
     pub fn heads(&self, chain: &mut Chain, tips: Vec<DeviceHead>) -> Result<SignedEntry, String> {
         self.author(chain, |ctx, key| author_heads(ctx, key, tips))
+    }
+
+    /// The `snapshot` entry that `blob/drop` names (see `cleanup.rs`).
+    pub fn snapshot(&self, chain: &mut Chain, body: SnapshotBody) -> Result<SignedEntry, String> {
+        self.author(chain, |ctx, key| author_snapshot(ctx, key, body))
     }
 }
