@@ -194,9 +194,17 @@ impl Log {
 
     /// The operations that put `notes` in the spool, for the commit that writes them. A state
     /// row that changed since the last commit goes with them. Sealed files are written now.
+    ///
+    /// This runs inside the commit turn and does not read the id records. A repeated mutation
+    /// id was refused before the write joined the queue: `stage_records` reads the id records
+    /// under the prepare gate, and [`Self::check_admissible`] compares the ids with every queued,
+    /// uncommitted write and reads the id records again under both gates. Only a queue turn adds
+    /// id records. A turn holds the prepare gate, and a sealed queue admits no new write and
+    /// lets no other commit in until the turn completes, so no id is added between those checks
+    /// and this commit that they did not see. The `seen` set below still refuses a repeat inside
+    /// one turn.
     pub(in crate::storage) fn prepare(
         &self,
-        physical: &V2Home,
         before: Frontiers,
         notes: &[Note],
     ) -> Result<Vec<HomeMutation>, Error> {
@@ -229,10 +237,6 @@ impl Log {
                     return Err(Error::Conflict);
                 }
                 added = added.checked_add(note.byte_weight()).ok_or(Error::Spool)?;
-            }
-            let ids: Vec<String> = notes.iter().map(|note| note.mutation_id.clone()).collect();
-            if store::read_ids(physical, &ids)?.iter().any(Option::is_some) {
-                return Err(Error::Conflict);
             }
             if inner
                 .retained

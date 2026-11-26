@@ -567,15 +567,17 @@ the phase.
   conditions.
 - `read_and_stage.stamps`: the local replay head, the author clocks, and the
   field stamps.
-- `read_and_stage.spool_entry`: encoding and signing the spool entry of a
-  captured write.
+- `read_and_stage.spool_entry`: checking that the mutation id of a captured
+  write is new, and encoding and signing its spool entry.
 - `read_and_stage.stage`: staging the new records and their alternate
   entries.
-- `commit.queue`: the space and queue checks, and joining the commit queue.
+- `commit.queue`: the space and queue checks, the mutation id check against
+  the queued writes and the stored ids, and joining the commit queue.
 - `commit.turn_wait`: until the queue turn that commits the write holds both
   gates. Another commit, such as a spool confirmation of the sync loop, runs
   first here.
-- `commit.spool_records`: the spool records of the captured writes.
+- `commit.spool_records`: preparing the spool records of the captured writes.
+  It does not read the stored ids again.
 - `commit.log_flush`: the commit log append and its ordered flush.
 - `commit.install`: publishing the spool head, the read view, and the
   metadata.
