@@ -18,7 +18,7 @@ use sha2::{Digest, Sha256};
 use crate::blob::{bundle_changes, encode_changes, BundleCipher, BUNDLE_RECORDS, VALUE_TEXT_BYTES};
 use crate::chain::{Chain, Publisher};
 use crate::grants::{self, Scene};
-use crate::identity::{new_device_id, now_ms, Actor, DbBirth};
+use crate::identity::{new_device_id, now_ms, Actor};
 use crate::ledger::Ledger;
 
 const DAY_MS: u64 = 86_400_000;
@@ -68,8 +68,7 @@ pub async fn bootstrap(http: &reqwest::Client, plan: &UploadPlan) -> Result<Uplo
     let started = Instant::now();
     let owner = Actor::generate();
     let [member_actor, submit_actor, read_actor] = [(); 3].map(|()| Actor::generate());
-    let birth = DbBirth::generate(owner.node_key);
-    plan.ledger.database(&owner, birth.database_id);
+    let birth = plan.ledger.mint(&owner);
     let publisher = Publisher {
         actor: owner,
         database_id: birth.database_id,

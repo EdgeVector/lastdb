@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use mutation_log::DatabaseId;
 
-use crate::identity::Actor;
+use crate::identity::{Actor, DbBirth};
 
 /// One database this run minted.
 pub struct OwnedDatabase {
@@ -24,13 +24,15 @@ pub struct OwnedDatabase {
 pub struct Ledger(Arc<Mutex<Vec<OwnedDatabase>>>);
 
 impl Ledger {
-    /// Record a database before its first entry is appended.
-    pub fn database(&self, publisher: &Actor, database_id: DatabaseId) {
+    /// Mint a database for `publisher` and record it before its first entry is appended.
+    pub fn mint(&self, publisher: &Actor) -> DbBirth {
+        let birth = DbBirth::generate(publisher.node_key);
         self.lock().push(OwnedDatabase {
             publisher: publisher.clone(),
-            database_id,
+            database_id: birth.database_id,
             blobs: Vec::new(),
         });
+        birth
     }
 
     /// Record a blob of the database `database_hex` once `blob.put` committed it.

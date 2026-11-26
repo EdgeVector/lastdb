@@ -211,18 +211,12 @@ async fn prove(
     let (streams_steps, blob_file) = opt_in_steps(cli, http, relay_url, work).await?;
 
     let limit = cli.limit_seconds;
-    let nongrantee_ok = up.nongrantee_http_status == 403;
-    let ok = up.seconds < limit && restore_seconds < limit && nongrantee_ok;
-    let error = if !nongrantee_ok {
-        Some(format!(
-            "nongrantee_http_status={} (expected 403)",
-            up.nongrantee_http_status
-        ))
-    } else if !ok {
-        Some(format!("a phase took {limit}s or longer"))
-    } else {
-        None
-    };
+    let (ok, error) = verdict(
+        limit,
+        up.seconds,
+        restore_seconds,
+        up.nongrantee_http_status,
+    );
     Ok(Outcome {
         ok,
         report: json!({
@@ -249,6 +243,23 @@ async fn prove(
             "blob_file_stream": blob_file,
         }),
     })
+}
+
+/// Both phases under `limit` seconds and a 403 for the never-granted node; else why not.
+fn verdict(limit: f64, upload: f64, restore: f64, nongrantee: u16) -> (bool, Option<String>) {
+    if nongrantee != 403 {
+        return (
+            false,
+            Some(format!(
+                "nongrantee_http_status={nongrantee} (expected 403)"
+            )),
+        );
+    }
+    if upload < limit && restore < limit {
+        (true, None)
+    } else {
+        (false, Some(format!("a phase took {limit}s or longer")))
+    }
 }
 
 /// The opt-in steps: the step names of `log.streams`, and the large-file report.
