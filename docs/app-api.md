@@ -558,6 +558,30 @@ each:
   the sync loop or signing a shared database's entries.
 - `handler`: the whole handler, the sum of the phases above.
 
+Parts of a phase follow it in the list, named `<phase>.<part>`. They split
+that phase and are not part of the sum. Time that no part names is the rest of
+the phase.
+
+- `read_and_stage.capture`: taking the read view of the write.
+- `read_and_stage.old_records`: reading the old records and checking the
+  conditions.
+- `read_and_stage.stamps`: the local replay head, the author clocks, and the
+  field stamps.
+- `read_and_stage.spool_entry`: encoding and signing the spool entry of a
+  captured write.
+- `read_and_stage.stage`: staging the new records and their alternate
+  entries.
+- `commit.queue`: the space and queue checks, and joining the commit queue.
+- `commit.turn_wait`: until the queue turn that commits the write holds both
+  gates. Another commit, such as a spool confirmation of the sync loop, runs
+  first here.
+- `commit.spool_records`: the spool records of the captured writes.
+- `commit.log_flush`: the commit log append and its ordered flush.
+- `commit.install`: publishing the spool head, the read view, and the
+  metadata.
+- `commit.deliver`: post-commit work of the writes in the same turn.
+- `commit.wake`: from the end of the turn until the write runs again.
+
 A request's time in the call table also holds the wait for a socket worker
 and the reply. `slowest_ns` is the slowest value of that one phase. `lastdb
 ops` prints the phases as a third table with the mean for each.

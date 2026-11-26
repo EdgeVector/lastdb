@@ -34,6 +34,8 @@ pub(in crate::storage) struct PendingBatch {
     frozen: AtomicBool,
     pub(in crate::storage::disk_pack) operation_limit: usize,
     pub(in crate::storage::disk_pack) warm_records: Mutex<record_warm::StagedWarmRecords>,
+    /// When the queue turn that commits this batch reached each step.
+    pub(in crate::storage::disk_pack) clock: phases::TurnClock,
 }
 
 tokio::task_local! { static WRITE: Arc<PendingBatch>; }
@@ -50,6 +52,7 @@ impl PendingBatch {
             frozen: AtomicBool::new(false),
             operation_limit: rt.batch_operation_limit(),
             warm_records: Mutex::default(),
+            clock: phases::TurnClock::default(),
         }
     }
 
@@ -246,6 +249,13 @@ pub(in crate::storage) fn take_accepted_notes(requests: &[Arc<PendingBatch>]) ->
         notes.extend(request.take_accepted_notes());
     }
     notes
+}
+
+/// Note on every batch of a queue turn that the turn reached `mark`.
+pub(in crate::storage::disk_pack) fn mark_turn(requests: &[Arc<PendingBatch>], mark: phases::Mark) {
+    for request in requests {
+        request.clock.mark(mark);
+    }
 }
 
 pub(in crate::storage) fn has_accepted(requests: &[Arc<PendingBatch>]) -> bool {
