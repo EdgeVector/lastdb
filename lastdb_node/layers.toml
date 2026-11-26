@@ -18,6 +18,7 @@ modules = [
   "personal_author",
   "personal_identity",
   "personal_seal",
+  "shared_seal",
   "profile",
 ]
 

@@ -182,7 +182,7 @@ fn ensure_schema(
         author_schema(&author, &ctx.identity.signing_key, body).map_err(|e| e.to_string())?;
     let opened = shared_seal::open_entry(&ctx.sealer, &entry)
         .ok_or_else(|| "sealed schema entry does not open".to_owned())?;
-    stage_opened(history, batch, entry, opened)
+    stage_opened(history, batch, entry, &opened)
 }
 
 fn schema_definition_matches(prior: &[u8], current: &fold_db::schema::types::Schema) -> bool {
@@ -236,7 +236,7 @@ fn author_one(
     let entry = author_data(&author, &ctx.identity.signing_key, body).map_err(|e| e.to_string())?;
     let opened = shared_seal::open_entry(&ctx.sealer, &entry)
         .ok_or_else(|| "sealed data entry does not open".to_owned())?;
-    stage_opened(history, batch, entry, opened)
+    stage_opened(history, batch, entry, &opened)
 }
 
 fn shared_sealer(host: &Host, database_id: &str) -> Result<Sealer, String> {
@@ -279,7 +279,7 @@ fn stage_opened(
     history: &mut VerifiedHistory,
     batch: &mut Vec<SignedEntry>,
     entry: SignedEntry,
-    opened: SignedEntry,
+    opened: &SignedEntry,
 ) -> Result<(), String> {
     if history.pending_on(&stream_id_of(&entry)) {
         return Err("this stream has entries that wait for a dependency; sync first".into());
