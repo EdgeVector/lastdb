@@ -89,14 +89,9 @@ impl PackNamespacedStore {
 }
 
 impl PackRuntime {
-    /// Make sure the registry row of namespace `name` exists, reading it at most until this
-    /// runtime knows it is committed.
-    ///
-    /// No code deletes a registry row, and a restore opens a new runtime on its installed
-    /// files, so once the row is known the check is not repeated for every batch. A row that
-    /// only the caller's open batch stages is not taken as known: that batch can still fail
-    /// before it commits. A row seen in a queued batch is: a queued batch commits, or its
-    /// failure stops every later write of this runtime.
+    /// Ensure the registry row of namespace `name` exists. No code deletes a registry row
+    /// and a restore opens a new runtime, so a row known to be committed is not read again.
+    /// A row staged only in the caller's open batch is not cached; a row in a queued batch is.
     async fn ensure_namespace(self: &Arc<Self>, name: &str) -> StorageResult<()> {
         if self
             .known_namespaces
