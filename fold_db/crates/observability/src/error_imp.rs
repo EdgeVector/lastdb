@@ -1,4 +1,4 @@
-//! Sentry ERROR-layer: always-on fault surfaces, private event mapping.
+//! Sentry ERROR-layer: always-on for user devices; Lambda installs when DSN is set.
 
 use std::borrow::Cow;
 use std::env;
@@ -20,42 +20,57 @@ const DSN_ENV: &str = "OBS_SENTRY_DSN";
 pub type ErrorLayer<S> = Filtered<sentry_tracing::SentryLayer<S>, FilterFn, S>;
 
 /// Initialize the Sentry client without a tracing layer (CLI / short tools).
-pub fn init_sentry_client(surface: FaultSurface) -> Result<SentryGuard, ObsError> {
-    let (dsn, opts) = prepare_client(surface)?;
-    Ok(SentryGuard {
-        _client: sentry::init((dsn, opts)),
-    })
+/// User surface always installs. Lambda installs only when `OBS_SENTRY_DSN` is set.
+pub fn init_sentry_client(surface: FaultSurface) -> Result<Option<SentryGuard>, ObsError> {
+    Ok(prepare_client(surface)?.map(|(dsn, opts)| SentryGuard {
+        _client: Some(sentry::init((dsn, opts))),
+    }))
 }
 
-/// Build the ERROR-only Sentry tracing layer. Always installs a client.
+/// Build the ERROR-only Sentry tracing layer.
+///
+/// - [`FaultSurface::User`]: always installs (baked DSN).
+/// - [`FaultSurface::Lambda`]: installs when `OBS_SENTRY_DSN` is set; otherwise
+///   logs a warning and returns `None`. Auto fold-bumps only move the pin, so
+///   fail-closed waits on a later PR after exemem/schema infra wire the secret.
 pub fn build_error_layer<S: Subscriber + for<'a> LookupSpan<'a>>(
     surface: FaultSurface,
-) -> Result<(ErrorLayer<S>, SentryGuard), ObsError> {
-    let (dsn, opts) = prepare_client(surface)?;
+) -> Result<Option<(ErrorLayer<S>, SentryGuard)>, ObsError> {
+    let Some((dsn, opts)) = prepare_client(surface)? else {
+        return Ok(None);
+    };
     let _client = sentry::init((dsn, opts));
     let filter: FilterFn =
         filter_fn(|m: &Metadata<'_>| !m.is_event() || *m.level() == Level::ERROR);
     let layer = sentry_tracing::layer()
         .event_mapper(map_event::<S>)
         .with_filter(filter);
-    Ok((layer, SentryGuard { _client }))
+    Ok(Some((
+        layer,
+        SentryGuard {
+            _client: Some(_client),
+        },
+    )))
 }
 
 fn prepare_client(
     surface: FaultSurface,
-) -> Result<(sentry::types::Dsn, sentry::ClientOptions), ObsError> {
+) -> Result<Option<(sentry::types::Dsn, sentry::ClientOptions)>, ObsError> {
     let (dsn, environment) = match surface {
         FaultSurface::User => {
             let dsn = parse_dsn(USER_DEVICE_DSN)?;
             (dsn, "user")
         }
-        FaultSurface::Lambda { environment } => {
-            let dsn = match env::var(DSN_ENV) {
-                Ok(raw) if !raw.trim().is_empty() => parse_dsn(raw.trim())?,
-                _ => return Err(ObsError::LambdaDsnRequired),
-            };
-            (dsn, environment)
-        }
+        FaultSurface::Lambda { environment } => match env::var(DSN_ENV) {
+            Ok(raw) if !raw.trim().is_empty() => (parse_dsn(raw.trim())?, environment),
+            _ => {
+                eprintln!(
+                    "observability: {DSN_ENV} unset; continuing without Sentry \
+                     (Lambda fail-closed waits on schema/exemem DSN infra)"
+                );
+                return Ok(None);
+            }
+        },
     };
     remember_environment(environment);
     let opts = sentry::ClientOptions {
@@ -70,7 +85,7 @@ fn prepare_client(
         before_breadcrumb: Some(Arc::new(|_| None)),
         ..sentry::ClientOptions::default()
     };
-    Ok((dsn, opts))
+    Ok(Some((dsn, opts)))
 }
 
 fn parse_dsn(raw: &str) -> Result<sentry::types::Dsn, ObsError> {

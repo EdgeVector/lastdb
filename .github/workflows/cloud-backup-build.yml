@@ -86,6 +86,9 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Build the exact accepted client
         if: success() && inputs.client == 'build'
+        env:
+          # Public lastdb-mini client DSN; release/dev-release builds require it.
+          LASTDB_SENTRY_DSN: "https://2de2e2512878eedeef5359696ac37e70@o4511522196291584.ingest.us.sentry.io/4511737993101312" # secret-scan-ok: public lastdb-mini client DSN
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$SOURCE_COMMIT"

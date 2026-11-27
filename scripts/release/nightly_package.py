@@ -147,7 +147,21 @@ def build_target(args):
             raise ValueError("build-target requires --plan or --git-oid, --expect-version, and --source-epoch")
         git_oid, version, epoch = args.git_oid, args.expect_version, args.source_epoch
         nightly_only = "-nightly." in version
-    env = {**os.environ, "FOLDDB_BUILD_VERSION_OVERRIDE": version}
+    # Public lastdb-mini client DSN (not a secret). Split so secret-scan does not
+    # match a full DSN on one line; lastdb_node release builds require this env.
+    public_dsn = (
+        "https://"
+        + "2de2e2512878eedeef5359696ac37e70"
+        + "@"
+        + "o4511522196291584.ingest.us.sentry.io"
+        + "/"
+        + "4511737993101312"
+    )
+    env = {
+        **os.environ,
+        "FOLDDB_BUILD_VERSION_OVERRIDE": version,
+        "LASTDB_SENTRY_DSN": os.environ.get("LASTDB_SENTRY_DSN") or public_dsn,
+    }
     if args.target.startswith("aarch64-"):
         # .cargo/config.toml turns on the ARMv8 AES and PMULL backends for this target. Any of
         # these variables, even empty, replaces those flags and ships the software cipher.

@@ -35,7 +35,7 @@ pub mod layers {
         #[must_use = "SentryGuard must be held for the lifetime of the binary or buffered events may be dropped"]
         pub struct SentryGuard {
             #[cfg(feature = "sentry")]
-            pub(crate) _client: sentry::ClientInitGuard,
+            pub(crate) _client: Option<sentry::ClientInitGuard>,
         }
 
         impl std::fmt::Debug for SentryGuard {
@@ -59,14 +59,14 @@ pub mod layers {
         #[cfg(not(feature = "sentry"))]
         pub fn build_error_layer<S>(
             _surface: crate::FaultSurface,
-        ) -> Result<(ErrorLayer<S>, SentryGuard), crate::ObsError> {
+        ) -> Result<Option<(ErrorLayer<S>, SentryGuard)>, crate::ObsError> {
             Err(crate::ObsError::SentryRequired)
         }
 
         #[cfg(not(feature = "sentry"))]
         pub fn init_sentry_client(
             _surface: crate::FaultSurface,
-        ) -> Result<SentryGuard, crate::ObsError> {
+        ) -> Result<Option<SentryGuard>, crate::ObsError> {
             Err(crate::ObsError::SentryRequired)
         }
     }
@@ -78,19 +78,19 @@ pub enum ObsError {
     AlreadyInitialized,
     #[error("failed to install tracing subscriber: {0}")]
     SubscriberInstall(String),
-    #[error("OBS_SENTRY_DSN is required for Lambda fault reporting")]
-    LambdaDsnRequired,
     #[error("invalid Sentry DSN: {0}")]
     InvalidDsn(String),
-    #[error("Lambda ENVIRONMENT must be dev or prod")]
+    #[error("Lambda ENVIRONMENT or OBS_SENTRY_ENVIRONMENT must be dev or prod")]
     LambdaEnvironmentRequired,
     #[error("Sentry fault reporting is required but the sentry feature is not enabled")]
     SentryRequired,
+    #[error("user-device Sentry reporting failed to install")]
+    UserSentryRequired,
 }
 
 #[must_use = "ObsGuard must be held for the lifetime of the binary or log lines may be dropped"]
 pub struct ObsGuard {
-    _sentry: layers::error::SentryGuard,
+    _sentry: Option<layers::error::SentryGuard>,
     _worker: WorkerGuard,
 }
 
@@ -110,16 +110,23 @@ pub fn set_service_name(service_name: &'static str) {
     fault::remember_service(service_name);
 }
 
-/// Derive the Lambda deploy environment from `ENVIRONMENT` (`dev` or `prod`).
+/// Derive the Lambda deploy environment (`dev` or `prod`).
+///
+/// Prefers `ENVIRONMENT`. Falls back to `OBS_SENTRY_ENVIRONMENT` while storage
+/// Lambdas still only set the latter; remove the fallback after exemem-infra
+/// wires `ENVIRONMENT` on every Lambda.
 pub fn lambda_environment_from_env() -> Result<&'static str, ObsError> {
-    match std::env::var("ENVIRONMENT") {
-        Ok(v) => match v.trim() {
-            "prod" | "production" => Ok("prod"),
-            "dev" | "development" => Ok("dev"),
-            _ => Err(ObsError::LambdaEnvironmentRequired),
-        },
-        Err(_) => Err(ObsError::LambdaEnvironmentRequired),
+    for key in ["ENVIRONMENT", "OBS_SENTRY_ENVIRONMENT"] {
+        if let Ok(v) = std::env::var(key) {
+            return match v.trim() {
+                "prod" | "production" => Ok("prod"),
+                "dev" | "development" => Ok("dev"),
+                "" => continue,
+                _ => Err(ObsError::LambdaEnvironmentRequired),
+            };
+        }
     }
+    Err(ObsError::LambdaEnvironmentRequired)
 }
 
 /// Initialize JSON logging and Sentry for a Lambda service.
@@ -139,7 +146,10 @@ pub fn init_lambda(service_name: &'static str, _version: &str) -> Result<ObsGuar
     let (writer, _worker) = tracing_appender::non_blocking(io::stdout());
     let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
     let (error_layer, _sentry) =
-        layers::error::build_error_layer(FaultSurface::Lambda { environment })?;
+        match layers::error::build_error_layer(FaultSurface::Lambda { environment })? {
+            Some((layer, guard)) => (Some(layer), Some(guard)),
+            None => (None, None),
+        };
     let fmt_layer = tracing_subscriber::fmt::layer()
         .event_format(RedactingFormat)
         .with_writer(writer);
