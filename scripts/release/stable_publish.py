@@ -50,6 +50,13 @@ FORMULA_BODY = """  desc "@DESC@"
       Run this once to set LastDB up as a login service:
            lastdb service install
 
+      If LastDB already runs through `brew services`, do not stop it. This
+      formula has no service block, so run this once instead. It keeps the
+      same job and the same home, and points the job at the self-updating
+      copy (the daemon must be running):
+           lastdb service adopt --label homebrew.mxcl.lastdb
+      After that, do not use `brew services` for LastDB.
+
       After that, LastDB updates itself. Check for an update, or install one
       now, with:
            lastdb upgrade --check
