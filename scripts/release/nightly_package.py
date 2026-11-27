@@ -182,14 +182,18 @@ def build_target(args):
         subprocess.run(cmd, env=env, check=True)
     bin_dir = Path(env.get("CARGO_TARGET_DIR") or "target").resolve() / args.target / "release"
     if args.target.startswith("aarch64-"):
-        # Before strip: the daemon must hold the ARMv8 backends of aes and polyval. Other
-        # crates (ring, aws-lc) carry their own AES code, so the instructions alone prove nothing.
-        symbols = subprocess.check_output(["nm", str(bin_dir / "lastdbd")], text=True, timeout=300)
-        missing = [crate for crate, mark in (("aes", "3aes5armv8"), ("polyval", "7polyval7backend5pmull"))
-                   if mark not in symbols]
-        if missing:
-            raise RuntimeError(f"lastdbd lacks the ARMv8 backend of {', '.join(missing)}; "
-                               "check the cfgs in .cargo/config.toml")
+        # aes and polyval must have been compiled with their ARMv8 backend cfgs. The binary
+        # cannot show it: the Apple target enables `aes` statically, so the backend inlines and
+        # leaves no symbol, and ring and aws-lc carry AES instructions of their own. Cargo's
+        # fingerprint of the newest build of each crate records the rustflags it used.
+        for crate, cfg in (("aes", "aes_armv8"), ("polyval", "polyval_armv8")):
+            prints = list((bin_dir / ".fingerprint").glob(f"{crate}-*/lib-{crate}.json"))
+            if not prints:
+                raise RuntimeError(f"no cargo fingerprint of {crate} under {bin_dir}")
+            flags = document(max(prints, key=lambda p: p.stat().st_mtime)).get("rustflags", [])
+            if not any(a == "--cfg" and b == cfg for a, b in zip(flags, flags[1:])):
+                raise RuntimeError(f"{crate} was built without --cfg {cfg} (rustflags {flags}); "
+                                   "check .cargo/config.toml")
     for name in ("lastdb", "lastdbd"):
         path = bin_dir / name
         subprocess.run(["strip", str(path)], check=True, timeout=60)
