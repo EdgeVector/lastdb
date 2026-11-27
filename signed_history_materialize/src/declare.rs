@@ -1,17 +1,18 @@
 //! Declare FoldDB schemas from signed-history schema entries.
 
 use fold_db::fold_db_core::FoldDB;
-use fold_db::schema::types::{Schema, SchemaError};
+use fold_db::schema::types::Schema;
 use mutation_log::VerifiedHistory;
 
-use crate::validate::validate_schema;
+use crate::validate::{is_compatible_schema_update, validate_intrinsic_schema};
 
-/// Install every valid schema declaration carried by `history`.
+/// Make `store` hold the valid schema declarations carried by `history`.
 ///
-/// A missing declaration is not invented here. Invalid schema definitions are
-/// validated in memory, logged, and skipped so a bad declaration cannot block
-/// materialization, while storage and backend errors propagate so retry stays
-/// scheduled.
+/// Validity is decided purely from the signed declaration, independent of local
+/// FoldDB state. When a locally installed schema is incompatible with the
+/// history winner (or when the history winner is invalid), the local schema is
+/// dropped first so every node converges on the identical schema state, and all
+/// FoldDB storage/operational errors propagate for retry.
 pub async fn declare_history_schemas(
     store: &FoldDB,
     history: &VerifiedHistory,
@@ -23,6 +24,36 @@ pub async fn declare_history_schemas(
 }
 
 async fn declare_one(store: &FoldDB, namespace: &str, definition: &[u8]) -> Result<(), String> {
+    let existing = store
+        .schema_manager()
+        .get_schema_metadata(namespace)
+        .map_err(|error| format!("read schema {namespace}: {error}"))?;
+    let Some(schema) = parse_valid_schema(namespace, definition) else {
+        if existing.is_some() {
+            drop_installed(store, namespace).await?;
+        }
+        return Ok(());
+    };
+    if let Some(installed) = &existing {
+        if already_installed(installed, &schema) {
+            return Ok(());
+        }
+        if !is_compatible_schema_update(installed, &schema) {
+            tracing::warn!(
+                namespace = %namespace,
+                "replacing locally installed schema incompatible with signed-history winner"
+            );
+            drop_installed(store, namespace).await?;
+        }
+    }
+    store
+        .schema_manager()
+        .load_schema_internal(schema)
+        .await
+        .map_err(|error| format!("declare schema {namespace}: {error}"))
+}
+
+fn parse_valid_schema(namespace: &str, definition: &[u8]) -> Option<Schema> {
     let schema: Schema = match serde_json::from_slice(definition) {
         Ok(schema) => schema,
         Err(error) => {
@@ -31,7 +62,7 @@ async fn declare_one(store: &FoldDB, namespace: &str, definition: &[u8]) -> Resu
                 %error,
                 "skipping invalid schema definition JSON in signed history"
             );
-            return Ok(());
+            return None;
         }
     };
     if schema.name != namespace {
@@ -40,37 +71,26 @@ async fn declare_one(store: &FoldDB, namespace: &str, definition: &[u8]) -> Resu
             schema_name = %schema.name,
             "skipping schema entry whose definition name differs from its namespace"
         );
-        return Ok(());
+        return None;
     }
-    let existing = store
-        .schema_manager()
-        .get_schema_metadata(namespace)
-        .map_err(|error| format!("read schema {namespace}: {error}"))?;
-    if let Err(reason) = validate_schema(&schema, existing.as_ref()) {
+    if let Err(reason) = validate_intrinsic_schema(&schema) {
         tracing::warn!(
             namespace = %namespace,
             %reason,
-            "skipping invalid or incompatible schema definition in signed history"
+            "skipping invalid schema definition in signed history"
         );
-        return Ok(());
+        return None;
     }
-    if let Some(existing) = &existing {
-        if already_installed(existing, &schema) {
-            return Ok(());
-        }
-    }
-    match store.schema_manager().load_schema_internal(schema).await {
-        Ok(()) => Ok(()),
-        Err(error) if is_incompatible_schema_error(&error) => {
-            tracing::warn!(
-                namespace = %namespace,
-                %error,
-                "skipping incompatible schema update in signed history"
-            );
-            Ok(())
-        }
-        Err(error) => Err(format!("declare schema {namespace}: {error}")),
-    }
+    Some(schema)
+}
+
+async fn drop_installed(store: &FoldDB, namespace: &str) -> Result<(), String> {
+    store
+        .schema_manager()
+        .drop_schema(namespace)
+        .await
+        .map(|_| ())
+        .map_err(|error| format!("drop schema {namespace}: {error}"))
 }
 
 fn already_installed(existing: &Schema, incoming: &Schema) -> bool {
@@ -85,16 +105,4 @@ fn already_installed(existing: &Schema, incoming: &Schema) -> bool {
         normalized.identity_hash_algo_version = existing.identity_hash_algo_version;
     }
     *existing == normalized
-}
-
-fn is_incompatible_schema_error(error: &SchemaError) -> bool {
-    match error {
-        SchemaError::InvalidField(_) => true,
-        SchemaError::InvalidData(msg) => {
-            msg.starts_with("explicit primary/alternate key declarations are immutable")
-                || msg.starts_with("changing the file requirement needs a new schema identity")
-                || (msg.starts_with("existing field '") && msg.contains("cannot "))
-        }
-        _ => false,
-    }
 }

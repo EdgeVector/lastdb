@@ -7,6 +7,7 @@
 //! always propagate so `materialize_retry` stays set.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::ops::Deref;
 
 use fold_db::record_replacement::{RecordExpectation, RecordReplacement, RecordTarget};
 use fold_db::record_value::{RecordStamp, StoredRecord, MAX_RECORD_BYTES};
@@ -14,54 +15,38 @@ use fold_db::schema::require_logical_layout;
 use fold_db::schema::types::Schema;
 use serde_json::Value;
 
-/// Validate a signed `schema` declaration in memory, including compatibility
-/// with `existing` when the namespace is already installed.
-pub(crate) fn validate_schema(schema: &Schema, existing: Option<&Schema>) -> Result<(), String> {
+/// Validate a signed `schema` declaration intrinsically in memory, independent
+/// of any locally installed schema state.
+pub(crate) fn validate_intrinsic_schema(schema: &Schema) -> Result<(), String> {
     if schema.record_keys.is_none() {
         return Err("this home requires explicit record_keys".into());
     }
     schema.validate_owned_schema()?;
     require_logical_layout(&schema.schema_type).map_err(|e| e.to_string())?;
-    schema.validate().map_err(|e| e.to_string())?;
-    if let Some(stored) = existing {
-        validate_compatible_update(stored, schema)?;
-    }
-    Ok(())
+    schema.validate().map_err(|e| e.to_string())
 }
 
-fn validate_compatible_update(existing: &Schema, next: &Schema) -> Result<(), String> {
-    if existing.record_keys != next.record_keys || existing.schema_type != next.schema_type {
-        return Err("explicit primary/alternate key declarations are immutable".into());
-    }
-    if existing.file_required != next.file_required {
-        return Err("changing the file requirement needs a new schema identity".into());
+/// True when `next` can be applied as an in-place additive update over `existing`
+/// in FoldDB without dropping and recreating the schema first.
+pub(crate) fn is_compatible_schema_update(existing: &Schema, next: &Schema) -> bool {
+    if existing.record_keys != next.record_keys
+        || existing.schema_type != next.schema_type
+        || existing.file_required != next.file_required
+    {
+        return false;
     }
     let next_fields: HashSet<&str> = next.fields.iter().flatten().map(String::as_str).collect();
     for field in existing.fields.iter().flatten() {
-        if !next_fields.contains(field.as_str()) {
-            return Err(format!(
-                "existing field '{field}' cannot be removed from schema '{}'",
-                existing.name
-            ));
-        }
-        if existing.get_field_type(field) != next.get_field_type(field) {
-            return Err(format!(
-                "existing field '{field}' cannot change type in schema '{}'",
-                existing.name
-            ));
-        }
-    }
-    for (field, existing_type) in &existing.field_types {
-        if (!next_fields.contains(field.as_str()) && !next.field_types.contains_key(field))
-            || next.get_field_type(field) != existing_type
+        if !next_fields.contains(field.as_str())
+            || existing.get_field_type(field) != next.get_field_type(field)
         {
-            return Err(format!(
-                "existing field '{field}' cannot be removed or change type in schema '{}'",
-                existing.name
-            ));
+            return false;
         }
     }
-    Ok(())
+    existing.field_types.iter().all(|(field, existing_type)| {
+        (next_fields.contains(field.as_str()) || next.field_types.contains_key(field))
+            && next.get_field_type(field) == existing_type
+    })
 }
 
 /// Validate a live record winner's target keys, fields, field types, file
@@ -81,7 +66,7 @@ pub(crate) fn validate_record(
     target.validate(record_keys)?;
     let mut ordered = BTreeMap::new();
     for (field, value) in fields {
-        Schema::validate_field_name(field)?;
+        <Schema as Deref>::Target::validate_field_name(field)?;
         if !schema.fields.iter().flatten().any(|f| f == field) {
             return Err(format!(
                 "field '{field}' is not declared in schema '{}'",
