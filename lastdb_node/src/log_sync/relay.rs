@@ -105,17 +105,13 @@ impl RelayClient {
 
     /// Keep the revision of one answer. A 200 answer is the relay's own, so one with no revision
     /// header is a relay from before revisions (0). Any other answer counts only when it names a
-    /// revision: a gateway or proxy in front of the relay can answer for it with no header.
+    /// valid revision: a gateway or proxy in front of the relay can answer for it with no header
+    /// or an unrelated one.
     fn note_answer(&self, success: bool, headers: &reqwest::header::HeaderMap) {
         let named = headers
             .get(relay_protocol::answer_headers::REVISION)
-            .map(|value| {
-                value
-                    .to_str()
-                    .ok()
-                    .and_then(relay_protocol::parse_revision)
-                    .unwrap_or(0)
-            });
+            .and_then(|value| value.to_str().ok())
+            .and_then(relay_protocol::parse_revision);
         if let Some(revision) = named.or(success.then_some(0)) {
             *self
                 .revision
@@ -174,7 +170,8 @@ impl RelayClient {
         let page = self
             .read_page(database_id, writer_key, device_id, from_seq, cursor, limit)
             .await?;
-        Ok((page.entries, page.cursor))
+        let entries = page.entries.into_iter().map(|item| item.entry).collect();
+        Ok((entries, page.cursor))
     }
 
     /// Ask the relay to drop what the snapshot entry `writer_seq` of the snapshot stream
@@ -217,11 +214,12 @@ impl RelayClient {
     }
 }
 
-/// `(stored, duplicate)` in entries for an append of `sent` entries. A duplicate answer says that
-/// the entries the relay did not store it held already.
+/// `(stored, duplicate)` in entries for an append of `sent` entries. Under `relay_protocol`,
+/// `answer.stored` already counts duplicate entries; only a pre-revision relay that leaves
+/// `stored == 0` when `duplicate` is true reports the count through `duplicate` alone.
 fn append_counts(answer: LogAppendAnswer, sent: u64) -> (u64, u64) {
-    if answer.stored < sent && answer.duplicate {
-        (answer.stored, sent.saturating_sub(answer.stored))
+    if answer.duplicate && answer.stored == 0 {
+        (0, sent)
     } else {
         (answer.stored, 0)
     }

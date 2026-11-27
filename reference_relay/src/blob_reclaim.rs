@@ -203,8 +203,11 @@ impl Store {
             if !is_hex64(&name) {
                 continue;
             }
-            if let Ok(meta) = fs::metadata(self.blob_path(&name)).await {
-                found.push((name, meta.len()));
+            match fs::metadata(self.blob_path(&name)).await {
+                Ok(meta) if meta.len() > 0 => found.push((name, meta.len())),
+                _ => {
+                    let _ = fs::remove_file(ent.path()).await;
+                }
             }
         }
         found.sort();

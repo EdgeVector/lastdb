@@ -16,6 +16,11 @@ use super::{describe, is_retryable_store_status, upload_backoff, url_guard, UPLO
 use crate::log_sync::relay::RelayClient;
 use crate::profile::private_fs as disk;
 
+/// Cap initial allocation before reading an untrusted response body into memory.
+const INITIAL_CAPACITY_CAP: u64 = 256 * 1024;
+/// Upper bound on any blob read whole into memory (`fetch_bytes` / `blob_get_bytes`).
+const MAX_MEMORY_BLOB_BYTES: u64 = 64 * 1024 * 1024;
+
 enum DownloadError {
     Retryable(String),
     Fatal(String),
@@ -32,25 +37,13 @@ impl RelayClient {
         expect_size: u64,
         dest: &Path,
     ) -> Result<(), String> {
-        mutation_log::Hex32::from_hex(sha256)
-            .map_err(|_| "blob digest is not 64 lowercase hex characters".to_owned())?;
-        let request = BlobGetRequest {
-            database_id: database_id.to_owned(),
-            sha256: sha256.to_owned(),
-        };
-        let meta = self.call::<BlobGet>(&request).await?;
-        let url = meta.url.as_str();
-        url_guard::validate_presigned_url(&self.base, url)?;
-        let headers = url_guard::presigned_headers(&meta.headers, false)?;
-        if meta.bytes != expect_size {
-            return Err(format!("blob.get size differs from its entry for {sha256}"));
-        }
+        let (url, headers) = self.presigned_get(database_id, sha256, expect_size).await?;
         let part = part_path(dest, sha256);
         let mut tried = 0;
         loop {
             tried += 1;
             match self
-                .get_once(url, &headers, &part, sha256, expect_size)
+                .get_once(&url, &headers, &part, sha256, expect_size)
                 .await
             {
                 Ok(()) => {
@@ -76,6 +69,39 @@ impl RelayClient {
         }
     }
 
+    /// Fetch a bounded blob into memory via `blob.get`, verifying `expect_size` and `sha256`.
+    pub(in crate::log_sync) async fn blob_get_bytes(
+        &self,
+        database_id: &str,
+        sha256: &str,
+        expect_size: u64,
+    ) -> Result<Vec<u8>, String> {
+        let (url, headers) = self.presigned_get(database_id, sha256, expect_size).await?;
+        self.fetch_validated(&url, &headers, sha256, expect_size, "blob download")
+            .await
+    }
+
+    async fn presigned_get(
+        &self,
+        database_id: &str,
+        sha256: &str,
+        expect_size: u64,
+    ) -> Result<(String, Vec<(HeaderName, HeaderValue)>), String> {
+        mutation_log::Hex32::from_hex(sha256)
+            .map_err(|_| "blob digest is not 64 lowercase hex characters".to_owned())?;
+        let request = BlobGetRequest {
+            database_id: database_id.to_owned(),
+            sha256: sha256.to_owned(),
+        };
+        let meta = self.call::<BlobGet>(&request).await?;
+        url_guard::validate_presigned_url(&self.base, &meta.url)?;
+        let headers = url_guard::presigned_headers(&meta.headers, false)?;
+        if meta.bytes != expect_size {
+            return Err(format!("blob.get size differs from its entry for {sha256}"));
+        }
+        Ok((meta.url, headers))
+    }
+
     /// The bytes of the blob at a presigned URL that a `log.read` named (a log segment), checked
     /// against `size` and `sha256`. A segment holds one sent batch, so it is read into memory.
     pub(in crate::log_sync) async fn fetch_bytes(
@@ -87,17 +113,35 @@ impl RelayClient {
     ) -> Result<Vec<u8>, String> {
         url_guard::validate_presigned_url(&self.base, url)?;
         let headers = url_guard::presigned_headers(headers, false)?;
+        self.fetch_validated(url, &headers, sha256, size, "log segment download")
+            .await
+    }
+
+    async fn fetch_validated(
+        &self,
+        url: &str,
+        headers: &[(HeaderName, HeaderValue)],
+        sha256: &str,
+        size: u64,
+        label: &str,
+    ) -> Result<Vec<u8>, String> {
+        if size > MAX_MEMORY_BLOB_BYTES {
+            return Err(format!(
+                "{label}: {size} bytes exceeds {MAX_MEMORY_BLOB_BYTES}-byte limit"
+            ));
+        }
         let mut tried = 0;
         loop {
             tried += 1;
-            match self.fetch_once(url, &headers, sha256, size).await {
+            match self.fetch_once(url, headers, sha256, size, label).await {
                 Ok(bytes) => return Ok(bytes),
                 Err(DownloadError::Retryable(error)) if tried < UPLOAD_TRIES => {
                     tracing::warn!(
                         target: "lastdbd::log_sync",
+                        label,
                         %error,
                         tried,
-                        "log segment download failed transiently; retrying"
+                        "download failed transiently; retrying"
                     );
                     tokio::time::sleep(upload_backoff(tried)).await;
                 }
@@ -108,61 +152,74 @@ impl RelayClient {
         }
     }
 
-    async fn fetch_once(
+    async fn send_download(
         &self,
         url: &str,
         headers: &[(HeaderName, HeaderValue)],
-        sha256: &str,
-        size: u64,
-    ) -> Result<Vec<u8>, DownloadError> {
+        label: &str,
+    ) -> Result<reqwest::Response, DownloadError> {
         let mut download = self.download.get(url);
         for (name, value) in headers {
             download = download.header(name, value);
         }
-        let response = download.send().await.map_err(|e| {
-            DownloadError::Retryable(format!("log segment download: {}", describe(e, url)))
-        })?;
+        let response = download
+            .send()
+            .await
+            .map_err(|e| DownloadError::Retryable(format!("{label}: {}", describe(e, url))))?;
         let status = response.status();
         if status.is_redirection() {
             return Err(DownloadError::Fatal(format!(
-                "log segment download unexpected redirect HTTP {status}"
+                "{label} unexpected redirect HTTP {status}"
             )));
         }
         url_guard::validate_presigned_url(&self.base, response.url().as_str())
             .map_err(DownloadError::Fatal)?;
         if !status.is_success() {
-            let msg = format!("log segment download HTTP {status}");
+            let msg = format!("{label} HTTP {status}");
             return if is_retryable_store_status(status) {
                 Err(DownloadError::Retryable(msg))
             } else {
                 Err(DownloadError::Fatal(msg))
             };
         }
-        let mut bytes = Vec::with_capacity(usize::try_from(size).unwrap_or(0));
+        Ok(response)
+    }
+
+    async fn fetch_once(
+        &self,
+        url: &str,
+        headers: &[(HeaderName, HeaderValue)],
+        sha256: &str,
+        size: u64,
+        label: &str,
+    ) -> Result<Vec<u8>, DownloadError> {
+        let response = self.send_download(url, headers, label).await?;
+        let cap = usize::try_from(size.min(INITIAL_CAPACITY_CAP)).unwrap_or(0);
+        let mut bytes = Vec::with_capacity(cap);
         let mut chunks = response.bytes_stream();
         while let Some(chunk) = chunks.next().await {
             let chunk = chunk.map_err(|e| {
                 DownloadError::Retryable(format!(
-                    "log segment download body: {} after {} of {size} bytes",
+                    "{label} body: {} after {} of {size} bytes",
                     describe(e, url),
                     bytes.len()
                 ))
             })?;
-            if (bytes.len() + chunk.len()) as u64 > size {
+            if (bytes.len() as u64).saturating_add(chunk.len() as u64) > size {
                 return Err(DownloadError::Fatal(format!(
-                    "log segment {sha256} is larger than the relay said"
+                    "{label} {sha256} is larger than the relay said"
                 )));
             }
             bytes.extend_from_slice(&chunk);
         }
         if bytes.len() as u64 != size {
             return Err(DownloadError::Retryable(format!(
-                "log segment {sha256} is shorter than the relay said"
+                "{label} {sha256} is shorter than the relay said"
             )));
         }
         if hex_lower(&Sha256::digest(&bytes)) != sha256 {
             return Err(DownloadError::Fatal(format!(
-                "log segment {sha256} does not match its digest"
+                "{label} {sha256} does not match its digest"
             )));
         }
         Ok(bytes)
@@ -176,29 +233,7 @@ impl RelayClient {
         sha256: &str,
         expect_size: u64,
     ) -> Result<(), DownloadError> {
-        let mut download = self.download.get(url);
-        for (name, value) in headers {
-            download = download.header(name, value);
-        }
-        let response = download.send().await.map_err(|e| {
-            DownloadError::Retryable(format!("blob download: {}", describe(e, url)))
-        })?;
-        let status = response.status();
-        if status.is_redirection() {
-            return Err(DownloadError::Fatal(format!(
-                "blob download unexpected redirect HTTP {status}"
-            )));
-        }
-        url_guard::validate_presigned_url(&self.base, response.url().as_str())
-            .map_err(DownloadError::Fatal)?;
-        if !status.is_success() {
-            let msg = format!("blob download HTTP {status}");
-            return if is_retryable_store_status(status) {
-                Err(DownloadError::Retryable(msg))
-            } else {
-                Err(DownloadError::Fatal(msg))
-            };
-        }
+        let response = self.send_download(url, headers, "blob download").await?;
         write_verified(response, part, sha256, expect_size, url).await
     }
 }

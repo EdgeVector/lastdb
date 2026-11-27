@@ -14,7 +14,8 @@ use rand::RngCore;
 use sha2::{Digest, Sha256};
 
 use crate::chain::{Chain, Publisher};
-use crate::identity::{new_device_id, Actor, DbBirth};
+use crate::identity::{new_device_id, Actor};
+use crate::ledger::Ledger;
 use crate::relay::RelayClient;
 
 const GENERATE_CHUNK: usize = 1024 * 1024;
@@ -34,9 +35,10 @@ pub async fn prove(
     relay_url: &str,
     work: &Path,
     bytes: u64,
+    ledger: &Ledger,
 ) -> Result<BlobStreamReport, String> {
     let owner = Actor::generate();
-    let birth = DbBirth::generate(owner.node_key);
+    let birth = ledger.mint(&owner);
     let publisher = Publisher {
         actor: owner,
         database_id: birth.database_id,
@@ -56,10 +58,10 @@ pub async fn prove(
 
     let mut small = vec![0u8; 4096];
     rand::thread_rng().fill_bytes(&mut small);
-    let refused_uploads = client.prove_upload_verified(&small).await?;
+    let refused_uploads = client.prove_upload_verified(&small, ledger).await?;
 
     let started = Instant::now();
-    client.blob_put_file(&sha256, &source).await?;
+    client.blob_put_file(&sha256, &source, ledger).await?;
     let put_seconds = started.elapsed().as_secs_f64();
     let started = Instant::now();
     let got = client.blob_get_file(&sha256, bytes, &dest).await?;

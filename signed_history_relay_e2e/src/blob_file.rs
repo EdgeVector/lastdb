@@ -14,6 +14,7 @@ use sha2::{Digest, Sha256};
 use tokio::fs;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+use crate::ledger::Ledger;
 use crate::relay::RelayClient;
 
 const CHUNK_BYTES: usize = 64 * 1024;
@@ -23,7 +24,7 @@ impl RelayClient {
     /// the upload three wrong ways and expect each refused with a 4xx (the header left out, other
     /// bytes of the same length under the returned checksum, a different checksum value), then send
     /// it right and commit. Returns how many wrong uploads were refused.
-    pub async fn prove_upload_verified(&self, body: &[u8]) -> Result<u32, String> {
+    pub async fn prove_upload_verified(&self, body: &[u8], ledger: &Ledger) -> Result<u32, String> {
         let sha256 = hex_lower(&Sha256::digest(body));
         let size = body.len() as u64;
         let begin = self
@@ -85,6 +86,7 @@ impl RelayClient {
         }
         self.call::<BlobPut>(&self.blob_put_request(&sha256, size, BlobPutStage::Commit))
             .await?;
+        ledger.blob(&self.database_hex, &sha256, size);
         Ok(refused)
     }
 
@@ -105,7 +107,12 @@ impl RelayClient {
     }
 
     /// `blob.put` begin, the presigned upload streamed from `source`, commit.
-    pub async fn blob_put_file(&self, sha256: &str, source: &Path) -> Result<(), String> {
+    pub async fn blob_put_file(
+        &self,
+        sha256: &str,
+        source: &Path,
+        ledger: &Ledger,
+    ) -> Result<(), String> {
         let file = fs::File::open(source)
             .await
             .map_err(|e| format!("blob file: {e}"))?;
@@ -118,6 +125,7 @@ impl RelayClient {
             .call::<BlobPut>(&self.blob_put_request(sha256, size, BlobPutStage::Begin))
             .await?;
         if begin.upload.is_none() && begin.sha256 == sha256 {
+            ledger.blob(&self.database_hex, sha256, size);
             return Ok(());
         }
         let upload = begin.upload.ok_or("blob.put begin has no upload.url")?;
@@ -143,6 +151,7 @@ impl RelayClient {
         }
         self.call::<BlobPut>(&self.blob_put_request(sha256, size, BlobPutStage::Commit))
             .await?;
+        ledger.blob(&self.database_hex, sha256, size);
         Ok(())
     }
 

@@ -161,7 +161,7 @@ This section is the record of the code. It replaces the plan where the two diffe
 
 - The spool of accepted writes and the store's replay functions are used as they are. They gained one row family, one author-clock call for schema changes, and four functions on the mutation manager (below). The format of the database, the record layout and every existing row are unchanged. The home format stays 15.
 - Two defects of the spool were found by the proof and fixed, with no change to any stored format. A commit of about 200 captured writes made the pending record larger than the 64 KiB bound of the spool's control files, which failed the commit queue and stopped the daemon: the bound is now 1 MiB and a captured commit is capped at 1024 mutations, with a refusal the caller can read. A kill during the move of a commit's entries into the spool left entries above the head, which the recovery at open called a hole although the pending record names them: recovery now accepts exactly those entries and finishes the move.
-- `lastdb_node/src/log_sync/personal/` is the thin layer that joins them to the signed streams: `outgoing.rs` signs and sends, `incoming.rs` reads and merges, `verify.rs` checks an entry with `AcceptEntry`, `apply.rs` applies a change with its stamp, `body.rs` reads the accepted body, `saved.rs` keeps the signed batch that waits, `files.rs` moves file bytes.
+- `lastdb_node/src/log_sync/personal/` is the thin layer that joins them to the signed streams: `outgoing.rs` and `send.rs` read the spool and send log segments in memory, `incoming.rs` reads and merges, `verify.rs` checks an entry with `AcceptEntry`, `apply.rs` applies a change with its stamp, `body.rs` reads the accepted body, `files.rs` moves file bytes.
 - Brought back from `d06054159` and adapted: the sender loop (`accepted.rs` and `accepted/source.rs`: read a page of the spool, seal each body, sign, keep the signed bytes, send, confirm the position), the saved retry store (`session/retry`), and the apply of a downloaded entry (`database_replay/{apply,payload,accepted_record,chain,page,types}.rs`: the body types, the file preparation before the commit, the last-writer rule of `RecordReplay::attempt`). Not brought back: `journal.rs`, and the signing at commit.
 - Deleted for the personal database: the sealed mirror and the sealed bundle path (`mirror_sealed.rs`, `blobs.rs`), `read_streams` (every stream from entry 1 at every turn), the use of `authored.json`, `uploaded.json` and `received.json`, and the in-memory history. Shared databases keep `VerifiedHistory` and their files and behave as before.
 
@@ -175,9 +175,11 @@ One family in the metadata namespace of the store, beside the `signed-replay-*` 
 
 `signed-replay-head:<node key hex>:<device id hex>` holds JSON `{"seq": n, "hash": "<entry hash hex>", "order": <order value>, "frozen": false}`. There is one row for each device stream that this node has applied an entry of, and one for its own stream (the last entry the relay acknowledged). There is no row for an accepted entry. A schema drop of another device keeps a receipt row, as the store's paged removal requires.
 
-The signed entries that wait for the relay are a file, `log-sync/<database>/outgoing.json`, with their sealed blobs in `outgoing-blobs/`. A file and not rows, because the entries are needed only until the relay acknowledges them, are never read by key, and must not travel in a snapshot of the store (a restored home has its own stream and nothing of the old one to send). The file is written whole with a rename, as the old retry store was.
+*(Retired on 23 November 2026: signed entries and sealed files now stay in the spool until acknowledged; `outgoing.json` and `outgoing-blobs/` below were part of the earlier step-2 build.)* The signed entries that wait for the relay were a file, `log-sync/<database>/outgoing.json`, with their sealed blobs in `outgoing-blobs/`. A file and not rows, because the entries are needed only until the relay acknowledges them, are never read by key, and must not travel in a snapshot of the store (a restored home has its own stream and nothing of the old one to send). The file was written whole with a rename, as the old retry store was.
 
 ### Crash windows
+
+*(With signing at commit since 23 November 2026, the spool itself holds the signed entries and sealed files until the relay acknowledges them and the own head row advances; the saved-batch file windows below are retired.)*
 
 - Before the batch is saved: nothing was sent. The next turn signs the same spool entries at the same sequence numbers.
 - After the batch is saved, before the relay acknowledges: the next turn settles the entries again (a no-op if done) and sends the saved bytes. The relay counts identical entries as duplicates.
@@ -188,7 +190,7 @@ The signed entries that wait for the relay are a file, `log-sync/<database>/outg
 
 ### An entry from another device
 
-Each turn the node lists the owner's device streams (`log/streams`, no entries). A stream whose relay head is above its head row is read from the next entry, one page at a time. Streams are merged by order value, then node key, device id and sequence number, so a schema arrives before the records that use it. An entry is checked with `AcceptEntry` (signature, chain to the head row, order rule), its payload is opened, a file it names is fetched and checked, and the change is applied with the stamp `ReplayStamp {ordering_ms: order value, writer_key: node key, writer_device: device id, writer_seq}`. A stream that carries an invalid entry is frozen and never read again. An idle turn reads no entry.
+Each turn the node lists the owner's device streams (`log/streams`, no entries). A stream whose relay head is above its head row is read from the next entry, one page at a time. Streams are merged by order value, then node key, device id and sequence number, so a schema arrives before the records that use it. An entry is checked with `AcceptEntry` (signature, chain to the head row, order rule, direct `data` kind, and `namespace == "sealed"`), its payload is opened, a file it names is fetched and checked, and the change is applied with the stamp `ReplayStamp {ordering_ms: order value, writer_key: node key, writer_device: device id, writer_seq}`. Only an invalid entry carrying a valid owner signature on that `(database_id, device_id)` stream at the expected sequence freezes the stream; an unverified or misrouted response from an untrusted relay fails transiently without freezing. An idle turn reads no entry.
 
 ### A local write that waits
 
@@ -434,7 +436,7 @@ A snapshot of a large home uploads tens of megabytes. Inside the turn, no entry 
 
 **In the turn** (`snapshot::run`): after a clean turn, when a snapshot is requested or due and no lane runs, the store freezes the files (`capture_synced_snapshot`). It still needs the spool acknowledged and the replay settled at that one instant, so it stays in the turn, and it takes the head rows in the same hold of the write gate. The turn then marks the status `in_progress` and starts the lane. Nothing else changes in the turn.
 
-**In the lane** (`snapshot::upload`, a task in `snapshot_lane.rs`): hash the pinned files, ask the relay what it holds, upload what it lacks, upload the manifest, read the head of the snapshot stream again, sign and append the `snapshot` entry, ask the relay again and upload what is gone (the files stay pinned until here), write `snapshot-last.json` and `snapshot-known.json`, ask the relay to trim, mark a sweep as due, answer the request. The lane starts from a turn and ends by itself. It has no timer and no queue.
+**In the lane** (`snapshot::upload`, a task in `snapshot_lane.rs`): hash the pinned files, ask the relay what it holds, upload what it lacks, upload the manifest in memory, read the head of the snapshot stream again, write `snapshot-unverified`, sign and append the `snapshot` entry, ask the relay again (`verify_named`) and upload any file a concurrent sweep dropped while the files stay pinned, write `snapshot-last.json`, `snapshot-known.json` and `reclaim-due.json` (`reclaim::mark_due`), clear `snapshot-unverified`, and answer the request. `log.trim` and `blob.drop` run in later sync turns from `reclaim-due.json`. The lane starts from a turn and ends by itself. It has no timer and no queue.
 
 **What the entry claims does not change.** `through` is read from the head rows at the freeze, and `own_seq` is taken from it. Neither reads the live store later, so entries that the turns send, and entries that they apply from other devices, after the freeze are not claimed. Those are the tail a restore replays. The pinned files do not change however many writes follow.
 
@@ -444,16 +446,16 @@ A snapshot of a large home uploads tens of megabytes. Inside the turn, no entry 
 
 | State | Written by | Protection |
 |---|---|---|
-| The spool, `outgoing.json`, the own head row | the turn only (`outgoing`) | The lane never touches them. |
+| The spool and the own head row | the turn only (`outgoing`) | The lane never touches them. |
 | The snapshot stream (the `snapshot` entry) | the lane, or the first snapshot inside the turn | The first snapshot runs only while `snapshot_required` is true, and the freeze of a regular snapshot refuses in that case, so the two never overlap. The lane reads the stream head again right before it signs. |
-| `snapshot-last.json`, `snapshot-known.json`, the cloud sync status of the snapshot | the lane (the turn only reads) | One lane. The files are written with a rename. The turn reads `snapshot-last.json` only when no lane runs. |
+| `snapshot-last.json`, `snapshot-known.json`, `snapshot-unverified`, the cloud sync status of the snapshot | the lane (the turn only reads) | One lane. The files are written with a rename. The turn reads `snapshot-last.json` only when no lane runs. |
 | `snapshot-request`, `-result`, `-error` | `request` (the CLI), then the lane | The lane retires or fails a request only when the file still holds its nonce, so a newer request keeps its file and gets its own answer. |
 | The native cloud work guard | taken in the turn at the freeze, held by the lane | A second freeze fails while it is held. |
 | The refusal memory (`REFUSED`) | the lane | One mutex. |
 
-**Stop.** When the daemon stops, the sync task aborts the lane and waits for it (`stop_snapshot_lane`). The lane has no await between the append of the `snapshot` entry and the writes of its records, so a stop never falls between the relay naming the snapshot and the node knowing it. Files already committed on the relay are skipped the next time. The request file stays, so the next start takes the snapshot again. **Kill -9** has the same effect on disk: the spool, the saved entries and the stream are untouched, nothing is signed twice, and the same window as before remains between the relay taking the entry and the node writing its record (a retake then signs one more `snapshot` entry; it adds no data entry).
+**Stop.** When the daemon stops, the sync task aborts the lane and waits for it (`stop_snapshot_lane`). From before the append of the `snapshot` entry until `snapshot-last.json` and `reclaim-due.json` are written, `snapshot-unverified` is on disk: if a stop or **kill -9** interrupts `verify_named` or the record writes, the next clean turn runs the snapshot again (re-verifying an unchanged cut and ensuring `reclaim-due.json`, or uploading missing files and naming a complete snapshot). Files already committed on the relay are skipped. The request file stays until answered, so the next start takes a requested snapshot again, while the spool and device stream are untouched.
 
-**Status.** While the lane runs, `cloud_sync.snapshot.state` is `in_progress`, and `message` says `uploaded N of M files, X of Y bytes` (before the first file: `hashing the files`). `lastdb status` prints `Snapshot uploading: <message>` below the line of the newest snapshot. A failure puts the earlier state back, and a relay limit sets `blocked` as before. `lastdb backup snapshot --wait` keeps its meaning: it returns when the request is answered, after the entry and the trim. The first snapshot of a home that held data before it began to capture still runs inside the turn, because the spool is not sent until it is named.
+**Status.** While the lane runs, `cloud_sync.snapshot.state` is `in_progress`, and `message` says `uploaded N of M files, X of Y bytes` (before the first file: `hashing the files`). `lastdb status` prints `Snapshot uploading: <message>` below the line of the newest snapshot. A failure puts the earlier state back, and a relay limit sets `blocked` as before. `lastdb backup snapshot --wait` returns when the request is answered, once the entry is verified and recorded (the trim and sweep follow in later sync turns). The first snapshot of a home that held data before it began to capture still runs inside the turn, because the spool is not sent until it is named.
 
 **Proof.** `personal_database_proof.py` step 20 (`personal_proof_lane.py`): the reference relay reads a large upload at 24 KiB/s, so a snapshot with a 500 KB file uploads for about 20 s. During it W's writes are acknowledged and read by X before the relay holds a snapshot entry; W is killed with -9 in the first upload and loses and repeats nothing; the second upload takes writes the same way; the published entry names W through the last entry acknowledged at the freeze, and W signed more after it; a home restored from it replays exactly the entries after that position and equals W and X.
 
@@ -470,7 +472,7 @@ On 2026-11-24 the primary's store held 184 data files, 133.8 MB. The relay held 
 After a snapshot is named and verified, the relay holds exactly:
 
 1. the files and the manifest of the newest snapshot,
-2. the entries after the positions of that snapshot (with the `birth` entry and that one `snapshot` entry),
+2. the entries after the positions of that snapshot (with the `birth` entry and that one `snapshot` entry, plus the segment blobs that hold those entries),
 3. the sealed files that those entries name.
 
 Everything else is dropped and its bytes are released. While a new snapshot uploads, the relay holds the old and the new one. That is the only permitted disagreement.
@@ -484,31 +486,30 @@ Everything else is dropped and its bytes are released. While a new snapshot uplo
 ### The snapshot lane (`personal/snapshot.rs`)
 
 1. Hash the files of the frozen cut.
-2. `blob.list`. Upload each manifest file the relay lacks (by digest and length), then the manifest.
-3. Sign and append the `snapshot` entry.
-4. Verify: `blob.list` again. Every manifest file and the manifest are present with the right length. One that is missing is uploaded again from the cut, which is still pinned. Only then is the snapshot recorded as published. From the append to the record a mark is on disk (`snapshot-unverified`). If the check does not end (a stop, a kill, a failed transfer), the mark stays and the next clean turn takes a snapshot again, which uploads what the relay lacks and names a complete one. A restore reads the newest snapshot alone, so an incomplete one must not stay the newest.
-5. `log.trim` to this snapshot. The relay drops the entries it covers and the older `snapshot` entries.
-6. Mark a sweep as due for this snapshot (`log-sync/<database>/reclaim-due.json`).
+2. `blob.list`. Upload each manifest file the relay lacks (by digest and length), then the manifest in memory (`blob_put_bytes`).
+3. Write `snapshot-unverified`, then sign and append the `snapshot` entry.
+4. Verify (`verify_named`): `blob.list` again. Every manifest file and the manifest are present with the right length. One that is missing is uploaded again from the cut, which is still pinned.
+5. Record `snapshot-last.json` and `snapshot-known.json`, mark a trim and sweep as due (`log-sync/<database>/reclaim-due.json`), and only then clear `snapshot-unverified`. If the check or record does not end (a stop, a kill, a failed transfer), `snapshot-unverified` stays and the next clean turn takes a snapshot again (ensuring `reclaim-due.json` even when the cut is unchanged), so an incomplete snapshot never stays the newest and two snapshots never remain without a scheduled sweep.
 
 ### The sweep (`personal/reclaim.rs`)
 
-It runs inside a sync turn, after the send step, when a sweep is due and the head of the relay's snapshot stream is still that snapshot, or when `lastdb backup reclaim` asked for one. It does not run while a snapshot uploads.
+It runs inside a sync turn, after the send step, when a sweep is due and the head of the relay's snapshot stream is at or past `due.snapshot_seq`, or when `lastdb backup reclaim` asked for one. It does not run while a snapshot uploads or while a snapshot request waits.
 
 1. `log.streams`, then `blob.list` (all pages).
-2. Read the newest `snapshot` entry and its manifest from the relay. Read every entry after the snapshot's positions, up to the listed heads, and collect every digest they name (`mutation_log::named_blobs`: the file of a data entry, the body of a bundle, the manifest of a snapshot). A read that cannot return every one of those entries (a gap, an entry out of place, a 410) stops the sweep, and nothing is dropped.
-3. Needed = manifest files + manifest + those digests. Dead = listed minus needed.
-4. Nothing is dropped unless the relay lists every file of the newest snapshot and its manifest with their lengths, checked against the listing of step 1 in this same pass. A snapshot with a missing file stops the sweep: the mark stays and says why, and the next snapshot marks again.
-5. `blob.drop` in calls of 25, with the heads of step 1 as its condition. When nothing is dead the sweep is done: the mark is removed and the totals are recorded (`reclaim-last.json`, `cloud_sync.reclaim` of `/api/status`, the `Cloud storage:` line of `lastdb status`).
+2. Read and verify the newest `snapshot` entry and its manifest in memory (`blob_get_bytes`), and confirm that the relay lists the manifest and every file it names at its expected length. Run bounded `log.trim` calls (`TRIM_CALLS_PER_PASS = 16`) for that snapshot before dropping any blob, yielding across turns until `done` is true.
+3. Read every entry after the snapshot's positions up to the listed heads (`PAGE = 16` items per `log.read`, up to `SEGMENT_FETCHES = 8` concurrent segment downloads, resuming across passes of a turn and yielding if a snapshot is requested; entries beyond a concurrently advancing head are ignored and fenced by step 5), and collect every digest they name (`mutation_log::named_blobs` plus the digests of the segment blobs). A read that cannot return every entry up to the listed head (a gap, an entry out of place, a 410) fails the sweep and drops nothing.
+4. Needed = manifest files + manifest + those digests. Dead = listed minus needed.
+5. `blob.drop` in calls of 25, capped at `DROP_CALLS_PER_PASS = 16` (`400` blobs) per pass and yielding early to a waiting snapshot request or newly queued local spool writes, with the heads of step 1 as its condition. When nothing is dead the sweep is done: the mark is removed and the totals are recorded (`reclaim-last.json`, `cloud_sync.reclaim` of `/api/status`, the `Cloud storage:` line of `lastdb status`).
 
-A snapshot this node named and has not verified (`snapshot-unverified`) is never trimmed and never gets a sweep mark: the trim and the mark come after the check of lane step 4.
+A snapshot this node named and has not verified (`snapshot-unverified`) never gets a sweep mark until lane step 4 finishes.
 
 What a drop released is counted from what the node observes. An answer with no absent digest is the count. Any other call stays written down (`reclaim-named.json`) until the next `blob.list`: a digest this node named that the relay no longer lists was released, with the length the earlier listing gave. A client that asks again after a lost answer therefore does not lose the count.
 
-Because the sweep is a difference against a listing, it also removes the backlog: the files of every earlier snapshot, the sealed files of entries trimmed long ago, and the files of a failed upload.
+Because the sweep is a difference against a listing, it also removes the backlog: the files of every earlier snapshot, the segment and sealed files of entries trimmed long ago, and the files of a failed upload.
 
-When the relay refuses a drop (409 `heads`), the next turn lists again. A stream that keeps an entry above its head (an entry stored beyond a gap) is refused every time. After 30 turns in a row the sweep stops trying: the mark stays and records why, the status shows it (`Cloud storage sweep waits: ...`), a waiting request fails with the reason, and it is logged once. The next snapshot marks again, and `lastdb backup reclaim` tries again.
+When the relay refuses a drop (409 `heads`) or temporarily lacks a file of a snapshot that another device is still verifying (`Incomplete`), the next turn lists again. After 30 turns in a row (`REFUSED_TURNS`) the sweep stops trying: the mark stays (`held`) and records why, the status shows it (`Cloud storage sweep waits: ...`), a waiting request fails with the reason, and it is logged once. The next snapshot marks again, and `lastdb backup reclaim` tries again.
 
-A database with more than 32 streams (the birth stream and the device streams) cannot name every head in one drop. The sweep then fails once with that reason and removes its mark.
+A database with more than 32 streams (the birth stream and the device streams) cannot name every head in one drop. The sweep then holds the mark with that reason.
 
 ### Why the heads are a condition
 

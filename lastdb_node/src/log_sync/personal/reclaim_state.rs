@@ -57,6 +57,23 @@ pub(super) fn mark_due(ctx: &Ctx<'_>, relay_base: &str, snapshot_seq: u64) {
     ctx.host.cloud_sync.mark_reclaim(None);
 }
 
+/// Schedule a sweep for `snapshot_seq` on `relay_base` if neither `reclaim-due.json` nor
+/// `reclaim-last.json` already covers it.
+pub(super) fn ensure_due_unless_swept(ctx: &Ctx<'_>, relay_base: &str, snapshot_seq: u64) {
+    let origin = known::origin(relay_base);
+    if due(&ctx.host.home, &ctx.database_id)
+        .is_some_and(|cur| cur.relay == origin && cur.snapshot_seq >= snapshot_seq)
+    {
+        return;
+    }
+    let swept = read::<ReclaimStatus>(&file_of(&ctx.host.home, &ctx.database_id, LAST))
+        .and_then(|last| last.snapshot_seq)
+        .is_some_and(|seq| seq >= snapshot_seq);
+    if !swept {
+        mark_due(ctx, relay_base, snapshot_seq);
+    }
+}
+
 /// The sweep stops trying for `snapshot_seq` on `relay_base`: keep the mark with `reason`, and
 /// show the reason in the status of the node.
 pub(super) fn hold(ctx: &Ctx<'_>, relay_base: &str, snapshot_seq: u64, reason: &str) {

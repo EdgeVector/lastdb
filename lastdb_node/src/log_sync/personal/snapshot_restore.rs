@@ -19,11 +19,9 @@ use std::path::Path;
 use std::time::Instant;
 
 use app_identity_crypto::SigningKey;
-use mutation_log::{
-    entry_hash, verify_entry_signature, DatabaseId, DeviceId, NodeKey, SignedEntry,
-    SnapshotThrough, LAMPORT_LIMIT,
-};
+use mutation_log::{DatabaseId, DeviceId, NodeKey, SnapshotThrough};
 
+use super::snapshot_entry::{read_verified_head, SnapshotStream};
 use super::snapshot_known::{self as known, Taken};
 use super::snapshot_manifest::{self as manifest, Manifest, MANIFEST_LIMIT};
 use super::{birth_of, Ctx};
@@ -32,7 +30,6 @@ use crate::log_sync::chain_author::AuthorIdentity;
 use crate::log_sync::device;
 use crate::log_sync::relay::RelayClient;
 use crate::personal_identity;
-use crate::profile::private_fs as disk;
 
 /// A snapshot whose files are installed in a home that has no store open yet.
 pub struct SnapshotBase {
@@ -79,18 +76,11 @@ pub async fn install_newest_snapshot(
         node_hex.clone(),
         &device_id,
     )?;
-    let snapshot_device = DeviceId::from_bytes(personal_identity::snapshot_device(seed));
     let streams = match client.streams(&database_id, &node_hex).await {
         Ok(streams) => streams,
         // The relay does not know a database whose birth it does not hold.
         Err(error) if super::is_unborn_403(&error) => return Ok(None),
         Err(error) => return Err(error),
-    };
-    let Some(listed) = streams
-        .iter()
-        .find(|stream| stream.device_id == snapshot_device.to_hex() && stream.head_seq > 0)
-    else {
-        return Ok(None);
     };
     let identity = AuthorIdentity {
         signing_key,
@@ -98,153 +88,59 @@ pub async fn install_newest_snapshot(
         device_id,
     };
     let (_, _, birth_hash) = birth_of(seed, &identity)?;
-    let target = RestoreTarget {
-        client: &client,
-        home,
-        relay_url,
+    let snapshot_device = DeviceId::from_bytes(personal_identity::snapshot_device(seed));
+    let snapshot_device_hex = snapshot_device.to_hex();
+    let stream = SnapshotStream {
         database_id: &database_id,
+        database,
         node_hex: &node_hex,
         node_key,
-        database,
         device: snapshot_device,
+        device_hex: &snapshot_device_hex,
         birth_hash,
     };
     // The relay keeps one snapshot: the newest. There is no older one to fall back to.
-    install_at(&target, listed.head_seq, Some(&listed.head_hash))
-        .await
-        .map(Some)
-}
-
-struct RestoreTarget<'a> {
-    client: &'a RelayClient,
-    home: &'a Path,
-    relay_url: &'a str,
-    database_id: &'a str,
-    node_hex: &'a str,
-    node_key: NodeKey,
-    database: DatabaseId,
-    device: DeviceId,
-    birth_hash: mutation_log::EntryHash,
-}
-
-async fn install_at(
-    target: &RestoreTarget<'_>,
-    seq: u64,
-    expected_hash: Option<&str>,
-) -> Result<SnapshotBase, String> {
-    let device_hex = target.device.to_hex();
-    let (entries, _) = target
-        .client
-        .read(
-            target.database_id,
-            target.node_hex,
-            Some(&device_hex),
-            seq,
-            None,
-            1,
-        )
-        .await?;
-    let entry = entries
-        .first()
-        .ok_or("the relay lacks the requested snapshot entry")?;
-    let stream = Stream {
-        node_key: target.node_key,
-        database: target.database,
-        device: target.device,
-        birth_hash: target.birth_hash,
-        seq,
-        hash: expected_hash,
+    let Some(verified) = read_verified_head(&stream, &client, &streams).await? else {
+        return Ok(None);
     };
-    let (manifest_sha256, manifest_bytes, through) = check_entry(&stream, entry)?;
     let started = Instant::now();
+    let manifest_sha256 = verified.body.manifest_sha256.to_hex();
     let list = fetch_manifest(
-        target.client,
-        target.database_id,
-        target.home,
+        &client,
+        &database_id,
         &manifest_sha256,
-        manifest_bytes,
+        verified.body.manifest_bytes,
     )
     .await?;
-    let data = target.home.join("data");
+    let data = home.join("data");
     let _ = manifest::remove_tree(&data);
-    if let Err(error) = install_files(target.client, target.database_id, &data, &list).await {
+    if let Err(error) = install_files(&client, &database_id, &data, &list).await {
         let _ = manifest::remove_tree(&data);
         return Err(error);
     }
-    Ok(SnapshotBase {
-        snapshot_seq: seq,
+    Ok(Some(SnapshotBase {
+        snapshot_seq: verified.head.writer_seq,
         files: list.files.len(),
         bytes: list.bytes(),
         download_ms: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
-        through,
-        taken_at_ms: entry.header().authored_at_ms,
+        through: verified.body.through,
+        taken_at_ms: verified.authored_at_ms,
         manifest_sha256,
-        relay: target.relay_url.to_owned(),
-    })
+        relay: relay_url.to_owned(),
+    }))
 }
 
-/// What a snapshot entry of the snapshot stream must be.
-struct Stream<'a> {
-    node_key: NodeKey,
-    database: DatabaseId,
-    device: DeviceId,
-    birth_hash: mutation_log::EntryHash,
-    seq: u64,
-    hash: Option<&'a str>,
-}
-
-/// Check the entry and return its manifest digest, manifest length and positions.
-fn check_entry(
-    stream: &Stream<'_>,
-    entry: &SignedEntry,
-) -> Result<(String, u64, Vec<SnapshotThrough>), String> {
-    let SignedEntry::Snapshot { header, body, .. } = entry else {
-        return Err("the newest entry of the snapshot stream is not a snapshot entry".into());
-    };
-    verify_entry_signature(entry).map_err(|error| format!("the snapshot entry: {error}"))?;
-    let hash = entry_hash(entry).map_err(|error| error.to_string())?;
-    let valid = header.node_key == stream.node_key
-        && header.database_id == stream.database
-        && header.device_id == stream.device
-        && header.writer_seq == stream.seq
-        && stream.hash.is_none_or(|want| hash.to_hex() == want)
-        && (stream.seq == 1) == (header.prev_hash == mutation_log::EntryHash::ZERO)
-        && header.seen_heads == [stream.birth_hash]
-        && header.lamport < LAMPORT_LIMIT
-        && body.manifest_bytes > 0
-        && body.manifest_bytes <= MANIFEST_LIMIT;
-    if !valid {
-        return Err("the newest snapshot entry is not the owner's entry of this stream".into());
-    }
-    Ok((
-        body.manifest_sha256.to_hex(),
-        body.manifest_bytes,
-        body.through.clone(),
-    ))
-}
-
-/// Fetch the manifest `sha256` of `bytes` bytes from the relay and check its list of files.
+/// Fetch the manifest `sha256` of `bytes` bytes from the relay in memory and check its files.
 pub(super) async fn fetch_manifest(
     client: &RelayClient,
     database_id: &str,
-    dir: &Path,
     sha256: &str,
     bytes: u64,
 ) -> Result<Manifest, String> {
     if bytes == 0 || bytes > MANIFEST_LIMIT {
         return Err("the snapshot entry names a manifest of an unusable length".into());
     }
-    let dest = dir.join(".snapshot-manifest");
-    client.blob_get(database_id, sha256, bytes, &dest).await?;
-    let limit = usize::try_from(MANIFEST_LIMIT).unwrap_or(usize::MAX);
-    let raw = tokio::task::spawn_blocking(move || {
-        let read = disk::read_limited(&dest, limit);
-        let _ = disk::remove_private(&dest);
-        read.map_err(|error| error.to_string())?
-            .ok_or_else(|| "the downloaded manifest disappeared".to_owned())
-    })
-    .await
-    .map_err(|_| "reading the manifest stopped".to_owned())??;
+    let raw = client.blob_get_bytes(database_id, sha256, bytes).await?;
     let list: Manifest = serde_json::from_slice(&raw).map_err(|_| "the manifest is invalid")?;
     manifest::validate(&list.files)?;
     Ok(list)

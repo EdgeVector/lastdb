@@ -29,12 +29,12 @@ use std::sync::{LazyLock, Mutex};
 
 use super::reclaim_count::Counter;
 use super::reclaim_state as state;
-pub(super) use super::reclaim_state::{mark_due, pending};
+pub(super) use super::reclaim_state::{ensure_due_unless_swept, mark_due, pending};
 use super::reclaim_view::{manifest_of, read_tail, Seen, Tail};
 use super::snapshot_entry::snapshot_head;
 use super::snapshot_known as known;
 use super::snapshot_lane as lane;
-use super::snapshot_state::{read_request, RECLAIM};
+use super::snapshot_state::{RECLAIM, SNAPSHOT};
 use super::Ctx;
 use crate::host::cloud_sync::ReclaimStatus;
 use crate::log_sync::blob_transfer::{HeadAt, DROP_BATCH, DROP_HEADS};
@@ -46,30 +46,21 @@ use crate::log_sync::relay::{RelayClient, StreamHead as RelayStream};
 const PASSES: usize = 4;
 /// Bounded `log.trim` calls per pass so covered entries are always trimmed before blobs drop.
 const TRIM_CALLS_PER_PASS: usize = 16;
-/// Turns in a row in which the relay may refuse the drops because a stream is not as this node
-/// listed it. A stream that keeps an entry above its head is refused every time, so the sweep
-/// stops trying after this many turns.
+/// Bounded `blob.drop` calls per pass (`400` blobs) so a large backlog yields to writes and cuts.
+const DROP_CALLS_PER_PASS: usize = 16;
+/// Turns in a row in which the relay may refuse drops or report an incomplete snapshot before the
+/// sweep stops trying and holds the mark.
 const REFUSED_TURNS: u32 = 30;
 /// Why the sweep stopped trying, as the status and the answer to a request say it.
 const REFUSED: &str = "the relay refused every drop: a stream of this database kept changing, or it holds an entry above its head. The next snapshot tries again, and so does `lastdb backup reclaim`";
 
-/// Turns in a row that ended with a refused drop, for each home.
+/// Turns in a row that ended with a refused or incomplete pass, for each home.
 static REFUSALS: LazyLock<Mutex<HashMap<PathBuf, u32>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 enum Pass {
-    Clean(Box<ReclaimStatus>),
-    Dropped,
-    Trimming,
-    SnapshotPending,
-    Refused(u64),
-    NotDue,
-    TooManyStreams(u64),
-    Incomplete { snapshot_seq: u64, files: usize },
-}
-
-enum Swept {
     Done(Box<ReclaimStatus>),
+    Dropped,
     Again,
     Refused(u64),
     NotDue,
@@ -94,7 +85,7 @@ pub(super) async fn run(
     let (home, database_id) = (&ctx.host.home, &ctx.database_id);
     // A fresh cut makes the old tail cheaper to reclaim. Do not make that cut
     // wait behind a sweep of the history it will replace.
-    if read_request(home, database_id).is_some() {
+    if SNAPSHOT.waiting(home, database_id).is_some() {
         return Ok(());
     }
     let request = RECLAIM.waiting(home, database_id);
@@ -109,11 +100,11 @@ pub(super) async fn run(
         return Ok(());
     }
     let outcome = sweep(ctx, client, due.as_ref(), request.is_some()).await;
-    if !matches!(outcome, Ok(Swept::Refused(_))) {
+    if !matches!(outcome, Ok(Pass::Refused(_) | Pass::Incomplete { .. })) {
         refusals().remove(home);
     }
     match outcome {
-        Ok(Swept::Done(status)) => {
+        Ok(Pass::Done(status)) => {
             state::clear_due(ctx);
             state::record_last(ctx, &status);
             tracing::info!(target: "lastdbd::log_sync", snapshot_seq = ?status.snapshot_seq, files = ?status.cloud_files, dropped = ?status.dropped_files, "sweep done");
@@ -122,29 +113,29 @@ pub(super) async fn run(
                 None => Ok(()),
             }
         }
-        Ok(Swept::Again) => {
+        Ok(Pass::Again | Pass::Dropped) => {
             crate::log_sync::wake::wake_loop();
             Ok(())
         }
-        Ok(Swept::NotDue) => {
+        Ok(Pass::NotDue) => {
             state::clear_due(ctx);
             Ok(())
         }
-        Ok(Swept::Refused(snapshot_seq)) => {
-            refused(ctx, client, snapshot_seq, request.as_deref());
+        Ok(Pass::Refused(snapshot_seq)) => {
+            retry_or_stop(ctx, client, snapshot_seq, request.as_deref(), REFUSED);
             Ok(())
         }
-        Ok(Swept::Incomplete {
+        Ok(Pass::Incomplete {
             snapshot_seq,
             files,
         }) => {
             let reason = format!(
                 "the relay does not list {files} files of the newest snapshot, so the sweep dropped nothing. Take a snapshot with `lastdb backup snapshot`; the sweep runs after it"
             );
-            stop(ctx, client, snapshot_seq, request.as_deref(), &reason);
+            retry_or_stop(ctx, client, snapshot_seq, request.as_deref(), &reason);
             Ok(())
         }
-        Ok(Swept::TooManyStreams(snapshot_seq)) => {
+        Ok(Pass::TooManyStreams(snapshot_seq)) => {
             let reason = format!(
                 "the relay lists more than {DROP_HEADS} streams of this database, and a sweep names every stream head"
             );
@@ -160,7 +151,13 @@ pub(super) async fn run(
     }
 }
 
-fn refused(ctx: &Ctx<'_>, client: &RelayClient, snapshot_seq: u64, request: Option<&str>) {
+fn retry_or_stop(
+    ctx: &Ctx<'_>,
+    client: &RelayClient,
+    snapshot_seq: u64,
+    request: Option<&str>,
+    reason: &str,
+) {
     let home = &ctx.host.home;
     let turns = {
         let mut refusals = refusals();
@@ -172,7 +169,7 @@ fn refused(ctx: &Ctx<'_>, client: &RelayClient, snapshot_seq: u64, request: Opti
         return;
     }
     refusals().remove(home);
-    stop(ctx, client, snapshot_seq, request, REFUSED);
+    stop(ctx, client, snapshot_seq, request, reason);
 }
 
 fn stop(
@@ -201,7 +198,7 @@ async fn sweep(
     client: &RelayClient,
     due: Option<&state::Due>,
     asked: bool,
-) -> Result<Swept, String> {
+) -> Result<Pass, String> {
     let mut counter = Counter::open(ctx, client)?;
     let mut turn = SweepTurn {
         due,
@@ -210,28 +207,15 @@ async fn sweep(
         tail: None,
     };
     for _ in 0..PASSES {
-        if read_request(&ctx.host.home, &ctx.database_id).is_some() {
-            return Ok(Swept::Again);
+        if SNAPSHOT.waiting(&ctx.host.home, &ctx.database_id).is_some() {
+            return Ok(Pass::Again);
         }
         match pass(ctx, &mut counter, &mut turn).await? {
-            Pass::Clean(status) => return Ok(Swept::Done(status)),
             Pass::Dropped => {}
-            Pass::Trimming | Pass::SnapshotPending => return Ok(Swept::Again),
-            Pass::Refused(seq) => return Ok(Swept::Refused(seq)),
-            Pass::NotDue => return Ok(Swept::NotDue),
-            Pass::TooManyStreams(seq) => return Ok(Swept::TooManyStreams(seq)),
-            Pass::Incomplete {
-                snapshot_seq,
-                files,
-            } => {
-                return Ok(Swept::Incomplete {
-                    snapshot_seq,
-                    files,
-                });
-            }
+            other => return Ok(other),
         }
     }
-    Ok(Swept::Again)
+    Ok(Pass::Again)
 }
 
 async fn settle_not_due(ctx: &Ctx<'_>, counter: &mut Counter<'_>) -> Result<(), String> {
@@ -324,13 +308,13 @@ async fn pass(
     }
     if turn.trimmed_seq != Some(head.writer_seq) {
         if !trim_before_sweep(ctx, client, head.writer_seq).await? {
-            return Ok(Pass::Trimming);
+            return Ok(Pass::Again);
         }
         turn.trimmed_seq = Some(head.writer_seq);
     }
     let Some(tail) = read_tail(ctx, client, &streams, &head, &snapshot, turn.tail.take()).await?
     else {
-        return Ok(Pass::SnapshotPending);
+        return Ok(Pass::Again);
     };
     let seen = Seen {
         snapshot_seq: head.writer_seq,
@@ -351,7 +335,7 @@ async fn pass(
         status.dropped_files = Some(counter.files);
         status.released_bytes = Some(counter.bytes);
         counter.finish()?;
-        return Ok(Pass::Clean(Box::new(status)));
+        return Ok(Pass::Done(Box::new(status)));
     }
     turn.tail = Some(tail);
     drop_batches(ctx, counter, head.writer_seq, &heads, &listed, &dead).await
@@ -369,7 +353,20 @@ async fn drop_batches(
         device_id: ctx.snapshot_device_hex.clone(),
         writer_seq: snapshot_seq,
     };
-    for batch in dead.chunks(DROP_BATCH) {
+    for (index, batch) in dead
+        .chunks(DROP_BATCH)
+        .take(DROP_CALLS_PER_PASS)
+        .enumerate()
+    {
+        if SNAPSHOT.waiting(&ctx.host.home, &ctx.database_id).is_some() {
+            return Ok(Pass::Again);
+        }
+        if index > 0 {
+            let status = ctx.runtime.accepted_status();
+            if status.head > status.acked {
+                return Ok(Pass::Again);
+            }
+        }
         let had_prior = counter.naming(batch, listed)?;
         let answer = counter
             .client
@@ -381,5 +378,9 @@ async fn drop_batches(
             return Ok(Pass::Refused(snapshot_seq));
         }
     }
-    Ok(Pass::Dropped)
+    if dead.len() > DROP_CALLS_PER_PASS * DROP_BATCH {
+        Ok(Pass::Again)
+    } else {
+        Ok(Pass::Dropped)
+    }
 }

@@ -8,15 +8,15 @@ use mutation_log::{
     StreamHead,
 };
 
-use super::snapshot_manifest::{Manifest, MANIFEST_LIMIT};
+use super::snapshot_manifest::Manifest;
 use super::snapshot_restore::fetch_manifest;
-use super::snapshot_state::read_request;
+use super::snapshot_state::SNAPSHOT;
 use super::Ctx;
 use crate::host::cloud_sync::ReclaimStatus;
 use crate::log_sync::relay::{RelayClient, StreamHead as RelayStream};
 
-/// Entries in one read of a stream.
-const PAGE: u32 = 90;
+/// Items (`ReadItem::Entry` or `ReadItem::Segment`) requested per `log.read` page during a sweep.
+const PAGE: u32 = 16;
 /// Empty cursor pages tolerated in a row before treating `log.read` as stalled.
 const MAX_EMPTY_PAGES: u32 = 64;
 
@@ -43,14 +43,9 @@ pub(super) async fn manifest_of(
     client: &RelayClient,
     snapshot: &SnapshotBody,
 ) -> Result<Manifest, String> {
-    if snapshot.manifest_bytes == 0 || snapshot.manifest_bytes > MANIFEST_LIMIT {
-        return Err("the newest snapshot entry names a manifest of an unusable length".into());
-    }
-    let dir = ctx.host.home.join("log-sync").join(&ctx.database_id);
     fetch_manifest(
         client,
         &ctx.database_id,
-        &dir,
         &snapshot.manifest_sha256.to_hex(),
         snapshot.manifest_bytes,
     )
@@ -105,7 +100,7 @@ pub(super) async fn read_tail(
 /// allowed to finish; no partially read tail is ever used to delete files.
 async fn snapshot_requested(ctx: &Ctx<'_>) {
     loop {
-        if read_request(&ctx.host.home, &ctx.database_id).is_some() {
+        if SNAPSHOT.waiting(&ctx.host.home, &ctx.database_id).is_some() {
             return;
         }
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
@@ -224,7 +219,7 @@ impl TailReader<'_, '_> {
             };
             // A segment's blob is needed while its item is stored, like a file an entry names.
             self.tail.named.extend(page.segments);
-            let (entries, next_cursor, in_segment) = (page.entries, page.cursor, page.in_segment);
+            let (entries, next_cursor) = (page.entries, page.cursor);
             if entries.is_empty() {
                 if let Some(advance) = next_cursor.filter(|c| {
                     !c.is_empty()
@@ -242,23 +237,17 @@ impl TailReader<'_, '_> {
             }
             cursor = None;
             empty_pages = 0;
-            for (entry, in_segment) in entries.iter().zip(in_segment) {
+            for item in entries {
                 if next > stream.head_seq {
-                    return Err("the relay returned entries above the listed stream head".into());
+                    break;
                 }
-                let hash = self.verify_entry(stream, next, expected_prev, entry)?;
+                let hash = self.verify_entry(stream, next, expected_prev, &item.entry)?;
                 expected_prev = Some(hash);
                 self.tail
                     .named
-                    .extend(named_blobs(entry).iter().map(Hex32::to_hex));
+                    .extend(named_blobs(&item.entry).iter().map(Hex32::to_hex));
                 self.tail.entries = self.tail.entries.saturating_add(1);
-                // The bytes of an entry that a segment holds are counted with the segment's blob.
-                if !in_segment {
-                    let len = serde_json::to_vec(entry)
-                        .map_err(|_| "cannot measure an entry")?
-                        .len() as u64;
-                    self.tail.entry_bytes = self.tail.entry_bytes.saturating_add(len);
-                }
+                self.tail.entry_bytes = self.tail.entry_bytes.saturating_add(item.inline_bytes);
                 next += 1;
             }
         }
@@ -332,17 +321,6 @@ impl Seen<'_> {
             || self.tail.named.contains(digest)
     }
 
-    /// How many files of the snapshot the relay does not list with their length: its manifest
-    /// and the files the manifest names. A sweep drops nothing while this is above zero.
-    pub(super) fn lacking(&self) -> usize {
-        let lacks = |digest: &str, bytes: u64| self.listed.get(digest) != Some(&bytes);
-        self.files
-            .iter()
-            .filter(|(digest, bytes)| lacks(digest, **bytes))
-            .count()
-            + usize::from(lacks(&self.manifest_sha256, self.manifest_bytes))
-    }
-
     /// What the relay holds, for a pass that found nothing to drop.
     pub(super) fn status(&self) -> ReclaimStatus {
         // The files the entries name and the snapshot does not, with their length on the relay.
@@ -355,7 +333,7 @@ impl Seen<'_> {
             })
             .map(|digest| self.listed.get(digest).copied())
             .collect();
-        let missing = named.iter().filter(|held| held.is_none()).count() + self.lacking();
+        let missing = named.iter().filter(|held| held.is_none()).count();
         ReclaimStatus {
             swept_at_ms: Some(fold_db::clock::unix_millis()),
             snapshot_seq: Some(self.snapshot_seq),

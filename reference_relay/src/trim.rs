@@ -52,6 +52,9 @@ pub(crate) async fn log_trim(
         let entry = read_json(&retained)
             .await
             .map_err(|_| ApiError::invalid("kind"))?;
+        if entry.get("segment").is_some() {
+            return Err(ApiError::forbidden("namespace"));
+        }
         if !permits_entry(true, &entry) {
             return Err(ApiError::invalid("kind"));
         }
@@ -184,6 +187,9 @@ pub(crate) async fn snapshot_entry(
         .into_iter()
         .next()
         .ok_or_else(|| ApiError::not_found("writer_seq"))?;
+    if value.get("segment").is_some() {
+        return Err(ApiError::forbidden("namespace"));
+    }
     let entry: SignedEntry =
         serde_json::from_value(value).map_err(|_| ApiError::invalid("entries"))?;
     verify_entry_signature(&entry).map_err(|_| ApiError::invalid("signature"))?;

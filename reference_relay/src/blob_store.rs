@@ -63,6 +63,22 @@ pub(crate) fn checksum_header(sha256: &str) -> String {
 }
 
 impl Store {
+    /// True when `database_id` currently owns a committed blob `sha256` of `bytes` bytes.
+    pub(crate) fn blob_exists(&self, database_id: &str, sha256: &str, bytes: u64) -> bool {
+        bytes > 0
+            && is_hex64(database_id)
+            && is_hex64(sha256)
+            && std::fs::metadata(self.db_blob_marker(database_id, sha256)).is_ok()
+            && std::fs::metadata(self.blob_path(sha256)).is_ok_and(|meta| meta.len() == bytes)
+    }
+
+    async fn committed_len(&self, sha256: &str) -> Option<u64> {
+        match fs::metadata(self.blob_path(sha256)).await {
+            Ok(meta) if meta.len() > 0 => Some(meta.len()),
+            _ => None,
+        }
+    }
+
     /// True when `database_id` already committed `sha256` with length `bytes`.
     /// Fails with 400 `bytes` if `database_id` owns `sha256` at a different length.
     pub(crate) async fn has_blob(
@@ -73,19 +89,17 @@ impl Store {
     ) -> ApiResult<bool> {
         require_hex64(database_id, "database_id")?;
         require_hex64(sha256, "sha256")?;
-        if fs::metadata(self.db_blob_marker(database_id, sha256))
-            .await
-            .is_err()
-        {
+        let marker = self.db_blob_marker(database_id, sha256);
+        if fs::metadata(&marker).await.is_err() {
             return Ok(false);
         }
-        let Ok(meta) = fs::metadata(self.blob_path(sha256)).await else {
+        let Some(len) = self.committed_len(sha256).await else {
             // A commit that wrote the marker and stopped before the content: drop the claim so a
             // later begin can stage the bytes again. `blob.list` already skips such markers.
-            let _ = fs::remove_file(self.db_blob_marker(database_id, sha256)).await;
+            let _ = fs::remove_file(&marker).await;
             return Ok(false);
         };
-        if meta.len() != bytes {
+        if len != bytes {
             return Err(ApiError::invalid("bytes"));
         }
         Ok(true)
@@ -194,7 +208,7 @@ impl Store {
     }
 
     /// Publish a staged upload for `database_id`. Repeat commits of an already-committed
-    /// `(database_id, sha256, bytes)` succeed idempotently.
+    /// `(database_id, sha256, bytes)` succeed idempotently; a differing `bytes` answers 409.
     pub(crate) async fn stage_commit(
         &self,
         database_id: &str,
@@ -206,10 +220,19 @@ impl Store {
         if bytes == 0 {
             return Err(ApiError::invalid("bytes"));
         }
-        let Some(staging) = self.find_staging(database_id, sha256).await? else {
-            if self.has_blob(database_id, sha256, bytes).await? {
+        let marker = self.db_blob_marker(database_id, sha256);
+        let blob_path = self.blob_path(sha256);
+        if fs::metadata(&marker).await.is_ok() {
+            if let Some(existing) = self.committed_len(sha256).await {
+                if existing != bytes {
+                    return Err(ApiError::conflict("bytes"));
+                }
+                self.clear_pending(database_id, sha256).await;
                 return Ok(());
             }
+            let _ = fs::remove_file(&marker).await;
+        }
+        let Some(staging) = self.find_staging(database_id, sha256).await? else {
             return Err(ApiError::not_found("sha256"));
         };
         let len = fs::metadata(&staging)
@@ -217,21 +240,23 @@ impl Store {
             .map_err(|_| ApiError::not_found("sha256"))?
             .len();
         if len != bytes {
-            return Err(ApiError::invalid("bytes"));
+            return Err(ApiError::conflict("bytes"));
         }
         // Claim ownership before the content is visible under `blobs/`. A crash between the old
         // order (rename, then marker) left a content file that `blob.list` and `blob.drop` cannot
         // name; with log segments a retry often uses another digest, so that file stayed forever.
-        let marker = self.db_blob_marker(database_id, sha256);
         if let Some(parent) = marker.parent() {
             fs::create_dir_all(parent)
                 .await
                 .map_err(|_| ApiError::invalid("data_dir"))?;
         }
         atomic_write(&marker, b"").await?;
-        fs::rename(&staging, self.blob_path(sha256))
-            .await
-            .map_err(|_| ApiError::invalid("data_dir"))?;
+        if fs::rename(&staging, &blob_path).await.is_err() {
+            if fs::metadata(&blob_path).await.is_err() {
+                let _ = fs::remove_file(&marker).await;
+            }
+            return Err(ApiError::invalid("data_dir"));
+        }
         // No pending record of the digest outlives its commit.
         self.clear_pending(database_id, sha256).await;
         Ok(())

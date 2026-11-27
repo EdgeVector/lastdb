@@ -209,11 +209,6 @@ impl RequestFiles {
     }
 }
 
-/// Read the pending request nonce, if any.
-pub(super) fn read_request(home: &Path, database_id: &str) -> Option<String> {
-    SNAPSHOT.waiting(home, database_id)
-}
-
 /// Ask for a snapshot now. Returns the database id and the nonce that names the request.
 pub(crate) fn request(host: &Host, selector: Option<&str>) -> Result<(String, String), String> {
     SNAPSHOT.ask(host, selector)
@@ -229,7 +224,7 @@ pub(crate) fn request_reclaim(
 
 /// True while a request waits for its snapshot.
 pub(super) fn requested(home: &Path, database_id: &str) -> bool {
-    read_request(home, database_id).is_some()
+    SNAPSHOT.waiting(home, database_id).is_some()
 }
 
 /// The state of the snapshot request `nonce`: ready with its report, failed, or neither yet.
@@ -281,21 +276,6 @@ pub(super) fn load_last(home: &Path, database_id: &str) -> Result<Option<Last>, 
     serde_json::from_slice(&bytes)
         .map(Some)
         .map_err(|_| "the last snapshot record is invalid".to_owned())
-}
-
-/// Record the answer of a snapshot request, then retire the request if it is still the same one.
-pub(super) fn finish_request(ctx: &Ctx<'_>, nonce: &str, report: &Report) -> Result<(), String> {
-    SNAPSHOT.finish(&ctx.host.home, &ctx.database_id, nonce, report)
-}
-
-/// Record why the snapshot request `nonce` failed, and retire it. A newer request may have
-/// replaced it while the snapshot ran, and it keeps its file and its own answer.
-pub(super) fn fail_request(ctx: &Ctx<'_>, nonce: &str, error: &str) {
-    fail_request_in(&ctx.host.home, &ctx.database_id, nonce, error);
-}
-
-pub(super) fn fail_request_in(home: &Path, database_id: &str, nonce: &str, error: &str) {
-    SNAPSHOT.fail(home, database_id, nonce, error);
 }
 
 pub(super) struct PublishedCut {
