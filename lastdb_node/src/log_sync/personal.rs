@@ -226,14 +226,16 @@ async fn run_turn(host: &Arc<Host>, client: &RelayClient) -> Result<(), String> 
         Ok(applied) => {
             ctx.host
                 .cloud_sync
-                .record_download(&ctx.database_id, Some(applied.tip), None, true)
+                .record_download(&ctx.database_id, Some(applied.tip), None, true);
         }
-        Err(err) => ctx.host.cloud_sync.record_download(
-            &ctx.database_id,
-            None,
-            Some(normalize_error(err)),
-            true,
-        ),
+        Err(err) => {
+            ctx.host.cloud_sync.record_download(
+                &ctx.database_id,
+                None,
+                Some(normalize_error(err)),
+                true,
+            );
+        }
     }
     let sent = outgoing::run(&ctx, client, &streams).await;
     // A sweep that is due or asked for runs after the send step: the relay then drops every

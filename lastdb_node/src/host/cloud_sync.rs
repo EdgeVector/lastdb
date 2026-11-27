@@ -3,12 +3,12 @@
 //! Upload, download, snapshot, cleanup, and turn-wide errors are tracked independently so a
 //! successful pull never overwrites or clears an unresolved upload failure or blocked queue.
 
-mod types;
+pub(crate) mod types;
 
 pub(crate) use types::{
-    BlockedUploadStatus, CloudSyncStatus, CloudUsage, DatabaseSyncStatus, DownloadSyncStatus,
-    FeatureStatus, ReclaimStatus, RelayStatus, SnapshotState, SnapshotStatus, UploadSyncStatus,
+    BlockedUploadStatus, CloudSyncStatus, CloudUsage, ReclaimStatus, SnapshotState, SnapshotStatus,
 };
+use types::{DatabaseSyncStatus, RelayStatus};
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -102,8 +102,7 @@ impl CloudSyncTracker {
         let (connected, environment, boot_error) = read_home_connection(home);
         let personal_database_id = crate::host::owned::registered_databases(home)
             .into_iter()
-            .find(|db| db.kind == "personal")
-            .map(|db| db.id);
+            .find_map(|db| (db.kind == "personal").then_some(db.id));
         let payment_hold = boot_error.as_deref().is_some_and(is_payment_refusal);
         Self {
             state: Mutex::new(TrackerState {
