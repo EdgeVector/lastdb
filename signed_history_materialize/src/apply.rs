@@ -4,9 +4,7 @@ use std::collections::{BTreeMap, HashMap};
 
 use fold_db::fold_db_core::FoldDB;
 use fold_db::record_replacement::RecordTarget;
-use fold_db::schema::types::{
-    CasExpectation, KeyValue, Mutation, MutationType, Schema, SchemaError,
-};
+use fold_db::schema::types::{CasExpectation, KeyValue, Mutation, MutationType, Schema};
 use mutation_log::{MaterializedRecord, VerifiedHistory};
 use serde_json::Value;
 
@@ -183,25 +181,12 @@ async fn apply_winner(
     let Some(mutation) = plan_winner(&schema, namespace, &key, current.as_ref(), winner) else {
         return Ok(());
     };
-    match store
+    store
         .mutation_manager()
         .write_mutations_receipt(vec![mutation])
         .await
-    {
-        Ok(_) => Ok(()),
-        Err(error @ SchemaError::RecordTooLarge { .. }) => {
-            tracing::warn!(
-                namespace = %namespace,
-                %error,
-                "removing record at key whose winning entry exceeds the record size cap"
-            );
-            if let Some(old) = current.as_ref() {
-                delete_stored(store, namespace, key, old).await?;
-            }
-            Ok(())
-        }
-        Err(error) => Err(format!("write {namespace}/{record_key}: {error}")),
-    }
+        .map(|_| ())
+        .map_err(|error| format!("write {namespace}/{record_key}: {error}"))
 }
 
 fn plan_winner(

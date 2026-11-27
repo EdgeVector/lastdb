@@ -88,8 +88,11 @@ fn validate_record_size(
     creator: &str,
     author: &str,
 ) -> Result<(), String> {
+    // Use maximum-width u64 stamp fields (20 digits each) and a 36-byte UUID so
+    // the size check is a deterministic upper bound across all receivers,
+    // independent of each node's local clock or mutation sequence counter.
     let stamp: RecordStamp = serde_json::from_str(
-        r#"{"authored_at_ms":1000000000000,"position":{"source_stream":"ffffffff-ffff-4fff-8fff-ffffffffffff","sequence":1}}"#,
+        r#"{"authored_at_ms":18446744073709551615,"position":{"source_stream":"ffffffff-ffff-4fff-8fff-ffffffffffff","sequence":18446744073709551615}}"#,
     )
     .map_err(|e| e.to_string())?;
     let replacement = RecordReplacement {
