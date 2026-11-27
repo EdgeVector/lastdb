@@ -7,11 +7,32 @@ use crate::host::owned;
 use crate::lastdb_uds::uds_router::method_not_allowed_response;
 use crate::log_sync::chain_error::ChainError;
 use crate::log_sync::CloudState;
-use crate::named_grant::{cloud_failure, ConfigError};
 use serde_json::Value;
+use std::path::Path;
 
 const NO_ACCOUNT: &str = "this node has no cloud account";
 pub(super) const RETRY_AFTER_SECS: u64 = 2;
+
+#[derive(Clone, Copy)]
+enum ConfigError {
+    PaymentRequired,
+    Unconfirmed,
+    /// The node has no usable cloud account. The caller does not wait.
+    NoAccount,
+}
+
+/// Classify a cloud failure by the node's saved cloud credentials.
+/// `Unconfirmed` remains when credentials exist or could not be verified.
+fn cloud_failure(home: &Path, error: &str) -> ConfigError {
+    if error == crate::cloud::PAYMENT_REQUIRED_MESSAGE {
+        return ConfigError::PaymentRequired;
+    }
+    match crate::cloud::load_verified_cloud_credentials(home) {
+        Ok(Some(creds)) if creds.connection.is_some() => ConfigError::Unconfirmed,
+        Ok(Some(_) | None) => ConfigError::NoAccount,
+        Err(_) => ConfigError::Unconfirmed,
+    }
+}
 
 pub(super) enum Route {
     Link,

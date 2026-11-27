@@ -38,29 +38,20 @@ impl CallLabel {
     }
 
     fn from_path(path: &str) -> Self {
-        let bytes = path.as_bytes();
-        if bytes.len() > CALL_CLIP {
-            return Self::from_static(OTHER);
-        }
+        let bytes = clip(path, CALL_CLIP).as_bytes();
         let mut buf = [0u8; CALL_CLIP];
         buf[..bytes.len()].copy_from_slice(bytes);
-        let Ok(len) = u8::try_from(bytes.len()) else {
-            return Self::from_static(OTHER);
-        };
         Self {
             known: None,
             buf,
-            len,
+            len: bytes.len() as u8,
         }
     }
 }
 
 pub(crate) fn call_of(target: &str) -> CallLabel {
     let path = target.split(['?', '#']).next().unwrap_or("");
-    known_path(path).map_or_else(
-        || CallLabel::from_path(clip(path, CALL_CLIP)),
-        CallLabel::from_static,
-    )
+    known_path(path).map_or_else(|| CallLabel::from_path(path), CallLabel::from_static)
 }
 
 pub(super) fn clip(value: &str, max: usize) -> &str {
@@ -123,15 +114,14 @@ fn placeholder(path: &str) -> Option<&'static str> {
         }
     }
     let rest = path.strip_prefix("/api/databases/")?;
-    let (id, suffix) = rest.split_once('/').unwrap_or((rest, ""));
-    if id.is_empty() || id.contains('/') {
+    let (id, suffix) = rest.split_once('/')?;
+    if id.is_empty() {
         return None;
-    }
-    if suffix.is_empty() {
-        return Some("/api/databases/{database}");
     }
     Some(match suffix {
         "change" => "/api/databases/{database}/change",
+        "lease" => "/api/databases/{database}/lease",
+        "share/link" => "/api/databases/{database}/share/link",
         "submissions" => "/api/databases/{database}/submissions",
         "submissions/status" => "/api/databases/{database}/submissions/status",
         "schemas" => "/api/databases/{database}/schemas",

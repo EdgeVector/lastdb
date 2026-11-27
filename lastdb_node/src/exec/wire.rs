@@ -44,10 +44,12 @@ pub(in crate::exec) fn encode_cursor_token(
     }
     serde_json::to_vec(next)
         .map(|b| {
-            Some(format!(
-                "{prefix}{}",
-                base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(b)
-            ))
+            let token = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(b);
+            Some(if prefix.is_empty() {
+                token
+            } else {
+                format!("{prefix}{token}")
+            })
         })
         .map_err(|_| HostError::internal(err_msg))
 }

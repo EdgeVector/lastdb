@@ -60,6 +60,7 @@ default-members = [
     "schema_service/crates/server_lambda",
     "app_identity_crypto",
     "cloud_backup_protocol",
+    "relay_protocol",
     "database_policy",
     "mutation_log",
     "reference_relay",

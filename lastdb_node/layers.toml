@@ -54,9 +54,8 @@ modules = [
 
 [[layer]]
 name = "share_state"
-doc = "Local open-link mint, received signed-log databases, and enrollment classification."
+doc = "Local open-link mint and received signed-log databases."
 modules = [
-  "named_grant",
   "registered_share",
   "share_cache",
   "share_link",

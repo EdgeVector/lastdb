@@ -18,7 +18,7 @@ pub(super) const RETENTION_SECS: u64 = 14 * DAY_SECS;
 pub(super) const CAP_BYTES: u64 = 64 << 20;
 /// The size at which a new file starts: 4 MiB.
 pub(super) const FILE_BYTES: u64 = 4 << 20;
-const DAY_SECS: u64 = 86_400;
+pub(super) const DAY_SECS: u64 = 86_400;
 const PREFIX: &str = "ops-";
 const SUFFIX: &str = ".jsonl";
 
@@ -81,10 +81,13 @@ impl Writer {
     }
 
     fn open_file(&self, now: u64, len: u64) -> io::Result<Open> {
-        DirBuilder::new()
-            .recursive(true)
-            .mode(0o700)
-            .create(&self.dir)?;
+        if !check_dir(&self.dir)? {
+            if let Err(error) = DirBuilder::new().mode(0o700).create(&self.dir) {
+                if error.kind() != io::ErrorKind::AlreadyExists || !check_dir(&self.dir)? {
+                    return Err(error);
+                }
+            }
+        }
         prune(&self.dir, now)?;
         let newest = files(&self.dir)?.pop().filter(|found| {
             found.start / DAY_SECS == now / DAY_SECS && found.bytes + len <= FILE_BYTES
@@ -111,19 +114,35 @@ impl Writer {
     }
 }
 
+fn check_dir(dir: &Path) -> io::Result<bool> {
+    match fs::symlink_metadata(dir) {
+        Ok(meta) if meta.file_type().is_symlink() || !meta.is_dir() => Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "ops-history path is not a directory",
+        )),
+        Ok(_) => Ok(true),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error),
+    }
+}
+
 /// The history files in `dir`, oldest first.
 pub(super) fn files(dir: &Path) -> io::Result<Vec<Found>> {
+    if !check_dir(dir)? {
+        return Err(io::Error::from(io::ErrorKind::NotFound));
+    }
     let mut found = Vec::new();
     for entry in fs::read_dir(dir)? {
         let entry = entry?;
         let Some(start) = entry.file_name().to_str().and_then(start_of) else {
             continue;
         };
-        let meta = entry.metadata()?;
-        if meta.is_file() {
+        let path = entry.path();
+        let meta = fs::symlink_metadata(&path)?;
+        if meta.is_file() && !meta.file_type().is_symlink() {
             found.push(Found {
                 start,
-                path: entry.path(),
+                path,
                 bytes: meta.len(),
             });
         }
@@ -148,9 +167,11 @@ fn prune(dir: &Path, now: u64) -> io::Result<()> {
     let found = files(dir)?;
     let mut total: u64 = found.iter().map(|file| file.bytes).sum();
     let cutoff = now.saturating_sub(RETENTION_SECS);
-    for (index, file) in found.iter().enumerate() {
-        let next_start = found.get(index + 1).map_or(now, |next| next.start);
-        if next_start > cutoff && total + FILE_BYTES <= CAP_BYTES {
+    for file in &found {
+        let day_end = (file.start / DAY_SECS)
+            .saturating_add(1)
+            .saturating_mul(DAY_SECS);
+        if day_end > cutoff && total + FILE_BYTES <= CAP_BYTES {
             break;
         }
         if let Err(error) = fs::remove_file(&file.path) {

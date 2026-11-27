@@ -10,7 +10,7 @@ import threading
 import time
 
 from node import save
-from phases import capture_phases
+from phases import capture_phases, read_ops
 from process_counters import counter_delta, read_counters
 
 SCHEMA, HASH = "GitHubBenchmark", "generated"
@@ -247,6 +247,7 @@ class Workload:
         samples = samples or self.recipe["samples"]
         jobs = self.prepare(mode, batch, samples, clients)
         before = self.node.disk_bytes()
+        ops_before = read_ops(self.node) if mode in ("insert", "update", "write", "mixed") else None
         sequence = len(self.metrics)
         barrier, stopped, monitor_stop = threading.Barrier(clients + 1), threading.Event(), threading.Event()
         memory = []
@@ -282,7 +283,7 @@ class Workload:
         # Capture after timed work and its resource observations. The diagnostic
         # call never enters latency, throughput, memory, or the disk-size window.
         if mode in ("insert", "update", "write", "mixed") and not metric["errors"]:
-            metric["phase_coverage"] = capture_phases(self.node, self.output, name, sequence, rows)
+            metric["phase_coverage"] = capture_phases(self.node, self.output, name, sequence, rows, ops_before)
         self.metrics[name] = metric
         if mode == "mixed":
             for kind in ("read", "write"):
@@ -296,9 +297,9 @@ class Workload:
             errors = [r["error"] for r in rows if "error" in r]
             raise RuntimeError(f"{name}: incomplete measurement: {errors[:3]}")
         if (name == "update/128"
-                and metric["phase_coverage"].get("ring_capacity")
+                and metric["phase_coverage"].get("observed_writes") is not None
                 and metric["phase_coverage"]["complete"] is not True):
-            raise RuntimeError("The batch-update diagnostics lack complete exact request-ID phase coverage")
+            raise RuntimeError("The batch-update diagnostics lack complete /api/ops write_phases coverage")
 
     def run(self):
         try:

@@ -38,7 +38,7 @@ pub fn spawn_periodic(host: Arc<Host>, shutdown: Arc<AtomicBool>) -> JoinHandle<
     tokio::spawn(
         async move {
             let mut writer = store::Writer::new(host.home.join(DIR));
-            let mut marks = Marks::default();
+            let mut marks = Marks::new();
             loop {
                 let stopping = wait(&shutdown).await;
                 let (now, line) = sample_line(&host, &mut marks);
@@ -71,16 +71,30 @@ async fn wait(shutdown: &AtomicBool) -> bool {
     shutdown.load(Ordering::Acquire)
 }
 
-/// The uptime and the commit log totals at the previous line.
-#[derive(Default)]
+/// Monotonic elapsed seconds and commit log totals at the previous line.
 struct Marks {
-    uptime_secs: u64,
+    started: Instant,
+    elapsed_secs: u64,
     flushes: u64,
     flush_micros: u64,
 }
 
+impl Marks {
+    fn new() -> Self {
+        Self {
+            started: Instant::now(),
+            elapsed_secs: 0,
+            flushes: 0,
+            flush_micros: 0,
+        }
+    }
+}
+
 fn sample_line(host: &Host, marks: &mut Marks) -> (u64, Vec<u8>) {
     let now = fold_db::clock::unix_secs();
+    let elapsed_secs = marks.started.elapsed().as_secs();
+    let interval_secs = elapsed_secs.saturating_sub(marks.elapsed_secs);
+    marks.elapsed_secs = elapsed_secs;
     let uptime_secs = now.saturating_sub(host.process_start_ts);
     let ops = host.ops.sample();
     let commit_log =
@@ -107,14 +121,13 @@ fn sample_line(host: &Host, marks: &mut Marks) -> (u64, Vec<u8>) {
         "pid": std::process::id(),
         "start_ts": host.process_start_ts,
         "uptime_secs": uptime_secs,
-        "interval_secs": uptime_secs.saturating_sub(marks.uptime_secs),
+        "interval_secs": interval_secs,
         "build": crate::version::build_version(),
         "calls": ops.get("calls"),
         "schemas": ops.get("schemas"),
         "write_phases": ops.get("write_phases"),
         "commit_log": commit_log,
     });
-    marks.uptime_secs = uptime_secs;
     let mut bytes = serde_json::to_vec(&value).unwrap_or_default();
     bytes.push(b'\n');
     (now, bytes)

@@ -1,59 +1,44 @@
-//! Owned row and page response assembly, scan rejection, and sorting.
+//! Owned row and page response assembly and ascending range sorting.
 
 use std::cmp::Ordering;
 
 use fold_db::fold_db_core::query::{AlternatePage, Record};
 use fold_db::schema::types::key_comparison::RangeKeyComparison;
-use fold_db::schema::types::operations::SortOrder;
-use fold_db::schema::types::{KeyValue, QueryCursor, Schema, SchemaError};
+use fold_db::schema::types::{KeyValue, QueryCursor, SchemaError};
 use serde_json::{json, Value};
 
 use crate::exec::reply::HostError;
 
-const KEYED_FILTER_VARIANTS: &[&str] = &[
-    "HashKey",
-    "HashRangeKey",
-    "HashRangePrefix",
-    "HashRangeRange",
-    "HashRangeKeys",
-];
-
-pub(super) fn page_payload(
+fn page_payload(
     page: Vec<Value>,
-    total_count: Option<usize>,
-    (limit, offset): (usize, usize),
+    limit: usize,
     has_more: bool,
     next_cursor: Option<QueryCursor>,
 ) -> Value {
     let n = page.len();
     json!({
-        "results": Value::Array(page), "total_count": total_count, "returned_count": n,
-        "limit": limit, "offset": offset, "has_more": has_more,
+        "results": Value::Array(page), "total_count": Value::Null, "returned_count": n,
+        "limit": limit, "offset": 0, "has_more": has_more,
         "next_cursor": serde_json::to_value(next_cursor).unwrap_or(Value::Null),
     })
 }
 
 pub(super) fn cursor_payload(
     mut page: Vec<Value>,
-    total_count: Option<usize>,
-    (limit, offset): (usize, usize),
+    limit: usize,
     resume: Option<KeyValue>,
     comparison: Option<String>,
-    with_cursor: bool,
 ) -> Value {
     let has_more = page.len() > limit || resume.is_some();
     page.truncate(limit);
-    let next = with_cursor
-        .then(|| {
-            resume.or_else(|| {
-                has_more
-                    .then(|| serde_json::from_value(page.last()?.get("key")?.clone()).ok())
-                    .flatten()
-            })
+    let next = resume
+        .or_else(|| {
+            has_more
+                .then(|| serde_json::from_value(page.last()?.get("key")?.clone()).ok())
+                .flatten()
         })
-        .flatten()
         .map(|key| QueryCursor::new(key, comparison));
-    page_payload(page, total_count, (limit, offset), has_more, next)
+    page_payload(page, limit, has_more, next)
 }
 
 pub(super) fn format_rows(
@@ -119,41 +104,11 @@ pub(super) fn format_alternate_page(
             c.alternate_primary = Some(e.primary.clone());
             c
         });
-    Ok(page_payload(results, None, (limit, 0), page.has_more, next))
-}
-
-pub(super) fn full_schema_scan_rejection(requested: &str, schema: Option<&Schema>) -> HostError {
-    let is_id = |v: &str| v.len() == 64 && v.bytes().all(|b| b.is_ascii_hexdigit());
-    let name = schema
-        .and_then(|s| s.descriptive_name.clone())
-        .or_else(|| (!is_id(requested)).then(|| requested.to_string()))
-        .or_else(|| schema.and_then(|s| (!is_id(&s.name)).then(|| s.name.clone())))
-        .or_else(|| {
-            schema
-                .and_then(|s| s.owner_app_id.as_deref())
-                .map(|o| format!("{o}/<unnamed-schema>"))
-        })
-        .unwrap_or_else(|| "<unnamed-product-schema>".to_string());
-    let msg = format!(
-        "full_schema_scan_not_allowed: unfiltered query on product schema '{name}' is not supported; add a keyed filter using the structured remediation"
-    );
-    let body = json!({
-        "ok": false, "kind": "full_schema_scan_not_allowed",
-        "error": "product apps are keyed-access only; unfiltered schema queries are not supported",
-        "message": msg, "schema_name": name,
-        "schema_id": schema.map_or(requested, |s| s.name.as_str()),
-        "remediation": {
-            "action": "add_key_filter", "request_key": "filter",
-            "record_keys": schema.and_then(|s| s.record_keys.as_ref()),
-            "filter_variants": KEYED_FILTER_VARIANTS,
-        }
-    });
-    HostError::structured(400, msg, body)
+    Ok(page_payload(results, limit, page.has_more, next))
 }
 
 pub(super) fn sort_rows(
     rows: &mut [Value],
-    sort_order: Option<&SortOrder>,
     range_cmp: Option<&RangeKeyComparison>,
 ) -> Result<(), HostError> {
     if let Some(cmp) = range_cmp {
@@ -162,7 +117,7 @@ pub(super) fn sort_rows(
                 .map_err(SchemaError::InvalidData)?;
         }
     }
-    let (mut err, desc) = (None, matches!(sort_order, Some(SortOrder::Desc)));
+    let mut err = None;
     rows.sort_by(|a, b| {
         let (ar, br) = (
             a["key"]["range"].as_str().unwrap_or(""),
@@ -179,7 +134,7 @@ pub(super) fn sort_rows(
         } else {
             ar.cmp(br)
         };
-        (if desc { ord.reverse() } else { ord }).then_with(|| {
+        ord.then_with(|| {
             a["key"]["hash"]
                 .as_str()
                 .unwrap_or("")
