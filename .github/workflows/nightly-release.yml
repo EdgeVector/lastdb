@@ -12,6 +12,7 @@ on:
       - 'scripts/benchmarks/artifact.py'
       - 'lastdb_node/build.rs'
       - 'Cargo.toml'
+      - '.cargo/config.toml'
 
 permissions:
   contents: read

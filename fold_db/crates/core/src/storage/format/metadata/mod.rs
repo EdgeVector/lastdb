@@ -243,9 +243,10 @@ impl Metadata {
             return Err(invalid_author("local stream state exceeds its bound"));
         }
         let mut rows = Vec::with_capacity(records.len() * 2 + 1);
-        rows.push((LOCAL_AUTHOR_KEY.to_owned(), Some(bytes)));
+        rows.push(KvMutation::put(LOCAL_AUTHOR_KEY, bytes));
         changes::append_rows(&stamps, records, &mut rows)?;
-        self.stage(rows).await.map(|()| stamps)
+        // The scope was checked above. The trim of the oldest entry goes without a read.
+        self.store.batch_mutate(rows).await.map(|()| stamps)
     }
 
     fn require_scope(&self) -> StorageResult<()> {
