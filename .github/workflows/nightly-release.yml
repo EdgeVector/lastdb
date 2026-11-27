@@ -10,6 +10,7 @@ on:
       - 'scripts/harness.py'
       - 'scripts/release/nightly_*.py'
       - 'scripts/release/entitlements.plist'
+      - 'scripts/release/macos_sign.py'
       - 'scripts/benchmarks/artifact.py'
       - 'lastdb_node/build.rs'
       - 'Cargo.toml'

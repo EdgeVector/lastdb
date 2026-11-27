@@ -16,6 +16,7 @@ on:
       - 'scripts/harness.py'
       - 'scripts/release/nightly_*.py'
       - 'scripts/release/entitlements.plist'
+      - 'scripts/release/macos_sign.py'
       - 'lastdb_node/src/bin/lastdb/app_cmds/interface_publish.rs'
       - 'lastdb_node/src/bin/lastdb/cli_defs.rs'
       - 'lastdb_node/src/bin/lastdb/cli_defs/**'
