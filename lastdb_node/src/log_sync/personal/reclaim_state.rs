@@ -1,7 +1,7 @@
 //! What a sweep keeps on disk beside the snapshot record.
 //!
-//! `reclaim-due.json` says that a sweep is due for one snapshot. The snapshot lane writes it
-//! when it has named and trimmed a snapshot, and the sweep removes it when nothing is left to
+//! `reclaim-due.json` says that a trim and sweep are due for one snapshot. The snapshot lane
+//! writes it as soon as it has named a snapshot, and the sweep removes it when nothing is left to
 //! drop. When the relay refused the drops turn after turn, the mark stays and says why the sweep
 //! stopped trying. `reclaim-last.json` is what the relay held after the last finished sweep, which
 //! `lastdb status` shows. A request of `lastdb backup reclaim` uses the request files of
@@ -42,9 +42,9 @@ pub(super) fn pending(home: &Path, database_id: &str) -> bool {
         || due(home, database_id).is_some_and(|due| due.held.is_none())
 }
 
-/// Mark a sweep as due for the snapshot `snapshot_seq` on the relay at `relay_base`. A failure
-/// to write is logged and does not fail the snapshot: the next snapshot marks again, and
-/// `lastdb backup reclaim` asks for a sweep without the mark.
+/// Mark a trim and sweep as due for the snapshot `snapshot_seq` on the relay at `relay_base`.
+/// A failure to write is logged and does not fail the published snapshot: the next snapshot marks
+/// again, and `lastdb backup reclaim` asks for a sweep without the mark.
 pub(super) fn mark_due(ctx: &Ctx<'_>, relay_base: &str, snapshot_seq: u64) {
     let due = Due {
         snapshot_seq,

@@ -1,4 +1,4 @@
-//! The relay side of a snapshot: the positions of a cut, the signed `snapshot` entry, and the trim.
+//! The relay side of a snapshot: the positions of a cut and the signed `snapshot` entry.
 
 use mutation_log::{
     author_snapshot, entry_hash, verify_entry_signature, AuthorCtx, DeviceId, EntryHash, Hex32,
@@ -7,38 +7,6 @@ use mutation_log::{
 
 use super::Ctx;
 use crate::log_sync::relay::{RelayClient, StreamHead as RelayStream};
-
-/// Calls of one trim. The relay does a bounded amount of work in a call and says whether
-/// it is done, so a large backlog takes several calls. What is left goes on at the next snapshot.
-const TRIM_CALLS: usize = 64;
-
-/// Ask the relay to drop what the newest snapshot covers: the entries up to its positions and
-/// the snapshot entries before it. The relay then holds one snapshot and the entries after it.
-/// The relay reads that snapshot entry itself and checks it. A trim drops no file: the sweep
-/// (`reclaim`) drops the files that nothing names any more. A failure is logged and is not an
-/// error of the snapshot: the snapshot is already named, nothing was lost, and the next snapshot
-/// asks again.
-pub(super) async fn trim_covered(ctx: &Ctx<'_>, client: &RelayClient, newest: u64) {
-    if newest == 0 {
-        return;
-    }
-    for _ in 0..TRIM_CALLS {
-        match client
-            .trim(&ctx.database_id, &ctx.snapshot_device_hex, newest)
-            .await
-        {
-            Ok(true) => {
-                tracing::info!(target: "lastdbd::log_sync", newest, "the relay dropped what the snapshot covers");
-                return;
-            }
-            Ok(false) => {}
-            Err(error) => {
-                tracing::warn!(target: "lastdbd::log_sync", %error, "the relay could not drop what the snapshot covers");
-                return;
-            }
-        }
-    }
-}
 
 /// The stream positions of a cut, ascending by device id.
 pub(super) fn through_of(
