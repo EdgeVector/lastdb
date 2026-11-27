@@ -197,8 +197,15 @@ rss_limit_mb = 16384
 (`manual` | `auto` | `withdrawn`), `result` (`upgraded` | `refused` | `rolled-back` |
 `needs-human`), `step`, `detail`. No record content, keys of user data, or secrets.
 
-A program folder is removed only when it is neither `current` nor `previous`, and only
-after a successful upgrade.
+A program folder is removed only when it is neither `current` nor `previous`, only after
+a successful upgrade, and never while `previous` is unset.
+
+An automatic run (`auto` or `withdrawn`) that fails after the drain adds its target to
+`rejected`, so it is tried once per version. A withdrawn rollback whose `previous` is in
+`rejected` only reports. A stop is bounded by the longer of `stop_timeout_secs` and the
+job's own stop window (`ExitTimeOut` or `TimeoutStopSec`) plus 120 s; when the old process
+outlives it, nothing is killed and the old job is started again (or the start is queued on
+systemd); exit 4 only when it cannot be.
 
 ## 9. Daemon interfaces
 

@@ -162,11 +162,19 @@ pub(super) fn check_versions(dir: &Path, expect: Option<&str>) -> Result<String,
 }
 
 /// `lastdbd --accepted-home-format` must print the home's marker byte for byte. A home
-/// with no marker holds no data yet, so there is nothing to compare.
+/// with no marker has never started, so there is nothing to compare. Any other error
+/// reading the marker is refused: the check is never skipped on a home that has one.
 pub(super) fn check_home_format(dir: &Path, home: &Path) -> Result<(), StageError> {
     let marker = home.join("data").join(NODE_MARKER);
-    let Ok(have) = fs::read(&marker) else {
-        return Ok(());
+    let have = match fs::read(&marker) {
+        Ok(have) => have,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => {
+            return Err(refused(format!(
+                "cannot read the home format marker {}: {e}",
+                marker.display()
+            )));
+        }
     };
     let out = procs::run(
         &dir.join("lastdbd"),

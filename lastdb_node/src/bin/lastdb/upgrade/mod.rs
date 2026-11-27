@@ -15,6 +15,7 @@ mod procs;
 mod select;
 mod service;
 mod service_cmds;
+mod service_jobfile;
 mod stage;
 mod state;
 mod status;

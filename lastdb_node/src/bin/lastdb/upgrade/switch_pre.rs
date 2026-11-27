@@ -68,6 +68,7 @@ impl Switch<'_> {
             old_previous: std::fs::read_link(self.paths.previous()).ok(),
             switched: false,
             rewrote: false,
+            started_new: false,
         })
     }
 
