@@ -23,6 +23,9 @@ const SEAL_MIN_BYTES: u64 = 64 << 10;
 const MAX_MEMORY_BYTES: u64 = 256 << 20;
 
 pub(super) type Records = Vec<(Vec<u8>, Option<Vec<u8>>)>;
+/// One logged record: key, body, and logical bytes the tombstone hides.
+pub(super) type LoggedRecord = (Vec<u8>, Option<Vec<u8>>, u64);
+pub(super) type LoggedRecords = Vec<LoggedRecord>;
 
 /// Log bytes that start a seal: a quarter of the run bytes, kept between `SEAL_MIN_BYTES` and
 /// `SEAL_BYTES`. Logged commits are frames, larger than the same records in a run, so a small
@@ -34,8 +37,8 @@ fn seal_bytes(held: &Manifest) -> u64 {
 
 /// Logical bytes that `tombstones` of unknown size hide: the mean logical bytes of one live key.
 /// A delete that already read its value passes that length instead. The mean of every key is
-/// much smaller than one user record when the home also holds short keys, so it is only the
-/// fallback.
+/// much smaller than one user record when the home also holds short keys, so it is only an
+/// estimate for tombstones whose size was not read.
 fn hidden_bytes(held: &Manifest, tombstones: u64) -> u64 {
     if tombstones == 0 {
         return 0;
@@ -50,7 +53,7 @@ fn hidden_bytes(held: &Manifest, tombstones: u64) -> u64 {
     (bytes / live.max(1)).saturating_mul(tombstones)
 }
 
-fn tombstone_hidden(held: &Manifest, records: &[(Vec<u8>, Option<Vec<u8>>, u64)]) -> u64 {
+fn tombstone_hidden(held: &Manifest, records: &[LoggedRecord]) -> u64 {
     let (mut known, mut unknown) = (0u64, 0u64);
     for (_, body, hides) in records {
         if body.is_none() {
@@ -66,7 +69,7 @@ fn tombstone_hidden(held: &Manifest, records: &[(Vec<u8>, Option<Vec<u8>>, u64)]
 
 pub(super) fn logged_ops(
     operations: Vec<super::compaction::HomeMutation>,
-) -> Result<Vec<(Vec<u8>, Option<Vec<u8>>, u64)>> {
+) -> Result<LoggedRecords> {
     let mut records = Vec::with_capacity(operations.len());
     for op in operations.into_iter().rev() {
         let key = super::run_key(&op.collection, op.key.as_bytes())?;
@@ -77,7 +80,7 @@ pub(super) fn logged_ops(
     Ok(records)
 }
 
-pub(super) fn as_records(records: Vec<(Vec<u8>, Option<Vec<u8>>, u64)>) -> Records {
+pub(super) fn as_records(records: LoggedRecords) -> Records {
     records.into_iter().map(|(k, body, _)| (k, body)).collect()
 }
 
@@ -98,10 +101,7 @@ impl RunHome {
 
     /// Commit sorted records with unique keys through the commit log.
     /// Each record is `(key, body, logical bytes the tombstone hides)`.
-    pub(super) fn commit_logged(
-        &self,
-        records: Vec<(Vec<u8>, Option<Vec<u8>>, u64)>,
-    ) -> Result<()> {
+    pub(super) fn commit_logged(&self, records: LoggedRecords) -> Result<()> {
         let mut payload = Vec::new();
         let mut prev: &[u8] = &[];
         for (key, body, _) in &records {
