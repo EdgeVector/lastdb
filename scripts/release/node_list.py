@@ -494,7 +494,9 @@ def build_entry(channel, repo, release, target):
         "status": "active",
     }
     if entry["signing"] == "ad-hoc":
-        raise ListError(f"{tag} {target} is ad-hoc signed; only developer-id releases are listed")
+        # The contract has no place for an ad-hoc build, so that target's list does not change.
+        print(f"::warning::{tag} {target} is ad-hoc signed; only developer-id releases are listed")
+        return None
     check_entry(entry, channel, target)
     return entry
 
@@ -507,7 +509,7 @@ def cmd_publish(args):
     for target in (args.target or TARGETS):
         entry = build_entry(channel, repo, release, target)
         if entry is None:
-            print(f"{release['tag_name']}: no {target} asset; that list is unchanged")
+            print(f"{release['tag_name']}: no listable {target} asset; that list is unchanged")
             continue
         current = load_current(args, channel, target, keys)
         releases = list(current["releases"]) if current else []
