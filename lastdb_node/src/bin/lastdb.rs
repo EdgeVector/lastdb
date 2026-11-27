@@ -79,6 +79,14 @@ pub(crate) fn write_new_private_file(out: &Path, bytes: &[u8], label: &str) -> R
 }
 
 fn main() {
+    observability::set_service_name("lastdb");
+    let _sentry = match observability::layers::error::init_sentry_client() {
+        Ok(guard) => guard,
+        Err(error) => {
+            eprintln!("lastdb: {error}");
+            std::process::exit(1);
+        }
+    };
     std::panic::set_hook(Box::new(|info| {
         let p = info.payload();
         let m = p
@@ -92,7 +100,7 @@ fn main() {
         }) {
             std::process::exit(141);
         }
-        observability::crash::write_panic_marker();
+        observability::crash::on_panic(info);
     }));
     if let Some(error) = app_run::run_if_app_command() {
         eprintln!("error: {error}");

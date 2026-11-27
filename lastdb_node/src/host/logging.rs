@@ -102,7 +102,8 @@ where
     }
 }
 
-pub fn init_daemon_logging() -> Option<observability::layers::error::SentryGuard> {
+pub fn init_daemon_logging(
+) -> Result<Option<observability::layers::error::SentryGuard>, observability::ObsError> {
     let rot_on = !matches!(
         std::env::var("LASTDBD_STDIO_LOG_ROTATION").ok().as_deref(),
         Some("0" | "false" | "FALSE" | "off" | "OFF")
@@ -122,13 +123,15 @@ pub fn init_daemon_logging() -> Option<observability::layers::error::SentryGuard
             }
         }
     }
-    use observability::layers::error::{build_error_layer, OBS_SENTRY_RELEASE_ENV};
-    std::env::set_var(OBS_SENTRY_RELEASE_ENV, crate::version::build_version());
+    observability::set_service_name("lastdbd");
     let filter = std::env::var("RUST_LOG")
         .ok()
         .and_then(|v| tracing_subscriber::EnvFilter::try_new(v.trim()).ok())
         .unwrap_or_else(|| tracing_subscriber::EnvFilter::new("info"));
-    let (err_layer, guard) = build_error_layer().unzip();
+    let (err_layer, guard) = match observability::layers::error::build_error_layer()? {
+        Some((layer, guard)) => (Some(layer), Some(guard)),
+        None => (None, None),
+    };
     let fmt = tracing_subscriber::fmt::layer()
         .with_writer(io::stderr)
         .with_ansi(false)
@@ -138,7 +141,7 @@ pub fn init_daemon_logging() -> Option<observability::layers::error::SentryGuard
         .with(fmt)
         .with(err_layer)
         .init();
-    guard
+    Ok(guard)
 }
 
 fn rotate_fd_if_needed(fd: RawFd, path: &Path, max: u64, keep: usize) -> io::Result<()> {
