@@ -2,13 +2,12 @@
 //!
 //! The publisher derives the key from its node seed. A member receives the same
 //! key in the open read link and keeps it in the registration. Grant entries
-//! carry only role; they never carry the key.
+//! carry only role; they never carry the key. Derived sealers are cached per
+//! database inside [`super::history_store::HistoryMap`].
 
 use std::path::Path;
-use std::sync::Arc;
 
 use cloud_backup_protocol::Id;
-use mutation_log::{SealOpener, VerifiedHistory};
 use zeroize::Zeroizing;
 
 use crate::host::owned::{self, Kind};
@@ -17,15 +16,16 @@ use crate::personal_seal::Sealer;
 use crate::registered_share;
 use crate::shared_seal;
 
-/// The sealer for `database_id` on this node, or an error when the read key is
-/// not available locally.
+/// The sealer for `database_id` on this node, served from the per-home cache
+/// after first derivation, or an error when the read key is unavailable locally.
 pub(super) fn sealer(host: &Host, database_id: &str) -> Result<Sealer, String> {
-    let seed = Zeroizing::new(host.keypair.secret_key_bytes());
-    sealer_with_seed(&host.home, &seed, database_id)
+    super::histories_for(host)
+        .sealer(database_id)
+        .map(|cached| (*cached).clone())
 }
 
-/// Same as [`sealer`], for callers that already hold the node seed (history
-/// replay has the home and seed but not the live `Host`).
+/// Derive a sealer from `home` and `node_seed` (used by `HistoryMap` when
+/// populating its per-database sealer cache).
 pub(super) fn sealer_with_seed(
     home: &Path,
     node_seed: &[u8; 32],
@@ -33,20 +33,6 @@ pub(super) fn sealer_with_seed(
 ) -> Result<Sealer, String> {
     let key = read_key(home, node_seed, database_id)?;
     shared_seal::for_key(database_id, key)
-}
-
-/// Install the opener on a history so sealed entries open during apply and
-/// recompute. Missing key leaves the history unable to materialize sealed
-/// content; callers treat that as unavailable.
-pub(super) fn attach_opener(
-    history: &mut VerifiedHistory,
-    home: &Path,
-    node_seed: &[u8; 32],
-    database_id: &str,
-) -> Result<(), String> {
-    let opener: Arc<dyn SealOpener> = Arc::new(sealer_with_seed(home, node_seed, database_id)?);
-    history.set_opener(opener);
-    Ok(())
 }
 
 fn read_key(

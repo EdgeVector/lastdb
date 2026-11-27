@@ -110,17 +110,31 @@ pub fn resolve_alternates(
     Ok(supplied)
 }
 
-/// Make FoldDB hold exactly the winners of `history`.
+/// Make FoldDB hold the valid winners of `history`.
 ///
-/// A winner already stored with equal fields, equal alternates, and the same
+/// Winners are applied in deterministic descending `RecordPosition` order. A
+/// winner already stored with equal fields, equal alternates, and the same
 /// `created_by` and `updated_by` is left alone. History records are
 /// whole-record last-writer-wins: `winner.creator` (the earliest accepted write
 /// to the key) is `created_by` and `winner.author` is `updated_by` on every
-/// node. An empty value deletes the record. A live winner whose namespace has
-/// no declared schema fails closed. A tombstone for an undeclared namespace is
-/// skipped so a tombstone-only namespace does not block restore.
+/// node. An empty value deletes the record. Malformed or schema-invalid entries
+/// are logged and skipped so a poisoned entry cannot block materialization.
 pub async fn apply_history(store: &FoldDB, history: &VerifiedHistory) -> Result<(), String> {
-    for ((namespace, record_key), winner) in history.records() {
+    let mut winners: Vec<_> = history.records().iter().collect();
+    winners.sort_by(|(key_a, rec_a), (key_b, rec_b)| {
+        let pos_a = (
+            rec_a.position.lamport,
+            rec_a.position.node_key,
+            rec_a.position.device_id,
+        );
+        let pos_b = (
+            rec_b.position.lamport,
+            rec_b.position.node_key,
+            rec_b.position.device_id,
+        );
+        pos_b.cmp(&pos_a).then_with(|| key_a.cmp(key_b))
+    });
+    for ((namespace, record_key), winner) in winners {
         apply_winner(store, namespace, record_key, winner).await?;
     }
     Ok(())
@@ -132,23 +146,92 @@ async fn apply_winner(
     record_key: &str,
     winner: &MaterializedRecord,
 ) -> Result<(), String> {
-    if !schema_declared(store, namespace)? {
-        if winner.value.is_empty() {
-            return Ok(());
+    let Some(mutation) = prepare_winner_mutation(store, namespace, record_key, winner).await?
+    else {
+        return Ok(());
+    };
+    match store
+        .mutation_manager()
+        .write_mutations_receipt(vec![mutation])
+        .await
+    {
+        Ok(_) => Ok(()),
+        Err(error) if invalid_winner_error(&error) => {
+            tracing::warn!(
+                namespace = %namespace,
+                %error,
+                "skipping rejected record winner in signed history"
+            );
+            Ok(())
         }
-        return Err(format!(
-            "schema {namespace} has no declaration in signed history"
-        ));
+        Err(error) => Err(format!("write {namespace}/{record_key}: {error}")),
     }
-    let key = key_value(store, namespace, record_key)?;
+}
+
+async fn prepare_winner_mutation(
+    store: &FoldDB,
+    namespace: &str,
+    record_key: &str,
+    winner: &MaterializedRecord,
+) -> Result<Option<Mutation>, String> {
+    if !schema_declared(store, namespace)? {
+        if !winner.value.is_empty() {
+            tracing::warn!(
+                namespace = %namespace,
+                "skipping record winner whose schema has no declaration in signed history"
+            );
+        }
+        return Ok(None);
+    }
+    let key = match key_value(store, namespace, record_key) {
+        Ok(key) => key,
+        Err(error) => {
+            tracing::warn!(
+                namespace = %namespace,
+                %error,
+                "skipping record winner with invalid primary key encoding"
+            );
+            return Ok(None);
+        }
+    };
     let current = read_at(store, namespace, &key).await?;
-    let decoded = decode_record_value(&winner.value)?;
-    let creator = winner.creator.to_hex();
-    let author = winner.author.to_hex();
-    let (kind, expected, fields, alternates) = match (&current, decoded) {
-        (None, None) => return Ok(()),
+    let decoded = match decode_record_value(&winner.value) {
+        Ok(decoded) => decoded,
+        Err(error) => {
+            tracing::warn!(
+                namespace = %namespace,
+                %error,
+                "skipping record winner with malformed value payload"
+            );
+            return Ok(None);
+        }
+    };
+    Ok(build_from(WinnerBuild {
+        store,
+        namespace,
+        key,
+        current,
+        decoded,
+        creator: winner.creator.to_hex(),
+        author: winner.author.to_hex(),
+    }))
+}
+
+struct WinnerBuild<'a> {
+    store: &'a FoldDB,
+    namespace: &'a str,
+    key: KeyValue,
+    current: Option<Stored>,
+    decoded: Option<DecodedRecord>,
+    creator: String,
+    author: String,
+}
+
+fn build_from(ctx: WinnerBuild<'_>) -> Option<Mutation> {
+    let (kind, expected, fields, alternates) = match (&ctx.current, ctx.decoded) {
+        (None, None) => return None,
         (None, Some(rec)) => {
-            let alts = resolve_alternates(store, namespace, rec.alternates)?;
+            let alts = resolve_winner_alternates(ctx.store, ctx.namespace, rec.alternates)?;
             (
                 MutationType::Create,
                 CasExpectation::Absent,
@@ -157,13 +240,13 @@ async fn apply_winner(
             )
         }
         (Some(old), Some(rec)) => {
-            let alts = resolve_alternates(store, namespace, rec.alternates)?;
+            let alts = resolve_winner_alternates(ctx.store, ctx.namespace, rec.alternates)?;
             if old.fields == rec.fields
                 && old.alternates == alts
-                && old.created_by.as_deref() == Some(creator.as_str())
-                && old.updated_by.as_deref() == Some(author.as_str())
+                && old.created_by.as_deref() == Some(ctx.creator.as_str())
+                && old.updated_by.as_deref() == Some(ctx.author.as_str())
             {
-                return Ok(());
+                return None;
             }
             (MutationType::Replace, revision_of(old), rec.fields, alts)
         }
@@ -175,8 +258,8 @@ async fn apply_winner(
         ),
     };
     let target = RecordTarget {
-        schema: namespace.to_owned(),
-        key,
+        schema: ctx.namespace.to_owned(),
+        key: ctx.key,
         alternates,
     };
     let carries_authors = !matches!(kind, MutationType::Delete);
@@ -187,16 +270,40 @@ async fn apply_winner(
         kind,
         expected,
     );
-    mutation.writer = Some(author.clone());
+    mutation.writer = Some(ctx.author.clone());
     if carries_authors {
-        mutation.copied_authorship = Some((Some(creator), Some(author)));
+        mutation.copied_authorship = Some((Some(ctx.creator), Some(ctx.author)));
     }
-    store
-        .mutation_manager()
-        .write_mutations_receipt(vec![mutation])
-        .await
-        .map(|_| ())
-        .map_err(|e| format!("write {namespace}/{record_key}: {e}"))
+    Some(mutation)
+}
+
+fn resolve_winner_alternates(
+    store: &FoldDB,
+    namespace: &str,
+    alternates: Alternates,
+) -> Option<Alternates> {
+    match resolve_alternates(store, namespace, alternates) {
+        Ok(resolved) => Some(resolved),
+        Err(error) => {
+            tracing::warn!(
+                namespace = %namespace,
+                %error,
+                "skipping record winner with invalid alternate key coordinates"
+            );
+            None
+        }
+    }
+}
+
+fn invalid_winner_error(error: &fold_db::schema::types::SchemaError) -> bool {
+    use fold_db::schema::types::SchemaError;
+    match error {
+        SchemaError::NotFound(_)
+        | SchemaError::InvalidField(_)
+        | SchemaError::RecordTooLarge { .. } => true,
+        SchemaError::InvalidData(msg) => !msg.contains("poisoned"),
+        _ => false,
+    }
 }
 
 fn revision_of(stored: &Stored) -> CasExpectation {
@@ -232,7 +339,9 @@ pub async fn reconcile_keys<'a>(
         if let Some(winner) = history.records().get(key) {
             apply_winner(store, namespace, record_key, winner).await?;
         } else {
-            let at = key_value(store, namespace, record_key)?;
+            let Ok(at) = key_value(store, namespace, record_key) else {
+                continue;
+            };
             delete_record(store, namespace, at).await?;
         }
     }

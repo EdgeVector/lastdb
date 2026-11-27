@@ -110,31 +110,26 @@ pub(crate) async fn mirror_received(
         .map_err(|_| ChainError::Unconfirmed)?;
     match sign_all(host, &store, database_id, signed) {
         Ok(()) => {
-            let applied = match super::histories_for(host).snapshot(database_id) {
-                Ok(history) => super::materialize::apply_history_records(&store, &history).await,
-                Err(error) => Err(error),
-            };
-            if let Err(error) = applied {
+            let histories = super::histories_for(host);
+            if let Err(error) =
+                super::materialize::rematerialize(&histories, database_id, &store).await
+            {
                 tracing::warn!(
                     target: "lastdbd::log_sync",
                     id = %database_id,
                     %error,
                     "a signed direct write could not be applied to the store again"
                 );
-                super::histories_for(host).mark_materialize_retry(database_id);
+                histories.mark_materialize_retry(database_id);
             }
             Ok(Some(live_revisions(&store, signed).await))
         }
         Err(error) => {
-            if let Err(revert_error) = try_revert_unsigned(host, database_id, &store, signed).await
-            {
-                tracing::warn!(
-                    target: "lastdbd::log_sync",
-                    id = %database_id,
-                    error = %revert_error,
-                    "an unsigned write could not be reverted to the history"
-                );
-                super::histories_for(host).mark_materialize_retry(database_id);
+            let keys: Vec<(String, String)> = signed
+                .iter()
+                .map(|item| (item.schema.clone(), item.record_key.clone()))
+                .collect();
+            if !super::materialize::revert_unsigned(host, database_id, &store, &keys).await {
                 return Err(ChainError::Unconfirmed);
             }
             Err(error)
@@ -155,20 +150,6 @@ async fn live_revisions(
         out.push(rev);
     }
     out
-}
-
-async fn try_revert_unsigned(
-    host: &Host,
-    database_id: &str,
-    store: &fold_db::fold_db_core::FoldDB,
-    signed: &[OwnedMutation],
-) -> Result<(), String> {
-    let keys: Vec<(String, String)> = signed
-        .iter()
-        .map(|item| (item.schema.clone(), item.record_key.clone()))
-        .collect();
-    let history = super::histories_for(host).snapshot(database_id)?;
-    signed_history_materialize::reconcile_keys(store, &history, &keys).await
 }
 
 fn sign_all(

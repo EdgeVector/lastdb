@@ -18,17 +18,7 @@ async fn pull_stream(
     device_id: &str,
 ) -> Result<u64, String> {
     let from_seq = next_seq(histories, db.database_id, writer_key, device_id);
-    pull_pages(client, histories, db, writer_key, Some(device_id), from_seq).await
-}
-
-/// Pull one writer's entries across every device (`device_id` omitted).
-async fn pull_writer(
-    client: &RelayClient,
-    histories: &HistoryMap,
-    db: &DatabaseCtx<'_>,
-    writer_key: &str,
-) -> Result<u64, String> {
-    pull_pages(client, histories, db, writer_key, None, 1).await
+    pull_pages(client, histories, db, writer_key, device_id, from_seq).await
 }
 
 /// The first sequence number this node does not hold on a device stream.
@@ -105,15 +95,9 @@ async fn pull_publisher(
             for head in heads {
                 let from = next_seq(histories, db.database_id, publisher_hex, &head.device_id);
                 if from <= head.head_seq {
-                    accepted += pull_pages(
-                        client,
-                        histories,
-                        db,
-                        publisher_hex,
-                        Some(&head.device_id),
-                        from,
-                    )
-                    .await?;
+                    accepted +=
+                        pull_pages(client, histories, db, publisher_hex, &head.device_id, from)
+                            .await?;
                 }
             }
         }
@@ -125,11 +109,6 @@ async fn pull_publisher(
                 "publisher streams refused after signed revoke; continuing"
             );
         }
-        Err(err) if streams_unsupported(&err) && devices.is_empty() => {
-            accepted +=
-                pull_writer_or_revoked(client, histories, db, caller, publisher_hex).await?;
-        }
-        Err(err) if streams_unsupported(&err) => {}
         Err(err) => return Err(err),
     }
     Ok(accepted)
@@ -149,8 +128,7 @@ async fn pull_member_writer(
                 let from = next_seq(histories, db.database_id, writer, &head.device_id);
                 if from <= head.head_seq {
                     accepted +=
-                        pull_pages(client, histories, db, writer, Some(&head.device_id), from)
-                            .await?;
+                        pull_pages(client, histories, db, writer, &head.device_id, from).await?;
                 }
             }
             Ok(accepted)
@@ -162,32 +140,6 @@ async fn pull_member_writer(
                 %writer,
                 %err,
                 "member streams refused after signed revoke; continuing"
-            );
-            Ok(0)
-        }
-        Err(err) if streams_unsupported(&err) => {
-            pull_writer_or_revoked(client, histories, db, caller, writer).await
-        }
-        Err(err) => Err(err),
-    }
-}
-
-async fn pull_writer_or_revoked(
-    client: &RelayClient,
-    histories: &HistoryMap,
-    db: &DatabaseCtx<'_>,
-    caller: NodeKey,
-    writer: &str,
-) -> Result<u64, String> {
-    match pull_writer(client, histories, db, writer).await {
-        Ok(n) => Ok(n),
-        Err(err) if relay_forbidden(&err) && caller_revoked(histories, db.database_id, caller) => {
-            tracing::warn!(
-                target: "lastdbd::log_sync",
-                id = %db.database_id,
-                %writer,
-                %err,
-                "AllDevices pull refused after signed revoke; continuing"
             );
             Ok(0)
         }
@@ -233,10 +185,6 @@ fn relay_forbidden(err: &str) -> bool {
     err.contains("HTTP 403")
 }
 
-fn streams_unsupported(err: &str) -> bool {
-    err.contains("HTTP 404") || err.contains("HTTP 405") || err.contains("HTTP 501")
-}
-
 fn writer_keys_of(history: &VerifiedHistory) -> Vec<String> {
     let mut keys = BTreeSet::new();
     if let Some(owner) = history.owner() {
@@ -269,7 +217,7 @@ async fn pull_pages(
     histories: &HistoryMap,
     db: &DatabaseCtx<'_>,
     writer_key: &str,
-    device_id: Option<&str>,
+    device_id: &str,
     from_seq: u64,
 ) -> Result<u64, String> {
     let mut cursor: Option<String> = None;
@@ -280,7 +228,7 @@ async fn pull_pages(
             .read(
                 db.database_id,
                 writer_key,
-                device_id,
+                Some(device_id),
                 from_seq,
                 cursor.as_deref(),
                 90,
@@ -319,11 +267,12 @@ async fn rematerialize(
     }
     let lock = histories.write_lock(db.database_id);
     let _guard = lock.lock().await;
-    let history = histories.snapshot(db.database_id)?;
-    if history.owner().is_none() {
+    let has_work = histories.with_mut(db.database_id, |history| history.owner().is_some())?
+        || histories.has_dirty_keys(db.database_id);
+    if !has_work {
         return Ok(());
     }
-    match materialize::apply_history_records(db.store, &history).await {
+    match materialize::rematerialize(histories, db.database_id, db.store).await {
         Ok(()) => histories.clear_materialize_retry(db.database_id),
         Err(error) => {
             histories.mark_materialize_retry(db.database_id);

@@ -10,6 +10,7 @@ use std::sync::Arc;
 use fold_db::fold_db_core::FoldDB;
 use mutation_log::VerifiedHistory;
 
+use super::history_store::HistoryMap;
 use crate::host::owned::ResolvedStore;
 use crate::host::Host;
 
@@ -28,10 +29,31 @@ pub(crate) fn store_for(host: &Host, database_id: &str) -> Option<Arc<FoldDB>> {
     }
 }
 
-pub(super) async fn apply_history_records(
+/// Materialize `database_id`'s history winners and heal any `dirty_keys` left
+/// behind by a previously failed unsigned-write rollback.
+pub(super) async fn rematerialize(
+    histories: &HistoryMap,
+    database_id: &str,
     store: &FoldDB,
-    history: &VerifiedHistory,
 ) -> Result<(), String> {
+    let history = histories.snapshot(database_id)?;
+    if history.owner().is_some() {
+        apply_history_records(store, &history).await?;
+    }
+    let dirty = histories.take_dirty_keys(database_id);
+    if dirty.is_empty() {
+        return Ok(());
+    }
+    if let Err(error) =
+        signed_history_materialize::reconcile_keys(store, &history, dirty.iter()).await
+    {
+        histories.restore_dirty_keys(database_id, dirty);
+        return Err(error);
+    }
+    Ok(())
+}
+
+async fn apply_history_records(store: &FoldDB, history: &VerifiedHistory) -> Result<(), String> {
     signed_history_materialize::declare_history_schemas(store, history).await?;
     signed_history_materialize::apply_history(store, history).await?;
     // A lease closing can leave a record with no write that counts. The loop
@@ -57,20 +79,24 @@ fn excluded_keys(history: &VerifiedHistory) -> std::collections::BTreeSet<(Strin
         .collect()
 }
 
+/// Record keys whose unsigned store write could not be reverted immediately,
+/// scheduling reconciliation on the next materialization turn.
+pub(crate) fn mark_dirty_keys(host: &Host, database_id: &str, keys: &[(String, String)]) {
+    super::histories_for(host).mark_dirty_keys(database_id, keys);
+}
+
 /// Bring `store` back to the history at the keys of a write whose signed
-/// entries were not all confirmed.
-///
-/// A write commits to the store first, because the store validates it, and is
-/// signed second. The history is the truth, so a record with no signed entry
-/// must not stay: each key goes back to its history winner, or to no record.
-/// Entries that were signed before the failure keep their records.
+/// entries were not all confirmed. Returns `true` when every key was reconciled
+/// immediately; on failure, records `keys` in `dirty_keys` and schedules a
+/// materialization retry so the next sync turn heals them.
 pub(crate) async fn revert_unsigned(
     host: &Host,
     database_id: &str,
     store: &FoldDB,
     keys: &[(String, String)],
-) {
-    let reverted = match super::histories_for(host).snapshot(database_id) {
+) -> bool {
+    let histories = super::histories_for(host);
+    let reverted = match histories.snapshot(database_id) {
         Ok(history) => signed_history_materialize::reconcile_keys(store, &history, keys).await,
         Err(error) => Err(error),
     };
@@ -81,5 +107,8 @@ pub(crate) async fn revert_unsigned(
             %error,
             "an unsigned write could not be reverted to the history"
         );
+        histories.mark_dirty_keys(database_id, keys);
+        return false;
     }
+    true
 }

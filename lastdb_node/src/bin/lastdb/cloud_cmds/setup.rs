@@ -243,8 +243,7 @@ fn connect(
     }
     let probe_key = Zeroizing::new(api_key.clone());
     let creds = encode_connected_credentials(env, &account_id, api_key, None)?;
-    dir.mark_signed_history_intent()
-        .and_then(|()| dir.write_new(PENDING_FILE, &creds))
+    dir.write_new(PENDING_FILE, &creds)
         .and_then(|()| dir.publish())
         .map_err(|e| format!("{e}; registration may have committed; retain this home"))?;
     emit(true, Some(probe_key))
@@ -293,9 +292,6 @@ fn connect_existing(
     };
     let encoded =
         encode_connected_credentials(env, &account_id, api_key.as_str().to_owned(), existing_home)?;
-    if prev.is_none() {
-        lastdb_node::log_sync::publish_signed_history_intent(&dir)?;
-    }
     dir.publish(
         CLOUD_CREDENTIALS_FILE,
         prev.as_deref().map(Vec::as_slice),

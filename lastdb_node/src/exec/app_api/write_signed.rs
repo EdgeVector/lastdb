@@ -190,8 +190,11 @@ pub(super) async fn mirror_committed(
         %error,
         "owned write was not mirrored to the signed log"
     );
+    let keys = keys_of(signed);
     if let Some(store) = crate::log_sync::owned_store(host, &target.id) {
-        crate::log_sync::revert_unsigned(host, &target.id, &store, &keys_of(signed)).await;
+        let _ = crate::log_sync::revert_unsigned(host, &target.id, &store, &keys).await;
+    } else {
+        crate::log_sync::mark_dirty_keys(host, &target.id, &keys);
     }
     Err(HostError::new(
         503,

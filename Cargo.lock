@@ -2857,6 +2857,7 @@ dependencies = [
  "fold_db",
  "mutation_log",
  "serde_json",
+ "tracing",
  "uuid",
 ]
 

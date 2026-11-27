@@ -15,13 +15,17 @@
 //! no log files: see `personal`. The copy on the relay is the backup, and
 //! reading it is how another device catches up.
 
-pub(crate) mod birth;
+pub(crate) mod birth {
+    pub(crate) use crate::database_birth::{entry, load, mint, BirthMaterial};
+}
 mod blob_transfer;
 mod chain_author;
 pub(crate) mod chain_error;
 pub(crate) mod chain_grant;
 pub(crate) mod chain_read;
-mod device;
+mod device {
+    pub(super) use crate::device_identity::device_id;
+}
 mod history_store;
 mod incorporate;
 mod incorporate_publish;
@@ -51,7 +55,7 @@ use fold_db::schema::types::Schema;
 pub use crate::cloud::{explicit_relay_url, relay_base_url};
 pub(crate) use history_store::histories_for;
 pub(crate) use lease_member::{may_write_direct, mirror_received as mirror_received_write};
-pub(crate) use materialize::{revert_unsigned, store_for as owned_store};
+pub(crate) use materialize::{mark_dirty_keys, revert_unsigned, store_for as owned_store};
 pub(crate) use mirror::{mirror_owned_write, OwnedMutation};
 pub use personal::{
     install_newest_snapshot, restore_personal_database, RestoreReport, SnapshotBase,
@@ -66,8 +70,8 @@ pub(crate) use proposal::{
 };
 pub use relay::hung_relay_must_timeout;
 pub use spawn::spawn;
+pub use wake::request_wake;
 pub(crate) use wake::wake_loop;
-pub use wake::{publish_signed_history_intent, request_wake};
 
 /// An owned database that a write names.
 pub(crate) struct WriteTarget {

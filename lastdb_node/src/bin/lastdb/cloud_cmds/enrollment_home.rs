@@ -1,9 +1,7 @@
 //! Descriptor-pinned home guards for self-serve cloud backup enrollment and fresh homes.
 use super::setup::{canonical_backup_endpoint, encode_connected_credentials, PHRASE_FILE};
 use cloud_backup_protocol::AccountId;
-use lastdb_node::cloud::{
-    SavedCredentials, CLOUD_CREDENTIALS_FILE, SIGNED_HISTORY_INTENT, SIGNED_HISTORY_INTENT_FILE,
-};
+use lastdb_node::cloud::{SavedCredentials, CLOUD_CREDENTIALS_FILE};
 use lastdb_node::offline_home::{
     dir_entry_names, entry_present, open_directory, open_private_at, read_identity_seed_at,
     read_private_file, require_absolute, require_mode_0700_directory, require_owned_directory,
@@ -205,21 +203,6 @@ impl PreparedHome {
         file.write_all(bytes)
             .and_then(|()| file.sync_all())
             .map_err(|_| "cannot write protected native enrollment file")?;
-        self.sync()
-    }
-
-    pub(super) fn mark_signed_history_intent(&self) -> Result<(), String> {
-        if !entry_present(&self.directory, SIGNED_HISTORY_INTENT_FILE)? {
-            self.write_new(SIGNED_HISTORY_INTENT_FILE, SIGNED_HISTORY_INTENT)?;
-        }
-        let bytes = read_private_file(
-            &self.directory,
-            SIGNED_HISTORY_INTENT_FILE,
-            SIGNED_HISTORY_INTENT.len() as u64,
-        )?;
-        if bytes != SIGNED_HISTORY_INTENT {
-            return Err("invalid signed-history intent".into());
-        }
         self.sync()
     }
 

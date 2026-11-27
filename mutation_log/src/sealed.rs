@@ -43,6 +43,9 @@ pub fn unpack_hiding_namespace(bytes: &[u8]) -> Option<(String, Vec<u8>)> {
     let name = std::str::from_utf8(bytes.get(2..2 + count)?)
         .ok()?
         .to_owned();
+    if name.is_empty() || name.len() > 128 {
+        return None;
+    }
     Some((name, bytes.get(2 + count..)?.to_vec()))
 }
 

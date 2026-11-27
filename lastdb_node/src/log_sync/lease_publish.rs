@@ -13,6 +13,7 @@
 //! one counts as the closer, so the second adds an entry and changes no result.
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 
 use mutation_log::{author_lease, EntryHash, LeaseBody, Role, VerifiedHistory};
@@ -25,13 +26,15 @@ use crate::host::Host;
 
 const NOT_DUE: &str = "no lease is due";
 
-/// The newest grant that a lease was signed after, by database, in this
-/// process. A membership change signs one lease for each new grant. If the
+type NotedKey = (PathBuf, String);
+
+/// The newest grant that a lease was signed after, by `(home, database_id)` in
+/// this process. A membership change signs one lease for each new grant. If the
 /// covered set still differs from the members afterwards (a grant from a
 /// second publisher device that sorts before the lease), nothing signs again
 /// until the next grant.
-fn noted() -> std::sync::MutexGuard<'static, HashMap<String, EntryHash>> {
-    static NOTED: OnceLock<Mutex<HashMap<String, EntryHash>>> = OnceLock::new();
+fn noted() -> std::sync::MutexGuard<'static, HashMap<NotedKey, EntryHash>> {
+    static NOTED: OnceLock<Mutex<HashMap<NotedKey, EntryHash>>> = OnceLock::new();
     NOTED
         .get_or_init(|| Mutex::new(HashMap::new()))
         .lock()
@@ -74,13 +77,14 @@ fn renew(
     length_ms: u64,
 ) -> Result<(), String> {
     let identity = chain_author::identity_of(host).map_err(|e| e.reply().message.to_owned())?;
+    let key = (host.home.clone(), database_id.to_owned());
     let due = histories.with_mut(database_id, |history| {
         history.owner() == Some(identity.node_key)
             && is_due(
                 history,
                 fold_db::clock::unix_millis(),
                 length_ms,
-                noted().get(database_id).copied(),
+                noted().get(&key).copied(),
             )
     })?;
     if !due {
@@ -94,7 +98,7 @@ fn renew(
     let tip = std::cell::Cell::new(None);
     let signed = chain_author::author_publisher(histories, &target, |mut ctx, history| {
         // Decided again under the history lock, on the time the entry carries.
-        let seen = noted().get(database_id).copied();
+        let seen = noted().get(&key).copied();
         if !is_due(history, ctx.authored_at_ms, length_ms, seen) {
             return Err(ChainError::Conflict(NOT_DUE));
         }
@@ -115,7 +119,7 @@ fn renew(
     match signed {
         Ok(_) => {
             if let Some(tip) = tip.get() {
-                noted().insert(database_id.to_owned(), tip);
+                noted().insert(key, tip);
             }
             Ok(())
         }

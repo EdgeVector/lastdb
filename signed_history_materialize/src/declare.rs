@@ -1,13 +1,14 @@
 //! Declare FoldDB schemas from signed-history schema entries.
 
 use fold_db::fold_db_core::FoldDB;
-use fold_db::schema::types::Schema;
+use fold_db::schema::types::{Schema, SchemaError};
 use mutation_log::VerifiedHistory;
 
-/// Install every schema declaration carried by `history`.
+/// Install every valid schema declaration carried by `history`.
 ///
-/// A missing declaration is not invented here. Record apply fails closed when
-/// a live winner names a namespace that was never declared in the log.
+/// A missing declaration is not invented here. Invalid schema definitions are
+/// logged and skipped so a bad declaration on one namespace cannot block
+/// materialization of the rest of the database.
 pub async fn declare_history_schemas(
     store: &FoldDB,
     history: &VerifiedHistory,
@@ -19,20 +20,66 @@ pub async fn declare_history_schemas(
 }
 
 async fn declare_one(store: &FoldDB, namespace: &str, definition: &[u8]) -> Result<(), String> {
-    let schema: Schema = serde_json::from_slice(definition)
-        .map_err(|e| format!("schema {namespace}: definition is not valid JSON: {e}"))?;
+    let schema: Schema = match serde_json::from_slice(definition) {
+        Ok(schema) => schema,
+        Err(error) => {
+            tracing::warn!(
+                namespace = %namespace,
+                %error,
+                "skipping invalid schema definition JSON in signed history"
+            );
+            return Ok(());
+        }
+    };
     if schema.name != namespace {
-        return Err(format!(
-            "schema {namespace}: definition name is {}",
-            schema.name
-        ));
+        tracing::warn!(
+            namespace = %namespace,
+            schema_name = %schema.name,
+            "skipping schema entry whose definition name differs from its namespace"
+        );
+        return Ok(());
     }
-    // Always load: FoldDB applies compatible updates (additive fields) when the
-    // namespace is already installed. Skipping would leave receivers on the first
-    // signed definition forever.
-    store
+    if let Some(existing) = store
         .schema_manager()
-        .load_schema_internal(schema)
-        .await
-        .map_err(|e| format!("declare schema {namespace}: {e}"))
+        .get_schema_metadata(namespace)
+        .map_err(|error| format!("read schema {namespace}: {error}"))?
+    {
+        if already_installed(&existing, &schema) {
+            return Ok(());
+        }
+    }
+    match store.schema_manager().load_schema_internal(schema).await {
+        Ok(()) => Ok(()),
+        Err(error) if invalid_schema_error(&error) => {
+            tracing::warn!(
+                namespace = %namespace,
+                %error,
+                "skipping rejected schema definition in signed history"
+            );
+            Ok(())
+        }
+        Err(error) => Err(format!("declare schema {namespace}: {error}")),
+    }
+}
+
+fn already_installed(existing: &Schema, incoming: &Schema) -> bool {
+    if existing == incoming {
+        return true;
+    }
+    let mut normalized = incoming.clone();
+    normalized.ensure_field_hashes();
+    let _ = normalized.recompute_identity_hash_unless_newer();
+    if existing.identity_is_newer_than_binary() {
+        normalized.identity_hash.clone_from(&existing.identity_hash);
+        normalized.identity_hash_algo_version = existing.identity_hash_algo_version;
+    }
+    *existing == normalized
+}
+
+fn invalid_schema_error(error: &SchemaError) -> bool {
+    match error {
+        SchemaError::InvalidField(_) => true,
+        SchemaError::InvalidData(msg) => !msg.contains("poisoned"),
+        _ => false,
+    }
 }

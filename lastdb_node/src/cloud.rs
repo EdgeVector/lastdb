@@ -23,11 +23,6 @@ pub const CLOUD_CREDENTIALS_FILE: &str = "cloud-credentials.json";
 pub const DEVELOPER_API_KEY_FILE: &str = "developer-api-key";
 pub const PAYMENT_REQUIRED_MESSAGE: &str =
     "active paid cloud subscription required — run 'lastdb cloud payment checkout' first";
-#[doc(hidden)]
-pub const SIGNED_HISTORY_INTENT_FILE: &str = ".signed-history-intent";
-#[doc(hidden)]
-/// Marker bytes: this home should bootstrap signed history on next sync.
-pub const SIGNED_HISTORY_INTENT: &[u8] = b"signed-history-v1\n";
 
 #[must_use]
 pub fn is_payment_subscription_error(status: u16, body: &[u8]) -> bool {
