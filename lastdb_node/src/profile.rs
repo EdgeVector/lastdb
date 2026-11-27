@@ -186,6 +186,16 @@ pub mod endpoints {
     }
 
     #[must_use]
+    pub const fn node_index_url_for(env: Environment) -> &'static str {
+        [gen::DEV_NODE_INDEX, gen::PROD_NODE_INDEX][env as usize]
+    }
+
+    #[must_use]
+    pub const fn node_release_keys_for(env: Environment) -> &'static [&'static str] {
+        [gen::DEV_NODE_RELEASE_KEYS, gen::PROD_NODE_RELEASE_KEYS][env as usize]
+    }
+
+    #[must_use]
     pub const fn registry_api_url_for(env: Environment) -> &'static str {
         match env {
             Environment::Dev => gen::DEV_REGISTRY_API,
