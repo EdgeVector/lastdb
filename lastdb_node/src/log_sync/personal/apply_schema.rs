@@ -148,13 +148,7 @@ async fn classify_in_scope(
 ) -> Result<SchemaPlan, SchemaError> {
     let manager = ctx.host.db.mutation_manager();
     let held = manager.replay_schema_winner(name).await?;
-    let drop_held = ctx
-        .host
-        .db
-        .db_ops()
-        .metadata()
-        .replay_drop_winner(name)
-        .await?;
+    let drop_held = manager.replay_schema_drop_winner(name).await?;
     if !replaced_here && drop_held.as_ref().is_some_and(|floor| floor >= stamp) {
         return Ok(SchemaPlan::NoOp);
     }
