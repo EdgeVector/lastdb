@@ -217,6 +217,13 @@ pub mod key_comparison {
             Ok(())
         }
 
+        /// Refuse a range coordinate that is not a value of this schema's range type.
+        pub(crate) fn validate_range(&self, value: &str) -> Result<(), SchemaError> {
+            self.range
+                .validate_value(value)
+                .map_err(SchemaError::InvalidData)
+        }
+
         pub fn cursor_binding(
             &self,
             request: &impl serde::Serialize,

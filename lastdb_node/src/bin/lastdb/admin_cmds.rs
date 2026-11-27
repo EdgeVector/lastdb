@@ -167,6 +167,7 @@ pub(super) fn status(
         .as_ref()
         .and_then(|s| s.get("cloud_sync"))
         .cloned();
+    let warm = super::status_lines::warm_set(running, &socket, budget);
     let daemon_status = health.as_ref().map_or_else(
         |e| format!("lastdbd: not reachable — {e}"),
         |()| String::from("serving"),
@@ -179,7 +180,7 @@ pub(super) fn status(
             "home": home.display().to_string(), "socket": socket.display().to_string(),
             "running": running, "daemon_status": daemon_status, "daemon_pid_alive": running,
             "health_error": health.as_ref().err(), "daemon_build": daemon_build, "cli_build": cli_build,
-            "build_agreement": agree, "cloud_sync": cloud_sync, "notes": [note],
+            "build_agreement": agree, "cloud_sync": cloud_sync, "warm_set": warm, "notes": [note],
         }));
     } else {
         println!(
@@ -200,8 +201,11 @@ pub(super) fn status(
         }
         if let Some(line) = status_val
             .as_ref()
-            .and_then(|s| commit_log_line(&s["commit_log"]))
+            .and_then(|s| super::status_lines::commit_log_line(&s["commit_log"]))
         {
+            println!("{line}");
+        }
+        if let Some(line) = warm.as_ref().and_then(super::status_lines::warm_set_line) {
             println!("{line}");
         }
         if let Some(line) = cloud_sync.as_ref().and_then(format_cloud_sync_line) {
@@ -237,18 +241,6 @@ pub(super) fn status(
         }
     }
     Ok(running)
-}
-
-fn commit_log_line(log: &Value) -> Option<String> {
-    let n = |k: &str| log[k].as_u64();
-    Some(format!(
-        "Commit log: {} flushes, mean {} µs, slowest {} µs; {} commits ({} bytes) not yet in a run",
-        n("flushes")?,
-        n("mean_flush_micros")?,
-        n("slowest_flush_micros")?,
-        n("memory_commits")?,
-        n("memory_bytes")?
-    ))
 }
 
 fn format_cloud_sync_line(sync: &Value) -> Option<String> {
