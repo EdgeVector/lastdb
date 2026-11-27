@@ -129,8 +129,7 @@ pub fn init_daemon_logging(
         .and_then(|v| tracing_subscriber::EnvFilter::try_new(v.trim()).ok())
         .unwrap_or_else(|| tracing_subscriber::EnvFilter::new("info"));
     let (err_layer, guard) =
-        observability::layers::error::build_error_layer(observability::FaultSurface::User)?
-            .ok_or(observability::ObsError::UserSentryRequired)?;
+        observability::layers::error::build_error_layer(observability::FaultSurface::User)?;
     let fmt = tracing_subscriber::fmt::layer()
         .with_writer(io::stderr)
         .with_ansi(false)

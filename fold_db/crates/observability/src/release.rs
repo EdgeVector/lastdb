@@ -3,8 +3,7 @@
 /// Git SHA (or deploy release string) baked by `build.rs`.
 pub const RELEASE_SHA: &str = env!("OBS_RELEASE_SHA");
 
-/// User-device DSN baked by `build.rs` (`LASTDB_SENTRY_DSN`, or the lastdb-mini default).
-///
-/// A DSN is not a secret. Release builds of `lastdb_node` refuse to compile when
-/// `LASTDB_SENTRY_DSN` is unset, so shipped bottles always embed an explicit value.
-pub const USER_DEVICE_DSN: &str = env!("LASTDB_SENTRY_DSN");
+/// Public DSN for the `lastdb-mini` Sentry project (not a secret).
+/// Every user-device build (lastdbd, CLI, People) reports here with `environment=user`.
+pub const USER_DEVICE_DSN: &str =
+    "https://2de2e2512878eedeef5359696ac37e70@o4511522196291584.ingest.us.sentry.io/4511737993101312"; // secret-scan-ok: public lastdb-mini client DSN

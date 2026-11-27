@@ -1,25 +1,15 @@
-//! Bake the Sentry release SHA and user-device DSN at compile time.
+//! Bake the Sentry release SHA at compile time.
 
 use std::path::PathBuf;
 use std::process::Command;
 
-/// Public DSN for the `lastdb-mini` Sentry project (not a secret).
-const DEFAULT_USER_DEVICE_DSN: &str =
-    "https://2de2e2512878eedeef5359696ac37e70@o4511522196291584.ingest.us.sentry.io/4511737993101312"; // secret-scan-ok: public lastdb-mini client DSN
-
 fn main() {
-    for key in ["GITHUB_SHA", "OBS_SENTRY_RELEASE", "LASTDB_SENTRY_DSN"] {
+    for key in ["GITHUB_SHA", "OBS_SENTRY_RELEASE"] {
         println!("cargo:rerun-if-env-changed={key}");
     }
     println!("cargo:rerun-if-changed=build.rs");
     track_git_refs();
     println!("cargo:rustc-env=OBS_RELEASE_SHA={}", resolve_release_sha());
-    let dsn = std::env::var("LASTDB_SENTRY_DSN")
-        .ok()
-        .map(|v| v.trim().to_owned())
-        .filter(|v| !v.is_empty())
-        .unwrap_or_else(|| DEFAULT_USER_DEVICE_DSN.to_owned());
-    println!("cargo:rustc-env=LASTDB_SENTRY_DSN={dsn}");
 }
 
 fn track_git_refs() {

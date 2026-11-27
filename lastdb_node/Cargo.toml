@@ -29,8 +29,8 @@ path = "src/bin/log_sync_relay_timeout_probe.rs"
 
 [features]
 # Sentry fault reporting is compiled in by default and always on. User-device
-# release builds require LASTDB_SENTRY_DSN at compile time and report with
-# environment=user. There is no runtime switch to disable reporting.
+# builds embed the public lastdb-mini DSN and report with environment=user.
+# There is no runtime switch to disable reporting.
 default = ["sentry-telemetry"]
 sentry-telemetry = ["observability/sentry"]
 
