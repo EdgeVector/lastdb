@@ -27,7 +27,10 @@ pub(super) struct Snapshot {
     pub(super) build: String,
     pub(super) head: u64,
     pub(super) acked: u64,
+    /// The node has saved cloud credentials (`cloud_sync.connected`).
     pub(super) cloud_connected: bool,
+    /// Cloud sync is set up at all: credentials, an environment, or an error reading them.
+    pub(super) cloud_configured: bool,
     pub(super) user_hash: String,
     pub(super) sample: Option<Sample>,
 }
@@ -75,14 +78,47 @@ pub(super) fn writer_failed(socket: &Path) -> Result<bool, String> {
         .ok_or_else(|| "native status has no writer_failed".to_string())
 }
 
-fn spool_and_cloud(socket: &Path) -> Result<(u64, u64, bool), String> {
+struct Spool {
+    head: u64,
+    acked: u64,
+    connected: bool,
+    configured: bool,
+}
+
+/// The spool position and the cloud state. A missing field is refused, never read as 0
+/// or false: a wrong 0 would make a backlog look sent.
+fn spool_and_cloud(socket: &Path) -> Result<Spool, String> {
     let v = get_json(socket, "/api/status", "status")?;
     let status = v.get("status").ok_or("status reply has no status")?;
-    let spool = &status["spool"];
-    let head = spool["head"].as_u64().unwrap_or(0);
-    let acked = spool["acked"].as_u64().unwrap_or(0);
-    let connected = status["cloud_sync"]["connected"].as_bool().unwrap_or(false);
-    Ok((head, acked, connected))
+    let sync = status
+        .get("cloud_sync")
+        .filter(|s| s.is_object())
+        .ok_or("status reply has no cloud_sync")?;
+    let connected = sync["connected"]
+        .as_bool()
+        .ok_or("status reply has no cloud_sync.connected")?;
+    let configured = connected
+        || sync["environment"].as_str().is_some()
+        || sync["last_error"].as_str().is_some();
+    let (head, acked) = match status.get("spool").filter(|s| !s.is_null()) {
+        Some(spool) => (
+            spool["head"]
+                .as_u64()
+                .ok_or("status reply has no spool.head")?,
+            spool["acked"]
+                .as_u64()
+                .ok_or("status reply has no spool.acked")?,
+        ),
+        // A home that captures nothing for the cloud has no spool and no backlog.
+        None if !configured => (0, 0),
+        None => return Err("cloud sync is set up, but the status reply has no spool".into()),
+    };
+    Ok(Spool {
+        head,
+        acked,
+        connected,
+        configured,
+    })
 }
 
 fn target(socket: &Path) -> DatabaseTarget {
@@ -106,35 +142,55 @@ pub(super) fn record_hash(
 }
 
 /// The first key of a `keys_only` listing of the schema with the most records, and
-/// the hash of that record. `None` when the home holds no record.
-fn pick_sample(socket: &Path) -> Option<Sample> {
-    let report = get_json(socket, "/api/db/schemas", "schema list").ok()?;
-    let schemas = report["schema_storage"]["per_schema"].as_array()?;
-    let largest = schemas
-        .iter()
-        .filter(|s| s["record_count"].as_u64().unwrap_or(0) > 0)
-        .max_by(|a, b| {
-            let count = |s: &Value| s["record_count"].as_u64().unwrap_or(0);
-            count(a)
-                .cmp(&count(b))
-                .then_with(|| b["schema_name"].as_str().cmp(&a["schema_name"].as_str()))
-        })?;
-    let schema = largest["schema_name"].as_str()?.to_owned();
+/// the hash of that record. `None` only when the home holds no record; any read error is
+/// an error, so the sample check is never dropped silently.
+fn pick_sample(socket: &Path) -> Result<Option<Sample>, String> {
+    let report = get_json(socket, "/api/db/schemas", "schema list")?;
+    let schemas = report["schema_storage"]["per_schema"]
+        .as_array()
+        .ok_or("the schema list has no per_schema array")?;
+    let mut largest: Option<(u64, &str)> = None;
+    for s in schemas {
+        let name = s["schema_name"]
+            .as_str()
+            .ok_or("a schema list entry has no schema_name")?;
+        let count = s["record_count"]
+            .as_u64()
+            .ok_or("a schema list entry has no record_count")?;
+        let better = largest.is_none_or(|(c, n)| count > c || (count == c && name < n));
+        if count > 0 && better {
+            largest = Some((count, name));
+        }
+    }
+    let Some((_, schema)) = largest else {
+        return Ok(None);
+    };
+    let schema = schema.to_owned();
     let item = json!({ "schema": schema, "keys_only": true, "limit": 1 });
-    let page = crate::v1_records::read_page(&target(socket), &item, SOCKET_TIMEOUT).ok()?;
-    let key = page.get("keys")?.as_array()?.first()?.clone();
-    let hash = key["hash"].as_str()?.to_owned();
+    let page = crate::v1_records::read_page(&target(socket), &item, SOCKET_TIMEOUT)?;
+    let key = page
+        .get("keys")
+        .and_then(Value::as_array)
+        .ok_or("the key listing of the largest schema has no keys")?
+        .first()
+        .ok_or(
+            "the schema list counts records, but the key listing of the largest schema is empty",
+        )?;
+    let hash = key["hash"]
+        .as_str()
+        .ok_or("the first key of the largest schema has no hash")?
+        .to_owned();
     let range = key["range"]
         .as_str()
         .filter(|r| !r.is_empty())
         .map(str::to_owned);
-    let record_hash = record_hash(socket, &schema, &hash, range.as_deref()).ok()?;
-    Some(Sample {
+    let record_hash = record_hash(socket, &schema, &hash, range.as_deref())?;
+    Ok(Some(Sample {
         schema,
         hash,
         range,
         record_hash,
-    })
+    }))
 }
 
 /// Step 3: the running daemon is healthy, is the service's process, and its position
@@ -156,21 +212,23 @@ pub(super) fn preflight(socket: &Path, service_pid: Option<u32>) -> Result<Snaps
     if writer_failed(socket)? {
         return Err("the daemon's writer has failed; it needs a human before any upgrade".into());
     }
-    let (head, acked, cloud_connected) = spool_and_cloud(socket)?;
+    let spool = spool_and_cloud(socket)?;
     let id = get_json(socket, "/api/system/auto-identity", "identity")?;
     let user_hash = id["user_hash"]
         .as_str()
         .ok_or("identity has no user hash")?
         .to_owned();
+    let sample = pick_sample(socket).map_err(|e| format!("cannot read the sample record: {e}"))?;
     Ok(Snapshot {
         pid,
         start_ts,
         build,
-        head,
-        acked,
-        cloud_connected,
+        head: spool.head,
+        acked: spool.acked,
+        cloud_connected: spool.connected,
+        cloud_configured: spool.configured,
         user_hash,
-        sample: pick_sample(socket),
+        sample,
     })
 }
 
@@ -208,23 +266,17 @@ pub(super) fn prepare_stop(socket: &Path, snap: &Snapshot) -> Drain {
             let Ok(v) = serde_json::from_str::<Value>(body_of(&raw)) else {
                 return Drain::Failed("prepare-stop answered with invalid JSON".into());
             };
-            let cloud = v["cloud"].as_str().unwrap_or("").to_owned();
-            if !matches!(cloud.as_str(), "current" | "behind" | "off") {
-                return Drain::Failed("prepare-stop answered with an unknown cloud state".into());
-            }
-            Drain::Done(Drained {
-                head: v["head"].as_u64().unwrap_or(0),
-                acked: v["acked"].as_u64().unwrap_or(0),
-                cloud,
-                detail: v["detail"].as_str().unwrap_or("").to_owned(),
-            })
+            drained_reply(&v).map_or_else(Drain::Failed, Drain::Done)
         }
         404 => {
-            let behind = snap.cloud_connected && snap.acked < snap.head;
-            let cloud = match (snap.cloud_connected, behind) {
-                (false, _) => "off",
-                (true, true) => "behind",
-                (true, false) => "current",
+            // An old daemon: the sampled status. A backlog counts as behind whenever cloud
+            // sync is set up, connected now or not; only a home with no cloud sync is off.
+            let cloud = if snap.cloud_configured && snap.acked < snap.head {
+                "behind"
+            } else if snap.cloud_configured {
+                "current"
+            } else {
+                "off"
             };
             Drain::Unsupported(Drained {
                 head: snap.head,
@@ -238,6 +290,24 @@ pub(super) fn prepare_stop(socket: &Path, snap: &Snapshot) -> Drain {
             body_of(&raw)
         )),
     }
+}
+
+/// The fields of a prepare-stop answer. A missing field is refused.
+fn drained_reply(v: &Value) -> Result<Drained, String> {
+    let field = |name: &str| format!("prepare-stop answered without {name}");
+    let cloud = v["cloud"].as_str().ok_or_else(|| field("cloud"))?;
+    if !matches!(cloud, "current" | "behind" | "off") {
+        return Err("prepare-stop answered with an unknown cloud state".into());
+    }
+    Ok(Drained {
+        head: v["head"].as_u64().ok_or_else(|| field("head"))?,
+        acked: v["acked"].as_u64().ok_or_else(|| field("acked"))?,
+        cloud: cloud.to_owned(),
+        detail: v["detail"]
+            .as_str()
+            .ok_or_else(|| field("detail"))?
+            .to_owned(),
+    })
 }
 
 /// Let the daemon take writes again. Best effort: a daemon with no hold, or one that

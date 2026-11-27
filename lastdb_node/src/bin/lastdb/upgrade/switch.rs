@@ -6,10 +6,10 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use super::config::Config;
-use super::daemon::{self, Sample, Snapshot};
+use super::daemon::{Sample, Snapshot};
 use super::service;
 use super::state::{self, Attempt, Paths};
-use super::switch_post::StopFail;
+use super::switch_post::{SampleCheck, StopFail};
 
 /// The exit codes of contract section 10, and what to write in `history.jsonl`.
 pub(super) struct Outcome {
@@ -80,8 +80,12 @@ pub(super) struct Progress {
     /// What the links named before the switch, to put back on a rollback.
     pub(super) old_current: Option<PathBuf>,
     pub(super) old_previous: Option<PathBuf>,
+    /// A link may have changed: a rollback puts both back as preflight read them.
     pub(super) switched: bool,
+    /// The job file backup exists and the file may have changed: a rollback restores it.
     pub(super) rewrote: bool,
+    /// The new build was started, so a failure from here on is the new build's.
+    pub(super) started_new: bool,
 }
 
 pub(super) fn poll<T>(
@@ -108,6 +112,15 @@ impl Switch<'_> {
         self.paths.dir().join("job-definition.before-adopt")
     }
 
+    /// The bound on one stop: the longer of `stop_timeout_secs` and the job's own stop
+    /// window, plus a margin. Every stop and every wait for an exit uses it.
+    pub(super) fn stop_wait(&self) -> Duration {
+        Duration::from_secs(service::stop_wait_secs(
+            self.label,
+            self.cfg.stop_timeout_secs,
+        ))
+    }
+
     fn finish(&self, attempt: &Attempt, step: &str, outcome: Outcome) -> Outcome {
         if let Err(e) = attempt.finish(self.paths, outcome.result, step, &outcome.message) {
             note(&format!("cannot write history: {e}"));
@@ -119,6 +132,16 @@ impl Switch<'_> {
     pub(super) fn run(&self) -> Outcome {
         let attempt = Attempt::begin(&self.from, &self.to, self.trigger);
         let (step, outcome) = self.steps();
+        // Automatic runs stop after one failure per version (design section 12): a run that
+        // got past the drain and failed is not tried again until a person clears it. A
+        // refusal in preflight or the drain changed nothing and may succeed next hour.
+        let automatic = self.trigger != "manual";
+        let past_drain = !matches!(step, "preflight" | "drain" | "finish");
+        if automatic && past_drain && outcome.code != 0 && self.to != self.from {
+            if let Err(e) = state::add_rejected(self.paths, &self.to) {
+                note(&format!("cannot record the rejected version: {e}"));
+            }
+        }
         self.finish(&attempt, step, outcome)
     }
 
@@ -128,51 +151,45 @@ impl Switch<'_> {
             Err(done) => return done,
         };
 
-        // Step 5: strict stop.
+        // Step 5: strict stop. `bootout` may have unloaded the job and sent SIGTERM even
+        // when the client failed or ran out of time, so any error here counts as a stop in
+        // progress: wait for the process, then start the old job again if it is not
+        // switched. Nothing is killed.
         note("stopping the service");
-        if let Err(e) = service::stop(self.label) {
-            if service::service_pid(self.label).ok().flatten() == Some(progress.snap.pid) {
-                daemon::cancel_stop(&self.socket());
-                return (
-                    "stop",
-                    Outcome::refused(format!("{e}; the daemon still runs and nothing changed")),
-                );
-            }
+        if let Err(e) = service::stop(self.label, self.stop_wait()) {
+            note(&format!("{e}; waiting for the daemon to exit"));
         }
         match self.wait_stopped(&progress.snap) {
             Ok(()) => {}
-            Err(StopFail::StillRunning(m)) => {
-                return ("stop", Outcome::needs_human(m));
-            }
+            Err(StopFail::StillRunning(m)) => return self.restart_old(&progress, &m),
             Err(StopFail::NoReceipt(m)) => {
-                return self.roll_back(&mut progress, &m, "stop");
+                return self.roll_back(&progress, &m, "stop");
             }
         }
 
         // Step 6: switch the links, then start.
         if let Err(e) = self.flip(&mut progress) {
-            return self.roll_back(&mut progress, &e, "switch");
+            return self.roll_back(&progress, &e, "switch");
         }
         note("starting the service");
+        progress.started_new = true;
         if let Err(e) = service::start(self.label) {
-            return self.roll_back(&mut progress, &e, "switch");
+            return self.roll_back(&progress, &e, "switch");
         }
 
         // Step 7: verify.
         let verified = poll(Duration::from_secs(180), Duration::from_secs(2), || {
-            self.verify_once(&progress, &self.to, true)
+            self.verify_once(&progress, &self.to, true, SampleCheck::SameHash)
         });
         let new_pid = match verified {
             Ok(pid) => pid,
-            Err(e) => {
-                return self.roll_back(&mut progress, &format!("verify failed: {e}"), "verify")
-            }
+            Err(e) => return self.roll_back(&progress, &format!("verify failed: {e}"), "verify"),
         };
         note(&format!("verified: pid {new_pid} runs {}", self.to));
 
         // Step 8: soak.
         if let Err(e) = self.soak(&progress, new_pid) {
-            return self.roll_back(&mut progress, &format!("soak: {e}"), "soak");
+            return self.roll_back(&progress, &format!("soak: {e}"), "soak");
         }
 
         // Step 9: finish.

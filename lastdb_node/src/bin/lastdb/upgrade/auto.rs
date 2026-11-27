@@ -41,8 +41,24 @@ pub(super) fn auto(paths: &Paths, cfg: &Config, env: Environment) -> Result<Outc
     apply(paths, cfg, &list, &run)
 }
 
+/// Record a waiting state once: an hourly run that finds the same state again adds no
+/// history line.
+fn record_once(paths: &Paths, from: &str, to: &str, outcome: &Outcome) {
+    let same = state::last_history(paths).is_some_and(|last| {
+        last["from"].as_str() == Some(from)
+            && last["to"].as_str() == Some(to)
+            && last["trigger"].as_str() == Some("withdrawn")
+            && last["result"].as_str() == Some(outcome.result)
+            && last["step"].as_str() == Some("resolve")
+    });
+    if !same {
+        record(paths, from, to, "withdrawn", outcome, "resolve");
+    }
+}
+
 /// The running build is withdrawn: roll back to `previous` at once, outside the window.
-/// `None` when the running build is not withdrawn.
+/// One attempt per version: a rollback that failed marks `previous` rejected, and from then
+/// on the run only reports. `None` when the running build is not withdrawn.
 fn withdrawn(
     paths: &Paths,
     cfg: &Config,
@@ -64,9 +80,17 @@ fn withdrawn(
             "{} is withdrawn ({reason}) and there is no previous pair to go back to.",
             run.version
         ));
-        record(paths, &run.version, "-", "withdrawn", &outcome, "resolve");
+        record_once(paths, &run.version, "-", &outcome);
         return Ok(Some(outcome));
     };
+    if state::rejected(paths).contains(&previous) {
+        let outcome = Outcome::needs_human(format!(
+            "{} is withdrawn ({reason}), and the rollback to the previous pair {previous} failed before, so automatic runs do not try it again. Run 'lastdb upgrade --rollback', or 'lastdb upgrade --clear-rejected {previous}' to let the next hourly check try once more.",
+            run.version
+        ));
+        record_once(paths, &run.version, &previous, &outcome);
+        return Ok(Some(outcome));
+    }
     if list
         .releases
         .iter()
@@ -76,14 +100,7 @@ fn withdrawn(
             "{} is withdrawn ({reason}) and the previous pair {previous} is withdrawn too; waiting for a human.",
             run.version
         ));
-        record(
-            paths,
-            &run.version,
-            &previous,
-            "withdrawn",
-            &outcome,
-            "resolve",
-        );
+        record_once(paths, &run.version, &previous, &outcome);
         return Ok(Some(outcome));
     }
     let label = cfg.label()?.to_owned();

@@ -75,10 +75,15 @@ pub(crate) fn status_line(home: &Path) -> String {
     if let Some(list) = &list {
         if let Some(w) = withdrawn_running(list, &running) {
             let reason = w.withdrawn_reason.as_deref().unwrap_or("no reason given");
-            let next = if cfg.auto == "apply" {
-                "it rolls back at the next hourly check"
-            } else {
-                "run 'lastdb upgrade --rollback'"
+            let failed = paths
+                .link_version(&paths.previous())
+                .filter(|p| rejected.contains(p));
+            let next = match failed {
+                Some(p) => format!(
+                    "the rollback to {p} failed and automatic runs do not try it again; run 'lastdb upgrade --rollback' or 'lastdb upgrade --clear-rejected {p}'"
+                ),
+                None if cfg.auto == "apply" => "it rolls back at the next hourly check".into(),
+                None => "run 'lastdb upgrade --rollback'".into(),
             };
             return format!(
                 "Upgrade: {} is withdrawn ({reason}); {next}",

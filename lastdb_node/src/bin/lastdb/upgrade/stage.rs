@@ -257,12 +257,17 @@ pub(super) fn read_release(dir: &Path) -> Option<Release> {
 }
 
 /// Remove program folders that are neither `current` nor `previous`. Run only after a
-/// successful upgrade.
+/// successful upgrade, and never unless both links name a program folder: with
+/// `previous` unset (an adopt, where the old program lives outside `programs/`) the other
+/// folders are the only way back, so nothing is removed.
 pub(super) fn prune(paths: &Paths) {
-    let keep: Vec<String> = [paths.current(), paths.previous()]
-        .iter()
-        .filter_map(|link| paths.link_version(link))
-        .collect();
+    let (Some(current), Some(previous)) = (
+        paths.link_version(&paths.current()),
+        paths.link_version(&paths.previous()),
+    ) else {
+        return;
+    };
+    let keep = [current, previous];
     let Ok(entries) = fs::read_dir(paths.programs()) else {
         return;
     };
