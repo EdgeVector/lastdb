@@ -356,6 +356,17 @@ stay the socket version, for the CLI and the SDK.
 Listings already filed under a socket number stay unread by this build until
 the app is republished under app API version 1.
 
+When an app manifest declares `"audience": "private"`, the registry writes its
+signed list under `/v1/lists/private/<32-hex>` instead of the public list.
+`lastdb app publish` reads the owner metadata, saves the private prefix in a
+mode-0600 `private-lists.json` file under the managed apps root, and reports the
+non-secret locator `private:<env>:<account>` in its reply. `lastdb app install <app>`
+and `lastdb app list <app>` check saved private locators when `<app>` is not on
+the public list, and install receipts store `private:<env>:<account>` rather
+than the raw private URL. `lastdb app show <app>` reads `GET /v1/apps/<app>` for
+the owner, refreshes the saved locator, and displays the list URL (or omits the
+raw URL with `--save`).
+
 ## Schemas at publish
 
 `lastdb app publish` sends schema definitions to Schema Service after the

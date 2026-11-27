@@ -165,6 +165,14 @@ Existing publishers can use their original signing key with `--key-file`.
 Pass `--key-file -` to read that key from standard input. CI can supply a
 developer API key using `EXEMEM_DEV_API_KEY`.
 
+When the manifest sets `"audience": "private"`, `lastdb app publish` saves a
+mode-0600 private list locator (`private:<env>:<account>`) under the managed
+apps directory and prints that locator in the publish reply. `lastdb app install <app>`
+and `lastdb app list <app>` check saved private list locators when `<app>` is not
+on the public list, without storing raw private URLs in install receipts. Run
+`lastdb app show <app>` (or `--save` to omit the raw URL) to inspect an owned app
+and its list location.
+
 Write each schema field once. In `schemas`, `fields` is an object from the
 field name to an object with a required `type` and optional `description`,
 `classifications`, `interest_category`, `version`, `declaration`, and `hash`.

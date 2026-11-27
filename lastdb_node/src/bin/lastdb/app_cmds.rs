@@ -1,12 +1,16 @@
 use super::*;
 use crate::app_registry_index::{self as registry, managed as host};
 use lastdb_node::profile::endpoints::Environment;
-use serde_json::json;
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 #[path = "app_cmds/interface_publish.rs"]
 mod interface_publish;
+#[path = "app_cmds/lifecycle.rs"]
+mod lifecycle;
+#[path = "app_cmds/owner_app.rs"]
+mod owner_app;
+#[path = "app_cmds/publish_credentials.rs"]
+mod publish_credentials;
 
 /// The apps the running node can install, with where and how they were read.
 struct Catalog {
@@ -59,6 +63,27 @@ fn load_catalog(
     })
 }
 
+fn saved_private_locators(
+    home: &Path,
+    env_override: Option<Environment>,
+) -> Result<Vec<String>, String> {
+    let env = env_override.unwrap_or_else(Environment::from_env_or_prod);
+    let preferred = lastdb_node::cloud::load_verified_cloud_credentials(home)
+        .ok()
+        .flatten()
+        .and_then(|c| c.expected_account_id);
+    registry::private_lists::saved_locators_for_env(env, preferred.as_deref())
+}
+
+fn missing_app_error(app: &str, (min_api, api): (u32, u32), explicit_index: bool) -> String {
+    if explicit_index {
+        return format!("no app '{app}' was proved with lastdb app API {min_api} to {api}");
+    }
+    format!(
+        "no app '{app}' was proved with lastdb app API {min_api} to {api}; if '{app}' is a private app you own, run 'lastdb app show {app} --save' first or pass --index"
+    )
+}
+
 pub(super) fn app_command(data_dir: Option<PathBuf>, action: AppCommand) -> Result<(), String> {
     let home = lastdb_node::host::resolve_home(data_dir)?;
     match action {
@@ -73,9 +98,10 @@ pub(super) fn app_command(data_dir: Option<PathBuf>, action: AppCommand) -> Resu
         }
         AppCommand::Status { app_id, check, .. } => {
             lastdb_node::cloud::pin_schema_service_environment_from_home(&home);
-            status_apps(&home, app_id.as_deref(), check)
+            lifecycle::status_apps(&home, app_id.as_deref(), check)
         }
         AppCommand::Publish(args) => interface_publish::publish_interface(&home, &args),
+        AppCommand::Show(args) => owner_app::show_owned_app(&home, &args),
         AppCommand::List {
             app_id,
             catalog_entry,
@@ -103,7 +129,7 @@ pub(super) fn app_command(data_dir: Option<PathBuf>, action: AppCommand) -> Resu
             ..
         } => {
             pin_app_env(&home, source.env.as_deref())?;
-            upgrade_apps(&home, all, accept_install, &app_ids, &source)
+            lifecycle::upgrade_apps(&home, all, accept_install, &app_ids, &source)
         }
         AppCommand::Remove {
             app_id,
@@ -116,6 +142,58 @@ pub(super) fn app_command(data_dir: Option<PathBuf>, action: AppCommand) -> Resu
     }
 }
 
+fn find_catalog_for_app(
+    home: &Path,
+    app_id: &str,
+    src: &CatalogSource,
+    env_override: Option<Environment>,
+) -> Result<Catalog, String> {
+    let explicit = registry::IndexLocation::has_explicit_source(src.index.as_deref());
+    let primary = load_catalog(
+        home,
+        src.channel.as_deref(),
+        src.index.as_deref(),
+        env_override,
+        src.trust_key.as_deref(),
+    );
+    if explicit {
+        return primary;
+    }
+    let mut range_hint = None;
+    match primary {
+        Ok(cat) => {
+            if cat.list.apps.iter().any(|e| e.app_id == app_id) {
+                return Ok(cat);
+            }
+            range_hint = Some(cat.range);
+        }
+        Err(e) if e.starts_with(registry::NO_LIST_PREFIX) => {}
+        Err(e) => return Err(e),
+    }
+    for loc in saved_private_locators(home, env_override)? {
+        match load_catalog(
+            home,
+            src.channel.as_deref(),
+            Some(&loc),
+            env_override,
+            src.trust_key.as_deref(),
+        ) {
+            Ok(cat) if cat.list.apps.iter().any(|e| e.app_id == app_id) => return Ok(cat),
+            Ok(cat) => range_hint = Some(cat.range),
+            Err(e) if e.starts_with(registry::NO_LIST_PREFIX) => {}
+            Err(e) => return Err(e),
+        }
+    }
+    let range = match range_hint {
+        Some(r) => r,
+        None => {
+            let (_, _, api, _, min_api) = registry::running_node(home)?;
+            (min_api, api)
+        }
+    };
+    Err(missing_app_error(app_id, range, false))
+}
+
 fn list_apps(
     home: &Path,
     app_id: Option<&str>,
@@ -124,20 +202,18 @@ fn list_apps(
     src: &CatalogSource,
 ) -> Result<(), String> {
     let env_override = parse_catalog_env(src.env.as_deref())?;
-    let Catalog {
-        list,
-        location,
-        trust,
-        node: (nb, ns),
-        range: (min_api, api),
-    } = load_catalog(
-        home,
-        src.channel.as_deref(),
-        src.index.as_deref(),
-        env_override,
-        src.trust_key.as_deref(),
-    )?;
     let Some(app_id) = app_id else {
+        let Catalog {
+            list,
+            range: (min_api, api),
+            ..
+        } = load_catalog(
+            home,
+            src.channel.as_deref(),
+            src.index.as_deref(),
+            env_override,
+            src.trust_key.as_deref(),
+        )?;
         if json {
             print_pretty_json(&list);
         } else {
@@ -151,43 +227,32 @@ fn list_apps(
         }
         return Ok(());
     };
+    let explicit = registry::IndexLocation::has_explicit_source(src.index.as_deref());
+    let Catalog {
+        list,
+        location,
+        trust,
+        node: (nb, ns),
+        range,
+    } = find_catalog_for_app(home, app_id, src, env_override)?;
     let e = list
         .apps
         .iter()
         .find(|e| e.app_id == app_id)
-        .ok_or_else(|| {
-            format!("no app '{app_id}' was proved with lastdb app API {min_api} to {api}")
-        })?;
+        .ok_or_else(|| missing_app_error(app_id, range, explicit))?;
     let index = location.describe_interface(&e.channel, e.api_version);
     if catalog_entry || json {
         print_pretty_json(e);
     } else {
-        println!("{} {} @ {} proved with lastdb {nb} ({ns}) at {}\n  source: {}\n  index: {index} (trust: {trust})", e.app_id, e.app_version, e.sha, e.published_at, e.source);
+        println!(
+            "{} {} @ {} proved with lastdb {nb} ({ns}) at {}\n  source: {}\n  index: {index} (trust: {trust})",
+            e.app_id, e.app_version, e.sha, e.published_at, e.source
+        );
     }
     Ok(())
 }
 
-fn installed_app_ids() -> Result<Vec<String>, String> {
-    let root = host::apps_root()?;
-    if !root.exists() {
-        return Ok(Vec::new());
-    }
-    let mut names = Vec::new();
-    for entry in std::fs::read_dir(root).map_err(|e| e.to_string())? {
-        let e = entry.map_err(|e| e.to_string())?;
-        if e.path()
-            .join("current")
-            .join(registry::RECEIPT_FILE)
-            .is_file()
-        {
-            names.push(e.file_name().to_string_lossy().into_owned());
-        }
-    }
-    names.sort();
-    Ok(names)
-}
-
-fn resolutions(
+pub(super) fn resolutions(
     home: &Path,
     channel: &str,
     index: Option<&str>,
@@ -203,12 +268,13 @@ fn resolutions(
         trust,
         ..
     } = load_catalog(home, Some(channel), index, env_override, None)?;
+    let raw_base = location.raw_url_base().map(str::to_owned);
     Ok(list
         .apps
         .into_iter()
         .map(|entry| registry::Resolution {
-            // Each entry names the list of its own app API version.
             index: location.describe_interface(&entry.channel, entry.api_version),
+            raw_base: raw_base.clone(),
             entry,
             trust: trust.clone(),
         })
@@ -224,141 +290,53 @@ fn install_apps(
 ) -> Result<(), String> {
     let env_override = parse_catalog_env(src.env.as_deref())?;
     let ch = src.channel.as_deref().unwrap_or(registry::DEFAULT_CHANNEL);
-    let rows = resolutions(
+    let explicit = registry::IndexLocation::has_explicit_source(src.index.as_deref());
+    let (_, _, api, _, min_api) = registry::running_node(home)?;
+    let range = (min_api, api);
+    let mut rows = match resolutions(
         home,
         ch,
         src.index.as_deref(),
         env_override,
         src.trust_key.as_deref(),
-    )?;
+    ) {
+        Ok(rows) => rows,
+        Err(e) if !explicit && e.starts_with(registry::NO_LIST_PREFIX) => Vec::new(),
+        Err(e) => return Err(e),
+    };
+    if !explicit
+        && app_ids
+            .iter()
+            .any(|app| !rows.iter().any(|r| &r.entry.app_id == app))
+    {
+        for loc in saved_private_locators(home, env_override)? {
+            match resolutions(home, ch, Some(&loc), env_override, src.trust_key.as_deref()) {
+                Ok(priv_rows) => {
+                    for row in priv_rows {
+                        if !rows.iter().any(|r| r.entry.app_id == row.entry.app_id) {
+                            rows.push(row);
+                        }
+                    }
+                }
+                Err(e) if e.starts_with(registry::NO_LIST_PREFIX) => {}
+                Err(e) => return Err(e),
+            }
+            if app_ids
+                .iter()
+                .all(|app| rows.iter().any(|r| &r.entry.app_id == app))
+            {
+                break;
+            }
+        }
+    }
     let mut results = Vec::with_capacity(app_ids.len());
     for app in app_ids {
         let row = rows
             .iter()
             .find(|r| &r.entry.app_id == app)
-            .ok_or_else(|| format!("no app '{app}' was proved with lastdb on this interface"))?;
+            .ok_or_else(|| missing_app_error(app, range, explicit))?;
         results.push(host::install(row, home, accept_install, inactive)?);
     }
     print_pretty_json(&results);
     host::install_poll()
-}
-
-type CachedLists = HashMap<(String, String), Result<Vec<registry::Resolution>, String>>;
-
-fn upgrade_one(
-    home: &Path,
-    (accept_install, polling): (bool, bool),
-    src: &CatalogSource,
-    lists: &mut CachedLists,
-    app: &str,
-) -> Result<Option<serde_json::Value>, String> {
-    let root = host::app_root(app)?;
-    let cur = host::receipt(&root.join("current"))?;
-    if src.index.is_none() && cur.index.trim().starts_with("lastsecrets://") {
-        let err = "saved private registry index is no longer supported";
-        if !polling {
-            return Err(err.into());
-        }
-        return Ok(Some(
-            json!({"app": app, "state": "blocked", "reason": "unsupported_saved_index", "error": err, "installed_release": cur.sha}),
-        ));
-    }
-    let ch = src.channel.as_deref().unwrap_or(&cur.channel);
-    let stamp = root.join("last-checked");
-    if polling
-        && ch == "stable"
-        && std::fs::metadata(&stamp)
-            .and_then(|m| m.modified())
-            .ok()
-            .and_then(|t| t.elapsed().ok())
-            .is_some_and(|d| d.as_secs() < 3600)
-    {
-        let _lock = host::lock(&root)?;
-        host::verify_or_restore(&root, home, &host::receipt(&root.join("current"))?)?;
-        return Ok(None);
-    }
-    let env_override = parse_catalog_env(src.env.as_deref())?;
-    let eff = src
-        .index
-        .as_deref()
-        .or_else(|| env_override.is_none().then_some(cur.index.as_str()));
-    let key = eff.unwrap_or_else(|| env_override.map_or("", Environment::as_str));
-    let rows = lists
-        .entry((key.to_owned(), ch.to_owned()))
-        .or_insert_with(|| resolutions(home, ch, eff, env_override, src.trust_key.as_deref()))
-        .as_ref()
-        .map_err(Clone::clone)?;
-    std::fs::write(&stamp, chrono::Utc::now().to_rfc3339()).map_err(|e| e.to_string())?;
-    // Listings are filed under the app API version. There is one supported
-    // level, and `fetch_supported` already returns each app's entry from the
-    // highest level, so this does not compare `api_version`.
-    let Some(row) = rows.iter().find(|r| r.entry.app_id == app) else {
-        return Ok((!polling)
-            .then(|| json!({"app": app, "state": "no_row", "installed_release": cur.sha})));
-    };
-    let receipt = host::install(row, home, accept_install, cur.inactive)?;
-    Ok((!polling || receipt.sha != cur.sha)
-        .then(|| json!({"app": app, "state": "current", "receipt": receipt})))
-}
-
-fn upgrade_apps(
-    home: &Path,
-    all: bool,
-    accept_install: bool,
-    ids: &[String],
-    src: &CatalogSource,
-) -> Result<(), String> {
-    let names = if all {
-        installed_app_ids()?
-    } else {
-        ids.to_vec()
-    };
-    let polling = std::env::var("LASTDB_APP_REGISTRY_POLL").as_deref() == Ok("1");
-    let (mut lists, mut results, mut failed) = (HashMap::new(), Vec::new(), false);
-    for app in &names {
-        match upgrade_one(home, (accept_install, polling), src, &mut lists, app) {
-            Ok(Some(res)) => results.push(res),
-            Ok(None) => {}
-            Err(error) => {
-                failed = true;
-                results.push(json!({"app": app, "state": "red", "error": error}));
-            }
-        }
-    }
-    if !polling || !results.is_empty() {
-        print_pretty_json(&results);
-    }
-    (!failed)
-        .then_some(())
-        .ok_or_else(|| "one or more app upgrades failed; prior versions retained".into())
-}
-
-fn status_apps(home: &Path, app_id: Option<&str>, check: bool) -> Result<(), String> {
-    let names = app_id.map_or_else(installed_app_ids, |app| Ok(vec![app.to_owned()]))?;
-    let (mut rows, mut failed) = (Vec::new(), false);
-    for app in names {
-        let root = host::app_root(&app)?;
-        match host::receipt(&root.join("current")) {
-            Ok(r) => {
-                let probe = host::verify(&root, check.then_some(home), &r).err();
-                failed |= probe.is_some();
-                let state = match (probe.is_some(), r.inactive) {
-                    (true, _) => "red",
-                    (false, true) => "inactive",
-                    (false, false) => "current",
-                };
-                let act = std::fs::read_link(root.join("current")).ok();
-                let pri = std::fs::read_link(root.join("previous")).ok();
-                rows.push(json!({"app": app, "state": state, "installed_release": r.sha, "active_release": act, "prior_release": pri, "probe": probe, "receipt": r}));
-            }
-            Err(error) => {
-                failed = true;
-                rows.push(json!({"app": app, "state": "not_installed", "error": error}));
-            }
-        }
-    }
-    print_pretty_json(&rows);
-    (!failed)
-        .then_some(())
-        .ok_or_else(|| "one or more apps are unhealthy".into())
 }
