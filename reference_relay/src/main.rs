@@ -35,7 +35,7 @@ use std::sync::Arc;
 use axum::extract::{DefaultBodyLimit, Request, State};
 use axum::http::HeaderValue;
 use axum::middleware::{self, Next};
-use axum::response::Response;
+use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post, put};
 use axum::Router;
 use clap::Parser;
@@ -155,14 +155,26 @@ async fn run() -> Result<(), String> {
         upload_fault_done: std::sync::atomic::AtomicBool::new(false),
     });
     let mut app = Router::new()
-        .route(Route::LogAppend.path(), post(log_append))
+        .route(
+            Route::LogAppend.path(),
+            post(log_append).layer(middleware::from_fn(run_detached)),
+        )
         .route(Route::LogRead.path(), post(log_read))
         .route(Route::LogStreams.path(), post(log_streams))
-        .route(Route::LogTrim.path(), post(log_trim))
-        .route(Route::BlobPut.path(), post(blob_put))
+        .route(
+            Route::LogTrim.path(),
+            post(log_trim).layer(middleware::from_fn(run_detached)),
+        )
+        .route(
+            Route::BlobPut.path(),
+            post(blob_put).layer(middleware::from_fn(run_detached)),
+        )
         .route(Route::BlobGet.path(), post(blob_get))
         .route(Route::BlobList.path(), post(blob_list))
-        .route(Route::BlobDrop.path(), post(blob_drop))
+        .route(
+            Route::BlobDrop.path(),
+            post(blob_drop).layer(middleware::from_fn(run_detached)),
+        )
         // The object-store stand-in behind the presigned URLs; not protocol routes.
         .route(
             &format!("{BLOB_UPLOAD_PATH}/{{database_id}}/{{token}}"),
@@ -183,6 +195,19 @@ async fn run() -> Result<(), String> {
     axum::serve(listener, app)
         .await
         .map_err(|e| format!("serve: {e}"))
+}
+
+/// A route that changes the store runs to its end even when the caller goes away. The server
+/// drops the future of a request whose connection closed, and such a handler can stop between two
+/// of its steps: a `log.append` of a segment that wrote the item and did not yet move the head
+/// left an item above the head, and every later append of that stream was a conflict
+/// (`segment.first_seq`) until the relay restarted. A node killed in the middle of a call closes
+/// its connection that way. The spawned task finishes the handler, and its answer is dropped
+/// when nobody waits for it any more.
+async fn run_detached(request: Request, next: Next) -> Response {
+    tokio::spawn(next.run(request))
+        .await
+        .unwrap_or_else(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR.into_response())
 }
 
 /// Every answer of a protocol route, a refusal included, names the contract revision this relay

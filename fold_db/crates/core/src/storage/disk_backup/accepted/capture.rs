@@ -1,5 +1,19 @@
 //! Sign one accepted user write as the next entry of the device stream, and stage it for the
-//! spool. Failure leaves the batch uncommitted.
+//! spool, the cloud log. Failure leaves the batch uncommitted.
+//!
+//! The cloud log exists only to send this device's signed stream to the cloud. The local node
+//! writes its entries and never reads them back for a check: only entries of other devices are
+//! read, when they arrive (see `PackRuntime::replay_accepted`, under which nothing is captured).
+//!
+//! The mutation id of a captured write is new by construction, so the stored ids are not read:
+//! - a record write gets a fresh UUIDv4 from the node (`stamp_and_validate` in the app write
+//!   path, and the erase, incorporate and replay callers that build their own mutation);
+//! - a schema put or drop derives its id from the schema name, its identity, and its author
+//!   millisecond, and the author clock gives every entry of the stream a millisecond above the
+//!   one before it.
+//!
+//! The format check, the repeat check inside one batch, and the comparison with the queued,
+//! uncommitted writes (`precheck_accepted_queue`) stay. They read memory only.
 
 mod files;
 
@@ -58,11 +72,8 @@ pub(crate) async fn stage_records(
         if !body::mutation_id_ok(&mutation.uuid) {
             return Err(invalid("accepted mutation id is not a durable name"));
         }
-        if !seen.insert(mutation.uuid.as_str())
-            || runtime
-                .accepted_mutation_seen(&mutation.uuid)
-                .map_err(super::storage)?
-        {
+        // A repeat inside this batch only. The cloud log is not read back for its ids.
+        if !seen.insert(mutation.uuid.as_str()) {
             return Err(invalid("mutation id was already accepted into the spool"));
         }
     }
@@ -128,12 +139,9 @@ fn stage_schema_note(
     authored_at_ms: u64,
     previous: Option<&LocalEntry>,
 ) -> StorageResult<Option<LocalEntry>> {
-    if runtime
-        .accepted_mutation_seen(mutation_id)
-        .map_err(super::storage)?
-    {
-        return Err(invalid("mutation id was already accepted into the spool"));
-    }
+    // The id names the author millisecond, which is above that of every earlier entry of the
+    // stream, so it is new; the cloud log is not read back for it. `prepare` still refuses
+    // a repeat inside one commit and `precheck_accepted_queue` one among the queued writes.
     let author = author_of(runtime)?;
     let (note, next) = signed_note(
         author.as_ref(),

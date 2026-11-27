@@ -238,6 +238,8 @@ impl SchemaStore {
     /// device stream, in the transaction that commits it, and write its stamp
     /// row. A put or drop of another device is compared with that row when it
     /// arrives. A store that does not capture its writes does nothing here.
+    /// The entry goes to the cloud log, which the node writes and does not read
+    /// back.
     pub(super) async fn capture_local_change(
         &self,
         schema: &str,

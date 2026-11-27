@@ -11,6 +11,12 @@ from record_runs import definition, require, system_seed
 import v1_records as v1
 
 
+# One batch of 10 writes at most this often under the kills (125 writes a second), and at most
+# this many writes in all: about the load that earlier builds reached unpaced.
+LOAD_PACE_SECONDS = 0.08
+LOAD_WRITES_MAX = 3_000
+
+
 # 8. Idle turns -----------------------------------------------------------------------------
 
 def count_turns(relay, mark):
@@ -51,11 +57,18 @@ def kill_under_load(relay, a, b, rounds):
     stop, up = threading.Event(), threading.Event()
     up.set()
 
+    # The load is paced, so its size does not follow the write speed of the build. The scale step
+    # after it must keep A's stream below the routine snapshot (AUTO_SNAPSHOT_ENTRIES, 25,000
+    # entries in lastdb_node/src/log_sync/personal/snapshot.rs): that snapshot trims the entries
+    # that B, which applies slower than A writes, has not read yet, and B is then behind history.
     def writer():
-        batch = 0
+        batch, next_at = 0, time.monotonic()
         while not stop.is_set():
-            if not up.wait(timeout=1):
+            if not up.wait(timeout=1) or batch * 10 >= LOAD_WRITES_MAX:
+                time.sleep(0.05)
                 continue
+            next_at = max(next_at + LOAD_PACE_SECONDS, time.monotonic())
+            time.sleep(max(0.0, next_at - time.monotonic()))
             keys = [f"k{batch}-{i}" for i in range(10)]
             batch += 1
             try:

@@ -152,6 +152,8 @@ impl MutationManager {
                 .map(|(m, s)| (m.uuid.clone(), s.revision()))
                 .collect();
             // Canonical keys and validated CAS/fields are already in place before signing.
+            // The spool entry goes to the cloud log: it is written for the upload of this
+            // device's stream and never read back here, so this step reads no stored id.
             phases::step(Step::SpoolEntry, async {
                 let signed = self
                     .db_ops

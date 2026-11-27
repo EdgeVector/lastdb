@@ -11,8 +11,21 @@ use std::time::Instant;
 pub(crate) mod traits {
     #[derive(Debug, Clone, PartialEq, Eq)]
     pub(crate) enum KvMutation {
-        Put { key: Vec<u8>, value: Vec<u8> },
-        Delete { key: Vec<u8> },
+        Put {
+            key: Vec<u8>,
+            value: Vec<u8>,
+        },
+        /// Delete the key when it holds a value. The plan reads the key first and writes
+        /// nothing for an absent key.
+        Delete {
+            key: Vec<u8>,
+        },
+        /// Delete the key without that read. The caller knows the key was written. When it was
+        /// not, the delete leaves one tombstone, which every read takes as absent and a merge
+        /// into the base drops.
+        Trim {
+            key: Vec<u8>,
+        },
     }
 
     impl KvMutation {
@@ -27,8 +40,12 @@ pub(crate) mod traits {
             Self::Delete { key: key.into() }
         }
 
+        pub(crate) fn trim(key: impl Into<Vec<u8>>) -> Self {
+            Self::Trim { key: key.into() }
+        }
+
         pub(crate) fn key(&self) -> &[u8] {
-            let (Self::Put { key, .. } | Self::Delete { key }) = self;
+            let (Self::Put { key, .. } | Self::Delete { key } | Self::Trim { key }) = self;
             key
         }
     }

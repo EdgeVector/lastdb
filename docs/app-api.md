@@ -565,21 +565,26 @@ the phase.
 - `read_and_stage.capture`: taking the read view of the write.
 - `read_and_stage.old_records`: reading the old records and checking the
   conditions.
-- `read_and_stage.stamps`: the local replay head, the author clocks, and the
-  field stamps.
-- `read_and_stage.spool_entry`: checking that the mutation id of a captured
-  write is new (the only read of the stored ids), and encoding and signing its
-  spool entry.
+- `read_and_stage.stamps`: the local replay head, the author clocks, the
+  field stamps, and the changes list entry. The trim of the oldest changes list
+  entry is a delete without a read. Each store namespace's registry row is
+  read until the store knows it is committed, not once per write.
+- `read_and_stage.spool_entry`: encoding and signing the spool entry of a
+  captured write. The spool is the cloud log: it exists only to send this
+  device's signed stream to the cloud, and the node does not read it back. The
+  mutation id is new by construction (a fresh id from the node, or for a schema
+  change its author millisecond), so no stored id is read; the step checks the
+  id format and repeats inside the batch only.
 - `read_and_stage.stage`: staging the new records and their alternate
   entries.
 - `commit.queue`: the space and queue checks, the mutation id check against
-  the queued writes, and joining the commit queue. It does not read the stored
-  ids again.
+  the queued writes in memory, and joining the commit queue. It reads no
+  stored id.
 - `commit.turn_wait`: until the queue turn that commits the write holds both
   gates. Another commit, such as a spool confirmation of the sync loop, runs
   first here.
-- `commit.spool_records`: preparing the spool records of the captured writes.
-  It does not read the stored ids again.
+- `commit.spool_records`: preparing the cloud log records of the captured
+  writes. It reads no stored id.
 - `commit.log_flush`: the commit log append and its ordered flush.
 - `commit.install`: publishing the spool head, the read view, and the
   metadata.

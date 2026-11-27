@@ -16,7 +16,9 @@ How a write leaves the home and reaches the relay is in
 ## The model in four sentences
 
 - The store is the database.
-- The spool is the outbox.
+- The spool is the outbox: the cloud log. It exists only to send this device's
+  signed stream to the cloud, and the node never reads it back for a check.
+  Only logs from other devices are opened.
 - The relay is a mailbox for signed entries and files.
 - A snapshot is the store's own files plus a signed entry that says which
   entries those files already hold.
@@ -184,8 +186,13 @@ The schema definitions the database uses, and their retention (TTL) state.
 - A lookup reads the footer and the top block, one index block and one data
   block. A home keeps at most 32 run readers open. A reader holds no record.
 
-## The spool
+## The spool (the cloud log)
 
+- The spool is the cloud log: this device's signed stream on its way to the
+  cloud. The node writes it and does not read it back for a check. The one
+  read of a finished entry is the sender's, and that read is the upload. The
+  code and the status fields keep the name spool (`spool_head`,
+  `spool_confirmed_through`).
 - Every commit of a captured home puts one entry in the spool before the
   caller is told. One write is one entry. A schema put or drop is an entry.
 - The spool is records in the main home, written in the same commit as the
@@ -195,8 +202,12 @@ The schema definitions the database uses, and their retention (TTL) state.
     sealed file SHA-256 and length). The key is the sequence as 20 digits.
   - `accepted_ids/<mutation id>` and `accepted_id_order/<seq>`: the newest
     10,000 mutation ids with the plaintext SHA-256 of each body, plus every id
-    not yet acknowledged. A commit that reuses a recorded id, or repeats one in
-    the same batch, is refused before the stream moves.
+    not yet acknowledged. The write path does not read them. A captured
+    write's id is new by construction: a record write carries a fresh id that
+    the node made, and a schema put or drop names its author millisecond,
+    which is above that of every earlier entry. A commit that repeats an id in
+    the same batch, or one held by a queued write, is refused before the
+    stream moves.
   - `accepted_state/state`: the acknowledged position, the upload position
     that confirms it (one record, so the two are one write), `snapshot_required`
     and the frontier when the stream started. The head is the last entry, or the
@@ -227,7 +238,8 @@ The schema definitions the database uses, and their retention (TTL) state.
   Each captured schema put or drop derives its mutation id from the schema
   name, definition identity (or `drop`), and `authored_at_ms`, so repeated
   `put -> drop -> put` or `drop` transitions each receive their own spool entry
-  and stream sequence, while a duplicate schema mutation id is refused.
+  and stream sequence. The author clock gives each entry a millisecond above
+  the one before it, so two schema entries never share an id.
 - A build from before this layout kept the spool in `disk-run/accepted-v1/`.
   This build refuses a home that still has that folder. The one manual step:
   run the older build until `lastdb status` shows every write acknowledged,

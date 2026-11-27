@@ -1,8 +1,15 @@
-//! Ordered logical stream of accepted database writes.
+//! Ordered logical stream of accepted database writes: the cloud log.
 //!
 //! The byte-backup mutation journal retains encrypted run files and can
 //! acknowledge a commit that never entered it. This stream records one
 //! sealed logical entry per accepted user write before the caller ack.
+//!
+//! The code calls it the spool, and the status fields keep that name
+//! (`spool_head`, `spool_confirmed_through`). It is the cloud log: it exists
+//! only to send this device's signed stream to the cloud. The local node
+//! writes its entries and never reads them back for a check. The sender's one
+//! read of a finished entry is the upload itself. Only logs from other devices
+//! are opened, when they arrive.
 
 mod author;
 mod body;
@@ -73,7 +80,7 @@ pub struct SpoolReport {
     pub gap: bool,
     /// Bytes of the entries still to send, with their sealed files.
     pub retained_bytes: u64,
-    /// Id records of recent writes, kept to refuse a write sent twice.
+    /// Id records of recent writes. The write path does not read them.
     pub id_records: u64,
     /// Last sequence number of this device's stream the relay confirmed.
     pub uploaded_writer_seq: Option<u64>,
@@ -178,14 +185,6 @@ impl PackRuntime {
         capture::REPLAY_STORE
             .scope(std::sync::Arc::clone(self), replay)
             .await
-    }
-
-    /// Whether this capture has already stored `mutation_id`.
-    pub fn accepted_mutation_seen(&self, mutation_id: &str) -> Result<bool, Error> {
-        match &self.accepted {
-            Some(log) => log.mutation_recorded(&self.physical, mutation_id),
-            None => Ok(false),
-        }
     }
 
     /// Cursor of this home. A home without capture has an empty cursor and does not block writes.

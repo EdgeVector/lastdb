@@ -183,8 +183,9 @@ impl PackRuntime {
                     .ok_or_else(|| StorageError::write_limit("accepted stream spool is full"))?;
             }
         }
-        // The stored ids were read under the prepare gate this caller still holds, when the
-        // notes were staged; see `Log::check_admissible`.
+        // The stored ids of the cloud log are not read: a captured write's id is new by
+        // construction (see `accepted::capture`). The scan above compares it with the queued,
+        // uncommitted writes; see `Log::check_admissible`.
         log.check_admissible(queued_notes, queued_bytes, &incoming)
             .map(|()| batch_bytes)
             .map_err(crate::storage::disk_backup::accepted::storage)

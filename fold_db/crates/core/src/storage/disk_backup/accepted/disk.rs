@@ -1,7 +1,11 @@
-//! The spool: one signed entry per captured write. Its records live in the main home and are
-//! written in the same commit as the write they belong to, so a write and its entry become
-//! durable together and the spool needs no disk sync of its own. Sealed files stay files, in
-//! one folder beside the home (see `files`).
+//! The spool, the cloud log: one signed entry per captured write. Its records live in the main
+//! home and are written in the same commit as the write they belong to, so a write and its
+//! entry become durable together and the spool needs no disk sync of its own. Sealed files stay
+//! files, in one folder beside the home (see `files`).
+//!
+//! The cloud log exists only to send this device's signed stream to the cloud. The node writes
+//! it and never reads it back for a check. The one read of a finished entry is the sender's
+//! (`prefix`), and that read is the upload. Only logs from other devices are opened on arrival.
 
 mod change;
 mod files;
@@ -28,8 +32,8 @@ pub(in crate::storage) const FILES_DIR: &str = "accepted-files";
 /// The spool folder of builds before the spool moved into the store.
 pub(in crate::storage) const OLD_DIR: &str = "accepted-v1";
 pub(super) const MAX_PAGE: u32 = 90;
-/// The id records of this many of the newest writes stay. A retry of a write older than that
-/// is taken as a new write.
+/// The id records of this many of the newest writes stay. No write path reads them: the id of
+/// a captured write is new by construction (see `capture`).
 const IDS_KEPT: u64 = 10_000;
 /// How many acknowledged entries pass between two trims of the id records.
 const TRIM_EVERY: u64 = 2_500;
@@ -146,13 +150,11 @@ impl Log {
     /// Whether the spool takes `notes` after the queued, uncommitted writes: no gap, the id and
     /// sha formats, the sequence room, and the spool cap.
     ///
-    /// It does not read the id records. `stage_records` and `stage_schema_note` read them for
-    /// every well-formed id before the note is staged (the format check below refuses any
-    /// other id), and the caller has held the prepare gate since that read: `scope()` takes the
-    /// gate before the batch exists and keeps it until the write has joined the queue. Only a
-    /// commit adds id records, and every commit of the home holds the prepare gate (a queue
-    /// turn, or an `enter_write` caller), so no id record is added between that read and this
-    /// check. The caller compares the ids with the queued writes.
+    /// It does not read the id records, and no write path does: the cloud log is not read back
+    /// for a check. The id of a captured write is new by construction: a record write carries a
+    /// fresh UUIDv4 that the node made, and a schema put or drop names its author millisecond,
+    /// which is above that of every earlier entry (see `capture`). The caller compares the ids
+    /// with the queued writes.
     pub(in crate::storage) fn check_admissible(
         &self,
         queued_notes: usize,
@@ -186,28 +188,14 @@ impl Log {
         (total <= spool_cap()).then_some(()).ok_or(Error::Spool)
     }
 
-    pub(super) fn mutation_recorded(&self, physical: &V2Home, id: &str) -> Result<bool, Error> {
-        if !id_ok(id) {
-            return Ok(false);
-        }
-        Ok(store::read_ids(physical, &[id.to_owned()])?
-            .into_iter()
-            .next()
-            .flatten()
-            .is_some())
-    }
-
     /// The operations that put `notes` in the spool, for the commit that writes them. A state
     /// row that changed since the last commit goes with them. Sealed files are written now.
     ///
-    /// This runs inside the commit turn and does not read the id records. A repeated mutation
-    /// id was refused before the write joined the queue: `stage_records` reads the id records
-    /// under the prepare gate, and `precheck_accepted_queue` compares the ids with every queued,
-    /// uncommitted write under both gates (see [`Self::check_admissible`]). Only a queue turn adds
-    /// id records. A turn holds the prepare gate, and a sealed queue admits no new write and
-    /// lets no other commit in until the turn completes, so no id is added between those checks
-    /// and this commit that they did not see. The `seen` set below still refuses a repeat inside
-    /// one turn.
+    /// This runs inside the commit turn and does not read the id records: the cloud log is not
+    /// read back for a check, and the id of a captured write is new by construction (see
+    /// [`Self::check_admissible`]). `precheck_accepted_queue` compared the ids with every queued,
+    /// uncommitted write under both gates. The `seen` set below still refuses a repeat inside one
+    /// turn.
     pub(in crate::storage) fn prepare(
         &self,
         before: Frontiers,

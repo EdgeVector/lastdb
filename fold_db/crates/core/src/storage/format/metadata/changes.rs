@@ -8,7 +8,7 @@
 
 use super::{decode_author, read_err, Metadata, LOCAL_AUTHOR_KEY};
 use crate::schema::types::{KeyValue, SchemaError};
-use crate::storage::{error::StorageResult, StorageError};
+use crate::storage::{error::StorageResult, KvMutation, StorageError};
 use lastdb_model::hex::sha256_hex;
 use lastdb_model::portable_mutation::{Stamp, StreamId};
 use serde::{Deserialize, Serialize};
@@ -68,10 +68,16 @@ fn entry_key(stream: &StreamId, seq: u64) -> String {
 /// Add one entry per changed record, numbered by its stamp, and the trim of
 /// the entry that leaves the kept window. The caller stages `rows` in the
 /// records' native write scope with the stream row.
+///
+/// The trim is a delete without an existence read ([`KvMutation::Trim`]).
+/// Every number of the stream got its entry in the commit that took it, so
+/// the trimmed entry is there, except on a stream that began before this list
+/// (its first numbers have no entry). There the delete leaves one tombstone,
+/// which no read of the list returns.
 pub(super) fn append_rows(
     stamps: &[Stamp],
     records: &[ChangedKey<'_>],
-    rows: &mut Vec<(String, Option<Vec<u8>>)>,
+    rows: &mut Vec<KvMutation>,
 ) -> StorageResult<()> {
     for (stamp, &(schema, key, deleted)) in stamps.iter().zip(records) {
         let (stream, seq) = (&stamp.position.source_stream, stamp.position.sequence);
@@ -83,9 +89,9 @@ pub(super) fn append_rows(
         };
         let bytes = serde_json::to_vec(&row)
             .map_err(|e| StorageError::SerializationError(format!("encode change: {e}")))?;
-        rows.push((entry_key(stream, seq), Some(bytes)));
+        rows.push(KvMutation::put(entry_key(stream, seq), bytes));
         if seq > CHANGES_KEEP {
-            rows.push((entry_key(stream, seq - CHANGES_KEEP), None));
+            rows.push(KvMutation::trim(entry_key(stream, seq - CHANGES_KEEP)));
         }
     }
     Ok(())

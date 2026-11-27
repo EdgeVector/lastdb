@@ -24,3 +24,23 @@ incremental = false
 # Not `force = true`: an explicitly-exported RUST_MIN_STACK still wins.
 [env]
 RUST_MIN_STACK = "16777216"
+
+# Hardware AES-GCM on 64-bit ARM.
+#
+# aes 0.8 and polyval 0.6 (under aes-gcm 0.10) build the ARMv8 AES and PMULL
+# backends only with these cfgs; without them an Apple M-series build runs the
+# constant-time software cipher. Every run index and data block a read opens is
+# AES-256-GCM, so that software cipher was most of a write's CPU (brain
+# `closeout-20261126-lastdb-write-cost-is-software-aes`). With the cfgs the
+# crates detect the CPU features at run time and fall back to software where
+# they are absent. The output bytes are the same AES-256-GCM.
+# x86_64 needs nothing: those crates detect AES-NI and CLMUL at run time.
+#
+# An exported RUSTFLAGS or CARGO_ENCODED_RUSTFLAGS replaces these flags
+# entirely. The release build refuses such an environment for these targets
+# (scripts/release/nightly_package.py).
+[target.aarch64-apple-darwin]
+rustflags = ["--cfg", "aes_armv8", "--cfg", "polyval_armv8"]
+
+[target.aarch64-unknown-linux-gnu]
+rustflags = ["--cfg", "aes_armv8", "--cfg", "polyval_armv8"]

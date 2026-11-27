@@ -8,7 +8,8 @@ use laststore::disk_run::home::{HomeMutation, ReadBudget};
 
 /// One record per entry, key the sequence as 20 digits so key order is sequence order.
 pub(super) const ENTRIES: &str = "accepted_entries";
-/// One record per recent mutation id: the plaintext SHA-256 of its write.
+/// One record per recent mutation id: the plaintext SHA-256 of its write. The write path does
+/// not read these: the cloud log is not read back for a check.
 pub(super) const IDS: &str = "accepted_ids";
 /// One record per recent mutation id by sequence, so the oldest ids can be found and trimmed.
 pub(super) const ID_ORDER: &str = "accepted_id_order";
@@ -222,18 +223,6 @@ pub(super) fn count_ids(physical: &V2Home) -> Result<u64, Error> {
         Ok(true)
     })?;
     Ok(count)
-}
-
-/// The plaintext SHA-256 recorded for each id, in the order of `ids`.
-pub(super) fn read_ids(physical: &V2Home, ids: &[String]) -> Result<Vec<Option<String>>, Error> {
-    get_many(physical, IDS, ids)?
-        .into_iter()
-        .map(|found| {
-            found
-                .map(|bytes| String::from_utf8(bytes).map_err(|_| Error::Gap))
-                .transpose()
-        })
-        .collect()
 }
 
 pub(super) fn id_ops(meta: &Meta) -> [HomeMutation; 2] {

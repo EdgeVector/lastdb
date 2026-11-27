@@ -148,6 +148,15 @@ def build_target(args):
         git_oid, version, epoch = args.git_oid, args.expect_version, args.source_epoch
         nightly_only = "-nightly." in version
     env = {**os.environ, "FOLDDB_BUILD_VERSION_OVERRIDE": version}
+    if args.target.startswith("aarch64-"):
+        # .cargo/config.toml turns on the ARMv8 AES and PMULL backends for this target. Any of
+        # these variables, even empty, replaces those flags and ships the software cipher.
+        target_flags = "CARGO_TARGET_" + args.target.upper().replace("-", "_") + "_RUSTFLAGS"
+        overriding = [name for name in ("RUSTFLAGS", "CARGO_ENCODED_RUSTFLAGS", target_flags)
+                      if name in env]
+        if overriding:
+            raise RuntimeError(f"{', '.join(overriding)} would drop the hardware AES cfgs of "
+                               ".cargo/config.toml; unset it for the release build")
     subprocess.run(["rustup", "target", "add", args.target], env=env, check=True, timeout=300)
     if args.target == "aarch64-apple-darwin":
         if subprocess.run(["brew", "list", "--versions", "openssl@3"], env=env,
@@ -172,6 +181,19 @@ def build_target(args):
     else:
         subprocess.run(cmd, env=env, check=True)
     bin_dir = Path(env.get("CARGO_TARGET_DIR") or "target").resolve() / args.target / "release"
+    if args.target.startswith("aarch64-"):
+        # aes and polyval must have been compiled with their ARMv8 backend cfgs. The binary
+        # cannot show it: the Apple target enables `aes` statically, so the backend inlines and
+        # leaves no symbol, and ring and aws-lc carry AES instructions of their own. Cargo's
+        # fingerprint of the newest build of each crate records the rustflags it used.
+        for crate, cfg in (("aes", "aes_armv8"), ("polyval", "polyval_armv8")):
+            prints = list((bin_dir / ".fingerprint").glob(f"{crate}-*/lib-{crate}.json"))
+            if not prints:
+                raise RuntimeError(f"no cargo fingerprint of {crate} under {bin_dir}")
+            flags = document(max(prints, key=lambda p: p.stat().st_mtime)).get("rustflags", [])
+            if not any(a == "--cfg" and b == cfg for a, b in zip(flags, flags[1:])):
+                raise RuntimeError(f"{crate} was built without --cfg {cfg} (rustflags {flags}); "
+                                   "check .cargo/config.toml")
     for name in ("lastdb", "lastdbd"):
         path = bin_dir / name
         subprocess.run(["strip", str(path)], check=True, timeout=60)
