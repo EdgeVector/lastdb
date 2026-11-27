@@ -119,6 +119,7 @@ async fn one_turn(host: &Arc<Host>, histories: &HistoryMap, base: &str) -> TurnR
     turn_error = pull_owned_shareables(host, histories, &client, &owned)
         .await
         .or(turn_error);
+    turn_error = publish_declared_schemas(host, &owned).or(turn_error);
     // Write leases come after the pull, so a closing records what the member
     // streams hold now. A database with no lease length has none.
     turn_error = super::lease_publish::renew_owned(host, histories, &owned).or(turn_error);

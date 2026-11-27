@@ -285,7 +285,7 @@ async fn has_any_stream_head(ctx: &Ctx<'_>) -> Result<bool, String> {
         .map_err(|error| format!("the stream heads could not be checked: {error}"))
 }
 
-pub(super) fn is_unborn_403(error: &str) -> bool {
+pub(in crate::log_sync) fn is_unborn_403(error: &str) -> bool {
     if !error.contains("HTTP 403") || is_payment_refusal(error) {
         return false;
     }
