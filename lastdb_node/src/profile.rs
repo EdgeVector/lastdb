@@ -168,7 +168,7 @@ pub mod endpoints {
         include!(concat!(env!("OUT_DIR"), "/environments_generated.rs"));
     }
 
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
     pub enum Environment {
         Dev,
         Prod,
