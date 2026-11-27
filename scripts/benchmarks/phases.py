@@ -125,11 +125,12 @@ def update_tail_lines(output, manifest):
 
 
 def phase_lines(output, manifest):
-    lines = ["", "## Committed write phases (`/api/ops`)", "",
-             "Phase capture snapshots `GET /api/ops` before and after each timed write case.",
-             "It runs outside the latency, throughput, memory, and disk-size windows.",
+    lines = ["", "## Request write phases (`/api/ops`)", "",
+             "Phase capture snapshots `GET /api/ops` before and after each timed write case, outside timed windows.",
+             "Counts and means are per committed write request (`write_requests`), not per physical commit turn.",
+             "Concurrent queued requests record shared commit turn timings on each request; distinct physical commits are unreported.",
              "Dotted sub-phases belong to the phase before the dot; do not add a parent phase to its children.", "",
-             "| Run / case | Committed writes | Handler mean ms | Commit mean ms | Largest phase means ms |",
+             "| Run / case | Write requests | Handler mean ms | Request commit mean ms | Largest request phase means ms |",
              "|---|---:|---:|---:|---|"]
     for run in manifest["runs"]:
         path = output / run["directory"] / "metrics.json"
@@ -171,12 +172,12 @@ def collect_native_phases(output):
             raise ValueError(f"{case}: /api/ops write_phases count differs from successful write calls")
         writes = wp["writes"]
         by_name = {item["phase"]: item for item in wp["phases"]}
-        scope_phases = {
+        request_phases = {
             name: {"reported": writes, "total": item["total_ns"] / 1000.0, "mean": item["mean_ns"] / 1000.0}
             for name, item in by_name.items()
             if name != "handler" and not name.startswith("commit.")
         }
-        physical_phases = {
+        request_commit_phases = {
             name: {"reported": writes, "total": item["total_ns"] / 1000.0, "mean": item["mean_ns"] / 1000.0}
             for name, item in by_name.items()
             if name == "commit" or name.startswith("commit.")
@@ -192,12 +193,13 @@ def collect_native_phases(output):
         ] if case in ("update/1", "update/128") else []
         cases[case] = {
             "write_calls": expected,
-            "scopes": writes,
-            "distinct_physical_commits": writes,
-            "scope_mean_us": by_name.get("handler", {}).get("mean_ns", 0.0) / 1000.0,
-            "scope_phases_us": scope_phases,
-            "physical_mean_us": by_name.get("commit", {}).get("mean_ns", 0.0) / 1000.0,
-            "physical_phases_us": physical_phases,
+            "write_requests": writes,
+            "distinct_physical_commits": None,
+            "physical_mean_us": None,
+            "handler_mean_us": by_name.get("handler", {}).get("mean_ns", 0.0) / 1000.0,
+            "request_phases_us": request_phases,
+            "request_commit_mean_us": by_name.get("commit", {}).get("mean_ns", 0.0) / 1000.0,
+            "request_commit_phases_us": request_commit_phases,
             "slowest_requests": slowest,
         }
     if not cases:
@@ -205,5 +207,5 @@ def collect_native_phases(output):
     return {
         "complete": True,
         "cases": cases,
-        "scope": "Separate diagnostic run; /api/ops write_phases delta per case; dotted sub-phases overlap their parent phase",
+        "scope": "Separate diagnostic run; per-request /api/ops write_phases delta per case; concurrent queued requests share commit turn timings; distinct physical commits are unreported; dotted sub-phases overlap their parent phase",
     }

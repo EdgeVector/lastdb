@@ -182,9 +182,10 @@ def render_report(output):
              "Six fresh homes form three alternating base/candidate pairs on this runner.",
              "Every client owns different keys in one schema and one hash.",
              "Each case completes 2,048 single-record durable RPCs and verifies the final values.",
-             "Write phase means come from `GET /api/ops` (`write_phases`) snapshots around each case.",
+             "Request phase means come from `GET /api/ops` (`write_phases`) per committed write request.",
+             "Concurrent queued requests record shared commit turn timings on each request; distinct physical commits are unreported.",
              "Dotted sub-phases overlap their parent phase; missing instrumentation is unreported, not zero.", "",
-             "| Home / case | P95 ms | Records/s | Daemon CPU cores | Prepare mean ms | Commit mean ms | Handler mean ms |",
+             "| Home / case | P95 ms | Records/s | Daemon CPU cores | Prepare mean ms | Request commit mean ms | Handler mean ms |",
              "|---|---:|---:|---:|---:|---:|---:|"]
     ordinary, detail = {label: [] for label in ("baseline", "candidate")}, []
     for home in data["homes"]:
