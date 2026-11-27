@@ -150,6 +150,7 @@ pub(in crate::exec) async fn execute_data_route_with_timeout(
                     runtime.accepted_status().acked,
                     &mut cloud_sync,
                 );
+                host.cloud_sync.attach_personal_maintenance(&mut cloud_sync);
                 let st = json!({
                     "build": { "version": crate::version::build_version() },
                     "process_start_ts": host.process_start_ts, "uptime_secs": up,

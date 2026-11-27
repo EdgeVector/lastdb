@@ -132,3 +132,21 @@ def prove_change(pub, a, b, c, pb, members, everywhere, outcomes):
     require(c.row("c-f") is None and pub.row("c-f") is None, "a read member changed a record")
     outcomes["9f_read_member"] = "403, nothing written"
     print("9f. read member: change refused 403, nothing written", flush=True)
+
+
+def check_blocked_upload_after_pull(member):
+    """After `member` pulls new entries on a shared DB, its refused upload remains reported."""
+    sync = member.node.call("/api/status")[0]["status"]["cloud_sync"]
+    top_err = sync.get("last_error") or ""
+    require("read or removed" in top_err,
+            f"{member.name}: successful pull cleared cloud_sync.last_error: {sync!r}")
+    db = (sync.get("databases") or {}).get(member.db) or {}
+    upload = db.get("upload") or {}
+    download = db.get("download") or {}
+    oldest = upload.get("oldest_blocked") or {}
+    require("read or removed" in (upload.get("last_error") or ""),
+            f"{member.name}: upload.last_error cleared after pull: {db!r}")
+    require((oldest.get("writer_seq") or 0) >= 1 and "read or removed" in (oldest.get("reason") or ""),
+            f"{member.name}: upload.oldest_blocked missing after pull: {oldest!r}")
+    require(download.get("last_error") is None and (download.get("applied_through") or 0) >= 1,
+            f"{member.name}: download progress missing after pull: {download!r}")

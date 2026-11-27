@@ -41,6 +41,8 @@ pub(super) async fn pull_owned_shareables(
                     %err,
                     "history could not be loaded from the log"
                 );
+                host.cloud_sync
+                    .record_download(&database.id, None, Some(err.clone()), true);
                 turn_error = Some(err);
                 continue;
             }
@@ -48,14 +50,23 @@ pub(super) async fn pull_owned_shareables(
         if !has_birth {
             continue;
         }
-        if let Err(err) = pull_owned(host, histories, client, &database.id).await {
-            tracing::warn!(
-                target: "lastdbd::log_sync",
-                id = %database.id,
-                %err,
-                "owned stream pull failed"
-            );
-            turn_error = Some(err);
+        match pull_owned(host, histories, client, &database.id).await {
+            Ok(()) => {
+                let through = remote_applied_through(host, histories, &database.id);
+                host.cloud_sync
+                    .record_download(&database.id, through, None, true);
+            }
+            Err(err) => {
+                tracing::warn!(
+                    target: "lastdbd::log_sync",
+                    id = %database.id,
+                    %err,
+                    "owned stream pull failed"
+                );
+                host.cloud_sync
+                    .record_download(&database.id, None, Some(err.clone()), true);
+                turn_error = Some(err);
+            }
         }
     }
     turn_error
@@ -154,13 +165,22 @@ pub(super) async fn pull_received_shares(
         if mutation_log::DatabaseId::from_hex(share.id.as_str()).is_err() {
             continue;
         }
-        if let Err(err) = pull_one_received(host, histories, client, &share).await {
-            tracing::warn!(
-                target: "lastdbd::log_sync",
-                id = %share.id.as_str(),
-                %err,
-                "received stream pull failed"
-            );
+        match pull_one_received(host, histories, client, &share).await {
+            Ok(()) => {
+                let through = remote_applied_through(host, histories, share.id.as_str());
+                host.cloud_sync
+                    .record_download(share.id.as_str(), through, None, false);
+            }
+            Err(err) => {
+                tracing::warn!(
+                    target: "lastdbd::log_sync",
+                    id = %share.id.as_str(),
+                    %err,
+                    "received stream pull failed"
+                );
+                host.cloud_sync
+                    .record_download(share.id.as_str(), None, Some(err), false);
+            }
         }
         // A lease closing may have excluded direct changes of this device.
         if let Err(err) = super::super::lease_resign::resign_excluded(host, share.id.as_str()).await
@@ -222,4 +242,17 @@ async fn pull_one_received(
     .await;
     let _ = keep_received(host, histories, share.id.as_str());
     pulled
+}
+
+fn remote_applied_through(host: &Host, histories: &HistoryMap, database_id: &str) -> Option<u64> {
+    let identity = super::super::chain_author::identity_of(host).ok()?;
+    let own = mutation_log::VerifiedHistory::stream(identity.node_key, identity.device_id);
+    histories.peek_with(database_id, |history| {
+        history
+            .accepted_outside(&own)
+            .into_iter()
+            .map(|entry| entry.header().writer_seq)
+            .max()
+            .unwrap_or(0)
+    })
 }

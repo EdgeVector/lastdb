@@ -40,7 +40,7 @@ from shared_database_proof import (  # noqa: E402
     APP, SCHEMA, Member, converge, dump, wait, write_credentials,
 )
 from record_runs import definition  # noqa: E402
-from lease_change_proof import change_lapsed, lapsed_published, prove_change  # noqa: E402
+from lease_change_proof import change_lapsed, check_blocked_upload_after_pull, lapsed_published, prove_change  # noqa: E402
 
 LEASE_MS = 60_000
 READ_ONLY = "a received database is read only"
@@ -340,9 +340,7 @@ def prove(pub, a, b, c, proxies):
     pb.block()
     b.write("h1", "unsent")
     pub.act(action="grant", database=pub.db, grantee=b.key, role="read")
-    # The reduction must be on the relay before B reconnects. Otherwise B's upload
-    # can win the race and the relay takes the entry, which is correct and proves nothing
-    # (both failed runs: B's entry was on the publisher and C).
+    # Wait for the reduction on the relay first so B's upload cannot win the race.
     signed = pub.signed_count()
     wait("the reduction to be on the relay", lambda: pub.upload_settled(signed))
     pb.unblock()
@@ -359,6 +357,7 @@ def prove(pub, a, b, c, proxies):
     wait("B to keep pulling", lambda: (row := b.row("h2")) and held(row["record"]).get("note") == "after-refusal")
     pub.write("s1", "side", database=side_id)
     wait("B to read the other database", lambda: b.row_in(side_id, "s1"))
+    check_blocked_upload_after_pull(b)
     print(f"8. refused member: status says {message[:60]!r}...; {storm} retries in 12s; reads continue", flush=True)
     for key, note, author in (("k1", "a-direct", a.key), ("x1", "offline-1", a.key), ("g1", "before-reduction", a.key)):
         everywhere((pub, c), key, note, author)
