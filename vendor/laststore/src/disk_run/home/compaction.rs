@@ -2,7 +2,7 @@
 
 use super::manifest::{Manifest, RunFile, MAX_LEVELS};
 use super::seal::Records;
-use super::{invalid, run_key, unpoison, RunHome};
+use super::{invalid, unpoison, RunHome};
 use crate::disk_run::{
     merge_runs, Found, MergeIter, MergeSpace, PreparedRun, RunRange, RunReader, RunWriter,
 };
@@ -33,6 +33,8 @@ pub struct HomeMutation {
     pub key: String,
     /// Opaque stored body, or None for a tombstone.
     pub body: Option<Vec<u8>>,
+    /// Logical bytes this tombstone removes from older runs. Zero when the size was not read.
+    pub hides: u64,
 }
 
 impl HomeMutation {
@@ -42,7 +44,13 @@ impl HomeMutation {
             collection: col.into(),
             key: key.into(),
             body,
+            hides: 0,
         }
+    }
+    /// Record the logical bytes a tombstone removes, when the caller read that value.
+    pub fn with_hides(mut self, hides: u64) -> Self {
+        self.hides = hides;
+        self
     }
 }
 
@@ -74,7 +82,8 @@ fn plan(held: &Manifest) -> Option<Plan> {
         })
         .sum();
     let over = |b: u64, share: u64, min: u64| b > min && b.saturating_mul(share) > total;
-    (over(tier, 16, 1 << 20) || over(stale, 8, 64 << 10)).then(|| Plan::Base(Some(tail(&tiered))))
+    (over(tier, 16, 1 << 20) || super::seal::reclaim_ready(stale, total))
+        .then(|| Plan::Base(Some(tail(&tiered))))
 }
 
 fn trim_levels(levels: &mut Vec<Vec<Arc<RunFile>>>) {
@@ -136,18 +145,12 @@ impl RunHome {
         if operations.is_empty() {
             return Err(invalid("disk run home: empty commit"));
         }
-        let mut records: Vec<_> = operations
-            .into_iter()
-            .rev()
-            .map(|op| Ok((run_key(&op.collection, op.key.as_bytes())?, op.body)))
-            .collect::<Result<_>>()?;
-        records.sort_by(|a, b| a.0.cmp(&b.0));
-        records.dedup_by(|later, first| later.0 == first.0);
+        let records = super::seal::logged_ops(operations)?;
         if self.log_open() {
             return self.commit_logged(records);
         }
         let _commit = self.commit_lock()?;
-        self.commit_run(&records)
+        self.commit_run(&super::seal::as_records(records))
     }
 
     /// Write sorted records into one new newest run. The caller holds the commit lock, and the
