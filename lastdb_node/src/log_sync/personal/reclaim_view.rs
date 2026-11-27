@@ -10,6 +10,7 @@ use mutation_log::{
 
 use super::snapshot_manifest::{Manifest, MANIFEST_LIMIT};
 use super::snapshot_restore::fetch_manifest;
+use super::snapshot_state::read_request;
 use super::Ctx;
 use crate::host::cloud_sync::ReclaimStatus;
 use crate::log_sync::relay::{RelayClient, StreamHead as RelayStream};
@@ -57,7 +58,7 @@ pub(super) async fn read_tail(
     streams: &[RelayStream],
     snapshot_head: &StreamHead,
     snapshot: &SnapshotBody,
-) -> Result<Tail, String> {
+) -> Result<Option<Tail>, String> {
     check_stream_coverage(streams, snapshot)?;
     let mut reader = TailReader {
         ctx,
@@ -71,9 +72,22 @@ pub(super) async fn read_tail(
         },
     };
     for stream in streams {
-        reader.read_stream(stream).await?;
+        if !reader.read_stream(stream).await? {
+            return Ok(None);
+        }
     }
-    Ok(reader.tail)
+    Ok(Some(reader.tail))
+}
+
+/// Only the read-only tail fetch is interruptible. A fenced trim or drop is
+/// allowed to finish; no partially read tail is ever used to delete files.
+async fn snapshot_requested(ctx: &Ctx<'_>) {
+    loop {
+        if read_request(&ctx.host.home, &ctx.database_id).is_some() {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    }
 }
 
 fn check_stream_coverage(streams: &[RelayStream], snapshot: &SnapshotBody) -> Result<(), String> {
@@ -140,24 +154,25 @@ impl TailReader<'_, '_> {
         Ok((position, expected_prev))
     }
 
-    async fn read_stream(&mut self, stream: &RelayStream) -> Result<(), String> {
+    async fn read_stream(&mut self, stream: &RelayStream) -> Result<bool, String> {
         let (position, mut expected_prev) = self.start_for(stream)?;
         let mut next = position + 1;
         let mut cursor: Option<String> = None;
         let mut empty_pages: u32 = 0;
         while next <= stream.head_seq {
             let want = (stream.head_seq - next + 1).min(u64::from(PAGE)) as u32;
-            let page = self
-                .client
-                .read_page(
+            let page = tokio::select! {
+                biased;
+                () = snapshot_requested(self.ctx) => return Ok(false),
+                result = self.client.read_page(
                     &self.ctx.database_id,
                     &self.ctx.node_hex,
                     Some(&stream.device_id),
                     next,
                     cursor.as_deref(),
                     want,
-                )
-                .await?;
+                ) => result?,
+            };
             // A segment's blob is needed while its item is stored, like a file an entry names.
             self.tail.named.extend(page.segments);
             let (entries, next_cursor, in_segment) = (page.entries, page.cursor, page.in_segment);
@@ -198,7 +213,7 @@ impl TailReader<'_, '_> {
                 next += 1;
             }
         }
-        Ok(())
+        Ok(true)
     }
 
     fn verify_entry(
