@@ -1,0 +1,66 @@
+name: Node release withdraw
+
+# Withdraw one release from the signed node release lists of both environments.
+# A withdrawal is never undone: a fixed build is a new version.
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: Channel of the release
+        required: true
+        type: choice
+        options: [stable, nightly]
+      version:
+        description: 'Exact version, for example 0.23.48 or 0.1.0-nightly.20261127.g5033d3607'
+        required: true
+        type: string
+      reason:
+        description: One line, at most 200 characters. Installs show it.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  withdraw:
+    name: Withdraw from ${{ matrix.env }}
+    if: github.repository == 'EdgeVector/lastdb' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - env: prod
+            environment: node-release
+          - env: dev
+            environment: node-release-dev
+    environment: ${{ matrix.environment }}
+    concurrency:
+      group: node-list-${{ matrix.env }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: python3 -m pip install --quiet cryptography==46.0.3
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.NODE_RELEASE_ROLE_ARN }}
+          aws-region: us-east-1
+      - name: Withdraw
+        env:
+          ENV_NAME: ${{ matrix.env }}
+          CHANNEL: ${{ inputs.channel }}
+          VERSION: ${{ inputs.version }}
+          REASON: ${{ inputs.reason }}
+        run: >-
+          python3 scripts/release/node_list.py withdraw --env "$ENV_NAME"
+          --channel "$CHANNEL" --version "$VERSION" --reason "$REASON"

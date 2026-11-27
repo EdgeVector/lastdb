@@ -1,0 +1,80 @@
+name: Node release list publish
+
+# Adds a finished nightly or stable release to the signed node release lists
+# (docs/designs/node-self-update.md, section 6). The PROD and DEV lists are written
+# separately, each through its own OIDC role. The script is idempotent: a release that
+# is already listed changes nothing.
+on:
+  workflow_run:
+    workflows: ['Nightly LastDB release', 'Stable Homebrew release']
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag: nightly-YYYYMMDD-<9 hex> (EdgeVector/lastdb) or vX.Y.Z (EdgeVector/homebrew-lastdb)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: List the release in ${{ matrix.env }}
+    if: >-
+      github.repository == 'EdgeVector/lastdb' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event != 'pull_request' &&
+        github.event.workflow_run.head_branch == 'main'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - env: prod
+            environment: node-release
+          - env: dev
+            environment: node-release-dev
+    environment: ${{ matrix.environment }}
+    concurrency:
+      group: node-list-${{ matrix.env }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: python3 -m pip install --quiet cryptography==46.0.3
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.NODE_RELEASE_ROLE_ARN }}
+          aws-region: us-east-1
+      - name: List the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ENV_NAME: ${{ matrix.env }}
+          TAG: ${{ inputs.tag }}
+          RUN_NAME: ${{ github.event.workflow_run.name }}
+        run: |
+          set -euo pipefail
+          if [ -n "$TAG" ]; then
+            python3 scripts/release/node_list.py publish --env "$ENV_NAME" --tag "$TAG"
+          elif [ "$RUN_NAME" = 'Nightly LastDB release' ]; then
+            python3 scripts/release/node_list.py publish --env "$ENV_NAME" --latest nightly
+          elif [ "$RUN_NAME" = 'Stable Homebrew release' ]; then
+            python3 scripts/release/node_list.py publish --env "$ENV_NAME" --latest stable
+          else
+            echo "Unknown trigger: $RUN_NAME" >&2
+            exit 1
+          fi
+      - name: Verify every list that exists
+        env:
+          ENV_NAME: ${{ matrix.env }}
+        run: python3 scripts/release/node_list.py verify --env "$ENV_NAME" --allow-missing
