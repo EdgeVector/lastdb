@@ -15,6 +15,8 @@ import tempfile
 from nightly_package import INDEX, MAX_FILE, digest, document, names, prepare, validate
 from nightly_plan import MetadataError, REPOSITORY, SHA, _capture, gh_json, load_plan, wait_gates
 
+NEWEST_TARGET = "aarch64-unknown-linux-gnu"
+
 WORKFLOW = f"{REPOSITORY}/.github/workflows/nightly-release.yml"
 
 
@@ -189,6 +191,10 @@ def ancestor(older, newer):
 def previous(plan):
     release = latest_nightly()
     if release is None:
+        return None
+    if f"lastdb-{NEWEST_TARGET}.tar.gz" not in {row.get("name") for row in release.get("assets", [])}:
+        # Published before this target joined the fixed asset set: its set cannot be verified
+        # against today's, and it never blocks a new nightly.
         return None
     _capture(["git", "fetch", "--no-tags", "origin", "+refs/heads/main:refs/remotes/origin/main"], timeout=45)
     value = prior_plan(release, plan)
