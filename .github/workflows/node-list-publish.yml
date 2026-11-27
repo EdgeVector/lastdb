@@ -4,6 +4,10 @@ name: Node release list publish
 # (docs/designs/node-self-update.md, section 6). The PROD and DEV lists are written
 # separately, each through its own OIDC role. The script is idempotent: a release that
 # is already listed changes nothing.
+#
+# Order: list in DEV, prove the updater against that DEV list (scripts/release/node_updater_proof.py,
+# on a fresh synthetic home of a CI runner, for every target the DEV list holds), then list in PROD.
+# A failed proof leaves PROD unchanged. The proof writes to no list.
 on:
   workflow_run:
     workflows: ['Nightly LastDB release', 'Stable Homebrew release']
@@ -14,14 +18,20 @@ on:
         description: 'Release tag: nightly-YYYYMMDD-<9 hex> (EdgeVector/lastdb) or vX.Y.Z (EdgeVector/homebrew-lastdb)'
         required: true
         type: string
+      proof_only:
+        description: 'Run the updater proof only: list nothing, then read the DEV list as it is (for a release that is already listed)'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 jobs:
-  publish:
-    name: List the release in ${{ matrix.env }}
+  publish-dev:
+    name: List the release in DEV
     if: >-
+      !inputs.proof_only &&
       github.repository == 'EdgeVector/lastdb' &&
       (github.event_name == 'workflow_dispatch' ||
        (github.event.workflow_run.conclusion == 'success' &&
@@ -29,17 +39,9 @@ jobs:
         github.event.workflow_run.head_branch == 'main'))
     runs-on: ubuntu-24.04
     timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - env: prod
-            environment: node-release
-          - env: dev
-            environment: node-release-dev
-    environment: ${{ matrix.environment }}
+    environment: node-release-dev
     concurrency:
-      group: node-list-${{ matrix.env }}
+      group: node-list-dev
       cancel-in-progress: false
     permissions:
       contents: read
@@ -59,7 +61,7 @@ jobs:
       - name: List the release
         env:
           GH_TOKEN: ${{ github.token }}
-          ENV_NAME: ${{ matrix.env }}
+          ENV_NAME: dev
           TAG: ${{ inputs.tag }}
           RUN_NAME: ${{ github.event.workflow_run.name }}
         run: |
@@ -76,5 +78,134 @@ jobs:
           fi
       - name: Verify every list that exists
         env:
-          ENV_NAME: ${{ matrix.env }}
+          ENV_NAME: dev
+        run: python3 scripts/release/node_list.py verify --env "$ENV_NAME" --allow-missing
+
+  plan:
+    name: Targets the DEV list holds
+    needs: publish-dev
+    if: >-
+      !cancelled() && (needs.publish-dev.result == 'success' || needs.publish-dev.result == 'skipped') &&
+      github.repository == 'EdgeVector/lastdb' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event != 'pull_request' &&
+        github.event.workflow_run.head_branch == 'main'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      targets: ${{ steps.plan.outputs.targets }}
+      channel: ${{ steps.plan.outputs.channel }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: python3 -m pip install --quiet cryptography==46.0.3
+      - id: plan
+        env:
+          TAG: ${{ inputs.tag }}
+          RUN_NAME: ${{ github.event.workflow_run.name }}
+        run: |
+          set -euo pipefail
+          if [[ "$TAG" == v* || "$RUN_NAME" == 'Stable Homebrew release' ]]; then channel=stable; else channel=nightly; fi
+          targets=$(python3 scripts/release/node_updater_proof.py targets --channel "$channel" --tag "$TAG")
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
+          echo "targets=$targets" >> "$GITHUB_OUTPUT"
+          echo "Proof targets: $targets"
+
+  proof:
+    name: Updater proof (${{ matrix.target }})
+    needs: plan
+    if: needs.plan.outputs.targets != '[]'
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.targets) }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: python3 -m pip install --quiet cryptography==46.0.3
+      - name: Start the systemd user manager
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          sudo loginctl enable-linger "$USER"
+          uid=$(id -u)
+          for _ in $(seq 1 30); do [ -S "/run/user/$uid/bus" ] && break; sleep 1; done
+          ls -l "/run/user/$uid" || true
+          echo "XDG_RUNTIME_DIR=/run/user/$uid" >> "$GITHUB_ENV"
+          echo "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$uid/bus" >> "$GITHUB_ENV"
+      - name: Prove the updater
+        env:
+          TAG: ${{ inputs.tag }}
+          CHANNEL: ${{ needs.plan.outputs.channel }}
+        run: python3 scripts/release/node_updater_proof.py run --channel "$CHANNEL" --target "${{ matrix.target }}" --tag "$TAG"
+
+  publish-prod:
+    name: List the release in PROD
+    needs: [plan, proof]
+    if: >-
+      !cancelled() && needs.plan.result == 'success' &&
+      (needs.proof.result == 'success' || needs.plan.outputs.targets == '[]') &&
+      !inputs.proof_only &&
+      github.repository == 'EdgeVector/lastdb' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event != 'pull_request' &&
+        github.event.workflow_run.head_branch == 'main'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: node-release
+    concurrency:
+      group: node-list-prod
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: python3 -m pip install --quiet cryptography==46.0.3
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.NODE_RELEASE_ROLE_ARN }}
+          aws-region: us-east-1
+      - name: List the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ENV_NAME: prod
+          TAG: ${{ inputs.tag }}
+          RUN_NAME: ${{ github.event.workflow_run.name }}
+        run: |
+          set -euo pipefail
+          if [ -n "$TAG" ]; then
+            python3 scripts/release/node_list.py publish --env "$ENV_NAME" --tag "$TAG"
+          elif [ "$RUN_NAME" = 'Nightly LastDB release' ]; then
+            python3 scripts/release/node_list.py publish --env "$ENV_NAME" --latest nightly
+          elif [ "$RUN_NAME" = 'Stable Homebrew release' ]; then
+            python3 scripts/release/node_list.py publish --env "$ENV_NAME" --latest stable
+          else
+            echo "Unknown trigger: $RUN_NAME" >&2
+            exit 1
+          fi
+      - name: Verify every list that exists
+        env:
+          ENV_NAME: prod
         run: python3 scripts/release/node_list.py verify --env "$ENV_NAME" --allow-missing

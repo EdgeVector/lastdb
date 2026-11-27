@@ -16,7 +16,7 @@ yet. Each later PR updates the section it builds and marks it "built".
 | `lastdbd --accepted-home-format`, `POST /api/system/prepare-stop` | `lastdb_node` daemon | M3 |
 | List writer, rollout and withdraw workflows | `scripts/release/node_list.py`, `.github/workflows/node-*.yml` | M4 |
 | `lastdb upgrade`, `lastdb service` | `lastdb_node/src/bin/lastdb/` | M5 |
-| Updater proof in release CI | release workflows | M6 |
+| Updater proof in release CI (built: `scripts/release/node_updater_proof.py`, job `proof` of `node-list-publish.yml`; DEV is listed first, the proof reads that DEV list, PROD is listed only after it passes) | release workflows | M6 |
 
 ## 2. Where the lists live
 
