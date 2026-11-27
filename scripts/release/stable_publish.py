@@ -16,6 +16,88 @@ from nightly_package import TARGETS, digest, document, validate_bundle
 from nightly_plan import _capture, wait_gates
 from stable_plan import APPS, TAP, api, load
 
+# The formulas are written whole from these templates, so the tap never keeps a
+# service block, a service wrapper or an OpenSSL dependency (design
+# design-lastdb-upgrade-20261127, section 11; both binaries link only system
+# libraries). Homebrew is a second way to install: after `lastdb service install`
+# the node updates itself with `lastdb upgrade`.
+FORMULA_BODY = """  desc "@DESC@"
+  homepage "https://thelastdb.com"
+  version "@VERSION@"
+  license "Apache-2.0"
+
+  on_macos do
+    # Apple Silicon only (2026-07-05): the release pipeline no longer builds
+    # Intel-mac or Linux tarballs. Re-add a block here if a consumer appears.
+    url "@URL@"
+    sha256 "@SHA@"
+  end
+
+  conflicts_with "edgevector/@OTHER@/@OTHER@",
+                 because: "both formulas install lastdb, lastdbd, and the folddb compatibility command"
+
+  def install
+    bin.install "lastdb"
+    bin.install "lastdbd"
+
+    # Back-compat: keep the old `folddb` command name working for anyone
+    # migrating from `edgevector/folddb/folddb`.
+    bin.install_symlink "lastdb" => "folddb"
+  end
+
+  def caveats
+    <<~EOS
+      Run this once to set LastDB up as a login service:
+           lastdb service install
+
+      If LastDB already runs through `brew services`, do not stop it. This
+      formula has no service block, so run this once instead. It keeps the
+      same job and the same home, and points the job at the self-updating
+      copy (the daemon must be running):
+           lastdb service adopt --label homebrew.mxcl.lastdb
+      After that, do not use `brew services` for LastDB.
+
+      After that, LastDB updates itself. Check for an update, or install one
+      now, with:
+           lastdb upgrade --check
+           lastdb upgrade
+
+      `brew upgrade @NAME@` only refreshes the installer copy in the Homebrew
+      Cellar. It does not restart or replace the running service. Run
+      `lastdb status` to see the running version and the upgrade state.
+
+      Keep your recovery phrase safe. Use the backup and restore help in the
+      installed lastdb CLI to prepare recovery credentials and select an
+      accepted backup for a fresh destination.
+
+      The old `folddb` command name still works (symlinked to `lastdb`).
+      If you have the old `edgevector/folddb/folddb` formula installed,
+      uninstall it first; both formulas own the same command names:
+           brew uninstall edgevector/folddb/folddb
+           brew install edgevector/lastdb/lastdb
+
+      This formula ships LastDB Mini only: `lastdbd` + `lastdb` over the owner
+      Unix socket. There is no web UI or full-node HTTP server.
+    EOS
+  end
+end
+"""
+
+FORMULAS = {
+    "lastdb": ("Lastdb", "LastDB Mini local-first database daemon", "folddb",
+               "# frozen_string_literal: true\n\n# Homebrew formula for the LastDB release artifacts.\n"),
+    "folddb": ("Folddb", "LastDB Mini local-first database daemon (renamed to lastdb)", "lastdb",
+               "# Back-compat alias of the `lastdb` formula. FoldDB was renamed to LastDB\n"
+               "# (2026-06-20); new installs should use `brew install edgevector/lastdb/lastdb`.\n"),
+}
+
+
+def formula_text(name, version, url, sha):
+    klass, desc, other, head = FORMULAS[name]
+    body = (FORMULA_BODY.replace("@DESC@", desc).replace("@VERSION@", version).replace("@URL@", url)
+            .replace("@SHA@", sha).replace("@OTHER@", other).replace("@NAME@", name))
+    return head + "class " + klass + " < Formula\n" + body
+
 
 def qualification(folder, plan):
     result = document(folder / "qualification.json")
@@ -69,16 +151,8 @@ def formula_tree(plan, mac_hash):
         previous = re.search(r'^\s*version "(\d+\.\d+\.\d+)"', old, re.M)
         if previous is None or tuple(map(int, previous[1].split("."))) >= tuple(map(int, plan["version"].split("."))):
             raise ValueError("Stable publication would not advance the formula")
-        content, versions = re.subn(r'(?m)^(\s*version )"[^"]+"', rf'\g<1>"{plan["version"]}"', old)
         url = f'https://github.com/{TAP}/releases/download/{plan["tag"]}/lastdb-aarch64-apple-darwin.tar.gz'
-        content, urls = re.subn(r'(?m)^(\s*url )"[^"]+"', rf'\g<1>"{url}"', content)
-        content, hashes = re.subn(r'(?m)^(\s*sha256 )"[0-9a-f]+"', rf'\g<1>"{mac_hash}"', content)
-        if (versions, urls, hashes) != (1, 1, 1):
-            raise ValueError("Formula changes exceed the three release fields")
-        if 'depends_on "openssl@3"' not in content:
-            if content.count("  on_macos do") != 1:
-                raise ValueError("The native formula has no definite macOS block")
-            content = content.replace("  on_macos do", '  depends_on "openssl@3"\n\n  on_macos do', 1)
+        content = formula_text(name, plan["version"], url, mac_hash)
         entries.append({"path": path, "mode": "100644", "type": "blob", "content": content})
     tree = api(f"repos/{TAP}/git/trees", "POST", {"base_tree": commit["tree"]["sha"], "tree": entries})
     return api(f"repos/{TAP}/git/commits", "POST", {
@@ -102,8 +176,8 @@ def merged_promotion(plan, mac_hash):
             values = re.findall(rf'^\s*{field} "([^"]+)"', text, re.M)
             if values != [expected]:
                 raise ValueError("The merged formula differs from the qualified release")
-        if 'depends_on "openssl@3"' not in text:
-            raise ValueError("The merged formula lacks the native runtime dependency")
+        if "service do" in text or "openssl@3" in text or "lastdbd-service" in text:
+            raise ValueError("The merged formula still carries the old service or OpenSSL parts")
     return matches[0]
 
 
@@ -163,7 +237,7 @@ def tap_pr(plan, commit):
                  "title": "LastDB " + plan["version"] + " — qualified stable release",
                  "body": "Promote the matched CLI and daemon after the full one-hour CI qualification and the app compatibility proof.\n\n"
                          + "Source: " + plan["source"] + "\n\nValidation: " + plan["run_url"]
-                         + "\n\nUpdate version, URL, and checksum in each formula, declaring openssl@3 when absent. The primary is unchanged."})
+                         + "\n\nRewrite each formula from the release template: new version, URL, and checksum; no service block, service wrapper or OpenSSL dependency; the caveat points to `lastdb service install` and `lastdb upgrade`. The primary is unchanged."})
     if pr.get("merged_at"):
         return pr
     proposed = api(f"repos/{TAP}/git/commits/{commit}")
