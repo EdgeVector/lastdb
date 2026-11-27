@@ -10,7 +10,6 @@
 use fold_db::fold_db_core::mutation_manager::{ReplayStamp, ReplayStreamHead};
 use fold_db::schema::types::{Schema, SchemaError};
 use fold_db::schema::SchemaCore;
-use fold_db::storage::disk_pack::transaction;
 use mutation_log::EntryHeader;
 use sha2::{Digest, Sha256};
 
@@ -131,11 +130,13 @@ async fn plan_put(
     let replaced_here = schema_manager
         .replay_receipt_exists(replace_receipt.0, replace_receipt.1)
         .await?;
-    let runtime = ctx.host.db.db_ops().native_runtime();
-    transaction::scope(runtime, async {
-        classify_in_scope(ctx, name, definition, stamp, replaced_here).await
-    })
-    .await
+    ctx.host
+        .db
+        .mutation_manager()
+        .in_replay_read_scope(async {
+            classify_in_scope(ctx, name, definition, stamp, replaced_here).await
+        })
+        .await
 }
 
 async fn classify_in_scope(

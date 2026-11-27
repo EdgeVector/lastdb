@@ -99,7 +99,7 @@ impl SchemaCore {
             .collect())
     }
 
-    pub(crate) fn is_schema_blocked(&self, schema_name: &str) -> Result<bool, SchemaError> {
+    pub fn is_schema_blocked(&self, schema_name: &str) -> Result<bool, SchemaError> {
         if let Some(s) = publication::get::<CachedSchema>(
             &self.db_ops.native_runtime(),
             self.catalog_id(),
