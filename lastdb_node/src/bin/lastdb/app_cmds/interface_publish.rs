@@ -1,19 +1,18 @@
 //! Publish the clean checkout and the running node's exact app interface.
 
+use super::owner_app::record_published_location;
+use super::publish_credentials::{self, RegistryAuth};
 use super::*;
 use crate::app_registry_index as registry;
 use app_identity_crypto::{canonicalize, sign};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use fold_db::schema::types::DeclarativeSchemaDefinition;
 use lastdb_node::exec::normalize_app_manifest_schema;
-use lastdb_node::profile::endpoints::{registry_api_url_for, Environment};
 use schema_types::expand_manifest_schema;
 use serde_json::{json, Value};
 use std::process::Command;
 use std::time::Duration;
 
-#[path = "publish_credentials.rs"]
-mod publish_credentials;
 #[path = "schema_push.rs"]
 mod schema_push;
 
@@ -308,12 +307,6 @@ fn publish_payload(home: &Path, input: &PublishArgs) -> Result<Value, String> {
 }
 
 pub(super) fn publish_interface(home: &Path, input: &PublishArgs) -> Result<(), String> {
-    let flag_env = match input.env.as_deref() {
-        None => None,
-        Some("dev") => Some(Environment::Dev),
-        Some("prod") => Some(Environment::Prod),
-        Some(_) => return Err("--env must be dev or prod".into()),
-    };
     let mut payload = publish_payload(home, input)?;
     if let Some(path) = &input.prepare {
         let pretty = serde_json::to_vec_pretty(&payload).unwrap_or_default();
@@ -321,13 +314,18 @@ pub(super) fn publish_interface(home: &Path, input: &PublishArgs) -> Result<(), 
         println!("Validated unsigned app declaration; nothing published");
         return Ok(());
     }
-    let home_env = lastdb_node::cloud::saved_cloud_environment(home)?;
-    let target_env =
-        publish_credentials::resolve_target_environment(home, input, flag_env, home_env)?;
-    let url = publish_credentials::resolve_registry_url(input, target_env)?;
-    let native_registry = home_env == Some(target_env)
-        && url.trim_end_matches('/') == registry_api_url_for(target_env).trim_end_matches('/');
-    let key = publish_credentials::publisher_signing_key(home, input, native_registry)?;
+    let auth = RegistryAuth {
+        env: input.env.as_deref(),
+        api_key: input.api_key.as_deref(),
+        registry_url: input.registry_url.as_deref(),
+    };
+    let target = publish_credentials::resolve_target(home, &auth)?;
+    let key = publish_credentials::publisher_signing_key(
+        home,
+        input.key_file.as_deref(),
+        &auth,
+        target.native_registry,
+    )?;
     let mut stmt = payload
         .as_object()
         .ok_or("invalid publish payload")?
@@ -339,36 +337,35 @@ pub(super) fn publish_interface(home: &Path, input: &PublishArgs) -> Result<(), 
     );
     payload["publisher_key"] = json!(BASE64.encode(key.verifying_key().as_bytes()));
     payload["publisher_sig"] = json!(BASE64.encode(sig));
-    let post = |api_key: &str, source: &str| {
-        crate::block_on(
-            "app publish",
-            publish_credentials::post_publish(&url, api_key, source, &payload),
-        )
-    };
-    let mut response = match publish_credentials::resolve_publish_api_key(
-        home,
-        input,
-        home_env,
-        target_env,
-        &url,
-        native_registry,
-    )? {
-        Some((api_key, source)) => post(api_key.as_str(), &source),
-        None => crate::cloud_cmds::with_publishing_credential(home, target_env, |api_key| {
-            post(api_key, "connected ExeMem account")
-        }),
-    }?;
+    let (mut response, private_note) =
+        publish_credentials::with_registry_credential(home, &auth, &target, |api_key, source| {
+            let mut resp = crate::block_on(
+                "app publish",
+                publish_credentials::post_publish(&target.url, api_key, source, &payload),
+            )?;
+            let note = if resp["status"].as_str() == Some("listed") {
+                record_published_location(&target, api_key, source, &payload, &mut resp)?
+            } else {
+                None
+            };
+            Ok((resp, note))
+        })?;
     let note = schema_push::register(&mut schema_push::Request {
         home,
-        env: target_env,
+        env: target.target_env,
         input,
         key: &key,
         payload: &payload,
         response: &mut response,
     });
     print_pretty_json(&response);
-    if let Some(line) = note {
-        println!("{line}");
+    if !input.json {
+        if let Some(line) = private_note {
+            println!("{line}");
+        }
+        if let Some(line) = note {
+            println!("{line}");
+        }
     }
     (response["status"].as_str() == Some("listed"))
         .then_some(())

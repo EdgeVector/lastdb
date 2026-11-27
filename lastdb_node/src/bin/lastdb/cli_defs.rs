@@ -59,11 +59,29 @@ pub(crate) struct PublishArgs {
 }
 
 #[derive(Args, Debug)]
+pub(crate) struct OwnerAppArgs {
+    /// Owned app id to inspect in the registry.
+    pub app_id: String,
+    #[arg(long, value_parser = ["dev", "prod"])]
+    pub env: Option<String>,
+    #[arg(long)]
+    pub api_key: Option<String>,
+    #[arg(long)]
+    pub registry_url: Option<String>,
+    /// Save the private list locator locally (0600) and omit the raw private list URL from stdout.
+    #[arg(long)]
+    pub save: bool,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
 pub(crate) struct CatalogSource {
     #[arg(long, value_parser = ["dev", "prod"])]
     pub env: Option<String>,
     #[arg(long)]
     pub channel: Option<String>,
+    /// Signed registry index URL, local directory, or saved `private[:<env>[:<account>]]` locator.
     #[arg(long)]
     pub index: Option<String>,
     #[arg(long)]
@@ -203,6 +221,8 @@ pub(crate) enum AppCommand {
         args: Vec<std::ffi::OsString>,
     },
     Publish(PublishArgs),
+    /// Show an app you own in the registry, including its private list location.
+    Show(OwnerAppArgs),
     List {
         #[arg(value_name = "APP")]
         app_id: Option<String>,

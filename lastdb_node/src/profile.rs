@@ -99,7 +99,7 @@ pub mod private_fs {
 
     /// Write `bytes` to `path` with mode 0600 through a temporary file and a rename, and
     /// flush it to the medium.
-    pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    pub fn write_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
         write_private_with(path, bytes, Flush::Full)
     }
 
@@ -168,7 +168,7 @@ pub mod endpoints {
         include!(concat!(env!("OUT_DIR"), "/environments_generated.rs"));
     }
 
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
     pub enum Environment {
         Dev,
         Prod,
@@ -236,11 +236,34 @@ pub mod endpoints {
     }
 
     #[must_use]
+    pub fn private_list_prefix_for(index_url: &str) -> Option<(Environment, &str)> {
+        let url = index_url.trim().trim_end_matches('/');
+        for env in [Environment::Dev, Environment::Prod] {
+            let base = registry_index_url_for(env).trim_end_matches('/');
+            let Some(prefix) = url
+                .strip_prefix(base)
+                .and_then(|s| s.strip_prefix("/private/"))
+            else {
+                continue;
+            };
+            if prefix.len() == 32
+                && prefix
+                    .bytes()
+                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+            {
+                return Some((env, prefix));
+            }
+        }
+        None
+    }
+
+    #[must_use]
     pub fn environment_for_registry_index_url(index_url: &str) -> Option<Environment> {
         let url = index_url.trim().trim_end_matches('/');
         [Environment::Dev, Environment::Prod]
             .into_iter()
             .find(|e| registry_index_url_for(*e).trim_end_matches('/') == url)
+            .or_else(|| private_list_prefix_for(url).map(|(env, _)| env))
     }
 
     impl Environment {
