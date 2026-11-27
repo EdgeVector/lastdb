@@ -26,6 +26,10 @@ struct Cli {
     data_dir: Option<PathBuf>,
     #[arg(long)]
     socket_path: Option<PathBuf>,
+    /// Print the node marker bytes this build opens, then exit. The updater
+    /// reads them before it stops the running node.
+    #[arg(long)]
+    accepted_home_format: bool,
 }
 
 fn spawn_background(
@@ -214,6 +218,9 @@ fn run() -> Result<(), String> {
         let _ = writeln!(std::io::stderr().lock(), "lastdbd: invalid_arguments");
         std::process::exit(2);
     });
+    if cli.accepted_home_format {
+        return print_accepted_home_format().map_err(|e| e.to_string());
+    }
     let home = host::resolve_home(cli.data_dir)?;
     let warm = fold_db::resident::init_core_warm_bytes_from_env()?;
     if warm != fold_db::resident::DEFAULT_CORE_WARM_BYTES {
@@ -237,7 +244,27 @@ fn run() -> Result<(), String> {
     serve_node(rt, &home, cli.socket_path)
 }
 
+/// `lastdbd --accepted-home-format`: print the exact node marker bytes this build
+/// opens. `main` answers it as the first argument before logging, the home, any
+/// lock and the environment are touched, so it works while another node serves
+/// the home. `run` answers it in any other position, so the flag never boots a node.
+fn print_accepted_home_format() -> std::io::Result<()> {
+    let mut out = std::io::stdout().lock();
+    out.write_all(fold_db::storage::disk_pack::RECORD_NODE_BYTES)?;
+    out.flush()
+}
+
 fn main() -> std::process::ExitCode {
+    if std::env::args_os()
+        .nth(1)
+        .is_some_and(|first| first == "--accepted-home-format")
+    {
+        return if print_accepted_home_format().is_ok() {
+            std::process::ExitCode::SUCCESS
+        } else {
+            std::process::ExitCode::FAILURE
+        };
+    }
     observability::crash::install_private_panic_hook();
     if run().is_ok() {
         std::process::ExitCode::SUCCESS

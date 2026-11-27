@@ -201,6 +201,10 @@ pub(in crate::exec) async fn execute_data_route_with_timeout(
             DataRoute::DbSchemaRetention => heap_route!(admin_routes::db_retention, req, ctx, host),
             DataRoute::BackupSnapshot => heap_route!(admin_routes::backup_snapshot, req, ctx, host),
             DataRoute::CloudWake => return admin_routes::cloud_wake(req, ctx, host),
+            DataRoute::PrepareStop => heap_route!(admin_routes::prepare_stop, req, ctx, host),
+            DataRoute::PrepareStopCancel => {
+                return admin_routes::prepare_stop_cancel(req, ctx);
+            }
             DataRoute::V1Read => heap_route!(app_api::read_route, req, ctx, host),
             DataRoute::V1Write => heap_route!(app_api::write_route, req, ctx, host),
             DataRoute::V1Changes => heap_route!(app_api::changes_route, req, ctx, host),
@@ -225,6 +229,10 @@ pub(in crate::exec) fn data_route_budget(route: DataRoute) -> Duration {
         DataRoute::Status | DataRoute::Ops => Duration::from_secs(2),
         DataRoute::AdminShed => Duration::from_secs(60),
         DataRoute::BootIdentity => Duration::from_secs(1),
+        // The handler applies its own deadline (`deadline_ms`, at most
+        // `MAX_DEADLINE_MS`); this budget only keeps the reply a JSON answer.
+        DataRoute::PrepareStop => Duration::from_millis(crate::prepare_stop::MAX_DEADLINE_MS)
+            .saturating_add(admin_handler_timeout()),
         // The handler applies the real deadline and maps a timeout into the app
         // API error shape. This budget only keeps that reply from becoming plain text.
         DataRoute::V1Databases => admin_handler_timeout().saturating_add(handler_timeout()),

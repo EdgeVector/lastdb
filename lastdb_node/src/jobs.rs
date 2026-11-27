@@ -37,7 +37,8 @@ pub mod ttl_sweep {
                     erase::warn_on_bad_verb_once();
                 }
                 while !shutdown.load(Ordering::Acquire) {
-                    if enabled() {
+                    // The sweep writes erasures: it waits while a prepare-stop hold is set.
+                    if enabled() && !crate::prepare_stop::holding() {
                         sweep_ttl(&host, &shutdown).await;
                     }
                     let until = Instant::now() + interval;

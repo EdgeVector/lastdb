@@ -125,6 +125,9 @@ async fn run_timed(
     mut items: Vec<WriteItem>,
     times: &mut WriteTimes,
 ) -> Result<Value, HostError> {
+    // A prepare-stop hold refuses the write before it stages anything. The guard stays
+    // until the write, its mirror onto the signed log and its reply data are done.
+    let _admitted = crate::prepare_stop::admit().ok_or_else(HostError::upgrading)?;
     let begun = Instant::now();
     let mut core = WritePhases::default();
     for (index, item) in items.iter().enumerate() {

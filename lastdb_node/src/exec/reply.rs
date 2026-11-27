@@ -10,6 +10,9 @@ use serde_json::{json, Value};
 use crate::host::owned::OwnedError;
 use crate::lastdb_uds::uds_http::UdsResponse;
 
+/// The app API code of a write refused by a prepare-stop hold.
+pub(in crate::exec) const UPGRADING_CODE: &str = "upgrading";
+
 const OWNER_VISIBLE_STATUSES: &[u16] = &[400, 401, 402, 403, 404, 409, 413, 422, 423, 503, 507];
 
 pub(in crate::exec) fn envelope<T: Serialize>(data: &T, user_hash: &str) -> Value {
@@ -101,6 +104,25 @@ impl HostError {
             retry_after: None,
             code: None,
         }
+    }
+
+    /// The refusal of a write while a prepare-stop hold is set.
+    pub(in crate::exec) fn upgrading() -> Self {
+        Self::structured(
+            503,
+            "upgrading",
+            json!({
+                "error": "upgrading",
+                "retry_after_ms": crate::prepare_stop::RETRY_AFTER_MS,
+            }),
+        )
+        .with_code(UPGRADING_CODE)
+        .with_retry_after(crate::prepare_stop::RETRY_AFTER_MS.div_ceil(1000))
+    }
+
+    /// The body that a refusal carries as it is, when it has one.
+    pub(in crate::exec) fn structured_body(&self) -> Option<&Value> {
+        self.structured_body.as_deref()
     }
 
     pub(in crate::exec) fn internal(message: impl Into<String>) -> Self {

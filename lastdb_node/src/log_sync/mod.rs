@@ -65,6 +65,14 @@ pub(crate) use proposal::{
     submit as submit_share_write, ContributionError,
 };
 pub use relay::hung_relay_must_timeout;
+
+/// Send the spool of the personal database to the relay, and do nothing else of a sync turn.
+/// `Err` when cloud sync is not connected, or when the send did not finish.
+pub(crate) async fn send_spool(host: &crate::host::Host) -> Result<(), String> {
+    let base = relay_base_url(&host.home).ok_or("cloud sync is not connected")?;
+    let client = relay::RelayClient::for_host(host, &base)?;
+    personal::send_spool(host, &client).await
+}
 pub use spawn::spawn;
 pub(crate) use wake::wake_loop;
 pub use wake::{publish_signed_history_intent, request_wake};

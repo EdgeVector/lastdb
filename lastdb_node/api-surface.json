@@ -1,5 +1,5 @@
 {
-  "api_version": 46,
+  "api_version": 47,
   "min_supported_api_version": 38,
   "app_api_version": 1,
   "min_supported_app_api_version": 1,
@@ -38,6 +38,8 @@
     "/api/status",
     "/api/system/auto-identity",
     "/api/system/boot-identity",
+    "/api/system/prepare-stop",
+    "/api/system/prepare-stop/cancel",
     "/api/version",
     "/health",
     "/v1/read",

@@ -74,6 +74,12 @@ const fn code(status: u16) -> &'static str {
 }
 
 fn error_value(error: &HostError) -> Value {
+    // A write refused by a prepare-stop hold has its own body: `{"error":"upgrading",...}`.
+    if error.code == Some(super::reply::UPGRADING_CODE) {
+        if let Some(body) = error.structured_body() {
+            return body.clone();
+        }
+    }
     let status = normalize(error.status);
     let message = if status == 500 {
         "internal error"

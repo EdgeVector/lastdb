@@ -52,7 +52,7 @@ pub(crate) use snapshot_state::{
     reclaim_status, request as request_snapshot, request_reclaim, status as snapshot_status,
 };
 
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 use cloud_backup_protocol::{AccountId, CloudScope, DecimalU64};
 use fold_db::fold_db_core::mutation_manager::ReplayStreamHead;
@@ -68,6 +68,9 @@ use crate::host::cloud_sync::is_payment_refusal;
 use crate::host::Host;
 use crate::personal_identity;
 use crate::personal_seal::Sealer;
+
+/// One turn of the personal database, or one send of its spool, runs at a time.
+static TURN: LazyLock<tokio::sync::Mutex<()>> = LazyLock::new(|| tokio::sync::Mutex::new(()));
 
 /// Everything one turn of the personal database needs, derived from the node seed.
 pub(super) struct Ctx<'a> {
@@ -181,6 +184,7 @@ pub(super) fn chain_head(head: &ReplayStreamHead) -> Result<StreamHead, String> 
 /// the spool, apply what the other devices wrote. The result is the error of
 /// the turn, if any.
 pub(super) async fn turn(host: &Arc<Host>, client: &RelayClient) -> Option<String> {
+    let _turn = TURN.lock().await;
     match run_turn(host, client).await {
         Ok(()) => None,
         Err(error) if error.starts_with(snapshot_upload::TOO_LARGE) => {
@@ -254,6 +258,35 @@ async fn run_turn(host: &Arc<Host>, client: &RelayClient) -> Result<(), String> 
         Ok(())
     };
     read.map(|_| ()).and(sent).and(swept).and(snapped)
+}
+
+/// Only the send step of a turn: list the streams and send what the spool holds. It does not
+/// read the other devices' streams, sweep the relay or freeze a snapshot. A drain before a stop
+/// calls it, and it waits for a turn that is running.
+pub(super) async fn send_spool(host: &Host, client: &RelayClient) -> Result<(), String> {
+    let _turn = TURN.lock().await;
+    let ctx = Ctx::open(host)?;
+    if !ctx.runtime.captures_accepted() {
+        let error =
+            "local capture is off: the node must restart with a relay configured".to_owned();
+        outgoing::record_pre_send_error(&ctx, &error);
+        return Err(error);
+    }
+    if ctx.runtime.accepted_status().snapshot_required {
+        // A home that held data before it began to capture names its first snapshot before the
+        // spool is read for upload. That is not part of the send step.
+        let error = "the first snapshot is not named yet, so the spool is not read for upload";
+        outgoing::record_pre_send_error(&ctx, error);
+        return Err(error.to_owned());
+    }
+    let streams = match list_streams(&ctx, client).await {
+        Ok(streams) => streams.unwrap_or_default(),
+        Err(error) => {
+            outgoing::record_streams_error(&ctx, &error);
+            return Err(error);
+        }
+    };
+    outgoing::run(&ctx, client, &streams).await
 }
 
 /// The device streams of the owner on the relay. `None` when the relay does not
