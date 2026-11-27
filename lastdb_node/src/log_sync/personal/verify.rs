@@ -88,7 +88,9 @@ pub(super) fn check(
         }
         AcceptOutcome::Reject {
             reason:
-                RejectReason::Signature(_) | RejectReason::Encode(_) | RejectReason::DatabaseMismatch,
+                reason @ (RejectReason::Signature(_)
+                | RejectReason::Encode(_)
+                | RejectReason::DatabaseMismatch),
         } => Err(format!(
             "the relay returned an unverified entry: {reason:?}"
         )),
