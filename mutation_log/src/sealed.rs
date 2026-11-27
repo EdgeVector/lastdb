@@ -9,6 +9,7 @@
 use std::fmt::Debug;
 
 use crate::entry::EntryHeader;
+use crate::entry::SignedEntry;
 
 /// The namespace every sealed data and schema entry carries on the wire.
 pub const SEALED_NAMESPACE: &str = "sealed";
@@ -21,4 +22,11 @@ pub trait SealOpener: Send + Sync + Debug {
     /// The plaintext of `sealed` for the entry with this header, or `None` when
     /// it does not open.
     fn open(&self, header: &EntryHeader, sealed: &[u8]) -> Option<Vec<u8>>;
+}
+
+/// Opens content for local materialization while the signed wire entry remains
+/// the chain evidence. Cryptography and key ownership stay outside this crate.
+pub trait EntryOpener: Send + Sync + Debug {
+    /// Return the entry with its content opened, or `None` for invalid ciphertext.
+    fn open_entry(&self, entry: &SignedEntry) -> Option<SignedEntry>;
 }

@@ -101,7 +101,7 @@ pub use payload::{
     RecordPosition,
 };
 pub use record_key::{join_record_key, split_record_key, RANGE_SEPARATOR};
-pub use sealed::{SealOpener, SEALED_NAMESPACE};
+pub use sealed::{EntryOpener, SealOpener, SEALED_NAMESPACE};
 pub use wire::{
     decode_signature_b64url, encode_signature_b64url, entry_hash, verify_entry_signature,
     EncodeError, VerifyError,

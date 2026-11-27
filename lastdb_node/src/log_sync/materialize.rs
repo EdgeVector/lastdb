@@ -49,6 +49,8 @@ fn excluded_keys(history: &VerifiedHistory) -> std::collections::BTreeSet<(Strin
     history
         .excluded_entries()
         .into_iter()
+        .filter_map(|entry| mutation_log::entry_hash(entry).ok())
+        .filter_map(|hash| history.opened_entry(&hash))
         .filter_map(|entry| match entry {
             SignedEntry::Data { body, .. } => decode_record_payload(&body.payload)
                 .ok()

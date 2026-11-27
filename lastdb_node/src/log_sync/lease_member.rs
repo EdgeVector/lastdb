@@ -196,6 +196,8 @@ fn sign_all(
     let database = DatabaseId::from_hex(database_id)
         .map_err(|_| ChainError::Invalid("database id is not a 64-hex id"))?;
     let identity = chain_author::identity_of(host)?;
+    let sealer =
+        super::shared_crypto::for_host(host, database_id).map_err(|_| ChainError::Unconfirmed)?;
     let stream = VerifiedHistory::stream(identity.node_key, identity.device_id);
     let histories = super::histories_for(host);
     histories
@@ -212,6 +214,7 @@ fn sign_all(
                 identity: &identity,
                 cover: &cover,
                 now_ms,
+                sealer: &sealer,
             };
             history_store::commit_authored_batch(&host.home, history, |next| {
                 stage_direct_batch(next, &bctx, &encoded, &cause)
@@ -228,6 +231,7 @@ struct BatchCtx<'a> {
     identity: &'a chain_author::AuthorIdentity,
     cover: &'a Cover,
     now_ms: u64,
+    sealer: &'a crate::personal_seal::Sealer,
 }
 
 fn stage_direct_batch(
@@ -259,6 +263,7 @@ fn stage_direct_batch(
             &item.record_key,
             value,
         );
+        let body = crate::shared_seal::seal_data(bctx.sealer, &ctx, body)?;
         let entry =
             author_data(&ctx, &bctx.identity.signing_key, body).map_err(|e| e.to_string())?;
         match next.accept_entry(entry.clone()) {

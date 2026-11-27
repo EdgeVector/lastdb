@@ -1,6 +1,6 @@
 //! Seal the opaque content of entries in a shared database.
 
-use mutation_log::{DataBody, DatabaseId, EntryHeader, SchemaBody, SealOpener, SEALED_NAMESPACE};
+use mutation_log::{AuthorCtx, DataBody, DatabaseId, SchemaBody, SealOpener, SEALED_NAMESPACE};
 use zeroize::Zeroizing;
 
 use crate::personal_seal::Sealer;
@@ -26,30 +26,26 @@ fn unpack(bytes: &[u8]) -> Option<(String, Vec<u8>)> {
 
 pub(crate) fn seal_data(
     sealer: &Sealer,
-    node_key: mutation_log::NodeKey,
-    device_id: mutation_log::DeviceId,
-    writer_seq: u64,
+    ctx: &AuthorCtx,
     body: DataBody,
 ) -> Result<DataBody, String> {
     let plain = pack(&body.namespace, &body.payload)?;
     Ok(DataBody {
         namespace: SEALED_NAMESPACE.to_owned(),
-        payload: sealer.seal(node_key, device_id, writer_seq, &plain)?,
+        payload: sealer.seal(ctx.node_key, ctx.device_id, ctx.next_writer_seq(), &plain)?,
         ..body
     })
 }
 
 pub(crate) fn seal_schema(
     sealer: &Sealer,
-    node_key: mutation_log::NodeKey,
-    device_id: mutation_log::DeviceId,
-    writer_seq: u64,
-    body: SchemaBody,
+    ctx: &AuthorCtx,
+    body: &SchemaBody,
 ) -> Result<SchemaBody, String> {
     let plain = pack(&body.namespace, &body.definition)?;
     Ok(SchemaBody {
         namespace: SEALED_NAMESPACE.to_owned(),
-        definition: sealer.seal(node_key, device_id, writer_seq, &plain)?,
+        definition: sealer.seal(ctx.node_key, ctx.device_id, ctx.next_writer_seq(), &plain)?,
     })
 }
 
@@ -90,4 +86,14 @@ pub(crate) fn for_key(database_id: &str, key: Zeroizing<[u8; 32]>) -> Result<Sea
         DatabaseId::from_hex(database_id).map_err(|_| "database id is not hex32")?,
         key,
     ))
+}
+
+/// A shared database opens with its read key, independently of the local signer.
+#[derive(Debug)]
+pub(crate) struct Opener(pub(crate) Sealer);
+
+impl mutation_log::EntryOpener for Opener {
+    fn open_entry(&self, entry: &mutation_log::SignedEntry) -> Option<mutation_log::SignedEntry> {
+        open_entry(&self.0, entry)
+    }
 }

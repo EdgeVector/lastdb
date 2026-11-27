@@ -14,11 +14,14 @@ proof follows the People "direct" recipe:
    other `not_accepted`. This is the publisher's decline path.
 5. The publisher lowers A and B to `submit`. B proposes a replace of A's record
    and ends `not_accepted`. A replaces her own record and ends `published`.
+6. All four nodes reopen their homes and recover the same records from signed history.
+7. The actual reference relay's schema, direct and proposal bodies are encrypted envelopes.
 
 A failure prints every proposal status and, for each node, the kind and
 sequence number of every entry it holds for the database.
 """
 import argparse
+import base64
 import json
 import os
 from pathlib import Path
@@ -243,12 +246,48 @@ def prove(pub, a, b, c, proposals):
     converge(members, "k1", "a2", a.key, a.key)
     print("5. at submit: B's replace of A's record not accepted; A's own replace published", flush=True)
 
+    for member in members:
+        member.node.stop()
+        member.node.start()
+        member.node.call("/api/apps/register", {"app": APP, "access": {
+            "read": [SCHEMA], "write": [SCHEMA], "extensions": ["databases"]}})
+    converge(members, "k1", "a2", a.key, a.key)
+    converge(members, "k2", note, winner.key, winner.key)
+    print("6. all four nodes reopened; received and authored histories restored both records", flush=True)
+
+
+def prove_relay_opaque(relay_data, database_id):
+    """Read the actual relay entries; even decoded wire bodies must be ciphertext."""
+    root = relay_data / "logs" / database_id
+    counts = {"schema": 0, "direct": 0, "proposal": 0}
+    for path in root.glob("*/*/*.json"):
+        if not path.stem.isdigit():
+            continue
+        entry = json.loads(path.read_text())
+        kind = entry.get("kind")
+        if kind not in ("data", "schema"):
+            continue
+        require(entry.get("namespace") == "sealed", f"relay exposes a {kind} namespace")
+        field = "payload_b64" if kind == "data" else "definition_b64"
+        encoded = entry[field]
+        body = base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4))
+        require(len(body) > 29 and body[0] == 1, f"relay {kind} body is not an encryption envelope")
+        require(SCHEMA.encode() not in body and b'"record_key"' not in body
+                and b'"field_types"' not in body, f"relay {kind} body exposes record or schema content")
+        lane = "schema" if kind == "schema" else entry.get("stream")
+        require(lane in counts, f"unexpected shared data stream {lane!r}")
+        counts[lane] += 1
+    require(all(counts.values()), f"relay privacy proof did not read every entry kind: {counts}")
+    OUTCOMES["relay_content_encrypted"] = counts
+    print(f"7. relay holds encrypted schema, direct and proposal bodies: {counts}", flush=True)
+
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--daemon", required=True)
     parser.add_argument("--cli", required=True)
     parser.add_argument("--relay-url", required=True)
+    parser.add_argument("--relay-data", required=True, type=Path)
     parser.add_argument("--revision", required=True)
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
@@ -259,6 +298,7 @@ def main():
         for member in members:
             member.start()
         prove(*members, proposals)
+        prove_relay_opaque(args.relay_data, members[0].db)
     except Exception as error:  # noqa: BLE001 the failure is printed with its evidence, then raised
         failure = error
         print(f"FAILED: {error}", file=sys.stderr)

@@ -1,6 +1,7 @@
 //! Verified history `S` and `accept_entry` application.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::sync::Arc;
 
 use crate::accept::{
     evaluate_with_leases, position_of, stream_id_of, AcceptContext, AcceptOutcome, RejectReason,
@@ -15,6 +16,7 @@ use crate::wire::entry_hash;
 
 mod effects;
 mod lease;
+mod opened;
 mod recompute;
 mod view;
 
@@ -45,6 +47,8 @@ struct SchemaDecl {
 pub struct VerifiedHistory {
     /// Database this history is bound to.
     database_id: DatabaseId,
+    /// Node-owned content opener; relays can verify metadata without one.
+    opener: Option<Arc<dyn crate::sealed::EntryOpener>>,
     /// Owner from the accepted birth entry.
     owner: Option<NodeKey>,
     /// Hash and lamport of the accepted birth entry.
@@ -102,6 +106,7 @@ impl VerifiedHistory {
     pub fn new(database_id: DatabaseId) -> Self {
         Self {
             database_id,
+            opener: None,
             owner: None,
             birth: None,
             accepted: BTreeMap::new(),
@@ -191,17 +196,6 @@ impl VerifiedHistory {
 
     /// Run `AcceptEntry(E, S)`. Applies on accept; buffers on pending; keeps evidence on reject.
     pub fn accept_entry(&mut self, entry: SignedEntry) -> AcceptOutcome {
-        self.accept_entry_opened(entry.clone(), &entry)
-    }
-
-    /// Accept the signed wire entry while applying the locally opened form.
-    /// The wire entry remains the signed/hash-chained evidence; callers use
-    /// this for payloads that are opaque to the relay.
-    pub fn accept_entry_opened(
-        &mut self,
-        entry: SignedEntry,
-        opened: &SignedEntry,
-    ) -> AcceptOutcome {
         let outcome = self.evaluate_entry(&entry);
         match &outcome {
             AcceptOutcome::Accept {
@@ -209,13 +203,15 @@ impl VerifiedHistory {
                 duplicate,
             } => {
                 if !*duplicate {
-                    self.apply_accepted_opened(*entry_hash, entry, opened);
+                    if !self.apply_accepted(*entry_hash, entry) {
+                        return AcceptOutcome::Reject {
+                            reason: RejectReason::Malformed("entry content did not open"),
+                        };
+                    }
                     self.drain_pending();
                 }
             }
             AcceptOutcome::Pending { .. } => {
-                // An encrypted entry cannot be promoted safely without its
-                // opener. Its caller retries after the missing dependency.
                 self.pending.push_back(entry);
             }
             AcceptOutcome::Reject { reason } => {
@@ -245,10 +241,6 @@ impl VerifiedHistory {
             self.frozen.insert(stream_id_of(&entry));
         }
         self.rejects.push(RejectEvidence { reason, entry });
-    }
-
-    pub(crate) fn apply_accepted(&mut self, hash: EntryHash, entry: SignedEntry) {
-        self.apply_accepted_opened(hash, entry.clone(), &entry);
     }
 
     fn apply_accepted_opened(&mut self, hash: EntryHash, entry: SignedEntry, opened: &SignedEntry) {

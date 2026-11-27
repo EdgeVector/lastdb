@@ -66,9 +66,7 @@ impl VerifiedHistory {
     pub(super) fn recompute_written_by(&mut self, changed: &[EntryHash]) {
         let mut keys: BTreeSet<(String, String)> = BTreeSet::new();
         for hash in changed {
-            let Some(SignedEntry::Data { body, .. }) =
-                self.accepted.get(hash).map(|meta| &meta.entry)
-            else {
+            let Some(SignedEntry::Data { body, .. }) = self.opened_entry(hash) else {
                 continue;
             };
             if let Ok(decoded) = decode_record_payload(&body.payload) {
@@ -108,7 +106,7 @@ impl VerifiedHistory {
                 .or_else(|| self.bundle_floor.get(key).filter(|r| r.entry == win.entry))
                 .map(|r| r.value.clone())?
         } else {
-            let SignedEntry::Data { body, .. } = &self.accepted.get(&win.entry)?.entry else {
+            let SignedEntry::Data { body, .. } = self.opened_entry(&win.entry)? else {
                 return None;
             };
             decode_record_payload(&body.payload).ok()?.value

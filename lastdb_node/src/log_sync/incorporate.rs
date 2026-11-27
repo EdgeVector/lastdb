@@ -105,7 +105,8 @@ async fn decide(
     database_id: &str,
     entry: &SignedEntry,
 ) -> Result<Decision, String> {
-    let SignedEntry::Data { body, .. } = entry else {
+    let (history, opened) = super::shared_crypto::open_accepted(histories, database_id, entry)?;
+    let SignedEntry::Data { body, .. } = &opened else {
         return Ok(Decision::Decline);
     };
     let Ok(payload) = decode_record_payload(&body.payload) else {
@@ -123,7 +124,6 @@ async fn decide(
         return Ok(Decision::Decline);
     };
     let key = (body.namespace.clone(), canon_key);
-    let history = histories.snapshot(database_id)?;
     signed_history_materialize::reconcile_keys(store, &history, std::slice::from_ref(&key)).await?;
     let standing = Standing {
         role: history.grants().role_of(&proposer),
@@ -328,6 +328,7 @@ fn publish(
     ready: Ready,
 ) -> Result<(), String> {
     let from = citation(proposal)?;
+    let sealer = super::shared_crypto::for_host(host, database_id)?;
     let target = Target {
         home: &host.home,
         database_id,
@@ -349,6 +350,8 @@ fn publish(
             &ready.value,
         );
         body.incorporated_from = Some(from);
+        let body = crate::shared_seal::seal_data(&sealer, &ctx, body)
+            .map_err(|_| ChainError::Unconfirmed)?;
         author_data(&ctx, &identity.signing_key, body).map_err(|_| ChainError::Unconfirmed)
     })
     .map(|_| ())

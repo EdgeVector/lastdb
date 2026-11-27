@@ -36,6 +36,7 @@ mod publish_state;
 mod pull;
 pub(crate) mod received;
 mod relay;
+mod shared_crypto;
 mod spawn;
 mod upload;
 pub(crate) mod usage;

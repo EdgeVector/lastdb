@@ -16,6 +16,7 @@ use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
+use zeroize::Zeroizing;
 
 use mutation_log::{
     entry_hash, stream_id_of, AcceptOutcome, DatabaseId, EntryHash, EntryKind, SignedEntry,
@@ -40,7 +41,7 @@ pub(crate) fn histories_for(host: &Host) -> Arc<HistoryMap> {
     Arc::clone(
         homes
             .entry(host.home.clone())
-            .or_insert_with(|| Arc::new(HistoryMap::new(&host.home))),
+            .or_insert_with(|| Arc::new(HistoryMap::new(host))),
     )
 }
 
@@ -51,6 +52,7 @@ pub(crate) fn histories_for(host: &Host) -> Arc<HistoryMap> {
 /// empty history is created in its place.
 pub(crate) struct HistoryMap {
     home: PathBuf,
+    node_seed: Zeroizing<[u8; 32]>,
     inner: Mutex<HashMap<String, VerifiedHistory>>,
     /// Exact entry hashes stored in `received.json`, per database.
     received: Mutex<HashMap<String, Vec<EntryHash>>>,
@@ -61,9 +63,10 @@ pub(crate) struct HistoryMap {
 }
 
 impl HistoryMap {
-    fn new(home: &Path) -> Self {
+    fn new(host: &Host) -> Self {
         Self {
-            home: home.to_path_buf(),
+            home: host.home.clone(),
+            node_seed: Zeroizing::new(host.keypair.secret_key_bytes()),
             inner: Mutex::new(HashMap::new()),
             received: Mutex::new(HashMap::new()),
             materialize_retry: Mutex::new(HashSet::new()),
@@ -200,7 +203,7 @@ impl HistoryMap {
                 h.writer_seq,
             )
         });
-        let mut history = VerifiedHistory::new(id);
+        let mut history = super::shared_crypto::history(&self.home, &self.node_seed, id)?;
         for entry in entries {
             if let AcceptOutcome::Reject { reason } = history.accept_entry(entry) {
                 tracing::warn!(target: "lastdbd::log_sync", ?reason, "stored entry was rejected on replay");

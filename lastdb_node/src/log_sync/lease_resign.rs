@@ -138,14 +138,19 @@ fn excluded_changes(history: &VerifiedHistory, me: &AuthorIdentity, ledger: &Led
     let mut groups: Vec<KeyAccum> = Vec::new();
     let mut index_by_key: BTreeMap<(String, String), usize> = BTreeMap::new();
     for entry in history.excluded_entries() {
-        let SignedEntry::Data { header, body } = entry else {
+        let SignedEntry::Data { header, .. } = entry else {
             continue;
         };
         if header.node_key != me.node_key || header.device_id != me.device_id {
             continue;
         }
-        let (Ok(payload), Ok(hash)) = (decode_record_payload(&body.payload), entry_hash(entry))
-        else {
+        let Ok(hash) = entry_hash(entry) else {
+            continue;
+        };
+        let Some(SignedEntry::Data { body, .. }) = history.opened_entry(&hash) else {
+            continue;
+        };
+        let Ok(payload) = decode_record_payload(&body.payload) else {
             continue;
         };
         let id = id_of(&hash);

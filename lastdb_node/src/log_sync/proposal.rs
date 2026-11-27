@@ -184,6 +184,8 @@ pub(super) fn author_proposal(
     value: &[u8],
 ) -> Result<chain_author::Authored, ContributionError> {
     let identity = chain_author::identity_of(host).map_err(|_| ContributionError::Unavailable)?;
+    let sealer = super::shared_crypto::for_host(host, database_id)
+        .map_err(|_| ContributionError::Unavailable)?;
     let target = Target {
         home: &host.home,
         database_id,
@@ -201,6 +203,8 @@ pub(super) fn author_proposal(
             ))?;
         ctx.cite(grant_hash, grant_lamport);
         let body = data_record(StreamKind::Proposal, namespace, record_key, value);
+        let body = crate::shared_seal::seal_data(&sealer, &ctx, body)
+            .map_err(|_| ChainError::Unconfirmed)?;
         author_data(&ctx, &identity.signing_key, body).map_err(|_| ChainError::Unconfirmed)
     })
     .map_err(|error| contribution_error(&error))

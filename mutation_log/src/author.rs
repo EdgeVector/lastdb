@@ -41,7 +41,8 @@ impl AuthorCtx {
     /// Sequence number the next author helper assigns.
     #[must_use]
     pub fn next_writer_seq(&self) -> u64 {
-        self.stream_head.map_or(1, |head| head.writer_seq + 1)
+        self.stream_head
+            .map_or(1, |head| head.writer_seq.saturating_add(1))
     }
     /// Record a causal dependency `(hash, lamport)`, deduplicating `hash` and
     /// keeping `seen_heads.len() <= MAX_AUTHOR_SEEN_HEADS`.
