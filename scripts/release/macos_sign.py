@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import base64
 from contextlib import contextmanager
 import hashlib
@@ -37,6 +38,51 @@ def apple_credentials():
         raise RuntimeError("Developer ID signing needs these environment secrets of `node-release`: "
                            + ", ".join(missing))
     return {name: os.environ[name] for name in names}
+
+
+def notary_credentials():
+    """Return only the credentials that authenticate a notary-service request."""
+    names = ("APPLE_ID", "APPLE_PASSWORD", "APPLE_TEAM_ID")
+    missing = [name for name in names if not os.environ.get(name)]
+    if missing:
+        raise RuntimeError("Apple notary preflight needs these `node-release` environment secrets: "
+                           + ", ".join(missing))
+    return {name: os.environ[name] for name in names}
+
+
+def notary_preflight():
+    """Confirm that the configured account can reach Apple's notary service."""
+    credentials = notary_credentials()
+    auth = ["--apple-id", credentials["APPLE_ID"], "--password", credentials["APPLE_PASSWORD"],
+            "--team-id", credentials["APPLE_TEAM_ID"]]
+    result = subprocess.run(
+        ["xcrun", "notarytool", "history", *auth, "--output-format", "json"],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    if result.returncode == 0:
+        try:
+            json.loads(result.stdout)
+        except ValueError as error:
+            raise RuntimeError("Apple notary preflight returned an invalid response") from error
+        print("Apple notary preflight succeeded; the configured account can submit notarizations.")
+        return
+
+    response = f"{result.stdout}\n{result.stderr}".lower()
+    agreement_words = ("agreement", "license", "contract")
+    if "403" in response or any(word in response for word in agreement_words):
+        raise RuntimeError(
+            "Apple notary preflight failed: the Apple Developer Program agreement for the configured "
+            "team is missing or expired. An Account Holder must accept the current agreement in Apple "
+            "Developer before rerunning this release. The `node-release` Apple secrets stay unchanged "
+            "unless the account owner rotates them."
+        )
+    raise RuntimeError(
+        "Apple notary preflight could not authenticate the configured `node-release` account. "
+        "An owner must verify the Apple ID, app-specific password, team access, and current agreements "
+        "without printing or rotating secrets in workflow logs."
+    )
 
 
 @contextmanager
@@ -141,3 +187,15 @@ def developer_id_sign(paths, credentials):
             time.sleep(10)
         else:
             raise RuntimeError(f"Gatekeeper does not accept {path.name} as a notarized Developer ID program")
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Developer ID signing helpers")
+    parser.add_argument("command", choices=("preflight",))
+    args = parser.parse_args()
+    if args.command == "preflight":
+        notary_preflight()
+
+
+if __name__ == "__main__":
+    main()
