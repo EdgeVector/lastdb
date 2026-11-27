@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- The hardened runtime enables library validation. The release programs link Homebrew's
+       openssl@3, whose dylibs are ad-hoc signed by Homebrew, not by this team. Without this
+       entitlement dyld refuses to load them. No other entitlement is requested. -->
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+</dict>
+</plist>

@@ -234,10 +234,10 @@ def make_draft(plan):
         body = (marker(plan) + "\n\nLastDB nightly prerelease.\n\n"
                 f"Source: https://github.com/{REPOSITORY}/commit/{plan['source']}\n\n"
                 f"Version: `{plan['version']}`. Build: {plan['run_url']}.\n\n"
-                "Matched CLI and daemon for Apple Silicon and Ubuntu 24.04 x64. "
+                "Matched CLI and daemon for Apple Silicon and for Ubuntu 24.04 on x64 and arm64. "
                 "SHA256SUMS.txt and nightly.json describe the verified files and operational checks. "
                 "GitHub artifact attestations identify the main workflow and exact source.\n\n"
-                "macOS uses ad-hoc signatures, without Developer ID notarization. "
+                "The macOS programs are Developer ID signed and notarized. "
                 "This prerelease does not update Homebrew, the app registry, or installed services.")
         release = gh_json(f"repos/{REPOSITORY}/releases", "POST",
                           {"tag_name": plan["tag"], "target_commitish": plan["source"],

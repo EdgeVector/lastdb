@@ -15,6 +15,7 @@ on:
       - 'scripts/release/stable_*.py'
       - 'scripts/harness.py'
       - 'scripts/release/nightly_*.py'
+      - 'scripts/release/entitlements.plist'
       - 'lastdb_node/src/bin/lastdb/app_cmds/interface_publish.rs'
       - 'lastdb_node/src/bin/lastdb/cli_defs.rs'
       - 'lastdb_node/src/bin/lastdb/cli_defs/**'
@@ -108,7 +109,12 @@ jobs:
             target: aarch64-apple-darwin
           - os: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
     runs-on: ${{ matrix.os }}
+    # The macOS cell signs and notarizes with the Apple credentials of this environment, which
+    # accepts only protected main. A pull request build cannot reach it and signs ad hoc.
+    environment: ${{ (matrix.target == 'aarch64-apple-darwin' && github.event_name != 'pull_request') && 'node-release' || '' }}
     timeout-minutes: 90
     env:
       CARGO_BUILD_JOBS: '3'
@@ -133,10 +139,19 @@ jobs:
         with:
           key: nightly-release-${{ matrix.target }}
           save-if: ${{ github.event_name != 'pull_request' }}
-      - name: Build, verify, and package the matched numeric stable CLI and daemon
+      - name: Build, sign, verify, and package the matched numeric stable CLI and daemon
+        env:
+          MACOS_SIGNING: ${{ github.event_name == 'pull_request' && 'ad-hoc' || 'developer-id' }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: >-
           python3 scripts/release/nightly_package.py build-target --target "$TARGET"
           --plan "$RUNNER_TEMP/stable-plan.json" --out-dir "$RUNNER_TEMP/stable-bundles"
+          --macos-signing "$MACOS_SIGNING"
       - name: Exercise each native package's durable operations and recovery
         timeout-minutes: 10
         run: |

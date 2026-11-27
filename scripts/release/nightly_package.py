@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 from contextlib import contextmanager
 import gzip
 import hashlib
@@ -15,6 +16,8 @@ import re
 import subprocess
 import sys
 import tarfile
+import tempfile
+import time
 
 _SCRIPTS = str(Path(__file__).resolve().parents[1])
 if _SCRIPTS not in sys.path:
@@ -25,7 +28,14 @@ from harness import file_sha256  # noqa: E402
 TARGETS = {
     "aarch64-apple-darwin": ("darwin", "arm64"),
     "x86_64-unknown-linux-gnu": ("linux", "x86_64"),
+    "aarch64-unknown-linux-gnu": ("linux", "aarch64"),
 }
+# The manifest `signing` values of docs/designs/node-self-update.md section 3. `ad-hoc` exists
+# only for pull request builds, which cannot reach the Apple credentials of the `node-release`
+# environment; every other run requires `developer-id` on macOS and `none` on Linux.
+SIGNING = ("developer-id", "ad-hoc")
+ENTITLEMENTS = Path(__file__).with_name("entitlements.plist")
+NOTARY_SECONDS = 3600
 INDEX = "nightly.json"
 SUMS = "SHA256SUMS.txt"
 MAX_FILE = 512 * 1024 ** 2
@@ -87,7 +97,8 @@ def validate_architecture(directory, target):
         if target == "aarch64-apple-darwin":
             valid = header[:4] == b"\xcf\xfa\xed\xfe" and int.from_bytes(header[4:8], "little") == 0x100000c
         else:
-            valid = header[:6] == b"\x7fELF\x02\x01" and int.from_bytes(header[18:20], "little") == 62
+            machine = 62 if target.startswith("x86_64-") else 183
+            valid = header[:6] == b"\x7fELF\x02\x01" and int.from_bytes(header[18:20], "little") == machine
         if not valid:
             raise ValueError(f"The executable {name} does not match {target}")
 
@@ -106,7 +117,145 @@ def archive_pair(path, directory, binaries, epoch):
                         archive.addfile(member, content)
 
 
-def package_bundle(target, bin_dir, out_dir, git_oid, version, epoch, *, nightly_only=False):
+def run_quiet(cmd, *, timeout, what, env=None):
+    """Run a command whose arguments may carry a secret. Show output, never the arguments."""
+    result = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=timeout)
+    if result.stdout.strip():
+        print(result.stdout.strip())
+    if result.returncode != 0:
+        if result.stderr.strip():
+            print(result.stderr.strip(), file=sys.stderr)
+        raise RuntimeError(f"{what} failed with exit status {result.returncode}")
+    return result.stdout
+
+
+def apple_credentials():
+    names = ("APPLE_CERTIFICATE", "APPLE_CERTIFICATE_PASSWORD", "APPLE_SIGNING_IDENTITY",
+             "APPLE_ID", "APPLE_PASSWORD", "APPLE_TEAM_ID")
+    missing = [name for name in names if not os.environ.get(name)]
+    if missing:
+        raise RuntimeError("Developer ID signing needs these environment secrets of `node-release`: "
+                           + ", ".join(missing))
+    return {name: os.environ[name] for name in names}
+
+
+@contextmanager
+def signing_keychain(credentials):
+    """A temporary keychain holding the Developer ID identity; removed on exit."""
+    with tempfile.TemporaryDirectory(prefix="lastdb-sign-") as directory:
+        directory = Path(directory)
+        keychain = directory / "release.keychain-db"
+        password = hashlib.sha256(os.urandom(32)).hexdigest()
+        certificate = directory / "identity.p12"
+        before = subprocess.check_output(["security", "list-keychains", "-d", "user"], text=True, timeout=30)
+        listed = [line.strip().strip('"') for line in before.splitlines() if line.strip()]
+        try:
+            certificate.write_bytes(base64.b64decode(credentials["APPLE_CERTIFICATE"]))
+            certificate.chmod(0o600)
+            run_quiet(["security", "create-keychain", "-p", password, str(keychain)], timeout=60,
+                      what="Creating the temporary keychain")
+            run_quiet(["security", "set-keychain-settings", "-lut", "7200", str(keychain)], timeout=60,
+                      what="Configuring the temporary keychain")
+            run_quiet(["security", "unlock-keychain", "-p", password, str(keychain)], timeout=60,
+                      what="Unlocking the temporary keychain")
+            run_quiet(["security", "import", str(certificate), "-k", str(keychain),
+                       "-P", credentials["APPLE_CERTIFICATE_PASSWORD"], "-f", "pkcs12",
+                       "-T", "/usr/bin/codesign", "-T", "/usr/bin/security"], timeout=60,
+                      what="Importing the Developer ID identity")
+            run_quiet(["security", "set-key-partition-list", "-S", "apple-tool:,apple:,codesign:",
+                       "-s", "-k", password, str(keychain)], timeout=60,
+                      what="Allowing codesign to use the Developer ID key")
+            run_quiet(["security", "list-keychains", "-d", "user", "-s", str(keychain), *listed], timeout=60,
+                      what="Adding the temporary keychain to the search list")
+            identities = subprocess.check_output(
+                ["security", "find-identity", "-v", "-p", "codesigning", str(keychain)], text=True, timeout=60)
+            if credentials["APPLE_SIGNING_IDENTITY"] not in identities:
+                raise RuntimeError("The imported certificate does not hold the configured signing identity")
+            yield keychain
+        finally:
+            subprocess.run(["security", "list-keychains", "-d", "user", "-s", *listed],
+                           check=False, timeout=60)
+            subprocess.run(["security", "delete-keychain", str(keychain)], check=False, timeout=60)
+            if certificate.exists():
+                certificate.unlink()
+
+
+def notarize(paths, credentials):
+    """Submit the matched pair as one zip and wait for Apple's verdict."""
+    with tempfile.TemporaryDirectory(prefix="lastdb-notary-") as directory:
+        directory = Path(directory)
+        staging = directory / "pair"
+        staging.mkdir()
+        for path in paths:
+            (staging / path.name).write_bytes(path.read_bytes())
+        archive = directory / "lastdb-notarize.zip"
+        subprocess.run(["ditto", "-c", "-k", "--norsrc", "--noextattr", str(staging), str(archive)],
+                       check=True, timeout=300)
+        auth = ["--apple-id", credentials["APPLE_ID"], "--password", credentials["APPLE_PASSWORD"],
+                "--team-id", credentials["APPLE_TEAM_ID"]]
+        print("Submitting the CLI and daemon to the Apple notary service (waiting for its verdict)")
+        result = subprocess.run(
+            ["xcrun", "notarytool", "submit", str(archive), *auth, "--wait",
+             "--timeout", f"{NOTARY_SECONDS}s", "--output-format", "json"],
+            capture_output=True, text=True, timeout=NOTARY_SECONDS + 300)
+        try:
+            verdict = json.loads(result.stdout)
+        except ValueError:
+            verdict = {}
+        submission, status = verdict.get("id"), verdict.get("status")
+        print(f"Notary submission {submission}: {status}")
+        if result.returncode != 0 or status != "Accepted":
+            if submission:
+                log = subprocess.run(["xcrun", "notarytool", "log", submission, *auth],
+                                     capture_output=True, text=True, timeout=300)
+                print(log.stdout.strip())
+            # The notary client names Apple's refusal (for example an expired agreement) here.
+            print(verdict.get("message") or result.stderr.strip(), file=sys.stderr)
+            raise RuntimeError("Apple did not accept the notarization submission")
+
+
+def developer_id_sign(paths, credentials):
+    """Sign with the hardened runtime and a secure timestamp, then notarize the pair."""
+    with signing_keychain(credentials) as keychain:
+        for path in paths:
+            subprocess.run(["codesign", "--force", "--options", "runtime", "--timestamp",
+                            "--entitlements", str(ENTITLEMENTS), "--keychain", str(keychain),
+                            "--sign", credentials["APPLE_SIGNING_IDENTITY"], str(path)],
+                           check=True, timeout=300)
+            subprocess.run(["codesign", "--verify", "--strict", "--verbose=2", str(path)],
+                           check=True, timeout=60)
+            details = subprocess.run(["codesign", "--display", "--verbose=4", str(path)],
+                                     capture_output=True, text=True, timeout=60).stderr
+            if ("runtime" not in details or "Timestamp=" not in details
+                    or f"TeamIdentifier={credentials['APPLE_TEAM_ID']}" not in details):
+                raise RuntimeError(f"{path.name} lacks the hardened runtime, a timestamp, or the team identity")
+    notarize(paths, credentials)
+    # Gatekeeper reads the notarization ticket online for a bare executable, which may lag a few seconds.
+    for path in paths:
+        for attempt in range(6):
+            check = subprocess.run(["spctl", "--assess", "--type", "execute", "-vv", str(path)],
+                                   capture_output=True, text=True, timeout=120)
+            print((check.stdout + check.stderr).strip())
+            if check.returncode == 0 and "Notarized Developer ID" in check.stdout + check.stderr:
+                break
+            time.sleep(10)
+        else:
+            raise RuntimeError(f"Gatekeeper does not accept {path.name} as a notarized Developer ID program")
+
+
+def manifest_signing(target, signing):
+    """The only manifest `signing` values a bundle of this target may carry."""
+    if TARGETS[target][0] != "darwin":
+        return "none"
+    if signing not in SIGNING:
+        raise ValueError(f"The macOS signing mode {signing!r} is not one of {SIGNING}")
+    if signing == "ad-hoc" and os.environ.get("GITHUB_EVENT_NAME") != "pull_request":
+        raise ValueError("An ad-hoc macOS signature is allowed only in a pull request build")
+    return signing
+
+
+def package_bundle(target, bin_dir, out_dir, git_oid, version, epoch, *, nightly_only=False,
+                   signing="developer-id"):
     if not re.fullmatch(r"[0-9a-f]{40}", git_oid):
         raise ValueError("A full source commit is required")
     is_nightly = bool(re.fullmatch(r"\d+\.\d+\.\d+-nightly\.\d{8}\.g[0-9a-f]{9}", version))
@@ -126,13 +275,14 @@ def package_bundle(target, bin_dir, out_dir, git_oid, version, epoch, *, nightly
     if archive.stat().st_size > MAX_FILE:
         raise ValueError("The archive exceeds the 512 MiB release asset limit")
     system, architecture = TARGETS[target]
+    signing = manifest_signing(target, signing)
     write_json(out_dir / f"lastdb-{target}.manifest.json", {
         "schema": "lastdb.mini.bundle.v1", "target": target,
         "source_git_oid": git_oid, "version": version,
         "artifact": {"file": archive.name, "sha256": digest(archive), "size": archive.stat().st_size},
         "binaries": binaries, "platform": {"os": system, "arch": architecture},
         "build_host": {"system": platform.system(), "release": platform.release(), "machine": platform.machine()},
-        "signing": "ad-hoc" if system == "darwin" else "none",
+        "signing": signing,
     })
     print(f"Matched release bundle: {target} {git_oid} {version}")
 
@@ -147,7 +297,10 @@ def build_target(args):
             raise ValueError("build-target requires --plan or --git-oid, --expect-version, and --source-epoch")
         git_oid, version, epoch = args.git_oid, args.expect_version, args.source_epoch
         nightly_only = "-nightly." in version
-    env = {**os.environ, "FOLDDB_BUILD_VERSION_OVERRIDE": version}
+    # Build scripts and proc macros of every dependency run in these subprocesses. They never
+    # see the Apple credentials, which only the signing step below reads.
+    clean = {key: value for key, value in os.environ.items() if not key.startswith("APPLE_")}
+    env = {**clean, "FOLDDB_BUILD_VERSION_OVERRIDE": version}
     if args.target.startswith("aarch64-"):
         # .cargo/config.toml turns on the ARMv8 AES and PMULL backends for this target. Any of
         # these variables, even empty, replaces those flags and ships the software cipher.
@@ -198,8 +351,6 @@ def build_target(args):
         path = bin_dir / name
         subprocess.run(["strip", str(path)], check=True, timeout=60)
         if args.target == "aarch64-apple-darwin":
-            subprocess.run(["codesign", "--force", "--sign", "-", str(path)], check=True, timeout=60)
-            subprocess.run(["codesign", "--verify", "--strict", str(path)], check=True, timeout=60)
             otool = subprocess.check_output(["otool", "-L", str(path)], text=True, timeout=30)
             bad = [ln.strip() for ln in otool.splitlines()
                    if re.search(r"lib(ssl|crypto)\.", ln) and "/opt/homebrew/opt/openssl@3/lib/" not in ln]
@@ -209,7 +360,18 @@ def build_target(args):
             ldd = subprocess.check_output(["ldd", "-r", str(path)], stderr=subprocess.STDOUT, text=True, timeout=30)
             if "not found" in ldd or "undefined symbol" in ldd:
                 raise RuntimeError(f"{path} failed shared-library verification:\n{ldd}")
-    package_bundle(args.target, bin_dir, args.out_dir, git_oid, version, epoch, nightly_only=nightly_only)
+    signing = "none"
+    if TARGETS[args.target][0] == "darwin":
+        signing = manifest_signing(args.target, args.macos_signing)
+        paths = [bin_dir / name for name in ("lastdb", "lastdbd")]
+        if signing == "developer-id":
+            developer_id_sign(paths, apple_credentials())
+        else:
+            for path in paths:
+                subprocess.run(["codesign", "--force", "--sign", "-", str(path)], check=True, timeout=60)
+                subprocess.run(["codesign", "--verify", "--strict", str(path)], check=True, timeout=60)
+    package_bundle(args.target, bin_dir, args.out_dir, git_oid, version, epoch, nightly_only=nightly_only,
+                   signing=signing)
 
 
 @contextmanager
@@ -237,6 +399,8 @@ def validate_bundle(folder, target, plan):
             or manifest["artifact"]["size"] != bundle.stat().st_size
             or manifest["artifact"]["sha256"] != digest(bundle)):
         raise ValueError(f"The {target} bundle manifest differs from its source or bytes")
+    if manifest.get("signing") != manifest_signing(target, manifest.get("signing")):
+        raise ValueError(f"The {target} bundle manifest names an unexpected signing mode")
     binaries = manifest["binaries"]
     if len(binaries) != 2 or {item["name"] for item in binaries} != {"lastdb", "lastdbd"}:
         raise ValueError("The release requires one matched CLI and daemon")
@@ -276,7 +440,7 @@ def prepare(folder, plan):
     index = {"schema": "lastdb.nightly.release.v1", "repository": plan["repository"],
              "source_git_oid": plan["source"], "version": plan["version"], "tag": plan["tag"],
              "run_url": plan["run_url"], "source_epoch": plan["epoch"], "platforms": platforms,
-             "limits": "Prerelease; macOS ad-hoc signatures; no stable, Homebrew, registry, or primary promotion."}
+             "limits": "Prerelease; macOS Developer ID signed and notarized; no stable, Homebrew, registry, or primary promotion."}
     (folder / INDEX).write_text(json.dumps(index, indent=2, sort_keys=True) + "\n")
     files = sorted(names() - {SUMS})
     (folder / SUMS).write_text("".join(f"{digest(folder / name)}  {name}\n" for name in files))
@@ -321,6 +485,7 @@ def main():
         parser.add_argument("--expect-version")
         parser.add_argument("--source-epoch", type=int)
         parser.add_argument("--build-log", type=Path)
+        parser.add_argument("--macos-signing", choices=SIGNING, default="developer-id")
         build_target(parser.parse_args(sys.argv[2:]))
         return
     parser = argparse.ArgumentParser(description=__doc__)
