@@ -219,12 +219,9 @@ pub(super) fn status(
         {
             println!("{line}");
         }
-        for line in cloud_sync.iter().flat_map(super::usage_line::usage_lines) {
-            println!("{line}");
-        }
-        if let Some(line) = cloud_sync
-            .as_ref()
-            .and_then(super::usage_line::relay_contract_line)
+        for line in cloud_sync
+            .iter()
+            .flat_map(super::usage_line::status_tail_lines)
         {
             println!("{line}");
         }

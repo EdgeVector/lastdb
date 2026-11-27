@@ -34,6 +34,8 @@ pub(super) struct Applied {
     pub(super) entries: u64,
     /// The highest sequence number among them.
     pub(super) through: u64,
+    /// Highest applied sequence number across non-frozen remote streams.
+    pub(super) tip: u64,
     /// Device streams of other devices that the relay lists.
     pub(super) streams: usize,
 }
@@ -134,6 +136,7 @@ pub(super) async fn run(
                     held.seq
                 ));
             }
+            applied.tip = applied.tip.max(held.seq);
         }
         let held = head.as_ref().map_or(0, |held| held.seq);
         if stream.head_seq > held {
@@ -225,6 +228,7 @@ async fn apply_entry(
     }
     applied.entries += 1;
     applied.through = applied.through.max(header.writer_seq);
+    applied.tip = applied.tip.max(header.writer_seq);
     cursor.head = Some(next);
     Ok(())
 }

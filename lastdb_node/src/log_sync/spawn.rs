@@ -75,9 +75,9 @@ async fn run_turn_and_pause(host: &Arc<Host>, histories: &HistoryMap, base: &str
         tokio::time::sleep(ACTIVE).await;
         return;
     }
-    // Prior sticky last_error must not survive a clean turn
-    // (grant_403_for_node reads the node-global field with no database_id).
-    host.cloud_sync.clear_error();
+    // Clear only the turn-wide error slot; per-database upload and download
+    // errors remain active until their own upload or pull succeeds.
+    host.cloud_sync.clear_turn_error();
     let shareable_ready = shareable_uploads_pending(host, report.received_upload_ok);
     let post_accepted = host.db.db_ops().native_runtime().accepted_status();
     let personal_ready = report.personal_ok
@@ -115,9 +115,7 @@ async fn one_turn(host: &Arc<Host>, histories: &HistoryMap, base: &str) -> TurnR
     // personal and received shares keep shareable grant tips on the clean wake
     // path (#1844, #1846) without letting failed queues spin without sleep.
     let mut turn_error = publish_declared_schemas(host, &owned);
-    turn_error = upload_owned_logs(host, &client, &owned)
-        .await
-        .or(turn_error);
+    let _ = upload_owned_logs(host, &client, &owned).await;
     turn_error = pull_owned_shareables(host, histories, &client, &owned)
         .await
         .or(turn_error);
@@ -135,7 +133,8 @@ async fn one_turn(host: &Arc<Host>, histories: &HistoryMap, base: &str) -> TurnR
         true
     };
     // Phase d: decisions and leases the publisher signed during the pull go up
-    // this turn, so members settle without waiting another loop.
+    // this turn, so members settle without waiting another loop. Any owned log
+    // upload still failing in Phase b fails here too and triggers ACTIVE backoff.
     turn_error = upload_owned_logs(host, &client, &owned)
         .await
         .or(turn_error);

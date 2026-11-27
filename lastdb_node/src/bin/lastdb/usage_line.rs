@@ -9,7 +9,7 @@ use super::snapshot_line::size;
 /// the relay accepted, less what the trims and the sweeps it asked for released. They are not what the
 /// account is billed: the entries and files of another device of the owner are not in them, and a
 /// sweep also releases files that another device put.
-pub(crate) fn usage_lines(sync: &Value) -> Vec<String> {
+fn usage_lines(sync: &Value) -> Vec<String> {
     let Some(databases) = sync.get("databases").and_then(Value::as_object) else {
         return Vec::new();
     };
@@ -59,9 +59,38 @@ pub(crate) fn usage_lines(sync: &Value) -> Vec<String> {
         .collect()
 }
 
+/// One line per database whose durable upload queue is blocked behind a failed or refused entry.
+fn blocked_upload_lines(sync: &Value) -> Vec<String> {
+    let Some(databases) = sync.get("databases").and_then(Value::as_object) else {
+        return Vec::new();
+    };
+    databases
+        .iter()
+        .filter_map(|(id, database)| {
+            let blocked = database
+                .pointer("/upload/oldest_blocked")
+                .filter(|v| v.is_object())?;
+            let seq = blocked.get("writer_seq")?.as_u64()?;
+            let reason = blocked.get("reason")?.as_str()?;
+            let label = id.get(..8).unwrap_or(id);
+            Some(format!(
+                "Cloud upload blocked ({label}, entry {seq}): {reason}"
+            ))
+        })
+        .collect()
+}
+
+/// Blocked upload, usage, and relay contract lines of `lastdb status`.
+pub(crate) fn status_tail_lines(sync: &Value) -> Vec<String> {
+    let mut lines = blocked_upload_lines(sync);
+    lines.extend(usage_lines(sync));
+    lines.extend(relay_contract_line(sync));
+    lines
+}
+
 /// `Relay contract: 1.2, serves contract_probe` from `cloud_sync.relay`, once the relay answered.
 /// Features the relay does not serve follow as `does not serve ...`.
-pub(crate) fn relay_contract_line(sync: &Value) -> Option<String> {
+fn relay_contract_line(sync: &Value) -> Option<String> {
     let relay = sync.get("relay")?;
     let revision = relay.get("revision")?.as_u64()?;
     let mut line = format!("Relay contract: {}.{revision}", relay_protocol::PROTOCOL);

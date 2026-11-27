@@ -10,6 +10,7 @@ use std::path::Path;
 
 use mutation_log::{SignedEntry, StreamKind};
 
+use crate::host::cloud_sync::BlockedUploadStatus;
 use crate::host::Host;
 use crate::registered_share;
 
@@ -31,35 +32,43 @@ pub(super) async fn upload_log(
     database_id: &str,
     member: bool,
 ) -> Option<String> {
+    let owned = !member;
     let tip = member.then(|| grant_and_lease_tip(host, database_id));
     if member && publish_state::uploads_held(database_id, tip.as_deref()) {
+        if let Ok(found) = history_store::pending(&host.home, database_id, 0) {
+            let (head, confirmed) = (found.log_len as u64, found.uploaded as u64);
+            publish_state::note_pending(database_id, head.saturating_sub(confirmed));
+            host.cloud_sync
+                .refresh_upload_queue(database_id, head, confirmed);
+        }
         return None;
     }
     if member {
         if let Some(message) = cannot_deposit(host, database_id) {
             // The fact is enough: unsent entries and a role the relay takes
             // nothing from. No request is made, so there is nothing to retry.
-            let (head, confirmed) = history_store::pending(&host.home, database_id, 0)
-                .map_or((0, 0), |found| {
-                    (found.log_len as u64, found.uploaded as u64)
-                });
+            let (head, confirmed, oldest) =
+                pending_upload_state(&host.home, database_id, Some(&message));
             publish_state::note_pending(database_id, head.saturating_sub(confirmed));
-            host.cloud_sync
-                .record_upload(database_id, head, confirmed, Some(message));
+            host.cloud_sync.record_upload(
+                database_id,
+                head,
+                confirmed,
+                Some(message),
+                oldest,
+                false,
+            );
             return None;
         }
     }
     let result = drain_log(client, &host.home, database_id).await;
-    let (head, confirmed) = history_store::pending(&host.home, database_id, 0)
-        .map_or((0, 0), |found| {
-            (found.log_len as u64, found.uploaded as u64)
-        });
-    let pending = head.saturating_sub(confirmed);
-    publish_state::note_pending(database_id, pending);
     match result {
         Ok(uploaded) => {
+            let (head, confirmed, _) = pending_upload_state(&host.home, database_id, None);
+            let pending = head.saturating_sub(confirmed);
+            publish_state::note_pending(database_id, pending);
             host.cloud_sync
-                .record_upload(database_id, head, confirmed, None);
+                .record_upload(database_id, head, confirmed, None, None, owned);
             if uploaded {
                 publish_state::note_confirmed(database_id, pending);
             }
@@ -73,8 +82,17 @@ pub(super) async fn upload_log(
                 %message,
                 "the relay refused this member's entries; uploads wait"
             );
-            host.cloud_sync
-                .record_upload(database_id, head, confirmed, Some(message));
+            let (head, confirmed, oldest) =
+                pending_upload_state(&host.home, database_id, Some(&message));
+            publish_state::note_pending(database_id, head.saturating_sub(confirmed));
+            host.cloud_sync.record_upload(
+                database_id,
+                head,
+                confirmed,
+                Some(message),
+                oldest,
+                false,
+            );
             publish_state::note_failure(database_id, &err);
             publish_state::hold_uploads(database_id, tip);
             None
@@ -86,12 +104,40 @@ pub(super) async fn upload_log(
                 %err,
                 "log upload failed"
             );
-            host.cloud_sync
-                .record_upload(database_id, head, confirmed, Some(err.clone()));
+            let (head, confirmed, oldest) =
+                pending_upload_state(&host.home, database_id, Some(&err));
+            publish_state::note_pending(database_id, head.saturating_sub(confirmed));
+            host.cloud_sync.record_upload(
+                database_id,
+                head,
+                confirmed,
+                Some(err.clone()),
+                oldest,
+                owned,
+            );
             publish_state::note_failure(database_id, &err);
             Some(err)
         }
     }
+}
+
+fn pending_upload_state(
+    home: &Path,
+    database_id: &str,
+    reason: Option<&str>,
+) -> (u64, u64, Option<BlockedUploadStatus>) {
+    let Ok(found) = history_store::pending(home, database_id, 1) else {
+        return (0, 0, None);
+    };
+    let oldest = reason.and_then(|why| {
+        let first = found.batch.first()?;
+        Some(BlockedUploadStatus {
+            writer_seq: first.header().writer_seq,
+            authored_at_ms: Some(first.header().authored_at_ms),
+            reason: why.to_owned(),
+        })
+    });
+    (found.log_len as u64, found.uploaded as u64, oldest)
 }
 
 /// Upload every signed-log received database's log; record publish.lastAttempt.

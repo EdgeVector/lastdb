@@ -64,6 +64,7 @@ use zeroize::Zeroizing;
 use super::chain_author::{self, AuthorIdentity};
 use super::relay::{RelayClient, StreamHead as RelayStream};
 pub(super) use crate::database_birth::personal as birth_of;
+use crate::host::cloud_sync::is_payment_refusal;
 use crate::host::Host;
 use crate::personal_identity;
 use crate::personal_seal::Sealer;
@@ -200,27 +201,13 @@ async fn run_turn(host: &Arc<Host>, client: &RelayClient) -> Result<(), String> 
     if !ctx.runtime.captures_accepted() {
         let error =
             "local capture is off: the node must restart with a relay configured".to_owned();
-        let status = ctx.runtime.accepted_status();
-        ctx.host.cloud_sync.record_upload(
-            &ctx.database_id,
-            status.head,
-            status.acked,
-            Some(error.clone()),
-        );
+        outgoing::record_pre_send_error(&ctx, &error);
         return Err(error);
     }
     let streams = match list_streams(&ctx, client).await {
         Ok(streams) => streams.unwrap_or_default(),
         Err(error) => {
-            if is_payment_403(&error) {
-                ctx.host
-                    .cloud_sync
-                    .record_error(crate::cloud::PAYMENT_REQUIRED_MESSAGE);
-            } else {
-                ctx.host
-                    .cloud_sync
-                    .record_download(&ctx.database_id, Some(error.clone()));
-            }
+            outgoing::record_streams_error(&ctx, &error);
             return Err(error);
         }
     };
@@ -228,24 +215,26 @@ async fn run_turn(host: &Arc<Host>, client: &RelayClient) -> Result<(), String> 
     // before anything else goes up: until it does, the spool is not read for upload.
     if ctx.runtime.accepted_status().snapshot_required {
         if let Err(error) = snapshot::run_first(&ctx, client).await {
-            let status = ctx.runtime.accepted_status();
-            ctx.host.cloud_sync.record_upload(
-                &ctx.database_id,
-                status.head,
-                status.acked,
-                Some(error.clone()),
-            );
+            outgoing::record_pre_send_error(&ctx, &error);
             return Err(error);
         }
     }
     // Read the other devices' streams and send this device's spool; neither side's error stops
-    // the other.
+    // the other, and a clean read never clears a failed or blocked upload.
     let read = incoming::run(&ctx, client, &streams).await;
-    // What the read failed with is in the status, so a device that is behind history the relay
-    // dropped after a snapshot says so there and not only in a log that carries no text.
-    ctx.host
-        .cloud_sync
-        .record_download(&ctx.database_id, read.as_ref().err().cloned());
+    match &read {
+        Ok(applied) => {
+            ctx.host
+                .cloud_sync
+                .record_download(&ctx.database_id, Some(applied.tip), None, true)
+        }
+        Err(err) => ctx.host.cloud_sync.record_download(
+            &ctx.database_id,
+            None,
+            Some(normalize_error(err)),
+            true,
+        ),
+    }
     let sent = outgoing::run(&ctx, client, &streams).await;
     // A sweep that is due or asked for runs after the send step: the relay then drops every
     // stored file that the newest snapshot and the entries after it do not name.
@@ -295,7 +284,7 @@ async fn has_any_stream_head(ctx: &Ctx<'_>) -> Result<bool, String> {
 }
 
 pub(super) fn is_unborn_403(error: &str) -> bool {
-    if !error.contains("HTTP 403") || is_payment_403(error) {
+    if !error.contains("HTTP 403") || is_payment_refusal(error) {
         return false;
     }
     error
@@ -304,13 +293,12 @@ pub(super) fn is_unborn_403(error: &str) -> bool {
         .is_some_and(|body| body["code"].as_str() == Some("forbidden"))
 }
 
-fn is_payment_403(error: &str) -> bool {
-    let body = error
-        .split_once(": ")
-        .map_or(error.as_bytes(), |(_, text)| text.as_bytes());
-    crate::cloud::is_payment_subscription_error(403, body)
-        || error.contains("payment.subscription")
-        || error.contains(crate::cloud::PAYMENT_REQUIRED_MESSAGE)
+pub(super) fn normalize_error(error: &str) -> String {
+    if is_payment_refusal(error) {
+        crate::cloud::PAYMENT_REQUIRED_MESSAGE.to_owned()
+    } else {
+        error.to_owned()
+    }
 }
 
 /// True while the spool, a snapshot request, or a sweep holds work for the sync loop.
