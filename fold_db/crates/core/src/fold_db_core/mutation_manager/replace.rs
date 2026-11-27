@@ -37,25 +37,6 @@ pub(super) async fn read_write_preimages(
     Ok(stored)
 }
 
-pub(super) fn require_contribution_definition(
-    schema: &Schema,
-    expected: &str,
-) -> Result<(), SchemaError> {
-    let wire = schema.to_wire();
-    wire.identity_hash
-        .clone()
-        .ok_or_else(|| "schema has no catalog identity".to_owned())
-        .and_then(|id| schema_types::PortableSchemaId::from_catalog(&id, wire))
-        .ok()
-        .filter(|id| id.as_str() == expected)
-        .map(|_| ())
-        .ok_or_else(|| {
-            SchemaError::InvalidField(
-                "share contribution requires the exact installed schema definition".into(),
-            )
-        })
-}
-
 pub(super) fn check_expectation(
     mutation: &Mutation,
     record: Option<&StoredRecord>,
@@ -83,12 +64,9 @@ pub(super) fn check_expectation(
         MutationType::Delete | MutationType::Purge
     ) && current.is_some_and(|r| r.is_live() && r.alternates != mutation.alternates)
     {
-        let msg = "deletion must supply the record's complete current alternate keys".into();
-        return Err(if mutation.contribution.is_some() {
-            SchemaError::InvalidField(msg)
-        } else {
-            SchemaError::InvalidData(msg)
-        });
+        return Err(SchemaError::InvalidData(
+            "deletion must supply the record's complete current alternate keys".into(),
+        ));
     }
     if mutation.erase_written_before_nanos.is_some_and(|cutoff| {
         record
@@ -150,7 +128,7 @@ pub(super) fn build_replacement(
         target: mutation.target(),
         expected: mutation.expected.clone(),
         fields,
-        metadata: replacement_metadata(mutation, live_before),
+        metadata: replacement_metadata(mutation),
         file,
         inline_file,
     };
@@ -254,18 +232,8 @@ pub(super) fn stamp_authors(
     record.updated_by = Some(writer);
 }
 
-pub(super) fn replacement_metadata(
-    mutation: &Mutation,
-    before: Option<&StoredRecord>,
-) -> Option<RecordMetadata> {
-    let copied = mutation.mutation_type == MutationType::Replace
-        && mutation
-            .contribution
-            .as_ref()
-            .is_some_and(|admission| admission.schema_scope);
-    let meta = if copied {
-        before.and_then(|record| record.meta.clone())
-    } else if mutation.source_file_name.is_some() || mutation.metadata.is_some() {
+pub(super) fn replacement_metadata(mutation: &Mutation) -> Option<RecordMetadata> {
+    let meta = if mutation.source_file_name.is_some() || mutation.metadata.is_some() {
         Some(RecordMetadata {
             source_file_name: mutation.source_file_name.clone(),
             metadata: mutation

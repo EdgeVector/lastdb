@@ -101,21 +101,12 @@ impl MutationManager {
         fill_local_writer(&self.writer_id, &mut mutations)?;
         let runtime = self.db_ops.native_runtime();
         let (mutation_ids, record_revisions) = transaction::scope(Arc::clone(&runtime), async {
-            if mutations
-                .iter()
-                .any(|mutation| mutation.contribution.is_some())
-                && mutations.len() != 1
-            {
-                return Err(SchemaError::InvalidData(
-                    "a contribution requires one native mutation".into(),
-                ));
-            }
             let explicit_ms: Vec<Option<u64>> = mutations
                 .iter()
                 .map(|m| m.imported_written_at.map(|ns| ns / 1_000_000))
                 .collect();
             let groups = self.prepare_write_groups(&mut mutations, &keys);
-            let (groups, _) = phases::step(Step::OldRecords, groups).await?;
+            let groups = phases::step(Step::OldRecords, groups).await?;
             let captured = accepted::capture_enabled(&runtime);
             let (previous, replay, stamps) = phases::step(Step::Stamps, async {
                 let previous = if captured {
@@ -126,8 +117,7 @@ impl MutationManager {
                 } else {
                     None
                 };
-                let _ = self
-                    .prepare_mutation_author_clocks(&mut mutations, previous.as_ref(), captured)
+                self.prepare_mutation_author_clocks(&mut mutations, previous.as_ref(), captured)
                     .await?;
                 let replay = self.local_replay_stamps(&mutations, previous.as_ref(), captured)?;
                 let listed: Vec<_> = mutations
@@ -168,7 +158,7 @@ impl MutationManager {
             .await?;
             let ids = mutations.iter().map(|m| m.uuid.clone()).collect();
             let staged = self.stage_prepared_groups(groups, mutations, stamps, replay);
-            let _ = phases::step(Step::Stage, staged).await?;
+            phases::step(Step::Stage, staged).await?;
             Ok::<_, SchemaError>((ids, revs))
         })
         .await?;

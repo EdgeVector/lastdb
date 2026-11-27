@@ -3,7 +3,7 @@
 use super::read::{NativeRows, ReadContext};
 use super::transaction::traits::{KvMutation, YieldedScan};
 use super::*;
-use crate::storage::format::{NAMESPACES, RECORD_FILE_PREFIX, REGISTRY};
+use crate::storage::format::{RECORD_FILE_PREFIX, REGISTRY};
 use lastdb_model::schema::types::field::FilterUtils;
 use serde::de::DeserializeOwned;
 use std::collections::BTreeMap;
@@ -79,62 +79,21 @@ fn decode_rows(rows: NativeRows) -> ScanRes {
 }
 
 impl PackNamespacedStore {
-    pub(crate) async fn open_namespace(&self, name: &str) -> StorageResult<PackKvStore> {
+    pub(crate) fn open_namespace(&self, name: &str) -> StorageResult<PackKvStore> {
         if name.len() > 65531 || name == REGISTRY {
             let msg = "namespace exceeds format limit or uses the reserved registry identity";
             return Err(StorageError::invalid(msg));
         }
-        self.runtime.open_store(name).await
+        Ok(self.runtime.open_store(name))
     }
 }
 
 impl PackRuntime {
-    /// Ensure the registry row of namespace `name` exists. No code deletes a registry row
-    /// and a restore opens a new runtime, so a row known to be committed is not read again.
-    /// A row staged only in the caller's open batch is not cached; a row in a queued batch is.
-    async fn ensure_namespace(self: &Arc<Self>, name: &str) -> StorageResult<()> {
-        if self
-            .known_namespaces
-            .lock()
-            .is_ok_and(|known| known.contains(name))
-        {
-            return Ok(());
-        }
-        let key = format!("{NAMESPACES}{name}");
-        let ctx = ReadContext::current(self).await?;
-        let pending = transaction::PendingBatch::current(self);
-        let staged_here = pending
-            .as_ref()
-            .is_some_and(|batch| batch.lookup(REGISTRY, &key).is_some());
-        let known = if self.raw_many(&ctx, &[(REGISTRY.into(), key.clone())], pending.as_ref())?[0]
-            .is_none()
-        {
-            self.mutate(vec![HomeMutation::new(REGISTRY, key, Some(vec![1]))])
-                .await?;
-            // Outside a batch the write above committed; inside one it is only staged.
-            pending.is_none()
-        } else {
-            !staged_here
-        };
-        if known {
-            if let Ok(mut set) = self.known_namespaces.lock() {
-                set.insert(name.to_owned());
-            }
-        }
-        Ok(())
-    }
-
-    pub(in crate::storage) async fn open_store(
-        self: &Arc<Self>,
-        name: &str,
-    ) -> StorageResult<PackKvStore> {
-        if ReadContext::captured(self).is_none() {
-            self.ensure_namespace(name).await?;
-        }
-        Ok(PackKvStore {
+    pub(in crate::storage) fn open_store(self: &Arc<Self>, name: &str) -> PackKvStore {
+        PackKvStore {
             runtime: Arc::clone(self),
             namespace: name.into(),
-        })
+        }
     }
 
     pub(in crate::storage) fn stage_record_file_deletes(
@@ -200,9 +159,9 @@ fn plan_mutations(
             }
             // No existence read: a delete of an absent key is one tombstone, and no read or
             // range returns a tombstone as a value.
-            KvMutation::Trim { .. } => {
+            KvMutation::Trim { hides, .. } => {
                 present.insert(coord.clone(), None);
-                out.push(HomeMutation::new(coord.0, coord.1, None));
+                out.push(HomeMutation::new(coord.0, coord.1, None).with_hides(hides));
             }
         }
     }
@@ -268,7 +227,6 @@ impl PackKvStore {
     ) -> StorageResult<()> {
         let rt = Arc::clone(&self.runtime);
         transaction::scope(Arc::clone(&rt), async {
-            rt.ensure_namespace(&self.namespace).await?;
             let ctx = ReadContext::current(&rt).await?;
             let pending = transaction::PendingBatch::current(&rt);
             let (ns, plan_rt) = (self.namespace.clone(), Arc::clone(&rt));

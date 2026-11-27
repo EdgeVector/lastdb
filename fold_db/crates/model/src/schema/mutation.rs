@@ -139,17 +139,6 @@ impl fmt::Debug for FileWrite {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ContributionAdmission {
-    pub definition_id: String,
-    pub receipt_id: [u8; 32],
-    pub intent_digest: [u8; 32],
-    pub writer: String,
-    pub schema_scope: bool,
-    /// True when the authenticated operation originally created the record.
-    pub creates_record: bool,
-}
-
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum MutationType {
@@ -181,7 +170,6 @@ pub struct Mutation {
     pub file_write: Option<FileWrite>,
     pub inline_write: Option<crate::record_value::InlineWrite>,
     pub definition_id: Option<String>,
-    pub contribution: Option<ContributionAdmission>,
 }
 
 impl Mutation {
@@ -212,7 +200,6 @@ impl Mutation {
             file_write: None,
             inline_write: None,
             definition_id: None,
-            contribution: None,
         }
     }
 

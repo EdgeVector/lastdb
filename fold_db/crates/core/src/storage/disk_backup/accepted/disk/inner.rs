@@ -2,7 +2,7 @@
 
 use super::super::{Entry, EntryFile, Error, Frontiers, Status};
 use super::types::{sha_ok, Meta, Note, State, STATE_VERSION};
-use super::{files, store, Change, Inner, Planned, TRIM_EVERY};
+use super::{files, store, Change, Inner, Planned};
 use crate::storage::disk_pack::physical::V2Home;
 use crate::storage::error::StorageResult;
 use laststore::disk_run::home::HomeMutation;
@@ -49,13 +49,10 @@ impl Inner {
                     self.retained = self.retained.saturating_add(*weight);
                 }
                 self.head = entries.last().map_or(acked, |entry| entry.0);
-                self.ids = store::count_ids(physical)?;
             }
         }
         let acked = self.state.as_ref().map_or(0, |state| state.acked);
         files::sweep(dir, acked, self.head)?;
-        // Trim the id records at the first acknowledgement after a start.
-        self.since_trim = TRIM_EVERY;
         Ok(())
     }
 
@@ -86,8 +83,6 @@ impl Inner {
             }
             let meta = Meta {
                 sequence,
-                mutation_id: note.mutation_id.clone(),
-                plaintext_sha256: note.plaintext_sha256.clone(),
                 file_sha256: note.file.as_deref().map(lastdb_model::hex::sha256_hex),
                 file_bytes: note.file.as_ref().map_or(0, Vec::len) as u64,
             };
@@ -95,7 +90,6 @@ impl Inner {
                 planned.files.push(files::write(dir, sequence, file)?);
             }
             ops.push(store::entry_op(&meta, &note.envelope)?);
-            ops.extend(store::id_ops(&meta));
             planned.last = sequence;
         }
         Ok(())
@@ -107,9 +101,6 @@ impl Inner {
             ops,
             state,
             released: 0,
-            acknowledged: 0,
-            trimmed: 0,
-            did_trim: false,
             remove: Vec::new(),
             clears: false,
         })
@@ -147,7 +138,7 @@ pub(super) fn read_page(
     let mut items = Vec::new();
     let mut held = 0u64;
     let budget = lastdb_model::storage_policy::native_write::LOCAL_FILE_INPUT_MEMORY_BYTES;
-    for (meta, signed) in store::read_entries(physical, after + 1, last)? {
+    for (meta, signed, _) in store::read_entries(physical, after + 1, last)? {
         let weight = meta.weight(signed.len());
         if !items.is_empty() && held.saturating_add(weight) > budget {
             break;

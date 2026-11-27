@@ -100,7 +100,7 @@ impl Metadata {
     pub(in crate::storage) async fn fork_restored_author(
         runtime: &Arc<PackRuntime>,
     ) -> StorageResult<()> {
-        let store = runtime.open_store(METADATA_NAMESPACE).await?;
+        let store = runtime.open_store(METADATA_NAMESPACE);
         let prev = decode_author(store.get(LOCAL_AUTHOR_KEY.as_bytes()).await?.as_deref())?;
         let mut next = decode_author(Some(&initial_local_author(uuid::Uuid::new_v4())?))?;
         next.clock_floor_ms = prev.clock_floor_ms.max(prev.progress.applied_through_ms);

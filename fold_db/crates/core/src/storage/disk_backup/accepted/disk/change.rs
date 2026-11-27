@@ -3,7 +3,7 @@
 use super::super::{Error, Frontiers};
 use super::types::{State, STATE_VERSION};
 use super::upload::{Checkpoint, UploadIdentity, UploadPosition};
-use super::{files, inner::fresh, store, Change, Log, CLEAR_PART, IDS_KEPT, TRIM_EVERY};
+use super::{files, inner::fresh, store, Change, Log, CLEAR_PART};
 use crate::storage::disk_pack::physical::V2Home;
 use crate::storage::error::StorageResult;
 use laststore::disk_run::home::HomeMutation;
@@ -174,31 +174,17 @@ impl Log {
         let mut ops = Vec::new();
         let mut released = 0u64;
         let mut remove = Vec::new();
-        for (meta, signed) in store::read_entries(physical, after + 1, through)? {
+        for (meta, signed, encoded_bytes) in store::read_entries(physical, after + 1, through)? {
             released = released.saturating_add(meta.weight(signed.len()));
             if meta.file_sha256.is_some() {
                 remove.push(files::path(&self.files, meta.sequence));
             }
-            ops.push(store::delete_entry_op(meta.sequence));
-        }
-        let moved = through - after;
-        let mut trimmed = 0;
-        let mut did_trim = false;
-        let trim_due = inner.since_trim.saturating_add(moved) >= TRIM_EVERY
-            || inner.ids > IDS_KEPT + TRIM_EVERY;
-        if trim_due && through > IDS_KEPT {
-            let trim = store::trim_id_ops(physical, through - IDS_KEPT)?;
-            trimmed = trim.len() as u64 / 2;
-            did_trim = trimmed < store::TRIM_MAX as u64;
-            ops.extend(trim);
+            ops.push(store::delete_entry_op(meta.sequence, encoded_bytes));
         }
         state.acked = through;
         state.upload = Some(Checkpoint::new(identity, position));
         let mut change = inner.change(state, ops)?;
         change.released = released;
-        change.acknowledged = moved;
-        change.trimmed = trimmed;
-        change.did_trim = did_trim;
         change.remove = remove;
         Ok(change)
     }
@@ -238,17 +224,9 @@ impl Log {
             // The numbers start again, so an earlier flush covers none of them.
             self.flushed.store(0, std::sync::atomic::Ordering::Release);
             inner.retained = 0;
-            inner.since_trim = 0;
-            inner.ids = 0;
             inner.blocked = false;
         } else {
             inner.retained = inner.retained.saturating_sub(change.released);
-            inner.ids = inner.ids.saturating_sub(change.trimmed);
-            inner.since_trim = if change.did_trim {
-                0
-            } else {
-                inner.since_trim.saturating_add(change.acknowledged)
-            };
             inner.head = inner.head.max(inner.state.as_ref().map_or(0, |s| s.acked));
         }
         let (acked, head) = (inner.state.as_ref().map_or(0, |s| s.acked), inner.head);

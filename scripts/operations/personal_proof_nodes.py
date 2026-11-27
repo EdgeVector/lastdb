@@ -40,11 +40,6 @@ MEBIBYTE = 1024 * 1024
 MEMORY_GROWTH_BYTES = 256 * MEBIBYTE
 MEMORY_BOUND_BYTES = 1536 * MEBIBYTE
 BATCH = 200
-# The spool keeps one small id record for each of the newest writes (IDS_KEPT in
-# fold_db/.../accepted/disk/recover/files.rs) and trims every IDS_TRIM_EVERY acknowledged entries
-# (TRIM_EVERY in recover.rs), so the directory never holds much more than the sum.
-IDS_KEPT, IDS_TRIM_EVERY = 10_000, 2_500
-IDS_BOUND = IDS_KEPT + IDS_TRIM_EVERY + 500
 
 
 def wait(what, probe, seconds=WAIT_SECONDS):
@@ -243,11 +238,6 @@ class Device:
         if report is None or report.get("uploaded_writer_seq") is None:
             return None
         return {"writer_seq": report["uploaded_writer_seq"]}
-
-    def id_records(self):
-        """How many id records the spool holds: one for each recent accepted write."""
-        report = self.spool_state()
-        return 0 if report is None else report["id_records"]
 
     def spool_bytes(self):
         """Bytes the spool holds: the entries still to send with their sealed files, twice, for the

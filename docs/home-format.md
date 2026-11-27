@@ -42,20 +42,23 @@ stream, while `accepted-files/` and `log-sync/` stay outside the snapshot.
 <home>/
   identity.key               the node seed, 32 bytes. Never leaves the device.
   cloud-credentials.json     the saved relay connection (Exemem)
+  ops-history/
+    ops-<unix_secs>.jsonl    local request history lines written once a minute. Not in a snapshot.
   databases/
     registry.json            the owned databases on this node: id, name, kind, spec, lease length
     <id>/data/               each owned sibling database's store (same run/cas layout, no sockets)
-  managed-shares/
+  received-shares-v1/
     <id>/                    a received database registration, snapshot-absent, and log/ store
   data/
     laststore-pack-node-v1   [S] 37 bytes: format=15, home=disk-run, cas=disk-cas
-    disk-run/                    the record store, one laststore run home
+    disk-run/                    the record store, one laststore run home (opened logged)
       laststore-run-home-v2  [S] 64-byte clear descriptor: magic, home id, CRC
       CURRENT                [S] sealed list of the live runs, and the frontier
       runs/<run id>.ldrun    [S] immutable run files
+      commit-log/<seq>.log       local commit-log frames; sealed into runs + CURRENT before a snapshot
       LOCK                       owner lock
       accepted-files/            sealed files of spool entries not yet sent, one `<seq>.bin` each. Not in a snapshot.
-    disk-cas/                [S] the file blob store, the same shape as disk-run
+    disk-cas/                [S] the file blob store, opened unlogged (runs + CURRENT only)
     local-file-refs.json         files that records hold by path
     app-grants.json              local app grants
     folddb.sock, apps.sock       the daemon's sockets
@@ -65,12 +68,9 @@ stream, while `accepted-files/` and `log-sync/` stay outside the snapshot.
     <database id>/
       birth.json               birth salt, signature, and author time for an owned shareable database
       cloud-usage.json         cumulative relay request and byte counts for the database
-      segment.out              transient: the log segment of one upload, removed after it
       incoming/                sealed blobs downloaded while applying another device's stream
       snapshot-last.json       the last snapshot this device published
       snapshot-known.json      what `lastdb status` prints
-      snapshot-manifest, .snapshot-manifest
-                               transient manifest upload / restore scratch files
       snapshot-request, -result, -error
       snapshot-unverified      a snapshot entry is on the relay and its files are not checked yet
       reclaim-due.json         a sweep of the relay is due for one snapshot
@@ -81,11 +81,12 @@ stream, while `accepted-files/` and `log-sync/` stay outside the snapshot.
                                shared databases only
 ```
 
-`accepted-files/` sits inside `disk-run/` beside `runs/` and is not part of a
-snapshot; the spool's `accepted_*` collections live in `disk-run` runs and are
-cleared on restore before the new device signs. A snapshot names the marker,
-and the descriptor, `CURRENT` and run files of both run homes. It names nothing
-else.
+`commit-log/` and `accepted-files/` sit inside `disk-run/` beside `runs/` and
+are not part of a snapshot: a snapshot first seals `commit-log/` into `.ldrun`
+files and `CURRENT`, while the spool's `accepted_entries` and `accepted_state`
+collections live in `disk-run` runs and are cleared on restore before the new
+device signs. A snapshot names the marker, and the descriptor, `CURRENT` and run
+files of both run homes. It names nothing else.
 
 Every key comes from the node seed in `identity.key`, which is also what the
 recovery phrase encodes: the node key, the personal database id, the read key
@@ -140,7 +141,7 @@ relay are the ones named by content (the SHA-256 of the stored bytes).
 | `__content_key_proof_v1` | A sealed constant. | Proves the content key at open. |
 
 The head row and the record are one store transaction. "Accepted" and
-"applied" are therefore one fact, and a restart replays nothing.
+"applied" are therefore one fact, and sync replays no stream entries on restart.
 
 A write made on this device becomes the next entry of the device's stream in
 the transaction that commits it. Its order value is the millisecond of its
@@ -169,60 +170,67 @@ acknowledge.
 
 The schema definitions the database uses, and their retention (TTL) state.
 
-## A run file
+## A run file and the commit log
 
 - A run is one immutable file of rows in ascending key order. A row is a key
   and a value, or a key and a tombstone.
 - Each block is compressed with zstd when that makes it smaller, then sealed
   with AES-256-GCM. The block key comes from the home key and the run id. So a
   run file goes to the relay as it is, with no second sealing.
-- A commit writes one new run, makes it durable, then publishes a new
-  `CURRENT` by rename. A read holds one `CURRENT` for its whole call. Nothing
-  replays at open.
+- `disk-run` opens with a commit log (`RunHome::open_logged`): each commit
+  appends one encrypted frame to `commit-log/<seq>.log` with one ordered flush
+  and adds the commit to the in-memory layer. At open, frames above `CURRENT`'s
+  frontier replay into memory and retired `.log` files already covered by
+  `CURRENT` are unlinked. Background sealing, explicit cleanup, snapshots, and a
+  clean stop (`close_log`) write the logged commits into a sorted `.ldrun` and
+  publish `CURRENT` by rename.
+- `disk-cas` opens unlogged (`RunHome::open`): each commit writes a sorted
+  `.ldrun`, makes it durable, and publishes `CURRENT` by rename directly. A read
+  holds one published root (`CURRENT` plus any memory layer) for its whole call.
 - Eight runs of one level merge into one. Run files grow over time, and a
   snapshot uploads only the files that the relay does not hold (it asks the
-  relay with `blob.list`). After the snapshot is named, the relay drops the
+  relay with `blob/list`). After the snapshot is named, the relay drops the
   files that only an older snapshot named.
 - A lookup reads the footer and the top block, one index block and one data
   block. A home keeps at most 32 run readers open. A reader holds no record.
 
-## The spool (the cloud log)
+## The spool
 
-- The spool is the cloud log: this device's signed stream on its way to the
-  cloud. The node writes it and does not read it back for a check. The one
-  read of a finished entry is the sender's, and that read is the upload. The
-  code and the status fields keep the name spool (`spool_head`,
-  `spool_confirmed_through`).
+- The spool is this device's signed stream on its way to the relay. The node
+  writes it and does not read it back for a check. The one read of a finished
+  entry is the sender's, and that read is the upload. Status fields keep the
+  name (`spool_head`, `spool_confirmed_through`).
 - Every commit of a captured home puts one entry in the spool before the
   caller is told. One write is one entry. A schema put or drop is an entry.
-- The spool is records in the main home, written in the same commit as the
-  write they describe, so a write and its entry become durable together:
+- The spool is records in `disk-run`, written in the same commit as the write
+  they describe, so a write and its entry become durable together:
   - `accepted_entries/<seq>`: the signed entry of the device stream, as the
-    bytes the relay stores, after a short note (mutation id, plaintext SHA-256,
-    sealed file SHA-256 and length). The key is the sequence as 20 digits.
-  - `accepted_ids/<mutation id>` and `accepted_id_order/<seq>`: the newest
-    10,000 mutation ids with the plaintext SHA-256 of each body, plus every id
-    not yet acknowledged. The write path does not read them. A captured
-    write's id is new by construction: a record write carries a fresh id that
-    the node made, and a schema put or drop names its author millisecond,
-    which is above that of every earlier entry. A commit that repeats an id in
-    the same batch, or one held by a queued write, is refused before the
-    stream moves.
+    bytes the relay stores, after a short header (`sequence`, optional sealed
+    `file_sha256`, and `file_bytes`; unknown fields from older builds are
+    ignored on read). The key is the sequence as 20 digits.
   - `accepted_state/state`: the acknowledged position, the upload position
     that confirms it (one record, so the two are one write), `snapshot_required`
     and the frontier when the stream started. The head is the last entry, or the
     acknowledged position when no entry is left.
+  - A captured write's mutation id is new by construction: a record write
+    carries a fresh UUIDv4 that the node made, and a schema put or drop names
+    its author millisecond, which is above that of every earlier entry. A commit
+    that repeats an id in the same batch, or one held by a queued write, is
+    refused in memory before the stream moves. Legacy `accepted_ids` and
+    `accepted_id_order` rows from earlier builds are no longer written, and a
+    restore reset still clears them if present.
 - The sealed file that an entry names stays a file, `accepted-files/<seq>.bin`,
   because it can be larger than a record. It is written in order before the
   commit of its entry. A file that a write links by its path is read once, at
   the commit. Sealed files count toward the size limit of the spool (1 GiB).
 - The store makes the entry in the commit: the host gives it an author that
   seals with the database read key and signs with the node key. The sender
-  flushes the drive to the medium, reads a page of entries, sends the files and
-  then the entries, and when the relay acknowledges, one commit moves the
-  acknowledged position, records the upload position and deletes the sent
-  entries. Their files are removed after that commit; an open removes any file
-  outside the spool. The sender signs nothing, and a retry sends the same bytes.
+  flushes the drive to the medium, reads a page of entries, uploads any named
+  blobs and packs the signed entries into a log segment for the relay, and when
+  the relay acknowledges, one commit moves the acknowledged position, records
+  the upload position and deletes the sent entries. Their files are removed
+  after that commit; an open removes any file outside the spool. The sender
+  signs nothing, and a retry sends the same entries.
 - A home captures exactly when something sends the spool: it has a relay, it
   already has a spool, or it is a restore.
 - A spool that has recorded no write starts at the head of its device's chain
@@ -249,33 +257,35 @@ The schema definitions the database uses, and their retention (TTL) state.
 
 ## What an acknowledgement means
 
-- A commit writes its run file, then `CURRENT`, and syncs each one and its
-  folder in that order. On macOS each sync is an ordered write
-  (`F_BARRIERFSYNC`): the bytes are on the drive and stay in order with later
-  writes, and the drive's cache is not emptied. On Linux each sync is
+- In `disk-run`, a commit appends one frame to `commit-log/<seq>.log` and
+  syncs that file in order; sealing and `disk-cas` commits write `.ldrun` and
+  `CURRENT`, syncing each file and folder in order. On macOS each sync is an
+  ordered write (`F_BARRIERFSYNC`): the bytes are on the drive and stay in order
+  with later writes, and the drive's cache is not emptied. On Linux each sync is
   `fdatasync`.
 - So a crash of LastDB or of the operating system loses no acknowledged write.
   A sudden power cut on macOS can lose the newest acknowledged writes that are
   still in the drive's cache, in order: the store is never torn, and a write
   and its spool entry are lost together.
 - Nothing that a power cut can still take leaves the machine. Before the sender
-  reads a page of entries, before a snapshot is cut, and before a flush receipt,
-  the drive is flushed to the medium (`F_FULLFSYNC` on macOS). The sender skips
-  the flush when an earlier flush already covered every entry up to the spool's
-  head.
-- The files under `log-sync/` that only signal or count wait for less. A
-  write wakes the sync loop inside the daemon and touches no file. `wake` is an
-  empty marker with no flush that only the `lastdb` command creates. The
-  segment a sender stages before its upload has no flush, because the next turn
-  builds it again from the spool. `cloud-usage.json` is an ordered write and a
-  rename, so a power cut can lose its newest count but never tear it. A shared
-  database's upload cursor (`uploaded.json`) is an ordered write too: a cursor
-  set back only sends entries again, and the relay answers `duplicate`.
+  reads a page of entries, before a synced or preserved initial snapshot leaves
+  the machine, and before a flush receipt, the drive is flushed to the medium
+  (`F_FULLFSYNC` on macOS). The sender skips the flush when an earlier flush
+  already covered every entry up to the spool's head.
+- The files under `log-sync/` and `ops-history/` that only signal or count wait
+  for less. A write wakes the sync loop inside the daemon and touches no file.
+  `wake` is an empty marker with no flush that only the `lastdb` command
+  creates. `ops-history/` appends once a minute without a drive flush.
+  `cloud-usage.json` is an ordered write and a rename, so a power cut can lose
+  its newest count but never tear it. A shared database's upload cursor
+  (`uploaded.json`) is an ordered write too: a cursor set back only sends
+  entries again, and the relay answers `duplicate`.
 
 ## What a snapshot is
 
-- The files marked `[S]` above, pinned at one instant, each uploaded as one
-  blob named by its SHA-256, and a manifest that lists them.
+- The files marked `[S]` above, pinned at one instant (after sealing
+  `disk-run/commit-log/` into `.ldrun` + `CURRENT`), each uploaded as one blob
+  named by its SHA-256, and a manifest that lists them.
 - A signed `snapshot` entry that names the manifest and, for each device
   stream, the last entry the files hold. Those positions are the head rows as
   they were at the same instant.
@@ -298,11 +308,11 @@ one is.
 
 | Name in code or on the wire | What it is |
 |---|---|
-| `accepted_*` collections, `accepted-files`, "accepted stream", "upload queue" | The spool. |
+| `accepted_entries`, `accepted_state`, `accepted-files`, "accepted stream", "upload queue" | The spool. |
 | `node_key` | The owner's key. It comes from the recovery phrase and is the same on every device of the owner. |
 | `device_id` | The id of one stream. One per installation, plus two that are no device: the birth stream and the snapshot stream of a personal database, both derived from the seed. |
 | `lamport` | The order value: the commit time in milliseconds, raised to one more than the highest value the device has seen. Not a Lamport counter. |
-| `signed-replay-*` | The rows for sync positions and the last-writer rule. Nothing replays at restart. |
+| `signed-replay-*` | The rows for sync positions and the last-writer rule. Sync replays no stream entries on restart. |
 | `disk-cas`, `cas_blobs` | The file blob store. Keyed by record and write. |
 | `portable-local-author` | The local author stream. The other `portable-*` keys are retired and the store refuses them. |
 | `folddb.sock` | The owner socket of the daemon. |

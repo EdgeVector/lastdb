@@ -7,14 +7,12 @@ use crate::storage::disk_pack::physical::V2Home;
 use laststore::disk_run::home::{HomeMutation, ReadBudget};
 
 /// One record per entry, key the sequence as 20 digits so key order is sequence order.
-pub(super) const ENTRIES: &str = "accepted_entries";
-/// One record per recent mutation id: the plaintext SHA-256 of its write. The write path does
-/// not read these: the cloud log is not read back for a check.
-pub(super) const IDS: &str = "accepted_ids";
-/// One record per recent mutation id by sequence, so the oldest ids can be found and trimmed.
-pub(super) const ID_ORDER: &str = "accepted_id_order";
+const ENTRIES: &str = "accepted_entries";
+/// Legacy write-only id collections from earlier builds, still cleared on reset/restore.
+const IDS: &str = "accepted_ids";
+const ID_ORDER: &str = "accepted_id_order";
 /// The spool's state row.
-pub(super) const STATE: &str = "accepted_state";
+const STATE: &str = "accepted_state";
 const STATE_KEY: &str = "state";
 
 /// The collections a reset empties. The state row is not deleted: the reset writes a new one.
@@ -25,10 +23,8 @@ const ALL: &[u8] = &[0xff];
 
 /// Records read in one page of a range.
 const PAGE: usize = 1024;
-/// Id records one trim removes at most.
-pub(super) const TRIM_MAX: usize = 4_096;
 
-pub(super) fn seq_key(sequence: u64) -> String {
+fn seq_key(sequence: u64) -> String {
     format!("{sequence:020}")
 }
 
@@ -144,13 +140,13 @@ pub(super) fn list_entries(physical: &V2Home) -> Result<Vec<(u64, Meta, u64)>, E
     Ok(out)
 }
 
-/// The entries with sequence in `first..=last`, each with its signed bytes. A missing entry is
-/// a gap.
+/// The entries with sequence in `first..=last`, each with its signed bytes and stored byte size.
+/// A missing entry is a gap.
 pub(super) fn read_entries(
     physical: &V2Home,
     first: u64,
     last: u64,
-) -> Result<Vec<(Meta, Vec<u8>)>, Error> {
+) -> Result<Vec<(Meta, Vec<u8>, u64)>, Error> {
     if last < first {
         return Ok(Vec::new());
     }
@@ -158,12 +154,13 @@ pub(super) fn read_entries(
     let mut out = Vec::with_capacity(keys.len());
     for (sequence, found) in (first..=last).zip(get_many(physical, ENTRIES, &keys)?) {
         let value = found.ok_or(Error::Gap)?;
+        let encoded_bytes = value.len() as u64;
         let (meta, signed) = decode_entry(&value).ok_or(Error::Gap)?;
         if meta.sequence != sequence {
             return Err(Error::Gap);
         }
         let signed = signed.to_vec();
-        out.push((meta, signed));
+        out.push((meta, signed, encoded_bytes));
     }
     Ok(out)
 }
@@ -173,8 +170,8 @@ pub(super) fn entry_op(meta: &Meta, signed: &[u8]) -> Result<HomeMutation, Error
     Ok(put(ENTRIES, seq_key(meta.sequence), value))
 }
 
-pub(super) fn delete_entry_op(sequence: u64) -> HomeMutation {
-    delete(ENTRIES, seq_key(sequence))
+pub(super) fn delete_entry_op(sequence: u64, hides: u64) -> HomeMutation {
+    delete(ENTRIES, seq_key(sequence)).with_hides(hides)
 }
 
 /// The sequence number of the newest entry of a device's chain: the row `chain_key` of the
@@ -207,52 +204,12 @@ pub(super) fn has_any_stream_head(physical: &V2Home) -> Result<bool, Error> {
     Ok(found)
 }
 
-/// How many id records the store holds.
-pub(super) fn count_ids(physical: &V2Home) -> Result<u64, Error> {
-    let mut count = 0u64;
-    range(physical, ID_ORDER, b"", ALL, |_, _| {
-        count += 1;
-        Ok(true)
-    })?;
-    Ok(count)
-}
-
-pub(super) fn id_ops(meta: &Meta) -> [HomeMutation; 2] {
-    [
-        put(
-            IDS,
-            meta.mutation_id.clone(),
-            meta.plaintext_sha256.clone().into_bytes(),
-        ),
-        put(
-            ID_ORDER,
-            seq_key(meta.sequence),
-            meta.mutation_id.clone().into_bytes(),
-        ),
-    ]
-}
-
-/// Deletes of the id records of the oldest writes with sequence at most `through`, at most
-/// `TRIM_MAX` of them.
-pub(super) fn trim_id_ops(physical: &V2Home, through: u64) -> Result<Vec<HomeMutation>, Error> {
-    let mut ops = Vec::new();
-    let end = seq_key(through.saturating_add(1));
-    range(physical, ID_ORDER, b"", end.as_bytes(), |key, value| {
-        let id = String::from_utf8(value).map_err(|_| Error::Gap)?;
-        ops.push(delete(IDS, id));
-        ops.push(delete(ID_ORDER, key));
-        // One trim stays well inside the operations of one commit; the next trim goes on.
-        Ok(ops.len() < 2 * TRIM_MAX)
-    })?;
-    Ok(ops)
-}
-
-/// Deletes of every spool record but the state row.
+/// Deletes of every spool record (including legacy id records) except the state row.
 pub(super) fn clear_ops(physical: &V2Home) -> Result<Vec<HomeMutation>, Error> {
     let mut ops = Vec::new();
     for collection in CLEARED {
-        range(physical, collection, b"", ALL, |key, _| {
-            ops.push(delete(collection, key));
+        range(physical, collection, b"", ALL, |key, value| {
+            ops.push(delete(collection, key).with_hides(value.len() as u64));
             Ok(true)
         })?;
     }

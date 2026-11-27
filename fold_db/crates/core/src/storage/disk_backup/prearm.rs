@@ -35,7 +35,8 @@ pub(super) fn stage_and_pin(runtime: &PackRuntime, log: &Log, key: &[u8; 32]) ->
         let change = log
             .pin_initial_frontier(frontier)
             .map_err(accepted::storage)?;
-        log.apply(change, |ops| runtime.commit(ops))
+        log.apply(change, |ops| runtime.commit(ops))?;
+        laststore::flush_drive(physical.path()).map_err(map)
     };
     if let Some(saved) = open(physical, key)? {
         if saved.native_frontier == frontier {

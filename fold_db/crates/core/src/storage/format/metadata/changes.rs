@@ -17,6 +17,8 @@ use serde::{Deserialize, Serialize};
 pub const CHANGES_KEEP: u64 = 250_000;
 /// Most entries one read examines.
 pub const CHANGES_PAGE: usize = 500;
+/// Estimated JSON value size of a trimmed `changes:` row.
+const TRIM_HIDES_BYTES: u64 = 64;
 
 /// One record a write changes: its schema, its key, and whether the write deletes it.
 pub(crate) type ChangedKey<'a> = (&'a str, &'a KeyValue, bool);
@@ -91,7 +93,10 @@ pub(super) fn append_rows(
             .map_err(|e| StorageError::SerializationError(format!("encode change: {e}")))?;
         rows.push(KvMutation::put(entry_key(stream, seq), bytes));
         if seq > CHANGES_KEEP {
-            rows.push(KvMutation::trim(entry_key(stream, seq - CHANGES_KEEP)));
+            rows.push(KvMutation::trim(
+                entry_key(stream, seq - CHANGES_KEEP),
+                TRIM_HIDES_BYTES,
+            ));
         }
     }
     Ok(())

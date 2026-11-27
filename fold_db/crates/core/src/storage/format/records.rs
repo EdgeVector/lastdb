@@ -61,8 +61,8 @@ pub(crate) struct RecordFormat {
 }
 
 impl RecordFormat {
-    async fn cas(&self) -> StorageResult<PackKvStore> {
-        self.runtime.open_store(CAS_COLLECTION).await
+    fn cas(&self) -> PackKvStore {
+        self.runtime.open_store(CAS_COLLECTION)
     }
 
     pub(crate) fn reader(&self) -> ReadStore {
@@ -133,7 +133,7 @@ impl RecordFormat {
         file_marker: &FileMarker,
     ) -> Result<Option<Vec<u8>>, FoldDbError> {
         let path = record_file_path(key, version)?;
-        let Some(row) = self.cas().await?.get(path.as_bytes()).await? else {
+        let Some(row) = self.cas().get(path.as_bytes()).await? else {
             return Ok(None);
         };
         decrypt_file_row(&self.content_key, file_marker, &row).map(Some)
@@ -215,7 +215,7 @@ impl RecordFormat {
         let (puts, deletes, refs) = encode_files(&self.issuer, &self.content_key, files)?;
         self.main.batch_mutate(main).await?;
         if !puts.is_empty() {
-            self.cas().await?.batch_mutate(puts).await?;
+            self.cas().batch_mutate(puts).await?;
         }
         if !deletes.is_empty() {
             self.runtime.stage_record_file_deletes(&deletes)?;

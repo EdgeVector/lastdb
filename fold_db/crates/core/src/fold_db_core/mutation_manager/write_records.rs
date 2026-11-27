@@ -2,16 +2,12 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 
 use lastdb_model::portable_mutation::Stamp;
 use lastdb_model::record_replacement::RecordReplacement;
 use lastdb_model::record_value::StoredRecord;
 
-use super::replace::{
-    build_replacement, check_expectation, finish_record, read_write_preimages,
-    require_contribution_definition,
-};
+use super::replace::{build_replacement, check_expectation, finish_record, read_write_preimages};
 use super::{ChangedRecord, MutationManager, ReplayStamp};
 use crate::db_operations::record_store::RecordChange;
 use crate::schema::types::schema::DeclarativeSchemaType;
@@ -125,7 +121,7 @@ impl MutationManager {
         &self,
         mutations: &mut [Mutation],
         keys: &[KeyValue],
-    ) -> Result<(Vec<PreparedGroup>, Duration), SchemaError> {
+    ) -> Result<Vec<PreparedGroup>, SchemaError> {
         let mut grouped: Vec<(String, Vec<usize>)> = Vec::new();
         let mut seen: HashMap<String, (usize, HashSet<KeyValue>)> = HashMap::new();
         for (idx, (mutation, key)) in mutations.iter().zip(keys).enumerate() {
@@ -143,16 +139,13 @@ impl MutationManager {
             grouped[*group_idx].1.push(idx);
         }
         let mut out = Vec::with_capacity(grouped.len());
-        let mut elapsed = Duration::ZERO;
         for (schema_name, indices) in grouped {
-            let started = Instant::now();
             out.push(
                 self.prepare_write_group(&schema_name, &indices, mutations, keys)
                     .await?,
             );
-            elapsed += started.elapsed();
         }
-        Ok((out, elapsed))
+        Ok(out)
     }
 
     async fn prepare_write_group(
@@ -163,12 +156,6 @@ impl MutationManager {
         keys: &[KeyValue],
     ) -> Result<PreparedGroup, SchemaError> {
         let schema = self.load_schema_for_delta(schema_name).await?;
-        if let Some(adm) = indices
-            .first()
-            .and_then(|&i| mutations[i].contribution.as_ref())
-        {
-            require_contribution_definition(&schema, &adm.definition_id)?;
-        }
         let records = self.db_ops.records();
         let mut addrs = Vec::with_capacity(indices.len());
         let mut purges = Vec::with_capacity(indices.len());
@@ -203,19 +190,16 @@ impl MutationManager {
         mutations: Vec<Mutation>,
         stamps: Vec<Stamp>,
         replay: Vec<Option<ReplayStamp>>,
-    ) -> Result<Duration, SchemaError> {
+    ) -> Result<(), SchemaError> {
         let mut items: Vec<Option<(Mutation, Stamp, Option<ReplayStamp>)>> = mutations
             .into_iter()
             .zip(stamps.into_iter().zip(replay))
             .map(|(m, (s, r))| Some((m, s, r)))
             .collect();
-        let mut elapsed = Duration::ZERO;
         for group in groups {
-            let started = Instant::now();
             self.stage_prepared_group(group, &mut items).await?;
-            elapsed += started.elapsed();
         }
-        Ok(elapsed)
+        Ok(())
     }
 
     async fn stage_prepared_group(

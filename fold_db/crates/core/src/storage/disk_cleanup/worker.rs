@@ -166,6 +166,7 @@ impl PackRuntime {
         ] {
             let (tiered_runs, merging_runs, _) = home.run_totals();
             *dst = NativeCleanupHome {
+                has_unsealed_commits: home.has_unsealed_commits(),
                 tiered_runs,
                 merging_runs,
                 held_retired_bytes: home.retired_bytes(),

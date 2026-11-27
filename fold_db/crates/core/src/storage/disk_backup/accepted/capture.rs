@@ -5,7 +5,7 @@
 //! writes its entries and never reads them back for a check: only entries of other devices are
 //! read, when they arrive (see `PackRuntime::replay_accepted`, under which nothing is captured).
 //!
-//! The mutation id of a captured write is new by construction, so the stored ids are not read:
+//! The mutation id of a captured write is new by construction, so the spool stores no id index:
 //! - a record write gets a fresh UUIDv4 from the node (`stamp_and_validate` in the app write
 //!   path, and the erase, incorporate and replay callers that build their own mutation);
 //! - a schema put or drop derives its id from the schema name, its identity, and its author
@@ -165,7 +165,7 @@ fn signed_note(
     let refused = |detail: String| {
         StorageError::InvalidOperation(format!("the write cannot be signed: {detail}"))
     };
-    let (plain, plaintext_sha256) = body::plain(body)?;
+    let plain = body::plain(body)?;
     let seq = previous
         .map_or(Some(1), |held| held.seq.checked_add(1))
         .ok_or_else(|| invalid("the device stream sequence is exhausted"))?;
@@ -180,7 +180,6 @@ fn signed_note(
     let note = Note {
         seq,
         mutation_id: mutation_id.to_owned(),
-        plaintext_sha256,
         envelope: signed.entry,
         file: sealed,
     };
@@ -199,11 +198,6 @@ async fn sign_mutation(
     admit: &impl Fn(&LocalFileReference) -> Option<PathBuf>,
     previous: Option<&LocalEntry>,
 ) -> StorageResult<(Note, LocalEntry)> {
-    if mutation.contribution.is_some() {
-        return Err(invalid(
-            "accepted personal stream does not carry share contributions",
-        ));
-    }
     let external = files::external_file(content_key, mutation, admit).await?;
     let has_file = external.plain.is_some() || external.marker.is_some();
     let sealed = external.sealed.clone();

@@ -62,6 +62,8 @@ impl NativeCleanupBoundary {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct NativeCleanupHome {
+    #[serde(skip)]
+    pub(super) has_unsealed_commits: bool,
     pub tiered_runs: usize,
     pub merging_runs: usize,
     pub held_retired_bytes: u64,
@@ -103,11 +105,13 @@ impl NativeCleanupStatus {
     }
 
     fn needs_merge(&self) -> bool {
-        (self.main.tiered_runs
-            | self.main.merging_runs
-            | self.cas.tiered_runs
-            | self.cas.merging_runs)
-            != 0
+        self.main.has_unsealed_commits
+            || self.cas.has_unsealed_commits
+            || (self.main.tiered_runs
+                | self.main.merging_runs
+                | self.cas.tiered_runs
+                | self.cas.merging_runs)
+                != 0
     }
 
     fn active(&self) -> bool {

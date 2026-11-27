@@ -29,14 +29,16 @@ A home (`disk_run::home::RunHome`) is a directory:
 <root>/LOCK                    exclusive owner lock (flock)
 <root>/CURRENT                 sealed list of runs + frontier
 <root>/runs/<run id>.ldrun     immutable run files
+<root>/commit-log/<seq>.log    encrypted commit-log frames (when opened with open_logged)
 ```
 
-- A commit writes one new run, makes it durable, then publishes a new CURRENT by rename.
-- A read holds one CURRENT for its full call, so it sees complete commits only.
-- `merge_step_with_space` merges eight runs of one level into one run, and moves old runs into the base.
+- `RunHome::open_logged` (`disk-run`): each commit appends one encrypted frame to `commit-log/<seq>.log` with one ordered flush (`F_BARRIERFSYNC` on macOS, `fdatasync` elsewhere) and records the commit in the memory layer. Background sealing, explicit cleanup, snapshots, and `close_log` write logged commits into a sorted `.ldrun` and publish `CURRENT` by rename.
+- `RunHome::open` (`disk-cas`): each commit writes one sorted `.ldrun`, makes it durable, and publishes `CURRENT` by rename without a commit log. If a prior logged owner left unsealed frames, `open` seals them and removes `commit-log/`.
+- A read holds one published root (`CURRENT` plus any unsealed memory layer) for its full call, so it sees complete commits only.
+- `merge_step_with_space` seals the commit log when ready, merges eight runs of one level into one run, and moves old runs into the base.
 - `space.rs` enforces free-space headroom, replacement reservations, and bounded file inventory across the home.
-- Automatic base compaction keeps the 1 MiB tiered-byte floor. Deleted and replaced records use a 64 KiB floor with the existing 1/8 stale-byte share.
-- At open, the owner deletes temporary files and runs that CURRENT does not name. Nothing replays.
+- Automatic base compaction keeps the 1 MiB tiered-byte floor. Deleted and replaced records use a 64 KiB floor with the 1/8 stale-byte share.
+- At open, the owner deletes temporary files and runs that `CURRENT` does not name, replays any commit-log frames above `CURRENT`'s frontier into memory, and prunes retired `.log` files already covered by `CURRENT`.
 
 ## Scope
 

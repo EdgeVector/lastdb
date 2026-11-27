@@ -4,7 +4,7 @@ import threading
 import time
 
 from personal_proof_nodes import (
-    BATCH, DELTA, EPSILON, FIELDS, IDS_BOUND, IDS_TRIM_EVERY, MEBIBYTE, MEMORY_BOUND_BYTES, MEMORY_GROWTH_BYTES,
+    BATCH, DELTA, EPSILON, FIELDS, MEBIBYTE, MEMORY_BOUND_BYTES, MEMORY_GROWTH_BYTES,
     SCALE_WAIT_SECONDS, wait)
 from personal_proof_deployed_trim import head_of, node_hex
 from record_runs import definition, require, system_seed
@@ -172,12 +172,6 @@ def scale(relay, a, b, writes):
     total, pending = a.spool_bytes()
     require(pending == 0 and total <= max(MEBIBYTE, 100 * writes),
             f"the spool of A is {total} bytes ({pending} of entries) after the relay confirmed everything")
-    # The id records of accepted writes do not grow with the writes: a retry of a write older than
-    # the newest IDS_KEPT is taken as a new write, which is what the node can promise.
-    ids, accepted = a.id_records(), a.spool_state()["head"]
-    require(ids <= IDS_BOUND and (accepted <= IDS_BOUND or ids < accepted - IDS_TRIM_EVERY),
-            f"A holds {ids} id records for {accepted} accepted writes (bound {IDS_BOUND})")
-    report["id_records"] = {"records": ids, "accepted_writes": accepted, "bound": IDS_BOUND}
     mark = len(relay.lines())
     wait("idle turns", lambda: count_turns(relay, mark) >= 4)
     reads = relay.requests_since(mark, "log/read")
@@ -186,5 +180,4 @@ def scale(relay, a, b, writes):
     print(f"10. {writes} writes: peak memory stays under {MEMORY_BOUND_BYTES // MEBIBYTE} MiB and grew at most "
           f"{MEMORY_GROWTH_BYTES // MEBIBYTE} MiB from a quarter of them; the spool is {total} bytes; "
           "idle turns read no entry", flush=True)
-    print(f"    the spool holds {ids} id records for {accepted} accepted writes", flush=True)
     return report

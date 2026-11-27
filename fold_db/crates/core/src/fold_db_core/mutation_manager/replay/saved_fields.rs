@@ -52,7 +52,7 @@ pub(super) fn saved_from_mutation(
         alternates,
         writer,
         created_by,
-        meta: replacement_metadata(mutation, live),
+        meta: replacement_metadata(mutation),
         ordering_ms: Some(stamp.ordering_ms),
     })
 }

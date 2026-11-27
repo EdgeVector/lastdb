@@ -183,7 +183,14 @@ impl PackRuntime {
             return Ok(None);
         }
         let runtime = Arc::clone(self);
-        let snapshot = run_blocking(move || prearm::open(&runtime.physical, &key)).await?;
+        let snapshot = run_blocking(move || {
+            let Some(cut) = prearm::open(&runtime.physical, &key)? else {
+                return Ok(None);
+            };
+            laststore::flush_drive(runtime.physical.path()).map_err(map)?;
+            Ok(Some(cut))
+        })
+        .await?;
         if snapshot
             .as_ref()
             .is_some_and(|cut| cut.native_frontier != status.opened_frontier)
@@ -205,7 +212,7 @@ impl PackRuntime {
 
     /// Every head row of the store, in key order.
     async fn stream_head_rows(self: &Arc<Self>) -> StorageResult<Vec<(String, ReplayStreamHead)>> {
-        let store = self.open_store(METADATA_NAMESPACE).await?;
+        let store = self.open_store(METADATA_NAMESPACE);
         let (start, end) = exact_prefix_bounds(HEAD_PREFIX);
         let rows = store
             .scan_range_paged(start.as_bytes(), end.as_bytes(), MAX_STREAMS + 1)

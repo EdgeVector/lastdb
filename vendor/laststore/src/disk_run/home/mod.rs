@@ -1,4 +1,4 @@
-//! A disk format v2 home: sorted run files and one CURRENT.
+//! A disk format v2 home: sorted run files, one CURRENT, and an optional commit log.
 
 mod cleanup;
 mod commit_log;
@@ -197,7 +197,7 @@ impl RunHome {
         let keep = manifest.newest_first().map(|r| r.meta.id).collect();
         sweep_runs(&runs_dir, &keep, usize::MAX)?;
         manifest.verify_files("a run that CURRENT names has the wrong size")?;
-        let (memory, found) = commit_log::replay(&root_dir, key, manifest.frontier)?;
+        let (memory, found) = commit_log::replay(&root_dir, key, &manifest, true)?;
         manifest.mem = memory;
         let (stale_log, log) = if logged {
             (false, Some(CommitLog::open(root_dir.join(LOG), found)?))

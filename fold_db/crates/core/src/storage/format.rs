@@ -42,7 +42,6 @@ pub(crate) const SCHEMA_STATES_NAMESPACE: &str = "schema_states";
 pub(crate) const CAS_COLLECTION: &str = "cas_blobs";
 pub(in crate::storage) const RECORDS_COLLECTION: &str = "records";
 pub(in crate::storage) const REGISTRY: &str = "__native_home";
-pub(in crate::storage) const NAMESPACES: &str = "namespaces\0";
 
 pub(crate) const RETENTION_POLICY_KEY_PREFIX: &str = "\0retention_policy\0";
 pub(crate) const RETENTION_HASH_PARTITION_KEY_PREFIX: &str = "\0retention_hash_partition\0";
@@ -321,7 +320,7 @@ pub(crate) mod current_keys {
             return Ok(());
         }
         let key = std::str::from_utf8(key).map_err(|_| unsupported("non-UTF-8 main key"))?;
-        if matches!(key, "layout:keys" | "layout:delete-replay-cutoff") {
+        if key == "layout:keys" {
             return Ok(());
         }
         if !FAMILIES.contains(&key.split([':', '\0']).next().unwrap_or_default()) {

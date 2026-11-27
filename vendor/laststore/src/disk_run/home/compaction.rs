@@ -33,8 +33,8 @@ pub struct HomeMutation {
     pub key: String,
     /// Opaque stored body, or None for a tombstone.
     pub body: Option<Vec<u8>>,
-    /// Logical bytes this tombstone removes from older runs. Zero when the size was not read.
-    pub hides: u64,
+    /// Value bytes this tombstone removes from older runs, when known.
+    pub hides: Option<u64>,
 }
 
 impl HomeMutation {
@@ -44,12 +44,12 @@ impl HomeMutation {
             collection: col.into(),
             key: key.into(),
             body,
-            hides: 0,
+            hides: None,
         }
     }
-    /// Record the logical bytes a tombstone removes, when the caller read that value.
+    /// Record the value bytes a tombstone removes, when the caller knows that size.
     pub fn with_hides(mut self, hides: u64) -> Self {
-        self.hides = hides;
+        self.hides = Some(hides);
         self
     }
 }

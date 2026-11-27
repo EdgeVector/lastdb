@@ -35,9 +35,7 @@ impl MutationManager {
             .await?;
         transaction::scope(self.db_ops.native_runtime(), async {
             let Some(schema_def) = self.resolve_replay_schema(&mutation.schema_name).await? else {
-                return self
-                    .replay_schema_dropped_after(&mutation.schema_name, stamp)
-                    .await;
+                return self.is_replay_schema_dropped(&mutation.schema_name).await;
             };
             let metadata = self.db_ops.metadata();
             if metadata

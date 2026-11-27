@@ -10,7 +10,6 @@ pub(in crate::storage) struct Note {
     /// The sequence number the entry was signed with. It must be the next spool sequence.
     pub seq: u64,
     pub mutation_id: String,
-    pub plaintext_sha256: String,
     pub envelope: Vec<u8>,
     pub file: Option<Vec<u8>>,
 }
@@ -41,12 +40,10 @@ pub(in crate::storage::disk_backup::accepted) struct State {
 pub(in crate::storage::disk_backup::accepted) const STATE_VERSION: u16 = 2;
 
 /// What an entry record says about its write, before the signed bytes.
+/// Unknown fields from older builds (`mutation_id`, `plaintext_sha256`) are ignored on read.
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub(in crate::storage::disk_backup::accepted) struct Meta {
     pub(in crate::storage::disk_backup::accepted) sequence: u64,
-    pub(in crate::storage::disk_backup::accepted) mutation_id: String,
-    pub(in crate::storage::disk_backup::accepted) plaintext_sha256: String,
     pub(in crate::storage::disk_backup::accepted) file_sha256: Option<String>,
     pub(in crate::storage::disk_backup::accepted) file_bytes: u64,
 }

@@ -52,7 +52,7 @@ impl MutationManager {
         mutations: &mut [Mutation],
         previous: Option<&LocalEntry>,
         captured: bool,
-    ) -> Result<u64, SchemaError> {
+    ) -> Result<(), SchemaError> {
         let exhausted = || SchemaError::InvalidData("mutation author-clock range exhausted".into());
         let mut state = self
             .db_ops
@@ -60,19 +60,18 @@ impl MutationManager {
             .author_clock(&self.writer_id)
             .await?
             .unwrap_or_default();
-        let counter = if captured {
+        if captured {
             if let Some(prev) = previous {
                 state.floor_above_order(prev.order).ok_or_else(exhausted)?;
             }
-            let (first, counter) = state
+            let (first, _) = state
                 .advance_local_batch_spaced(clock::unix_nanos(), mutations.len())
                 .ok_or_else(exhausted)?;
             for (m, step) in mutations.iter_mut().zip(0u64..) {
                 m.imported_written_at = Some(first + step * NANOS_PER_MILLI);
             }
-            counter
         } else {
-            let (mut times, counter) = state
+            let (mut times, _) = state
                 .advance_local_batch(clock::unix_nanos(), mutations.len())
                 .ok_or_else(exhausted)?;
             for m in mutations {
@@ -81,13 +80,11 @@ impl MutationManager {
                     m.imported_written_at = Some(reserved);
                 }
             }
-            counter
-        };
+        }
         self.db_ops
             .metadata()
             .stage_author_clock(&self.writer_id, &state)
-            .await?;
-        Ok(counter)
+            .await
     }
 
     /// The stamp each write has in the signed log, in commit order.
@@ -255,11 +252,7 @@ impl MutationManager {
     }
 
     /// True when `schema` is absent because a schema drop is its current winning state.
-    pub async fn replay_schema_dropped_after(
-        &self,
-        schema: &str,
-        _stamp: &ReplayStamp,
-    ) -> Result<bool, SchemaError> {
+    pub async fn is_replay_schema_dropped(&self, schema: &str) -> Result<bool, SchemaError> {
         let metadata = self.db_ops.metadata();
         metadata.require_replay_scope()?;
         let schemas = self.db_ops.schemas();
