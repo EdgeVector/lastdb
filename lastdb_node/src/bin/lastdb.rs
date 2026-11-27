@@ -82,11 +82,7 @@ fn main() {
     observability::set_service_name("lastdb");
     let _sentry =
         match observability::layers::error::init_sentry_client(observability::FaultSurface::User) {
-            Ok(Some(guard)) => guard,
-            Ok(None) => {
-                eprintln!("lastdb: {}", observability::ObsError::UserSentryRequired);
-                std::process::exit(1);
-            }
+            Ok(guard) => guard,
             Err(error) => {
                 eprintln!("lastdb: {error}");
                 std::process::exit(1);
