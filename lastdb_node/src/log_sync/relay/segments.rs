@@ -7,7 +7,7 @@ use relay_protocol::{
     SegmentRef,
 };
 
-use futures::{StreamExt, TryStreamExt};
+use futures::{FutureExt, StreamExt, TryStreamExt};
 
 use super::{append_counts, RelayClient, BEHIND_THE_TRIM};
 
@@ -105,13 +105,14 @@ impl RelayClient {
         const BAD: &str = "relay log.read returned invalid entries";
         let skip_below = (cursor.is_none() && device_id.is_some()).then_some(from_seq);
         // The segments of the page are fetched a few at a time, and opened in their place.
-        let opened: Vec<Option<Vec<SignedEntry>>> =
-            futures::stream::iter(items.iter().map(|item| async move {
-                match item {
-                    ReadItem::Segment { segment } => self.open_segment(segment).await.map(Some),
-                    ReadItem::Entry(_) => Ok(None),
-                }
-            }))
+        // The futures are made and boxed before the stream, so that no closure is part of its
+        // type: a closure there fails the `Send` check of the spawned sync turn for every
+        // lifetime.
+        let fetches: Vec<_> = items
+            .iter()
+            .map(|item| self.open_item(item).boxed())
+            .collect();
+        let opened: Vec<Option<Vec<SignedEntry>>> = futures::stream::iter(fetches)
             .buffered(SEGMENT_FETCHES)
             .try_collect()
             .await?;
@@ -146,6 +147,14 @@ impl RelayClient {
             }
         }
         Ok(page)
+    }
+
+    /// The entries of `item` when it is a segment, fetched and opened; `None` for an entry.
+    async fn open_item(&self, item: &ReadItem) -> Result<Option<Vec<SignedEntry>>, String> {
+        match item {
+            ReadItem::Segment { segment } => self.open_segment(segment).await.map(Some),
+            ReadItem::Entry(_) => Ok(None),
+        }
     }
 
     /// The entries of a log segment, after a check that the blob holds exactly the entries the
