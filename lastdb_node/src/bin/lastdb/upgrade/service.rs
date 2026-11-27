@@ -256,12 +256,12 @@ pub(super) fn stop_time_ok(label: &str, need: u64) -> Result<(), String> {
     };
     Err(if is_mac() {
         format!(
-            "the job {label} lets the daemon exit for only {have} seconds (ExitTimeOut) and then sends SIGKILL; set ExitTimeOut to at least {need} in {}",
+            "the job {label} lets the daemon exit for only {have} seconds (ExitTimeOut) and then sends SIGKILL; set ExitTimeOut to at least {need} in {} and reload the job, or set stop_timeout_secs to at most {have} in the home's upgrade/config.toml",
             path.display()
         )
     } else {
         format!(
-            "the unit {label} lets the daemon stop for only {have}s (TimeoutStopSec); set it to at least {need}s in {}",
+            "the unit {label} lets the daemon stop for only {have}s (TimeoutStopSec); set it to at least {need}s in {} and reload the unit, or set stop_timeout_secs to at most {have} in the home's upgrade/config.toml",
             path.display()
         )
     })

@@ -231,9 +231,17 @@ fn adopt(paths: &Paths, label: &str, accept_behind: bool) -> Result<Outcome, Str
             )));
         }
     }
-    if service::program_of(label)? == home.join("current/lastdbd") {
+    let (mut cfg, _) = Config::load(paths)?;
+    // A job that already runs `<home>/current/lastdbd` still needs adopting when this
+    // home has never recorded it: a hand-made job (the shape the pre-updater primary
+    // uses) points `current` outside `programs/`, and `lastdb upgrade` sends that home
+    // here. Only a home whose config names this label is already adopted. The rewrite
+    // below then only sets the stop timeout; the program path stays the same.
+    if cfg.service_label.as_deref() == Some(label)
+        && service::program_of(label)? == home.join("current/lastdbd")
+    {
         return Ok(Outcome::refused(format!(
-            "{label} already runs {}/current/lastdbd. Use 'lastdb upgrade'.",
+            "{label} is already adopted and runs {}/current/lastdbd. Use 'lastdb upgrade'.",
             home.display()
         )));
     }
@@ -259,7 +267,6 @@ fn adopt(paths: &Paths, label: &str, accept_behind: bool) -> Result<Outcome, Str
             "the running daemon reports a build that cannot name a folder.",
         ));
     }
-    let (mut cfg, _) = Config::load(paths)?;
     let staged = match stage::stage_pair(paths, &installer_dir()?, home) {
         Ok(staged) => staged,
         Err(e) => return Ok(map_stage(&e)),
