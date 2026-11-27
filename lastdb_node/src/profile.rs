@@ -185,6 +185,25 @@ pub mod endpoints {
         }
     }
 
+    /// Base URL of the signed LastDB node release lists: `<node_index>/<channel>/<target>.json`.
+    #[must_use]
+    pub const fn node_index_url_for(env: Environment) -> &'static str {
+        match env {
+            Environment::Dev => gen::DEV_NODE_INDEX,
+            Environment::Prod => gen::PROD_NODE_INDEX,
+        }
+    }
+
+    /// Base64 Ed25519 public keys that may sign this environment's node release lists
+    /// (one, or two while a key rotates).
+    #[must_use]
+    pub const fn node_release_keys_for(env: Environment) -> &'static [&'static str] {
+        match env {
+            Environment::Dev => gen::DEV_NODE_RELEASE_KEYS,
+            Environment::Prod => gen::PROD_NODE_RELEASE_KEYS,
+        }
+    }
+
     #[must_use]
     pub const fn registry_api_url_for(env: Environment) -> &'static str {
         match env {
