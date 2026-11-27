@@ -111,7 +111,7 @@ async fn pull_owned(
     };
     let caller = NodeKey::from_bytes(host.keypair.public_key_bytes());
     if let Some(owner) = histories
-        .peek_with(database_id, |history| history.owner())
+        .peek_with(database_id, mutation_log::VerifiedHistory::owner)
         .flatten()
     {
         if owner != caller {
