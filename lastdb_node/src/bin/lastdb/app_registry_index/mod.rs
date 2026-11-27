@@ -37,7 +37,7 @@ pub(super) const PROD_INDEX_BASE_URL: &str =
 
 /// Prefix of the error for a list the registry does not have. The list bucket
 /// answers 403 for a missing object because anonymous readers cannot list it.
-pub(super) const ABSENT: &str = "registry list is absent";
+pub(crate) const ABSENT: &str = "registry list is absent";
 
 pub(crate) fn str_err(e: impl std::fmt::Display) -> String {
     e.to_string()
@@ -174,7 +174,7 @@ impl IndexLocation {
     }
 }
 
-fn registry_http_client() -> Result<&'static reqwest::Client, String> {
+pub(crate) fn registry_http_client() -> Result<&'static reqwest::Client, String> {
     static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
     if let Some(client) = CLIENT.get() {
         return Ok(client);
@@ -192,6 +192,17 @@ fn registry_http_client() -> Result<&'static reqwest::Client, String> {
 }
 
 async fn fetch_url(client: &reqwest::Client, url: &str, shown: &str) -> Result<Vec<u8>, String> {
+    fetch_url_capped(client, url, shown, 2_097_152).await
+}
+
+/// One GET with the registry's error shapes and a byte cap. A 403 or 404 is the
+/// [`ABSENT`] error, because the bucket answers 403 for a missing object.
+pub(crate) async fn fetch_url_capped(
+    client: &reqwest::Client,
+    url: &str,
+    shown: &str,
+    cap: u64,
+) -> Result<Vec<u8>, String> {
     let resp = client
         .get(url)
         .send()
@@ -204,9 +215,30 @@ async fn fetch_url(client: &reqwest::Client, url: &str, shown: &str) -> Result<V
     if !resp.status().is_success() {
         return Err(format!("GET {shown} returned {code}"));
     }
-    lastdb_node::cloud_backup_client::read_bounded_bytes(resp, 2_097_152)
+    lastdb_node::cloud_backup_client::read_bounded_bytes(resp, cap)
         .await
         .map_err(|e| format!("GET {shown}: {e}"))
+}
+
+/// The client for a release archive. It is the registry client with one change:
+/// it follows at most five redirects, and only to HTTPS, because a GitHub
+/// release asset answers with a redirect to its asset host. The archive hash
+/// is the check, not the host.
+pub(crate) fn archive_http_client() -> Result<reqwest::Client, String> {
+    // trace-egress: propagate (anonymous release archive download)
+    reqwest::Client::builder()
+        .timeout(Duration::from_secs(900))
+        .pool_max_idle_per_host(0)
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::custom(|attempt| {
+            if attempt.previous().len() >= 5 || attempt.url().scheme() != "https" {
+                attempt.stop()
+            } else {
+                attempt.follow()
+            }
+        }))
+        .build()
+        .map_err(str_err)
 }
 
 pub fn resolve_list_trust_key(

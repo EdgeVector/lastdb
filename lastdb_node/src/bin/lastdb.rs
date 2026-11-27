@@ -26,6 +26,8 @@ mod snapshot_line;
 mod status_lines;
 #[path = "lastdb/uds_client.rs"]
 mod uds_client;
+#[path = "lastdb/upgrade/mod.rs"]
+mod upgrade;
 #[path = "lastdb/usage_line.rs"]
 mod usage_line;
 #[path = "lastdb/v1_records.rs"]
@@ -145,6 +147,8 @@ fn run(cli: Cli) -> Result<(), String> {
         }) => create_database(cli.data_dir, &name, private, json),
         Command::Admin(a) => run_admin(cli.data_dir, a),
         Command::App(a) => app_command(cli.data_dir, a),
+        Command::Upgrade(a) => upgrade::run_upgrade(cli.data_dir, &a),
+        Command::Service(c) => upgrade::run_service(cli.data_dir, &c),
         Command::Ops {
             by_count,
             json,
