@@ -35,6 +35,7 @@ import v1_records as v1
 ZETA = "proofmarkerzeta"
 THETA = "proofmarkertheta"
 IOTA = "proofmarkeriota"
+KAPPA = "proofmarkerkappa"
 # Long enough for a turn that would change a settled record to run.
 SETTLE_SECONDS = 8
 _KEEP = object()
@@ -207,26 +208,33 @@ def schema_conflicts_do_not_stall(merge, a, b, c):
     for idx, (uploads_first, other) in enumerate(((a, b), (b, a))):
         theta = f"{THETA}{idx}"
         iota = f"{IOTA}{idx}"
+        kappa = f"{KAPPA}{idx}"
         after_a = f"after-conflict-a-{idx}"
         after_b = f"after-conflict-b-{idx}"
         merge.relay.stop()
         # Earlier offline device defines incompatible schema `theta` (field `legacy`) + attachment `lose`,
-        # and v1 schema `iota` (fields `id`, `note`) + plain record.
+        # v1 schema `iota` (fields `id`, `note`), and v1 schema `kappa` with a pre-conflict record.
         system_seed(a.node, definition(theta, "Hash", ["id", "legacy"], description_prefix="Personal proof "))
         a.write([v1.create_item(theta, {"hash": "t-lose"}, {"id": "t-lose", "legacy": "old-shape"},
                                 file=merge.files["lose"])])
         system_seed(a.node, definition(iota, "Hash", FIELDS, description_prefix="Personal proof "))
         a.write([v1.create_item(iota, {"hash": "i-v1"}, {"id": "i-v1", "note": "from-a"})])
+        system_seed(a.node, definition(kappa, "Hash", FIELDS, description_prefix="Personal proof "))
+        a.write([v1.create_item(kappa, {"hash": "k-early"}, {"id": "k-early", "note": "pre-conflict"})])
         time.sleep(1.5)
         # Later offline device defines incompatible winning schema `theta` (fields `id`, `note`) + attachment `two`,
-        # and compatible additive v2 schema `iota` (fields `id`, `note`, `extra`) + record using `extra`.
+        # compatible additive v2 schema `iota`, and an incompatible intermediate schema `kappa`.
         system_seed(b.node, definition(theta, "Hash", FIELDS, description_prefix="Personal proof "))
         b.write([v1.create_item(theta, {"hash": "t-win"}, {"id": "t-win", "note": "new-shape"},
                                 file=merge.files["two"])])
         system_seed(b.node, definition(iota, "Hash", ["id", "note", "extra"], description_prefix="Personal proof "))
         b.write([v1.create_item(iota, {"hash": "i-v2"}, {"id": "i-v2", "note": "from-b", "extra": "kept"})])
+        system_seed(b.node, definition(kappa, "Hash", ["id", "note", "alt_only"], description_prefix="Personal proof "))
         time.sleep(1.5)
-        # Device A also writes offline against its losing `theta` after B's schema timestamp, plus unrelated ZETA edits.
+        # Device A upgrades `kappa` additively after B's incompatible schema, writes `k-late`, and writes
+        # offline against its losing `theta` plus unrelated ZETA edits.
+        system_seed(a.node, definition(kappa, "Hash", ["id", "note", "extra"], description_prefix="Personal proof "))
+        a.write([v1.create_item(kappa, {"hash": "k-late"}, {"id": "k-late", "note": "kept", "extra": "v2"})])
         a.write([v1.create_item(theta, {"hash": "t-late-lose"}, {"id": "t-late-lose", "legacy": "stale"})])
         a.write([zeta_create(after_a, "unrelated-after-a", file=merge.files["one"])])
         b.write([zeta_create(after_b, "unrelated-after-b", file=merge.files["two"])])
@@ -238,10 +246,12 @@ def schema_conflicts_do_not_stall(merge, a, b, c):
             "i-v1": {"id": "i-v1", "note": "from-a"},
             "i-v2": {"id": "i-v2", "note": "from-b", "extra": "kept"},
         }
-        wait(f"every device to converge on {theta} and {iota}",
-             lambda th=theta, io=iota, et=expected_theta, ei=expected_iota: all(
+        expected_kappa = {"k-late": {"id": "k-late", "note": "kept", "extra": "v2"}}
+        wait(f"every device to converge on {theta}, {iota}, and {kappa}",
+             lambda th=theta, io=iota, ka=kappa, et=expected_theta, ei=expected_iota, ek=expected_kappa: all(
                  dev.has_schema(th) and dev.records(th) == et
                  and dev.has_schema(io) and dev.records(io) == ei
+                 and dev.has_schema(ka) and dev.records(ka) == ek
                  and dev.sync_status().get("databases", {}).get(dev.database, {}).get("download", {}).get("last_error") is None
                  for dev in (a, b, c)))
 

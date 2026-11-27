@@ -78,15 +78,30 @@ async fn put_schema(
         )
         .await
         .map_err(|error| failed("a schema of another device could not be applied", &error))?;
-        if matches!(plan, SchemaPlan::ReplaceIncompatible) {
-            ctx.host
-                .db
-                .schema_manager()
-                .drop_replay_schema(&name, &replace_id, &replace_digest, &stamp)
-                .await
-                .map_err(|error| {
-                    failed("a schema of another device could not be applied", &error)
-                })?;
+        let mut reconciled_floor = None;
+        match &plan {
+            SchemaPlan::ReplaceIncompatible => {
+                ctx.host
+                    .db
+                    .schema_manager()
+                    .drop_replay_schema(&name, &replace_id, &replace_digest, &stamp)
+                    .await
+                    .map_err(|error| {
+                        failed("a schema of another device could not be applied", &error)
+                    })?;
+            }
+            SchemaPlan::FenceLoser(winner) => {
+                ctx.host
+                    .db
+                    .mutation_manager()
+                    .reconcile_replay_schema_floor(&name, winner)
+                    .await
+                    .map_err(|error| {
+                        failed("a schema of another device could not be applied", &error)
+                    })?;
+                reconciled_floor = Some(winner.clone());
+            }
+            SchemaPlan::NoOp | SchemaPlan::Load { .. } => {}
         }
         let outcome = ctx
             .host
@@ -101,6 +116,7 @@ async fn put_schema(
                     definition.clone(),
                     &stamp,
                     (&replace_id, &replace_digest),
+                    reconciled_floor.as_ref(),
                 ),
             )
             .await;
@@ -149,12 +165,19 @@ async fn classify_in_scope(
     let manager = ctx.host.db.mutation_manager();
     let held = manager.replay_schema_winner(name).await?;
     let drop_held = manager.replay_schema_drop_winner(name).await?;
-    if !replaced_here && drop_held.as_ref().is_some_and(|floor| floor >= stamp) {
+    let beats_entry = |bound: &ReplayStamp| {
+        if replaced_here {
+            bound > stamp
+        } else {
+            bound >= stamp
+        }
+    };
+    if drop_held.as_ref().is_some_and(beats_entry) {
         return Ok(SchemaPlan::NoOp);
     }
     let existing = ctx.host.db.schema_manager().get_schema_metadata(name)?;
     if let Some(stored) = existing {
-        if let Some(winner) = held.filter(|winner| winner >= stamp) {
+        if let Some(winner) = held.filter(beats_entry) {
             let compatible = SchemaCore::is_compatible_update(definition, &stored)?;
             return Ok(if compatible {
                 SchemaPlan::NoOp
@@ -169,7 +192,7 @@ async fn classify_in_scope(
             SchemaPlan::ReplaceIncompatible
         });
     }
-    if !replaced_here && held.as_ref().is_some_and(|winner| winner >= stamp) {
+    if held.as_ref().is_some_and(beats_entry) {
         return Ok(SchemaPlan::NoOp);
     }
     Ok(SchemaPlan::Load {
@@ -183,6 +206,7 @@ async fn commit_put(
     definition: Schema,
     stamp: &ReplayStamp,
     replace_receipt: (&[u8; 32], &[u8; 32]),
+    reconciled_floor: Option<&ReplayStamp>,
 ) -> Result<(), SchemaError> {
     let manager = ctx.host.db.mutation_manager();
     manager.observe_replay_time(stamp.ordering_ms).await?;
@@ -195,6 +219,11 @@ async fn commit_put(
     match classify_in_scope(ctx, name, &definition, stamp, replaced_here).await? {
         SchemaPlan::NoOp => Ok(()),
         SchemaPlan::FenceLoser(winner) => {
+            if reconciled_floor != Some(&winner) {
+                return Err(SchemaError::Blocked(
+                    "schema winner changed during replay; retrying floor reconciliation".into(),
+                ));
+            }
             manager.accept_replay_drop_schema(name, &winner).await?;
             Ok(())
         }
