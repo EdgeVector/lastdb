@@ -15,14 +15,21 @@ use super::{append_counts, RelayClient, BEHIND_THE_TRIM};
 /// page of one-entry segments fetched one after another costs a round trip and a handshake per
 /// entry; a sweep that reads the entries after an old snapshot reads thousands of them.
 const SEGMENT_FETCHES: usize = 8;
+/// Maximum byte length of a single log segment blob (`outgoing` caps batches at ~8 MiB).
+const MAX_SEGMENT_BYTES: u64 = 16 * 1024 * 1024;
+
+/// One entry returned by [`RelayClient::read_page`].
+pub(in crate::log_sync) struct ReadEntry {
+    pub(in crate::log_sync) entry: SignedEntry,
+    /// Stored JSON byte length when returned inline; `0` when unpacked from a segment blob.
+    pub(in crate::log_sync) inline_bytes: u64,
+}
 
 /// One page of a `log.read`.
 pub(in crate::log_sync) struct Page {
     /// The entries in stream order, those of a segment in its place.
-    pub(in crate::log_sync) entries: Vec<SignedEntry>,
+    pub(in crate::log_sync) entries: Vec<ReadEntry>,
     pub(in crate::log_sync) cursor: Option<String>,
-    /// For each entry, whether a segment held it (its bytes are the segment blob's).
-    pub(in crate::log_sync) in_segment: Vec<bool>,
     /// The digests of the segment blobs that held entries of this page.
     pub(in crate::log_sync) segments: Vec<String>,
 }
@@ -103,7 +110,7 @@ impl RelayClient {
                 }
             })?;
         const BAD: &str = "relay log.read returned invalid entries";
-        let skip_below = (cursor.is_none() && device_id.is_some()).then_some(from_seq);
+        let skip_below = device_id.is_some().then_some(from_seq);
         // The segments of the page are fetched a few at a time, and opened in their place.
         // The futures are made and boxed before the stream, so that no closure is part of its
         // type: a closure there fails the `Send` check of the spawned sync turn for every
@@ -119,15 +126,19 @@ impl RelayClient {
         let mut page = Page {
             entries: Vec::with_capacity(items.len()),
             cursor: next,
-            in_segment: Vec::with_capacity(items.len()),
             segments: Vec::new(),
         };
         for (index, (item, opened)) in items.into_iter().zip(opened).enumerate() {
             match item {
                 ReadItem::Entry(value) => {
-                    page.entries
-                        .push(serde_json::from_value(value).map_err(|_| BAD.to_owned())?);
-                    page.in_segment.push(false);
+                    let inline_bytes = serde_json::to_vec(&value)
+                        .map_err(|_| BAD.to_owned())?
+                        .len() as u64;
+                    let entry = serde_json::from_value(value).map_err(|_| BAD.to_owned())?;
+                    page.entries.push(ReadEntry {
+                        entry,
+                        inline_bytes,
+                    });
                 }
                 ReadItem::Segment { segment } => {
                     let entries = opened.unwrap_or_default();
@@ -138,8 +149,10 @@ impl RelayClient {
                     };
                     for entry in entries {
                         if entry.header().writer_seq >= from {
-                            page.entries.push(entry);
-                            page.in_segment.push(true);
+                            page.entries.push(ReadEntry {
+                                entry,
+                                inline_bytes: 0,
+                            });
                         }
                     }
                     page.segments.push(segment.sha256);
@@ -161,6 +174,13 @@ impl RelayClient {
     /// relay named: that stream, `first_seq` through `last_seq` in order, the last with hash
     /// `last_hash`. The signatures and the chain are the caller's to check, as for any entry.
     async fn open_segment(&self, segment: &SegmentRef) -> Result<Vec<SignedEntry>, String> {
+        let bad = |what: &str| format!("log segment {}: {what}", segment.sha256);
+        if segment.bytes == 0 || segment.bytes > MAX_SEGMENT_BYTES {
+            return Err(bad("has an unusable length"));
+        }
+        if segment.last_seq < segment.first_seq {
+            return Err(bad("not a list of entries"));
+        }
         let bytes = self
             .fetch_bytes(
                 &segment.url,
@@ -169,8 +189,7 @@ impl RelayClient {
                 segment.bytes,
             )
             .await?;
-        let bad = |what: &str| format!("log segment {}: {what}", segment.sha256);
-        if segment.last_seq < segment.first_seq || bytes.last() != Some(&b'\n') {
+        if bytes.last() != Some(&b'\n') {
             return Err(bad("not a list of entries"));
         }
         let mut entries = Vec::new();

@@ -60,8 +60,7 @@ use super::snapshot_known as known;
 use super::snapshot_lane as lane;
 use super::snapshot_manifest::{self as manifest, Manifest};
 use super::snapshot_state::{
-    clear_unverified, fail_request, fail_request_in, finish_request, load_last, read_request,
-    record_published, unverified, Last, PublishedCut, Report,
+    clear_unverified, load_last, record_published, unverified, Last, PublishedCut, Report, SNAPSHOT,
 };
 use super::snapshot_upload::{
     check_unchanged, elapsed_ms, ensure_birth, upload_and_name, UnchangedCheck, TOO_LARGE,
@@ -99,7 +98,7 @@ pub(super) async fn run(
     if lane::busy_for(home) {
         return Ok(());
     }
-    let request = read_request(home, &ctx.database_id);
+    let request = SNAPSHOT.waiting(home, &ctx.database_id);
     // A snapshot this device named and could not verify is taken again, as a due one is.
     if request.is_none()
         && (known::waiting(home).is_some()
@@ -139,7 +138,7 @@ async fn upload(host: Arc<Host>, base: String, frozen: Frozen, request: Option<S
         Err(error) => {
             host.cloud_sync.mark_snapshot(prior.0, prior.1);
             if let (Ok(owner), Some(nonce)) = (host.owned.owner(), request.as_deref()) {
-                fail_request_in(&host.home, &owner.id, nonce, &error);
+                SNAPSHOT.fail(&host.home, &owner.id, nonce, &error);
             }
             tracing::warn!(target: "lastdbd::log_sync", %error, "snapshot upload could not start");
             return;
@@ -148,13 +147,13 @@ async fn upload(host: Arc<Host>, base: String, frozen: Frozen, request: Option<S
     match publish_cut(&ctx, &client, frozen, false).await {
         Ok((report, fresh)) => {
             tracing::info!(target: "lastdbd::log_sync", seq = report.snapshot_seq, files = report.files, uploaded = report.uploaded_files, "snapshot published");
-            if fresh {
-                reclaim::mark_due(&ctx, &client.base, report.snapshot_seq);
-            } else {
+            if !fresh {
                 host.cloud_sync.mark_snapshot(prior.0, prior.1);
             }
             if let Some(nonce) = &request {
-                if let Err(error) = finish_request(&ctx, nonce, &report) {
+                if let Err(error) =
+                    SNAPSHOT.finish(&ctx.host.home, &ctx.database_id, nonce, &report)
+                {
                     tracing::warn!(target: "lastdbd::log_sync", %error, "snapshot request could not be answered");
                 }
             }
@@ -174,7 +173,7 @@ async fn upload(host: Arc<Host>, base: String, frozen: Frozen, request: Option<S
 /// the problem. No new automatic attempt starts for a while.
 fn failed(ctx: &Ctx<'_>, request: Option<&str>, error: String) -> Result<(), String> {
     if let Some(nonce) = request {
-        fail_request(ctx, nonce, &error);
+        SNAPSHOT.fail(&ctx.host.home, &ctx.database_id, nonce, &error);
     }
     if error.starts_with(TOO_LARGE) {
         known::refused(ctx, &error);
@@ -203,7 +202,7 @@ fn same_relay(ctx: &Ctx<'_>, client: &RelayClient, last: &Last) -> bool {
 
 /// Publish the first snapshot of a home that held data before it began to capture writes.
 pub(super) async fn run_first(ctx: &Ctx<'_>, client: &RelayClient) -> Result<(), String> {
-    let request = read_request(&ctx.host.home, &ctx.database_id);
+    let request = SNAPSHOT.waiting(&ctx.host.home, &ctx.database_id);
     if request.is_none() {
         if let Some(message) = known::waiting(&ctx.host.home) {
             return Err(message);
@@ -217,13 +216,13 @@ pub(super) async fn run_first(ctx: &Ctx<'_>, client: &RelayClient) -> Result<(),
     match outcome {
         Ok(report) => {
             if let Some(nonce) = request.as_deref() {
-                let _ = finish_request(ctx, nonce, &report);
+                let _ = SNAPSHOT.finish(&ctx.host.home, &ctx.database_id, nonce, &report);
             }
             Ok(())
         }
         Err(error) => {
             if let Some(nonce) = request.as_deref() {
-                fail_request(ctx, nonce, &error);
+                SNAPSHOT.fail(&ctx.host.home, &ctx.database_id, nonce, &error);
             }
             if error.starts_with(TOO_LARGE) {
                 known::refused(ctx, &error);
@@ -241,10 +240,7 @@ async fn run_first_inner(ctx: &Ctx<'_>, client: &RelayClient) -> Result<Report, 
     let Some(frozen) = freeze(ctx, true).await? else {
         return Err("the preserved files of the first snapshot are missing".into());
     };
-    let (report, fresh) = publish_cut(ctx, client, frozen, true).await?;
-    if fresh {
-        reclaim::mark_due(ctx, &client.base, report.snapshot_seq);
-    }
+    let (report, _) = publish_cut(ctx, client, frozen, true).await?;
     let opened = ctx.runtime.accepted_status().opened_frontier;
     ctx.runtime
         .note_accepted_snapshot(opened)
@@ -313,6 +309,7 @@ async fn publish_cut(
     {
         match check_unchanged(ctx, client, &streams, &last).await? {
             UnchangedCheck::Verified => {
+                reclaim::ensure_due_unless_swept(ctx, &client.base, last.report.snapshot_seq);
                 clear_unverified(ctx);
                 return Ok((
                     Report {
@@ -374,6 +371,7 @@ async fn publish_cut(
             upload_ms: elapsed_ms(uploading),
         },
     )?;
+    reclaim::mark_due(ctx, &client.base, report.snapshot_seq);
     clear_unverified(ctx);
     Ok((report, true))
 }

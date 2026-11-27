@@ -352,17 +352,19 @@ object with one field:
 }
 ```
 
-`url`, `headers` and `expires_at_ms` are the answer `blob.get` gives for that digest. A
-segment counts as one item toward `limit`. A read from `from_seq` starts with the segment
+`url`, `headers` and `expires_at_ms` are the answer `blob.get` gives for that digest (if
+the segment's blob is missing, `log.read` answers 404 `not_found`, field `segment.sha256`).
+A segment counts as one item toward `limit`. A read from `from_seq` starts with the segment
 that holds `from_seq` when one does, so the first segment of a page can start below
 `from_seq`; later items continue it without a gap. A cursor after a segment names
 `last_seq + 1`.
 
-The reader downloads the blob, checks its SHA-256 and length, and checks that it holds
-exactly the entries `first_seq` through `last_seq` of that stream, in order, and that the
-hash of the last is `last_hash`. A mismatch is an error, as a bad entry is. It then takes
-the entries from `from_seq` on and checks them like entries read inline (signature,
-chain).
+The reader rejects a segment with `bytes == 0` or above 16 MiB (`MAX_SEGMENT_BYTES`), fetches
+up to 8 segments of a page concurrently, downloads the blob, checks its SHA-256 and length,
+and checks that it holds exactly the entries `first_seq` through `last_seq` of that stream, in
+order, and that the hash of the last is `last_hash`. A mismatch is an error, as a bad entry
+is. It then takes the entries from `from_seq` on and checks them like entries read inline
+(signature, chain).
 
 **`log.trim`.** A segment is dropped whole. For a stream position `p`, the trim drops every
 stored item whose last sequence number is at or below `p`: entries, and segments whose

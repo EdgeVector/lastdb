@@ -12,10 +12,6 @@ use super::files::sha256_hex;
 use super::outgoing::Batch;
 use super::Ctx;
 use crate::log_sync::relay::RelayClient;
-use crate::profile::private_fs as disk;
-
-/// The file a segment is written to before it goes up. One sender runs for a database at a time.
-const SEGMENT_FILE: &str = "segment.out";
 
 /// Send a batch: the birth when the relay lacks it, the files, the entries the relay does not hold
 /// yet as one segment, then a second look at the files. `relay_head` is the head of this device's
@@ -71,9 +67,9 @@ pub(super) async fn send(
     Ok(())
 }
 
-/// Write `entries` as one segment, put it on the relay, and append the item that names it. A
-/// sweep can drop the blob between the upload and the append, because nothing names it yet; the
-/// relay then answers 404 for `segment.sha256` and the blob goes up once more.
+/// Encode `entries` as one segment in memory, put it on the relay, and append the item that names
+/// it. A sweep can drop the blob between the upload and the append, because nothing names it yet;
+/// the relay then answers 404 for `segment.sha256` and the blob goes up once more.
 async fn send_segment(
     ctx: &Ctx<'_>,
     client: &RelayClient,
@@ -97,40 +93,21 @@ async fn send_segment(
         sha256: sha256_hex(&bytes),
         bytes: bytes.len() as u64,
     };
-    let path = ctx
-        .host
-        .home
-        .join("log-sync")
-        .join(&ctx.database_id)
-        .join(SEGMENT_FILE);
-    let file = path.clone();
-    // A staging copy that `blob_put` reads back in this turn and that is removed after it.
-    // The spool holds the entries, so a lost copy is built again by the next turn: nothing
-    // waits for the drive.
-    tokio::task::spawn_blocking(move || disk::write_private_with(&file, &bytes, disk::Flush::None))
-        .await
-        .map_err(|_| "the segment writer stopped".to_owned())?
-        .map_err(|error| format!("cannot write the log segment: {error}"))?;
     let mut tried = 0;
-    let result = loop {
+    loop {
         tried += 1;
-        if let Err(error) = client
-            .blob_put(&ctx.database_id, &segment.sha256, &path)
-            .await
-        {
-            break Err(error);
-        }
+        client
+            .blob_put_bytes(&ctx.database_id, &segment.sha256, &bytes)
+            .await?;
         match client
             .append_segment(&ctx.database_id, &segment, entries)
             .await
         {
-            Ok(stored) => break expect_all(stored, entries.len()),
+            Ok(stored) => return expect_all(stored, entries.len()),
             Err(error) if tried < 2 && error.contains("HTTP 404") => {}
-            Err(error) => break Err(error),
+            Err(error) => return Err(error),
         }
-    };
-    let _ = disk::remove_private_with(&path, disk::Flush::None);
-    result
+    }
 }
 
 fn expect_all((stored, duplicate): (u64, u64), sent: usize) -> Result<(), String> {

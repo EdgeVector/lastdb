@@ -208,7 +208,7 @@ async fn prove(
         ));
     }
 
-    let (streams_steps, blob_file) = opt_in_steps(cli, http, relay_url, work).await?;
+    let (streams_steps, blob_file) = opt_in_steps(cli, http, relay_url, work, ledger).await?;
 
     let limit = cli.limit_seconds;
     let (ok, error) = verdict(
@@ -268,6 +268,7 @@ async fn opt_in_steps(
     http: &reqwest::Client,
     relay_url: &str,
     work: &Path,
+    ledger: &Ledger,
 ) -> Result<(Option<Vec<&'static str>>, Option<Value>), String> {
     let streams_steps = if cli.streams {
         Some(streams::prove(http, relay_url).await?)
@@ -275,7 +276,7 @@ async fn opt_in_steps(
         None
     };
     let blob_file = if cli.blob_file_bytes > 0 {
-        let r = blob_stream::prove(http, relay_url, work, cli.blob_file_bytes).await?;
+        let r = blob_stream::prove(http, relay_url, work, cli.blob_file_bytes, ledger).await?;
         Some(json!({
             "bytes": r.bytes,
             "sha256": r.sha256,

@@ -11,12 +11,11 @@ use sha2::{Digest, Sha256};
 
 use super::snapshot_entry::snapshot_head;
 use super::snapshot_manifest::{FileEntry, Manifest};
-use super::snapshot_state::{file_of, Last};
+use super::snapshot_state::Last;
 use super::Ctx;
 use crate::host::cloud_sync::SnapshotState;
 use crate::log_sync::blob_transfer::SIZE_REFUSED;
 use crate::log_sync::relay::{RelayClient, StreamHead as RelayStream};
-use crate::profile::private_fs as disk;
 
 /// Starts the error of a snapshot that cannot be published until the relay takes larger files.
 pub(super) const TOO_LARGE: &str = "snapshot cannot be published";
@@ -162,11 +161,9 @@ async fn put_manifest(
 ) -> Result<(String, u64), String> {
     let bytes = serde_json::to_vec(list).map_err(|_| "cannot encode the manifest")?;
     let sha256 = app_identity_crypto::hex_lower(&Sha256::digest(&bytes));
-    let path = file_of(&ctx.host.home, &ctx.database_id, "snapshot-manifest");
-    disk::write_private(&path, &bytes).map_err(|_| "cannot save the manifest".to_owned())?;
-    let result = client.blob_put(&ctx.database_id, &sha256, &path).await;
-    let _ = disk::remove_private(&path);
-    result?;
+    client
+        .blob_put_bytes(&ctx.database_id, &sha256, &bytes)
+        .await?;
     *committed_any = true;
     Ok((sha256, bytes.len() as u64))
 }

@@ -124,22 +124,30 @@ fn normalize(home: &Path, database_id: &str, spool_acked: u64, saved: &mut Saved
     }
 }
 
+fn load_existing(
+    home: &Path,
+    database_id: &str,
+    spool_acked: u64,
+) -> Result<Option<Saved>, String> {
+    let Some(bytes) = disk::read_limited(&path(home, database_id), LIMIT)
+        .map_err(|_| "cannot read the cloud usage record".to_owned())?
+    else {
+        return Ok(None);
+    };
+    let mut saved: Saved = serde_json::from_slice(&bytes)
+        .map_err(|_| "the cloud usage record is invalid".to_owned())?;
+    normalize(home, database_id, spool_acked, &mut saved);
+    Ok(Some(saved))
+}
+
 fn load(home: &Path, database_id: &str, spool_acked: u64) -> Result<Saved, String> {
-    match disk::read_limited(&path(home, database_id), LIMIT) {
-        Ok(Some(bytes)) => {
-            let mut saved: Saved = serde_json::from_slice(&bytes)
-                .map_err(|_| "the cloud usage record is invalid".to_owned())?;
-            normalize(home, database_id, spool_acked, &mut saved);
-            Ok(saved)
-        }
-        Ok(None) => {
-            let mut saved = Saved::default();
-            saved.usage.complete = !had_prior_uploads(home, database_id, spool_acked);
-            saved.complete_decided = true;
-            Ok(saved)
-        }
-        Err(_) => Err("cannot read the cloud usage record".into()),
+    if let Some(saved) = load_existing(home, database_id, spool_acked)? {
+        return Ok(saved);
     }
+    let mut saved = Saved::default();
+    saved.usage.complete = !had_prior_uploads(home, database_id, spool_acked);
+    saved.complete_decided = true;
+    Ok(saved)
 }
 
 fn store(home: &Path, database_id: &str, saved: &mut Saved) -> Result<(), String> {
@@ -228,14 +236,9 @@ impl Ledger {
         bytes: u64,
     ) -> Result<(), String> {
         let _guard = lock();
-        let Some(raw) = disk::read_limited(&path(&self.home, database_id), LIMIT)
-            .map_err(|_| "cannot read the cloud usage record".to_owned())?
-        else {
+        let Some(mut saved) = load_existing(&self.home, database_id, self.spool_acked)? else {
             return Ok(());
         };
-        let mut saved: Saved = serde_json::from_slice(&raw)
-            .map_err(|_| "the cloud usage record is invalid".to_owned())?;
-        normalize(&self.home, database_id, self.spool_acked, &mut saved);
         if saved.pending.remove(sha256).is_none() {
             return Ok(());
         }
@@ -308,33 +311,19 @@ impl Ledger {
         listed: &BTreeMap<String, u64>,
     ) -> Result<(), String> {
         let _guard = lock();
-        let Some(raw) = disk::read_limited(&path(&self.home, database_id), LIMIT)
-            .map_err(|_| "cannot read the cloud usage record".to_owned())?
-        else {
+        let Some(mut saved) = load_existing(&self.home, database_id, self.spool_acked)? else {
             return Ok(());
         };
-        let mut saved: Saved = serde_json::from_slice(&raw)
-            .map_err(|_| "the cloud usage record is invalid".to_owned())?;
-        normalize(&self.home, database_id, self.spool_acked, &mut saved);
         if saved.pending.is_empty() {
             return Ok(());
         }
-        let pending = std::mem::take(&mut saved.pending);
-        let mut changed = false;
-        for (digest, bytes) in pending {
+        for (digest, bytes) in std::mem::take(&mut saved.pending) {
             if listed.get(digest.as_str()) == Some(&bytes) {
                 saved.usage.blobs = saved.usage.blobs.saturating_add(1);
                 saved.usage.blob_bytes = saved.usage.blob_bytes.saturating_add(bytes);
-                changed = true;
-            } else {
-                // Not listed: the commit did not land as a held blob. Drop the cut-off mark.
-                changed = true;
             }
         }
-        if changed {
-            store(&self.home, database_id, &mut saved)?;
-        }
-        Ok(())
+        store(&self.home, database_id, &mut saved)
     }
 
     /// The relay answered a `blob.drop`: it dropped `blobs` stored files of `bytes` in all.
@@ -357,10 +346,9 @@ impl Ledger {
 
 /// The totals of one database in `home`, if this device put anything.
 fn read(home: &Path, database_id: &str, spool_acked: u64) -> Option<CloudUsage> {
-    let bytes = disk::read_limited(&path(home, database_id), LIMIT).ok()??;
-    let mut saved = serde_json::from_slice::<Saved>(&bytes).ok()?;
-    normalize(home, database_id, spool_acked, &mut saved);
-    Some(saved.usage)
+    load_existing(home, database_id, spool_acked)
+        .ok()?
+        .map(|saved| saved.usage)
 }
 
 /// Put the totals of every database of `home` into the status of the node.

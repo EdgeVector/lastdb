@@ -16,7 +16,7 @@ use crate::error::{ApiError, ApiResult};
 use crate::store::{atomic_write, is_hex64, EntryKey, Store};
 
 /// Check the fields of the `segment` of a `log.append`, each with its own error field.
-pub(crate) fn check(segment: &SegmentAppend) -> ApiResult<()> {
+pub(crate) fn check(segment: &SegmentAppend, max_blob_bytes: Option<u64>) -> ApiResult<()> {
     if !is_hex64(&segment.device_id) {
         return Err(ApiError::invalid("segment.device_id"));
     }
@@ -32,7 +32,7 @@ pub(crate) fn check(segment: &SegmentAppend) -> ApiResult<()> {
     if !is_hex64(&segment.sha256) {
         return Err(ApiError::invalid("segment.sha256"));
     }
-    if segment.bytes == 0 {
+    if segment.bytes == 0 || max_blob_bytes.is_some_and(|limit| segment.bytes > limit) {
         return Err(ApiError::invalid("segment.bytes"));
     }
     Ok(())

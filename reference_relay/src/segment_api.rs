@@ -22,7 +22,7 @@ pub(crate) async fn append_segment(
     caller: &NodeKey,
     segment: &SegmentAppend,
 ) -> ApiResult<Json<LogAppendAnswer>> {
-    segment::check(segment)?;
+    segment::check(segment, state.max_blob_bytes)?;
     // The locks that `blob.drop` holds for its whole call, taken in its order, so the blob stays
     // until the item is stored, and the item is stored before the drop compares the heads.
     let _blob_guard = state.blob_lock.lock().await;
@@ -62,6 +62,12 @@ fn read_item(state: &AppState, database_id: &str, item: Value) -> ApiResult<Read
         return Ok(ReadItem::Entry(item));
     };
     let stored = StoredSegment::deserialize(stored).map_err(|_| ApiError::invalid("segment"))?;
+    if !state
+        .store
+        .blob_exists(database_id, &stored.sha256, stored.bytes)
+    {
+        return Err(ApiError::not_found("segment.sha256"));
+    }
     let (url, expires_at_ms) = presign::make_get_url(
         &state.public_base,
         &state.secret,

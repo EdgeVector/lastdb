@@ -1,12 +1,46 @@
 //! The relay side of a snapshot: the positions of a cut and the signed `snapshot` entry.
 
 use mutation_log::{
-    author_snapshot, entry_hash, verify_entry_signature, AuthorCtx, DeviceId, EntryHash, Hex32,
-    SignedEntry, SnapshotBody, SnapshotThrough, StreamHead,
+    author_snapshot, entry_hash, verify_entry_signature, AuthorCtx, DatabaseId, DeviceId,
+    EntryHash, Hex32, NodeKey, SignedEntry, SnapshotBody, SnapshotThrough, StreamHead,
+    LAMPORT_LIMIT,
 };
 
+use super::snapshot_manifest::MANIFEST_LIMIT;
 use super::Ctx;
 use crate::log_sync::relay::{RelayClient, StreamHead as RelayStream};
+
+/// Expected owner, stream, and birth citation of a personal snapshot stream.
+pub(super) struct SnapshotStream<'a> {
+    pub(super) database_id: &'a str,
+    pub(super) database: DatabaseId,
+    pub(super) node_hex: &'a str,
+    pub(super) node_key: NodeKey,
+    pub(super) device: DeviceId,
+    pub(super) device_hex: &'a str,
+    pub(super) birth_hash: EntryHash,
+}
+
+impl<'a> SnapshotStream<'a> {
+    pub(super) fn from_ctx(ctx: &'a Ctx<'_>) -> Self {
+        Self {
+            database_id: &ctx.database_id,
+            database: ctx.database,
+            node_hex: &ctx.node_hex,
+            node_key: ctx.identity.node_key,
+            device: ctx.snapshot_device,
+            device_hex: &ctx.snapshot_device_hex,
+            birth_hash: ctx.birth_hash,
+        }
+    }
+}
+
+/// Verified newest `snapshot` entry on the relay's snapshot stream.
+pub(super) struct VerifiedSnapshot {
+    pub(super) head: StreamHead,
+    pub(super) body: SnapshotBody,
+    pub(super) authored_at_ms: u64,
+}
 
 /// The stream positions of a cut, ascending by device id.
 pub(super) fn through_of(
@@ -66,25 +100,23 @@ pub(super) async fn require_empty_for_first(
     Ok(())
 }
 
-/// The head of the snapshot stream on the relay, with the order value and the body of its entry:
-/// the newest snapshot. The entry must be the owner's, on this stream, with the hash the relay
-/// listed.
-pub(super) async fn snapshot_head(
-    ctx: &Ctx<'_>,
+/// Read and verify the newest `snapshot` entry on `stream` against `streams`.
+pub(super) async fn read_verified_head(
+    stream: &SnapshotStream<'_>,
     client: &RelayClient,
     streams: &[RelayStream],
-) -> Result<Option<(StreamHead, SnapshotBody)>, String> {
+) -> Result<Option<VerifiedSnapshot>, String> {
     let Some(listed) = streams
         .iter()
-        .find(|stream| stream.device_id == ctx.snapshot_device_hex && stream.head_seq > 0)
+        .find(|item| item.device_id == stream.device_hex && item.head_seq > 0)
     else {
         return Ok(None);
     };
     let (entries, _) = client
         .read(
-            &ctx.database_id,
-            &ctx.node_hex,
-            Some(&ctx.snapshot_device_hex),
+            stream.database_id,
+            stream.node_hex,
+            Some(stream.device_hex),
             listed.head_seq,
             None,
             1,
@@ -101,22 +133,42 @@ pub(super) async fn snapshot_head(
         return Err("the head of the snapshot stream differs from the listing".into());
     }
     verify_entry_signature(entry).map_err(|error| format!("the snapshot entry: {error}"))?;
-    if header.node_key != ctx.identity.node_key
-        || header.database_id != ctx.database
-        || header.device_id != ctx.snapshot_device
-    {
+    let valid = header.node_key == stream.node_key
+        && header.database_id == stream.database
+        && header.device_id == stream.device
+        && (listed.head_seq == 1) == (header.prev_hash == EntryHash::ZERO)
+        && header.seen_heads == [stream.birth_hash]
+        && header.lamport < LAMPORT_LIMIT
+        && body.manifest_bytes > 0
+        && body.manifest_bytes <= MANIFEST_LIMIT;
+    if !valid {
         return Err(
-            "the head of the snapshot stream is not the owner's entry of this stream".into(),
+            "the head of the snapshot stream is not a valid owner entry of this stream".into(),
         );
     }
-    Ok(Some((
-        StreamHead {
+    Ok(Some(VerifiedSnapshot {
+        head: StreamHead {
             entry_hash: hash,
             writer_seq: listed.head_seq,
             lamport: header.lamport,
         },
-        body.clone(),
-    )))
+        body: body.clone(),
+        authored_at_ms: header.authored_at_ms,
+    }))
+}
+
+/// The head of the snapshot stream on the relay, with the order value and the body of its entry:
+/// the newest snapshot.
+pub(super) async fn snapshot_head(
+    ctx: &Ctx<'_>,
+    client: &RelayClient,
+    streams: &[RelayStream],
+) -> Result<Option<(StreamHead, SnapshotBody)>, String> {
+    Ok(
+        read_verified_head(&SnapshotStream::from_ctx(ctx), client, streams)
+            .await?
+            .map(|verified| (verified.head, verified.body)),
+    )
 }
 
 /// Ensure `through` covers every stream position of the relay's current snapshot head.

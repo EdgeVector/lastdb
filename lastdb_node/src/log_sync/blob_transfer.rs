@@ -11,13 +11,14 @@
 //! no byte of the body (or sends no answer after the last one) for that long.
 //! No minimum rate is assumed.
 
+mod body;
 mod download;
 mod reclaim;
 mod url_guard;
 
+use body::UploadSource;
 pub(super) use reclaim::{Dropped, HeadAt, DROP_BATCH, DROP_HEADS};
 
-use std::os::unix::fs::FileExt;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -29,9 +30,6 @@ use tokio::fs;
 use tokio::io::AsyncSeekExt;
 
 use super::relay::{CallError, RelayClient, STALL_TIMEOUT};
-
-/// Bytes read from the file per chunk of an upload.
-const CHUNK_BYTES: usize = 64 * 1024;
 
 /// Starts the error of a `blob.put` begin that the relay refused for the size of the blob.
 /// The relay answered HTTP 400 with code `invalid_request` and field `bytes`: it holds a limit
@@ -120,6 +118,11 @@ async fn stalled(taken: &AtomicU64, size: u64, url: &str) -> String {
     }
 }
 
+enum RawSource<'a> {
+    File(fs::File, u64),
+    Bytes(&'a [u8]),
+}
+
 impl RelayClient {
     /// Put the file at `source` on the relay: `blob.put` begin, the presigned
     /// upload streamed from the file, commit.
@@ -153,14 +156,63 @@ impl RelayClient {
             .await
             .map_err(|e| format!("blob file: {e}"))?;
         let size = len.saturating_sub(start);
-        let stage = |stage: BlobPutStage| BlobPutRequest {
+        self.put_source(database_id, sha256, size, RawSource::File(file, start))
+            .await
+    }
+
+    /// Put `data` on the relay in memory without staging a temporary file on disk.
+    pub(super) async fn blob_put_bytes(
+        &self,
+        database_id: &str,
+        sha256: &str,
+        data: &[u8],
+    ) -> Result<(), String> {
+        self.put_source(
+            database_id,
+            sha256,
+            data.len() as u64,
+            RawSource::Bytes(data),
+        )
+        .await
+    }
+
+    async fn put_source(
+        &self,
+        database_id: &str,
+        sha256: &str,
+        size: u64,
+        raw: RawSource<'_>,
+    ) -> Result<(), String> {
+        let Some((url, headers)) = self.begin_upload(database_id, sha256, size).await? else {
+            return Ok(());
+        };
+        let source = match raw {
+            RawSource::File(file, start) => UploadSource::File {
+                file: Arc::new(file.into_std().await),
+                start,
+                size,
+            },
+            RawSource::Bytes(data) => UploadSource::Bytes(Arc::from(data)),
+        };
+        self.upload_with_retries(&url, &headers, &source, size)
+            .await?;
+        self.commit_blob(database_id, sha256, size).await
+    }
+
+    async fn begin_upload(
+        &self,
+        database_id: &str,
+        sha256: &str,
+        size: u64,
+    ) -> Result<Option<(String, Vec<(HeaderName, HeaderValue)>)>, String> {
+        let request = BlobPutRequest {
             database_id: database_id.to_owned(),
             sha256: sha256.to_owned(),
             bytes: size,
-            stage,
+            stage: BlobPutStage::Begin,
         };
         let begin = self
-            .call_tracked::<BlobPut>(&stage(BlobPutStage::Begin))
+            .call_tracked::<BlobPut>(&request)
             .await
             .map(|(answer, _)| answer)
             .map_err(|error| {
@@ -174,36 +226,31 @@ impl RelayClient {
             if let Some(usage) = &self.usage {
                 usage.complete_pending_blob(database_id, sha256, size)?;
             }
-            return Ok(());
+            return Ok(None);
         }
         let upload = begin.upload.ok_or("blob.put begin has no upload.url")?;
         url_guard::validate_presigned_url(&self.base, &upload.url)?;
         let headers = url_guard::presigned_headers(&upload.headers, true)?;
-        let file = Arc::new(file.into_std().await);
-        self.upload_with_retries(&upload.url, &headers, &file, start, size)
-            .await?;
-        self.commit_blob(database_id, sha256, size, &stage(BlobPutStage::Commit))
-            .await
+        Ok(Some((upload.url, headers)))
     }
 
     async fn upload_with_retries(
         &self,
         url: &str,
         headers: &[(HeaderName, HeaderValue)],
-        file: &Arc<std::fs::File>,
-        start: u64,
+        source: &UploadSource,
         size: u64,
     ) -> Result<(), String> {
         let mut tried = 0;
         let (status, final_url) = loop {
             tried += 1;
-            match self.put_once(url, headers, file, start, size).await {
+            match self.put_once(url, headers, source, size).await {
                 Ok((status, _)) if tried < UPLOAD_TRIES && is_retryable_store_status(status) => {
                     tracing::warn!(
                         target: "lastdbd::log_sync",
                         status = status.as_u16(),
                         tried,
-                        "blob upload received transient store status; sending the file again"
+                        "blob upload received transient store status; sending the blob again"
                     );
                     tokio::time::sleep(upload_backoff(tried)).await;
                 }
@@ -213,7 +260,7 @@ impl RelayClient {
                         target: "lastdbd::log_sync",
                         %error,
                         tried,
-                        "blob upload failed before an answer; sending the file again"
+                        "blob upload failed before an answer; sending the blob again"
                     );
                     tokio::time::sleep(upload_backoff(tried)).await;
                 }
@@ -230,17 +277,17 @@ impl RelayClient {
         Ok(())
     }
 
-    async fn commit_blob(
-        &self,
-        database_id: &str,
-        sha256: &str,
-        size: u64,
-        request: &BlobPutRequest,
-    ) -> Result<(), String> {
+    async fn commit_blob(&self, database_id: &str, sha256: &str, size: u64) -> Result<(), String> {
+        let request = BlobPutRequest {
+            database_id: database_id.to_owned(),
+            sha256: sha256.to_owned(),
+            bytes: size,
+            stage: BlobPutStage::Commit,
+        };
         if let Some(usage) = &self.usage {
             usage.blob_begins(database_id, sha256, size)?;
         }
-        match self.call_tracked::<BlobPut>(request).await {
+        match self.call_tracked::<BlobPut>(&request).await {
             Ok(_) => {
                 if let Some(usage) = &self.usage {
                     usage.blob_ends(database_id, sha256, size, true)?;
@@ -250,7 +297,7 @@ impl RelayClient {
             Err(error) => {
                 let refused = error
                     .status
-                    .is_some_and(|status| (400..500).contains(&status));
+                    .is_some_and(|status| matches!(status, 400 | 403 | 404 | 409));
                 if let Some(usage) = self.usage.as_ref().filter(|_| refused) {
                     usage.blob_ends(database_id, sha256, size, false)?;
                 }
@@ -263,12 +310,11 @@ impl RelayClient {
         &self,
         url: &str,
         headers: &[(HeaderName, HeaderValue)],
-        file: &Arc<std::fs::File>,
-        start: u64,
+        source: &UploadSource,
         size: u64,
     ) -> Result<(reqwest::StatusCode, String), String> {
         let taken = Arc::new(AtomicU64::new(0));
-        let body = file_body(Arc::clone(file), start, size, Arc::clone(&taken));
+        let body = source.body(Arc::clone(&taken));
         let mut upload = self
             .transfer
             .put(url)
@@ -291,53 +337,5 @@ impl RelayClient {
                     taken.load(Ordering::Relaxed)
                 )
             })
-    }
-}
-
-/// An upload body that reads `[start .. start + size]` via positional `read_at`
-/// so concurrent or cancelled tasks never share kernel `f_pos`.
-fn file_body(
-    file: Arc<std::fs::File>,
-    start: u64,
-    size: u64,
-    taken: Arc<AtomicU64>,
-) -> reqwest::Body {
-    let end = start.saturating_add(size);
-    let chunks = futures::stream::unfold(start, move |offset| {
-        let file = Arc::clone(&file);
-        let taken = Arc::clone(&taken);
-        async move {
-            if offset >= end {
-                return None;
-            }
-            let want = ((end - offset).min(CHUNK_BYTES as u64)) as usize;
-            let read = tokio::task::spawn_blocking(move || read_at_chunk(&file, offset, want))
-                .await
-                .unwrap_or_else(|e| Err(std::io::Error::other(e.to_string())));
-            match read {
-                Ok(buf) if buf.is_empty() => None,
-                Ok(buf) => {
-                    let next = offset + buf.len() as u64;
-                    taken.fetch_add(buf.len() as u64, Ordering::Relaxed);
-                    Some((Ok::<Vec<u8>, std::io::Error>(buf), next))
-                }
-                Err(error) => Some((Err(error), end)),
-            }
-        }
-    });
-    reqwest::Body::wrap_stream(chunks)
-}
-
-fn read_at_chunk(file: &std::fs::File, offset: u64, want: usize) -> std::io::Result<Vec<u8>> {
-    let mut buf = vec![0u8; want];
-    loop {
-        match file.read_at(&mut buf, offset) {
-            Ok(n) => {
-                buf.truncate(n);
-                return Ok(buf);
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
-            Err(e) => return Err(e),
-        }
     }
 }
