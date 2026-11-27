@@ -4,8 +4,8 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use super::config::valid_label;
 use super::procs;
-use super::state::valid_label;
 
 const PLIST_BUDDY: &str = "/usr/libexec/PlistBuddy";
 const TOOL_LIMIT: Duration = Duration::from_secs(60);

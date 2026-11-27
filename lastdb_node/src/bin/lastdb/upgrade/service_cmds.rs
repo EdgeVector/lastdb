@@ -8,12 +8,13 @@ use lastdb_node::profile::endpoints::Environment;
 
 use super::args::ServiceCommand;
 use super::commands::emit;
+use super::config::{valid_label, Config};
 use super::daemon;
-use super::list::{cached_list, load_list};
+use super::fetch::{cached_list, load_list};
 use super::procs;
 use super::service;
 use super::stage::{self, Staged};
-use super::state::{self, acquire_lock, atomic_symlink, Config, LockError, Paths, DEFAULT_LABEL};
+use super::state::{self, acquire_lock, atomic_symlink, LockError, Paths, DEFAULT_LABEL};
 use super::switch::{note, poll, Outcome, Switch};
 
 pub(crate) fn run_service(
@@ -208,7 +209,7 @@ fn install(paths: &Paths) -> Result<Outcome, String> {
 
 fn adopt(paths: &Paths, label: &str, accept_behind: bool) -> Result<Outcome, String> {
     let home = &paths.home;
-    if !state::valid_label(label) {
+    if !valid_label(label) {
         return Ok(Outcome::refused(
             "the label has characters a job label cannot hold.",
         ));

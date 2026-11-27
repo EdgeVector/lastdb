@@ -6,10 +6,12 @@ use std::path::Path;
 use lastdb_node::profile::endpoints::Environment;
 use serde_json::{json, Value};
 
-use super::list::{cached_list, parse_time, NodeList};
+use super::config::Config;
+use super::fetch::cached_list;
+use super::list::{parse_time, NodeList};
 use super::select::{in_share, is_newer, withdrawn_running, Running};
 use super::stage::read_release;
-use super::state::{self, Config, Paths};
+use super::state::{self, Paths};
 
 fn running_of(paths: &Paths) -> Option<Running> {
     let version = paths.link_version(&paths.current())?;

@@ -4,8 +4,12 @@
 //! "is this build good", and the daemon owns "can this build open this home".
 
 mod args;
+mod auto;
+mod checks;
 mod commands;
+mod config;
 mod daemon;
+mod fetch;
 mod list;
 mod procs;
 mod select;
@@ -15,6 +19,9 @@ mod stage;
 mod state;
 mod status;
 mod switch;
+mod switch_post;
+mod switch_pre;
+mod switch_rollback;
 
 pub(crate) use args::{ServiceCommand, UpgradeArgs};
 pub(crate) use commands::run_upgrade;
