@@ -26,3 +26,4 @@ pub use key::{canonical_record_key, canonical_record_key_from_joined, key_value}
 pub use read::{read_alternates, read_field_map, read_revision};
 pub use schema::{ensure_hash_schema, hash_string_schema_bytes, hash_string_schema_json};
 pub use store::{open_proof_store, open_store};
+pub use validate::check_shared_record_size;

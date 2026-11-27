@@ -1,8 +1,11 @@
 //! Parse, validate, and canonicalize member proposal documents.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use cloud_backup_protocol::Id;
+use fold_db::fold_db_core::FoldDB;
+use fold_db::record_replacement::RecordTarget;
+use fold_db::schema::types::KeyValue;
 use serde_json::Value;
 
 use super::ContributionError;
@@ -126,7 +129,7 @@ pub(super) async fn canonicalize_proposed(
             })
             .unwrap_or((false, false));
         if in_history {
-            return Ok(());
+            return check_proposed_size(None, proposed);
         }
         let has_store_schemas = !store
             .schema_manager()
@@ -136,7 +139,7 @@ pub(super) async fn canonicalize_proposed(
         if has_history_schemas || has_store_schemas {
             return Err(ContributionError::Invalid);
         }
-        return Ok(());
+        return check_proposed_size(None, proposed);
     }
     proposed.record_key = signed_history_materialize::canonical_record_key(
         &store,
@@ -153,7 +156,33 @@ pub(super) async fn canonicalize_proposed(
         )
         .map_err(|_| ContributionError::Invalid)?;
     }
-    Ok(())
+    check_proposed_size(Some(&store), proposed)
+}
+
+fn check_proposed_size(
+    store: Option<&FoldDB>,
+    proposed: &Proposed,
+) -> Result<(), ContributionError> {
+    if proposed.mutation_type == "delete" {
+        return Ok(());
+    }
+    let Some(Value::Object(map)) = &proposed.record else {
+        return Err(ContributionError::Invalid);
+    };
+    let key = if let Some(store) = store {
+        signed_history_materialize::key_value(store, &proposed.namespace, &proposed.record_key)
+            .map_err(|_| ContributionError::Invalid)?
+    } else {
+        KeyValue::new(Some(proposed.hash.clone()), proposed.range.clone())
+    };
+    let target = RecordTarget {
+        schema: proposed.namespace.clone(),
+        key,
+        alternates: proposed.alternates.clone(),
+    };
+    let fields: HashMap<String, Value> = map.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+    signed_history_materialize::check_shared_record_size(&target, &fields)
+        .map_err(|_| ContributionError::Invalid)
 }
 
 /// The publisher decision envelope that goes into the signed proposal.

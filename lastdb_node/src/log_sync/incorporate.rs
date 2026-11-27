@@ -141,6 +141,11 @@ async fn decide(
         key: at,
         alternates: prepared.alternates,
     };
+    if intent.mutation_type != MutationType::Delete
+        && signed_history_materialize::check_shared_record_size(&target, &intent.fields).is_err()
+    {
+        return Ok(Decision::Decline);
+    }
     let mut mutation = Mutation::with_uuid(
         uuid::Uuid::new_v4().to_string(),
         target,

@@ -201,18 +201,17 @@ fn plan_winner(
     }
     let creator = winner.creator.to_hex();
     let author = winner.author.to_hex();
-    let (target, fields) =
-        match decode_and_validate(schema, namespace, key, &winner.value, &creator, &author) {
-            Ok(valid) => valid,
-            Err(reason) => {
-                tracing::warn!(
-                    namespace = %namespace,
-                    %reason,
-                    "dropping invalid record winner in signed history"
-                );
-                return current.map(|old| delete_mutation(namespace, key.clone(), old));
-            }
-        };
+    let (target, fields) = match decode_and_validate(schema, namespace, key, &winner.value) {
+        Ok(valid) => valid,
+        Err(reason) => {
+            tracing::warn!(
+                namespace = %namespace,
+                %reason,
+                "dropping invalid record winner in signed history"
+            );
+            return current.map(|old| delete_mutation(namespace, key.clone(), old));
+        }
+    };
     let (kind, expected) = match current {
         None => (MutationType::Create, CasExpectation::Absent),
         Some(old) => {
@@ -243,8 +242,6 @@ fn decode_and_validate(
     namespace: &str,
     key: &KeyValue,
     raw_value: &[u8],
-    creator: &str,
-    author: &str,
 ) -> Result<(RecordTarget, HashMap<String, Value>), String> {
     let rec = decode_record_value(raw_value)?
         .ok_or_else(|| "live record winner unexpectedly decoded as empty".to_owned())?;
@@ -254,7 +251,7 @@ fn decode_and_validate(
         key: key.clone(),
         alternates,
     };
-    validate_record(schema, &target, &rec.fields, creator, author)?;
+    validate_record(schema, &target, &rec.fields)?;
     Ok((target, rec.fields))
 }
 

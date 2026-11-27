@@ -4,7 +4,8 @@
 use std::collections::HashMap;
 
 use fold_db::fold_db_core::FoldDB;
-use fold_db::schema::types::{KeyValue, MutationType};
+use fold_db::record_replacement::RecordTarget;
+use fold_db::schema::types::{KeyValue, Mutation, MutationType};
 use serde_json::Value;
 
 use crate::exec::reply::HostError;
@@ -71,6 +72,43 @@ pub(super) fn check_shared_item(
         return Err(super::bad("hash key cannot contain unit separator").at(index));
     }
     Ok(())
+}
+
+/// Enforce the deterministic shared-database 64 KiB `StoredRecord` cap before
+/// FoldDB commits a shared write, matching `signed_history_materialize` so an
+/// acknowledged write cannot later fail materialization.
+pub(super) fn check_shared_mutation(
+    store: &FoldDB,
+    index: usize,
+    mutation: &Mutation,
+) -> Result<(), HostError> {
+    if mutation.mutation_type == MutationType::Delete {
+        return Ok(());
+    }
+    let Some(hash) = mutation.key_value.hash.as_deref().filter(|h| !h.is_empty()) else {
+        return Ok(());
+    };
+    let key = signed_history_materialize::canonical_record_key(
+        store,
+        &mutation.schema_name,
+        hash,
+        mutation.key_value.range.as_deref(),
+    )
+    .and_then(|rk| signed_history_materialize::key_value(store, &mutation.schema_name, &rk))
+    .unwrap_or_else(|_| mutation.key_value.clone());
+    let alternates = signed_history_materialize::resolve_alternates(
+        store,
+        &mutation.schema_name,
+        mutation.alternates.clone(),
+    )
+    .unwrap_or_else(|_| mutation.alternates.clone());
+    let target = RecordTarget {
+        schema: mutation.schema_name.clone(),
+        key,
+        alternates,
+    };
+    signed_history_materialize::check_shared_record_size(&target, &mutation.record_fields)
+        .map_err(|error| HostError::from(error).at(index))
 }
 
 /// Capture canonical schema/key/fields/alternates for the signed-history mirror.
