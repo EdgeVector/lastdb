@@ -12,24 +12,24 @@
 //! cannot rebuild the history. With both files a restart rebuilds it fully,
 //! without the relay.
 
+mod outbox;
+
 use std::collections::hash_map::Entry;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use mutation_log::{
-    entry_hash, stream_id_of, AcceptOutcome, DatabaseId, EntryHash, EntryKind, SignedEntry,
-    StreamId, VerifiedHistory,
+    entry_hash, AcceptOutcome, DatabaseId, EntryHash, EntryKind, SignedEntry, StreamId,
+    VerifiedHistory,
 };
 use zeroize::Zeroizing;
 
 use crate::host::Host;
-use crate::profile::private_fs as disk;
+use crate::personal_seal::Sealer;
 
 use super::shared_key;
-
-const LOG_LIMIT: usize = 16 * 1024 * 1024;
-const CURSOR_LIMIT: usize = 32;
+pub(super) use outbox::{load_uploaded, pending, pending_count, store_uploaded};
 
 /// The histories of one node home, shared by the sync loop and every request
 /// handler. Host sits below log_sync in the layer order and cannot hold the
@@ -58,10 +58,14 @@ pub(crate) struct HistoryMap {
     /// Node seed used to derive the publisher's shared database read key.
     node_seed: Zeroizing<[u8; 32]>,
     inner: Mutex<HashMap<String, VerifiedHistory>>,
+    /// Cached database read-key sealers, shared between sealing and opening.
+    sealers: Mutex<HashMap<String, Arc<Sealer>>>,
     /// Exact entry hashes stored in `received.json`, per database.
     received: Mutex<HashMap<String, Vec<EntryHash>>>,
     /// Databases whose last materialize failed; zero-accept pulls retry them.
     materialize_retry: Mutex<HashSet<String>>,
+    /// Keys whose unsigned store write failed to roll back; healed on rematerialize.
+    dirty_keys: Mutex<HashMap<String, BTreeSet<(String, String)>>>,
     /// Per-database async lock serializing owner `/v1/write` and proposal incorporation.
     write_locks: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
 }
@@ -72,8 +76,10 @@ impl HistoryMap {
             home: home.to_path_buf(),
             node_seed,
             inner: Mutex::new(HashMap::new()),
+            sealers: Mutex::new(HashMap::new()),
             received: Mutex::new(HashMap::new()),
             materialize_retry: Mutex::new(HashSet::new()),
+            dirty_keys: Mutex::new(HashMap::new()),
             write_locks: Mutex::new(HashMap::new()),
         }
     }
@@ -88,6 +94,32 @@ impl HistoryMap {
                 .entry(database_id.to_owned())
                 .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(()))),
         )
+    }
+
+    pub(super) fn sealer(&self, database_id: &str) -> Result<Arc<Sealer>, String> {
+        if let Some(cached) = self
+            .sealers
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(database_id)
+            .cloned()
+        {
+            return Ok(cached);
+        }
+        let derived = Arc::new(shared_key::sealer_with_seed(
+            &self.home,
+            &self.node_seed,
+            database_id,
+        )?);
+        let mut guard = self
+            .sealers
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        Ok(Arc::clone(
+            guard
+                .entry(database_id.to_owned())
+                .or_insert_with(|| Arc::clone(&derived)),
+        ))
     }
 
     pub(crate) fn with_mut<R>(
@@ -129,7 +161,7 @@ impl HistoryMap {
         if unchanged {
             return Ok(());
         }
-        store_received(&self.home, database_id, &entries)?;
+        outbox::store_received(&self.home, database_id, &entries)?;
         self.note_received(database_id, hashes);
         Ok(())
     }
@@ -151,7 +183,7 @@ impl HistoryMap {
         if let Some(history) = map.get(database_id) {
             return Some(f(history));
         }
-        if !has_persisted_log(&self.home, database_id) {
+        if !outbox::has_persisted_log(&self.home, database_id) {
             return None;
         }
         let id = DatabaseId::from_hex(database_id).ok()?;
@@ -185,17 +217,51 @@ impl HistoryMap {
             .lock()
             .is_ok_and(|set| set.contains(database_id))
     }
-}
 
-impl HistoryMap {
+    pub(super) fn mark_dirty_keys(&self, database_id: &str, keys: &[(String, String)]) {
+        if keys.is_empty() {
+            return;
+        }
+        if let Ok(mut map) = self.dirty_keys.lock() {
+            map.entry(database_id.to_owned())
+                .or_default()
+                .extend(keys.iter().cloned());
+        }
+        self.mark_materialize_retry(database_id);
+    }
+
+    pub(super) fn has_dirty_keys(&self, database_id: &str) -> bool {
+        self.dirty_keys
+            .lock()
+            .is_ok_and(|map| map.get(database_id).is_some_and(|set| !set.is_empty()))
+    }
+
+    pub(super) fn take_dirty_keys(&self, database_id: &str) -> BTreeSet<(String, String)> {
+        self.dirty_keys
+            .lock()
+            .ok()
+            .and_then(|mut map| map.remove(database_id))
+            .unwrap_or_default()
+    }
+
+    pub(super) fn restore_dirty_keys(&self, database_id: &str, keys: BTreeSet<(String, String)>) {
+        if keys.is_empty() {
+            return;
+        }
+        if let Ok(mut map) = self.dirty_keys.lock() {
+            map.entry(database_id.to_owned()).or_default().extend(keys);
+        }
+        self.mark_materialize_retry(database_id);
+    }
+
     /// Rebuild a history from the authored log and the received entries.
     /// `Birth` replays first, then entries in deterministic `(lamport, node_key,
     /// device_id, writer_seq)` order.
     fn replay(&self, id: DatabaseId) -> Result<(VerifiedHistory, Option<Vec<EntryHash>>), String> {
         let database_id = id.to_hex();
-        let received = load_received(&self.home, &database_id)?;
+        let received = outbox::load_received(&self.home, &database_id)?;
         let saved: Option<Vec<EntryHash>> = received.iter().map(|e| entry_hash(e).ok()).collect();
-        let mut entries = load_authored(&self.home, &database_id)?;
+        let mut entries = outbox::cached_authored(&self.home, &database_id)?;
         entries.extend(received);
         entries.sort_by_key(|entry| {
             let h = entry.header();
@@ -208,7 +274,8 @@ impl HistoryMap {
             )
         });
         let mut history = VerifiedHistory::new(id);
-        shared_key::attach_opener(&mut history, &self.home, &self.node_seed, &database_id)?;
+        let opener: Arc<dyn mutation_log::SealOpener> = self.sealer(&database_id)?;
+        history.set_opener(opener);
         for entry in entries {
             if let AcceptOutcome::Reject { reason } = history.accept_entry(entry) {
                 tracing::warn!(target: "lastdbd::log_sync", ?reason, "stored entry was rejected on replay");
@@ -216,27 +283,6 @@ impl HistoryMap {
         }
         Ok((history, saved))
     }
-}
-
-/// Accept `entry` on a copy of `history`, append it to the log, then swap the
-/// copy in. The log is the only durable write. A failure leaves `history` as it
-/// was, and a rejected or pending entry is never appended.
-pub(super) fn commit_authored(
-    home: &Path,
-    history: &mut VerifiedHistory,
-    entry: &SignedEntry,
-) -> Result<AcceptOutcome, String> {
-    if history.pending_on(&stream_id_of(entry)) {
-        return Err("this stream has entries that wait for a dependency; sync first".into());
-    }
-    let database_id = history.database_id().to_hex();
-    let mut next = history.clone();
-    let outcome = next.accept_entry(entry.clone());
-    if matches!(outcome, AcceptOutcome::Accept { .. }) {
-        append_authored_slice(home, &database_id, std::slice::from_ref(entry))?;
-        *history = next;
-    }
-    Ok(outcome)
 }
 
 /// Build and accept a batch of authored entries on a copy of `history`, write
@@ -252,116 +298,7 @@ pub(super) fn commit_authored_batch(
     if batch.is_empty() {
         return Ok(());
     }
-    append_authored_slice(home, &database_id, &batch)?;
+    outbox::append_authored_slice(home, &database_id, &batch)?;
     *history = next;
     Ok(())
-}
-
-fn log_dir(home: &Path, database_id: &str) -> PathBuf {
-    home.join("log-sync").join(database_id)
-}
-
-fn has_persisted_log(home: &Path, database_id: &str) -> bool {
-    let dir = log_dir(home, database_id);
-    dir.join("authored.json").is_file() || dir.join("received.json").is_file()
-}
-
-/// Entries this node signed for the database, in author order.
-pub(super) fn load_authored(home: &Path, database_id: &str) -> Result<Vec<SignedEntry>, String> {
-    let path = log_dir(home, database_id).join("authored.json");
-    let Some(bytes) =
-        disk::read_limited(&path, LOG_LIMIT).map_err(|_| "cannot read authored history log")?
-    else {
-        return Ok(Vec::new());
-    };
-    serde_json::from_slice(&bytes).map_err(|_| "authored history log is invalid".into())
-}
-
-fn append_authored_slice(
-    home: &Path,
-    database_id: &str,
-    slice: &[SignedEntry],
-) -> Result<(), String> {
-    let mut entries = load_authored(home, database_id)?;
-    entries.extend_from_slice(slice);
-    let bytes = serde_json::to_vec(&entries).map_err(|_| "cannot encode authored history log")?;
-    if bytes.len() > LOG_LIMIT {
-        return Err("authored history log is full".into());
-    }
-    disk::write_private(&log_dir(home, database_id).join("authored.json"), &bytes)
-        .map_err(|_| "cannot write authored history log".into())
-}
-
-/// Accepted entries of other streams, in ascending Lamport order.
-fn load_received(home: &Path, database_id: &str) -> Result<Vec<SignedEntry>, String> {
-    let path = log_dir(home, database_id).join("received.json");
-    let Some(bytes) =
-        disk::read_limited(&path, LOG_LIMIT).map_err(|_| "cannot read received entries")?
-    else {
-        return Ok(Vec::new());
-    };
-    serde_json::from_slice(&bytes).map_err(|_| "received entries are invalid".into())
-}
-
-fn store_received(home: &Path, database_id: &str, entries: &[SignedEntry]) -> Result<(), String> {
-    let bytes = serde_json::to_vec(entries).map_err(|_| "cannot encode received entries")?;
-    if bytes.len() > LOG_LIMIT {
-        return Err("received entries are full".into());
-    }
-    disk::write_private(&log_dir(home, database_id).join("received.json"), &bytes)
-        .map_err(|_| "cannot write received entries".into())
-}
-
-/// How many log entries the relay has acknowledged. Absent means none.
-pub(super) fn load_uploaded(home: &Path, database_id: &str) -> Result<usize, String> {
-    let path = log_dir(home, database_id).join("uploaded.json");
-    let Some(bytes) =
-        disk::read_limited(&path, CURSOR_LIMIT).map_err(|_| "cannot read upload cursor")?
-    else {
-        return Ok(0);
-    };
-    std::str::from_utf8(&bytes)
-        .ok()
-        .and_then(|text| text.trim().parse().ok())
-        .ok_or_else(|| "upload cursor is invalid".into())
-}
-
-pub(super) fn store_uploaded(home: &Path, database_id: &str, through: usize) -> Result<(), String> {
-    let path = log_dir(home, database_id).join("uploaded.json");
-    // A cursor that a power cut sets back only sends entries again, and the relay answers
-    // `duplicate` for the same bytes. An ordered write keeps the file whole.
-    disk::write_private_with(&path, through.to_string().as_bytes(), disk::Flush::Ordered)
-        .map_err(|_| "cannot write upload cursor".into())
-}
-
-/// The log, the cursor, and the entries past it.
-pub(super) struct Pending {
-    pub(super) log_len: usize,
-    pub(super) uploaded: usize,
-    pub(super) batch: Vec<SignedEntry>,
-}
-
-/// Up to `limit` log entries past the cursor. A cursor beyond the log is an
-/// error, not a reason to upload nothing.
-pub(super) fn pending(home: &Path, database_id: &str, limit: usize) -> Result<Pending, String> {
-    let log = load_authored(home, database_id)?;
-    let uploaded = load_uploaded(home, database_id)?;
-    if uploaded > log.len() {
-        return Err(format!(
-            "upload cursor {uploaded} is past the log length {}",
-            log.len()
-        ));
-    }
-    let batch = log.iter().skip(uploaded).take(limit).cloned().collect();
-    Ok(Pending {
-        log_len: log.len(),
-        uploaded,
-        batch,
-    })
-}
-
-/// Entries signed here and not yet acknowledged by the relay.
-pub(super) fn pending_count(home: &Path, database_id: &str) -> Result<u64, String> {
-    let found = pending(home, database_id, 0)?;
-    Ok((found.log_len - found.uploaded) as u64)
 }

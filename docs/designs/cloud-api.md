@@ -71,16 +71,20 @@ verified history for `E.database_id`:
    referenced entry must already be **held and accepted** in `S`. If any
    hash is missing → **pending** until fetched; if it never arrives the
    entry is **never applied**.
-5. **Lamport.** Let `L_prev` be the lamport of this stream’s previous entry
-   (0 if `writer_seq = 1`). Let `L_seen` be the max lamport among the
-   accepted entries named by `E.seen_heads` (0 if empty). Require
-   `E.lamport == 1 + max(L_prev, L_seen)`. Else **reject** (inflated or
-   inconsistent).
-6. **Publisher authorization.** Only the owner (from birth) signs direct
-   `data`, `bundle`, and the publisher kinds. Any other writer may sign
-   only a proposal (`stream=proposal`). Among `E.seen_heads`, use the
-   **publisher** entries for the grant-window: the writer needs `submit`
-   or `write` there and a current `submit` or `write` grant.
+5. **Order value (`lamport`).** Let `L_prev` be the `lamport` of this
+   stream’s previous entry (0 if `writer_seq = 1`), and let `L_seen` be the
+   max `lamport` among the accepted entries named by `E.seen_heads` (0 if
+   empty). `E.lamport` is a millisecond order value: require
+   `E.lamport >= 1 + max(L_prev, L_seen)` and `E.lamport < LAMPORT_LIMIT`
+   (`4_102_444_800_000`, `2100-01-01T00:00:00Z`). Else **reject**.
+6. **Publisher and lease authorization.** Only the owner (from birth) signs
+   the publisher kinds (`birth`, `grant`, `schema`, `blob_delete`, `heads`,
+   `relays`, `snapshot`, `lease`). Direct `data` (`stream=direct`) and
+   `bundle` entries are signed by the owner, or by a member holding `write`
+   covered by an active publisher `lease` cited in `E.seen_heads`. Otherwise a
+   non-publisher writer signs a proposal (`stream=proposal`); among
+   `E.seen_heads`, the **publisher** entries fold the grant window, requiring
+   `submit` or `write` there and in the current grant state.
 7. **Bundle body (only if `kind=bundle`).** After steps 1–6 pass, fetch the
    referenced encrypted blob (`blob.get`), verify `blob_sha256` and
    `blob_size`, decrypt under the db key, verify `change_count`, then apply
@@ -107,9 +111,13 @@ A device keeps **no full history**. It keeps:
 
 1. Chooses `seen_heads` (hashes of accepted entries it depends on — any
    streams),
-2. Assigns `writer_seq`, `prev_hash`, and
-   `lamport = 1 + max(own prev lamport, lamports of cited entries)`,
-3. Signs the entry,
+2. Assigns `writer_seq`, `prev_hash`, and millisecond order
+   `lamport = max(authored_at_ms, 1 + max(own prev lamport, lamports of cited entries))`
+   (`< LAMPORT_LIMIT`),
+3. Seals `data` and `schema` payloads under the database read key with wire
+   `namespace = "sealed"` (packing the real schema name inside the ciphertext
+   for shared databases, with AAD bound to
+   `database_id || node_key || device_id || writer_seq`), then signs the entry,
 4. **Applies locally** (same `AcceptEntry` + merge rules),
 5. Appends the signed entry to the **log**; entries past the upload cursor
    are pending.
@@ -159,13 +167,17 @@ silently disagree once heads and dependencies meet.
 1. Writer signature on every change.
 2. One hash chain per stream `(node_key, device_id)`, gapless.
 3. Grants / role reductions / revokes on publisher device chains.
-4. Local `AcceptEntry` (seen heads by hash from any stream; checked
-   Lamport) + whole-record LWW merge; grant ties → revoke wins.
+4. Local `AcceptEntry` (seen heads by hash from any stream; millisecond order
+   `lamport < LAMPORT_LIMIT`) + whole-record LWW merge; grant ties → revoke
+   wins.
 5. Publisher-signed `heads` for hidden-entry detection (devices + People).
-6. No checkpoints. No snapshots. No `resolve`.
+6. Shared databases have no snapshots and never trim logs. The personal
+   database publishes native-file `snapshot` entries and trims covered log
+   entries (`log.trim`) and unreferenced blobs (`blob.drop`). No `resolve`.
 7. Proposals are **`data` entries with `stream = proposal`**; they count
-   as content only after publisher **incorporation**.
-8. Append-only, never-trimmed logs.
+   as content only after publisher **incorporation**; `write` members covered
+   by an active publisher `lease` may sign direct `data` entries.
+8. Append-only logs in normal operation (with personal snapshot `log.trim`).
 9. Signed `bundle` entries for large batches / bootstrap / restore pushes
    (ordinary writes stay single `data` entries).
 
@@ -189,20 +201,25 @@ Wire `signature`: base64url, 64 bytes.
 
 | Kind | Domain | Notes |
 |---|---|---|
-| `birth` | birth material in chain | First publisher-device entry (`writer_seq=1`) |
-| `data` | `lastdb-mutation-v1` | `stream` direct\|proposal; payload; optional file / incorporation |
-| `bundle` | `lastdb-bundle-v1` | `{blob_sha256, blob_size, change_count}`; publisher only |
+| `birth` | `lastdb-birth-v1` | First publisher-device entry (`writer_seq=1`) |
+| `data` | `lastdb-mutation-v1` | `stream` direct\|proposal; wire `namespace="sealed"`, sealed payload; optional file / incorporation |
+| `schema` | `lastdb-schema-v1` | publisher; wire `namespace="sealed"`, sealed schema definition |
+| `bundle` | `lastdb-bundle-v1` | `{blob_sha256, blob_size, change_count}`; publisher or leased `write` member |
 | `grant` | `lastdb-grant-v1` | grantee, role; `cutoffs` carried for the wire format, never read |
+| `lease` | `lastdb-lease-v1` | publisher; write lease window and closed stream positions |
+| `snapshot` | `lastdb-snapshot-v1` | personal database; manifest digest of native store files and covered stream positions |
 | `blob_delete` | `lastdb-blob-delete-v1` | publisher; names blob `sha256` |
-| `heads` | `lastdb-heads-v1` | publisher tip vector for hidden-entry detection |
+| `heads` | `lastdb-heads-v1` | publisher tip vector for hidden-entry detection (and declined proposals) |
 | `relays` | `lastdb-relays-v1` | publisher-signed relay URL list |
 
-**Data / bundle:** direct `data` and bundles are the publisher's alone and
-need no grant. A member signs only a proposal: `stream=proposal`, no
-`grant_at`, its `seen_heads` naming the publisher grants it holds. A
-proposal changes nothing until the publisher signs a direct entry that
-cites it in `incorporated_from`, or a `heads` entry that records it as not
-accepted. Bundles never carry proposals or grant entries inside the blob.
+**Data / schema / bundle:** `data` and `schema` payloads are sealed under the
+database read key at write time (`namespace = "sealed"` on the wire). Direct
+`data` and bundles are signed by the publisher, or by a `write` member covered
+by an active publisher `lease` cited in `seen_heads`. Otherwise a member signs
+a proposal (`stream=proposal`), citing the publisher grants it holds in
+`seen_heads`; a proposal changes nothing until the publisher signs a direct
+entry citing it in `incorporated_from`, or a `heads` entry declining it.
+Bundles never carry proposals or grant entries inside the blob.
 
 **Birth:** first chained entry on a publisher device. ExeMem
 `manage`/`create` carries the full signed `BirthEntry`.
@@ -285,27 +302,31 @@ covered history to bound storage remains a future option.
 
 ## Restore, new device, and local state
 
-No snapshots. No `cursor_expired`. Delivery cursors are pagination only.
+Shared databases have no snapshots. No `cursor_expired`. Delivery cursors are
+pagination only.
 
-**Restore / new device / new member:**
+**Restore / new device / new member (shared database):**
 
 1. Discover a relay (People + `relays` entry).
-2. `log.read` every stream from `writer_seq = 1`.
+2. `log.streams` + `log.read` every stream from `writer_seq = 1`.
 3. `AcceptEntry` (pending until seen-head deps and bundle blobs arrive);
    LWW merge; replay. Bundle bodies download via `blob.get` when the entry
    is reached (stream blocks on that entry until the blob verifies).
 4. Other file blobs **lazily** by hash via `blob.get` (presigned URL).
 
-The personal database restores and joins the same way, from the recovery
-phrase alone: it reads every stream of the owner's node key, opens the sealed
-payloads, and signs on a new stream under a new device id. See
+**Personal database restore / new device:** installs the newest
+publisher-signed `snapshot` (native store files named by digest, already
+encrypted and never sealed again) when one exists, reads each device stream
+after its snapshot position, opens the sealed payloads, and signs on a new
+stream under a new device id. See
 [personal-database-signed-log.md](personal-database-signed-log.md).
 
 After replay, keep only materialized state, per-stream heads, grant state,
 per-record positions, and the outbox — enough to validate and author the
-next entry. Relays retain the full log. With current-state bundles,
-bootstrap/restore of a large home is expected to finish well under a
-minute for a few hundred MB of synthetic data (see CI plan).
+next entry. Relays retain the full log for shared databases, and the newest
+snapshot plus trailing entries and referenced blobs for a personal database.
+With current-state bundles, bootstrap/restore of a large home is expected to
+finish well under a minute for a few hundred MB of synthetic data (see CI plan).
 
 ## Bootstrap (existing databases)
 
@@ -419,24 +440,26 @@ Publisher pays. Lapsed: reads work; push/grant/create →
 34. Create = full signed `BirthEntry`.
 35. Levels: `read` | `submit` | `write` (+ reductions / `revoked`).
 36. Self-certifying `database_id`; tombstones; no db-key rotation.
-37. **Superseded by 45.** No snapshots; no `cursor_expired`.
+37. **Superseded by 45.** No shared snapshots; no `cursor_expired`.
 38. Publisher pays; lapsed rules as above.
 39. **Superseded by 46.** `deactivate`: erase all publisher ExeMem/relay
     data; cancel subs; retire key.
 40. Devices: `remove_device` bookkeeping; cap 256.
 41. Delivery cursors are pagination only.
-42. Writer signatures + device streams; local write model (sign, apply,
-    log + cursor); `AcceptEntry` with any-stream `seen_heads` by hash; checked
-    Lamport; whole-record LWW; no checkpoints; no `landed`; no `resolve`.
+42. Writer signatures + device streams; write-time `"sealed"` payloads under
+    the db read key; local write model (sign, apply, log + cursor);
+    `AcceptEntry` with any-stream `seen_heads` by hash; millisecond order
+    `lamport < LAMPORT_LIMIT`; whole-record LWW; no `landed`; no `resolve`.
 43. Signed grants; the `cutoffs` field is carried but never read;
     revoke-wins ties; publisher `heads` for hidden-entry
     detection; no side channel.
-44. Append-only logs in normal operation; proposals not GC-deleted; blob
-    delete via chain; product erase via `delete` / `deactivate`.
-45. No snapshots. Restore = full log replay. Local store = state + stream
-    heads + grants + per-record positions + outbox. Bootstrap replaces
-    unsigned cloud data. Fork freezes the stream; continue on a new
-    `device_id`.
+44. Append-only logs in normal operation (with personal snapshot `log.trim`);
+    proposals not GC-deleted; blob delete via chain; product erase via `delete`
+    / `deactivate`.
+45. Shared DBs have no snapshots (restore = full log replay). Personal DB
+    publishes native-file `snapshot` entries, trims covered history via
+    `log.trim`, and drops unreferenced blobs via `blob.drop`. Fork freezes the
+    stream; continue on a new `device_id`.
 46. **Superseded by 48 for relays.** No `manage`/`access`. `delete` erases
     that DB’s relay logs/blobs (id tombstoned). `deactivate` erases all
     publisher ExeMem/relay data, cancels subscriptions, retires the key.
@@ -447,11 +470,12 @@ Publisher pays. Lapsed: reads work; push/grant/create →
     blob_delete; per-db keyed blobs with per-blob nonce (no digest
     dedupe/refcount). Bootstrap = birth + current-state bundles + grants.
 48. Relay spam/cost gate from publisher-signed birth/grant entries: every
-    request signed; append is the publisher's, or a proposal from a submit or write member; put needs write;
-    read/get need read or `grant#any`; revoke cuts off new appends (403);
-    already-stored entries stay. Quota billed to the publisher’s ExeMem
-    account; grantees need no account. Rejected: shared db secret for
-    append auth.
+    request signed; append is the publisher's, or `data` (`proposal` or
+    `direct` under a publisher `lease`) from a `submit` or `write` member; put
+    needs `write`; read/streams/get need `read` or `grant#any`; revoke cuts off
+    new appends (403); already-stored entries stay. Quota billed to the
+    publisher’s ExeMem account; grantees need no account. Rejected: shared db
+    secret for append auth.
 
 ### Defaults
 
@@ -503,11 +527,11 @@ until `seen_heads` deps arrive — local only.
    `device_id`.
 5. Multi-device offline same seq: **not** equivocation.
 6. Forged grant: cannot authorize.
-7. Member direct entry or bundle: reject. Proposal after revoke: reject.
+7. Unleased member direct entry or bundle: reject. Proposal after revoke: reject.
 8. Side-channel grant/revoke ignored.
 9. **Unknown `seen_heads` hash:** entry stays **pending**; never applied if
    the hash never arrives.
-10. **Inflated lamport** beyond prev + cited entries: **reject**.
+10. **Invalid `lamport`** (not above prev and cited entries, or `>= LAMPORT_LIMIT`): **reject**.
 11. Reordered delivery → same LWW state; no rewind.
 12. Publisher `heads` cites missing tip → withheld detection.
 13. Bootstrap replay equals source state; fresh member grants.

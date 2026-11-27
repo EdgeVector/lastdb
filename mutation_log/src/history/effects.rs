@@ -60,6 +60,9 @@ impl VerifiedHistory {
         position: RecordPosition,
     ) {
         let namespace = body.namespace.clone();
+        if !schema_matches_namespace(&namespace, &body.definition) {
+            return;
+        }
         let decls = self.schema_decls.entry(namespace.clone()).or_default();
         decls.insert(
             super::lease::pos_key(position),
@@ -215,4 +218,11 @@ impl VerifiedHistory {
             }
         }
     }
+}
+
+fn schema_matches_namespace(namespace: &str, bytes: &[u8]) -> bool {
+    let Some(crate::json_val::JsonVal::Object(obj)) = crate::json_val::parse_json(bytes) else {
+        return false;
+    };
+    matches!(obj.get("name"), Some(crate::json_val::JsonVal::Str(name)) if name == namespace)
 }

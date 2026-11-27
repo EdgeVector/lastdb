@@ -169,7 +169,8 @@ async fn run_timed(
         if shared {
             let writer =
                 mutation_log::NodeKey::from_bytes(host.keypair.public_key_bytes()).to_hex();
-            for mutation in &mut mutations {
+            for (index, mutation) in mutations.iter_mut().enumerate() {
+                super::write_signed::check_shared_mutation(&store, index, mutation)?;
                 mutation.writer = Some(writer.clone());
             }
         }

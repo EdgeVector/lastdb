@@ -1,9 +1,12 @@
-//! Seal the opaque content of entries in a shared database.
+//! Seal `data` and `schema` entry bodies in a shared database.
 //!
-//! Same contract as the personal database: seal once at write time with the
-//! database read key, store and upload only that sealed form, and open in
-//! memory when applying or reading. The real schema name and record bytes
-//! travel inside the ciphertext; the wire namespace is always `sealed`.
+//! Shared databases reuse [`crate::personal_seal::Sealer`] (`Sealer::for_read_key`)
+//! for position-bound AES-256-GCM encryption under the shared database read key,
+//! and pack the real schema namespace (`1..=128` UTF-8 bytes) in front of the
+//! record or schema bytes via [`mutation_log::pack_hiding_namespace`]. Every
+//! sealed entry carries the fixed wire namespace `sealed`
+//! ([`mutation_log::SEALED_NAMESPACE`]), hiding both schema names and payloads
+//! from relays and non-holders of the read key.
 
 use mutation_log::{pack_hiding_namespace, DataBody, DatabaseId, SchemaBody, SEALED_NAMESPACE};
 use zeroize::Zeroizing;

@@ -56,15 +56,14 @@ pub(super) async fn resolve_owned(
                 let key = (ready.namespace.clone(), ready.key.clone());
                 if let Err(error) = publish(host, histories, database_id, &identity, &entry, ready)
                 {
-                    materialize::revert_unsigned(host, database_id, store, &[key]).await;
+                    let _ = materialize::revert_unsigned(host, database_id, store, &[key]).await;
                     return Err(error);
                 }
             }
             Decision::Decline => decline(host, histories, database_id, &identity, &entry)?,
         }
     }
-    let history = histories.snapshot(database_id)?;
-    materialize::apply_history_records(store, &history).await
+    materialize::rematerialize(histories, database_id, store).await
 }
 
 enum Decision {
@@ -142,6 +141,11 @@ async fn decide(
         key: at,
         alternates: prepared.alternates,
     };
+    if intent.mutation_type != MutationType::Delete
+        && signed_history_materialize::check_shared_record_size(&target, &intent.fields).is_err()
+    {
+        return Ok(Decision::Decline);
+    }
     let mut mutation = Mutation::with_uuid(
         uuid::Uuid::new_v4().to_string(),
         target,

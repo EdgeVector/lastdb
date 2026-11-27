@@ -1,5 +1,4 @@
-//! Wake signal that ends the sync loop's sleep early, and the first-sync
-//! intent file.
+//! Wake signal that ends the sync loop's sleep early.
 //!
 //! A wake needs no durability: a lost wake waits for the next timed turn, and
 //! the loop runs a turn when it starts. So nothing here waits for the drive.
@@ -17,8 +16,6 @@ use std::time::Duration;
 
 use tokio::sync::Notify;
 
-use crate::cloud::{SIGNED_HISTORY_INTENT, SIGNED_HISTORY_INTENT_FILE};
-use crate::offline_home::Directory;
 use crate::profile::private_fs as disk;
 
 const WAKE_FILE: &str = "wake";
@@ -75,10 +72,4 @@ pub(super) async fn pause_unless_wake(home: &Path, limit: Duration) {
         }
         left = left.saturating_sub(step);
     }
-}
-
-/// Record that this home should bootstrap signed history on next sync.
-pub fn publish_signed_history_intent(dir: &Directory) -> Result<(), String> {
-    dir.publish(SIGNED_HISTORY_INTENT_FILE, None, SIGNED_HISTORY_INTENT)
-        .map_err(|error| error.to_string())
 }

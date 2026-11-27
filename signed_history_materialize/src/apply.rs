@@ -4,12 +4,13 @@ use std::collections::{BTreeMap, HashMap};
 
 use fold_db::fold_db_core::FoldDB;
 use fold_db::record_replacement::RecordTarget;
-use fold_db::schema::types::{CasExpectation, KeyValue, Mutation, MutationType};
+use fold_db::schema::types::{CasExpectation, KeyValue, Mutation, MutationType, Schema};
 use mutation_log::{MaterializedRecord, VerifiedHistory};
 use serde_json::Value;
 
-use crate::key::key_value;
+use crate::key::key_value_for_schema;
 use crate::read::read_at;
+use crate::validate::validate_record;
 
 /// Named alternate key map carried by a record target.
 pub type Alternates = BTreeMap<String, Option<KeyValue>>;
@@ -83,7 +84,7 @@ pub fn decode_record_value(value: &[u8]) -> Result<Option<DecodedRecord>, String
 pub fn resolve_alternates(
     store: &FoldDB,
     namespace: &str,
-    mut supplied: Alternates,
+    supplied: Alternates,
 ) -> Result<Alternates, String> {
     let Some(schema) = store
         .schema_manager()
@@ -92,6 +93,13 @@ pub fn resolve_alternates(
     else {
         return Ok(supplied);
     };
+    resolve_schema_alternates(&schema, supplied)
+}
+
+fn resolve_schema_alternates(
+    schema: &Schema,
+    mut supplied: Alternates,
+) -> Result<Alternates, String> {
     let keys = schema.require_record_keys().map_err(|e| e.to_string())?;
     for (name, def) in &keys.alternates {
         match supplied.get_mut(name) {
@@ -110,17 +118,30 @@ pub fn resolve_alternates(
     Ok(supplied)
 }
 
-/// Make FoldDB hold exactly the winners of `history`.
+/// Make FoldDB hold the valid winners of `history`.
 ///
-/// A winner already stored with equal fields, equal alternates, and the same
-/// `created_by` and `updated_by` is left alone. History records are
-/// whole-record last-writer-wins: `winner.creator` (the earliest accepted write
-/// to the key) is `created_by` and `winner.author` is `updated_by` on every
-/// node. An empty value deletes the record. A live winner whose namespace has
-/// no declared schema fails closed. A tombstone for an undeclared namespace is
-/// skipped so a tombstone-only namespace does not block restore.
+/// Winners are applied in deterministic descending `RecordPosition` order. A
+/// winner already stored with equal fields, equal alternates, and the same
+/// `created_by` and `updated_by` is left alone. An empty value deletes the
+/// record. A malformed or schema-invalid winner logs a warning and removes any
+/// previously materialized record at that key so every node converges on the
+/// same state (record absent), while storage/CAS errors always propagate.
 pub async fn apply_history(store: &FoldDB, history: &VerifiedHistory) -> Result<(), String> {
-    for ((namespace, record_key), winner) in history.records() {
+    let mut winners: Vec<_> = history.records().iter().collect();
+    winners.sort_by(|(key_a, rec_a), (key_b, rec_b)| {
+        let pos_a = (
+            rec_a.position.lamport,
+            rec_a.position.node_key,
+            rec_a.position.device_id,
+        );
+        let pos_b = (
+            rec_b.position.lamport,
+            rec_b.position.node_key,
+            rec_b.position.device_id,
+        );
+        pos_b.cmp(&pos_a).then_with(|| key_a.cmp(key_b))
+    });
+    for ((namespace, record_key), winner) in winners {
         apply_winner(store, namespace, record_key, winner).await?;
     }
     Ok(())
@@ -132,54 +153,78 @@ async fn apply_winner(
     record_key: &str,
     winner: &MaterializedRecord,
 ) -> Result<(), String> {
-    if !schema_declared(store, namespace)? {
-        if winner.value.is_empty() {
+    let Some(schema) = store
+        .schema_manager()
+        .get_schema_metadata(namespace)
+        .map_err(|e| e.to_string())?
+    else {
+        if !winner.value.is_empty() {
+            tracing::warn!(
+                namespace = %namespace,
+                "skipping record winner whose schema has no declaration in signed history"
+            );
+        }
+        return Ok(());
+    };
+    let key = match key_value_for_schema(&schema, namespace, record_key) {
+        Ok(key) => key,
+        Err(error) => {
+            tracing::warn!(
+                namespace = %namespace,
+                %error,
+                "skipping record winner with invalid primary key encoding"
+            );
             return Ok(());
         }
-        return Err(format!(
-            "schema {namespace} has no declaration in signed history"
-        ));
-    }
-    let key = key_value(store, namespace, record_key)?;
+    };
     let current = read_at(store, namespace, &key).await?;
-    let decoded = decode_record_value(&winner.value)?;
+    let Some(mutation) = plan_winner(&schema, namespace, &key, current.as_ref(), winner) else {
+        return Ok(());
+    };
+    store
+        .mutation_manager()
+        .write_mutations_receipt(vec![mutation])
+        .await
+        .map(|_| ())
+        .map_err(|error| format!("write {namespace}/{record_key}: {error}"))
+}
+
+fn plan_winner(
+    schema: &Schema,
+    namespace: &str,
+    key: &KeyValue,
+    current: Option<&Stored>,
+    winner: &MaterializedRecord,
+) -> Option<Mutation> {
+    if winner.value.is_empty() {
+        return current.map(|old| delete_mutation(namespace, key.clone(), old));
+    }
     let creator = winner.creator.to_hex();
     let author = winner.author.to_hex();
-    let (kind, expected, fields, alternates) = match (&current, decoded) {
-        (None, None) => return Ok(()),
-        (None, Some(rec)) => {
-            let alts = resolve_alternates(store, namespace, rec.alternates)?;
-            (
-                MutationType::Create,
-                CasExpectation::Absent,
-                rec.fields,
-                alts,
-            )
+    let (target, fields) = match decode_and_validate(schema, namespace, key, &winner.value) {
+        Ok(valid) => valid,
+        Err(reason) => {
+            tracing::warn!(
+                namespace = %namespace,
+                %reason,
+                "dropping invalid record winner in signed history"
+            );
+            return current.map(|old| delete_mutation(namespace, key.clone(), old));
         }
-        (Some(old), Some(rec)) => {
-            let alts = resolve_alternates(store, namespace, rec.alternates)?;
-            if old.fields == rec.fields
-                && old.alternates == alts
+    };
+    let (kind, expected) = match current {
+        None => (MutationType::Create, CasExpectation::Absent),
+        Some(old) => {
+            if old.fields == fields
+                && old.alternates == target.alternates
                 && old.created_by.as_deref() == Some(creator.as_str())
                 && old.updated_by.as_deref() == Some(author.as_str())
             {
-                return Ok(());
+                return None;
             }
-            (MutationType::Replace, revision_of(old), rec.fields, alts)
+            (MutationType::Replace, revision_of(old))
         }
-        (Some(old), None) => (
-            MutationType::Delete,
-            revision_of(old),
-            HashMap::new(),
-            old.alternates.clone(),
-        ),
     };
-    let target = RecordTarget {
-        schema: namespace.to_owned(),
-        key,
-        alternates,
-    };
-    let carries_authors = !matches!(kind, MutationType::Delete);
     let mut mutation = Mutation::with_uuid(
         uuid::Uuid::new_v4().to_string(),
         target,
@@ -188,15 +233,41 @@ async fn apply_winner(
         expected,
     );
     mutation.writer = Some(author.clone());
-    if carries_authors {
-        mutation.copied_authorship = Some((Some(creator), Some(author)));
-    }
-    store
-        .mutation_manager()
-        .write_mutations_receipt(vec![mutation])
-        .await
-        .map(|_| ())
-        .map_err(|e| format!("write {namespace}/{record_key}: {e}"))
+    mutation.copied_authorship = Some((Some(creator), Some(author)));
+    Some(mutation)
+}
+
+fn decode_and_validate(
+    schema: &Schema,
+    namespace: &str,
+    key: &KeyValue,
+    raw_value: &[u8],
+) -> Result<(RecordTarget, HashMap<String, Value>), String> {
+    let rec = decode_record_value(raw_value)?
+        .ok_or_else(|| "live record winner unexpectedly decoded as empty".to_owned())?;
+    let alternates = resolve_schema_alternates(schema, rec.alternates)?;
+    let target = RecordTarget {
+        schema: namespace.to_owned(),
+        key: key.clone(),
+        alternates,
+    };
+    validate_record(schema, &target, &rec.fields)?;
+    Ok((target, rec.fields))
+}
+
+fn delete_mutation(namespace: &str, key: KeyValue, stored: &Stored) -> Mutation {
+    let target = RecordTarget {
+        schema: namespace.to_owned(),
+        key,
+        alternates: stored.alternates.clone(),
+    };
+    Mutation::with_uuid(
+        uuid::Uuid::new_v4().to_string(),
+        target,
+        HashMap::new(),
+        MutationType::Delete,
+        revision_of(stored),
+    )
 }
 
 fn revision_of(stored: &Stored) -> CasExpectation {
@@ -205,20 +276,8 @@ fn revision_of(stored: &Stored) -> CasExpectation {
     }
 }
 
-fn schema_declared(store: &FoldDB, namespace: &str) -> Result<bool, String> {
-    Ok(store
-        .schema_manager()
-        .get_schema_metadata(namespace)
-        .map_err(|e| e.to_string())?
-        .is_some())
-}
-
 /// Make the store hold what the history holds at each of `keys`: the winner's
 /// record, or no record when no write counts there.
-///
-/// This is the one way a store is brought back to its history at given keys. It
-/// undoes a write whose signed entry could not be signed. A key of an
-/// undeclared schema is skipped.
 pub async fn reconcile_keys<'a>(
     store: &FoldDB,
     history: &VerifiedHistory,
@@ -226,13 +285,19 @@ pub async fn reconcile_keys<'a>(
 ) -> Result<(), String> {
     for key in keys {
         let (namespace, record_key) = key;
-        if !schema_declared(store, namespace)? {
+        let Some(schema) = store
+            .schema_manager()
+            .get_schema_metadata(namespace)
+            .map_err(|e| e.to_string())?
+        else {
             continue;
-        }
+        };
         if let Some(winner) = history.records().get(key) {
             apply_winner(store, namespace, record_key, winner).await?;
         } else {
-            let at = key_value(store, namespace, record_key)?;
+            let Ok(at) = key_value_for_schema(&schema, namespace, record_key) else {
+                continue;
+            };
             delete_record(store, namespace, at).await?;
         }
     }
@@ -243,18 +308,16 @@ async fn delete_record(store: &FoldDB, namespace: &str, key: KeyValue) -> Result
     let Some(current) = read_at(store, namespace, &key).await? else {
         return Ok(());
     };
-    let target = RecordTarget {
-        schema: namespace.to_owned(),
-        key,
-        alternates: current.alternates.clone(),
-    };
-    let mutation = Mutation::with_uuid(
-        uuid::Uuid::new_v4().to_string(),
-        target,
-        HashMap::new(),
-        MutationType::Delete,
-        revision_of(&current),
-    );
+    delete_stored(store, namespace, key, &current).await
+}
+
+async fn delete_stored(
+    store: &FoldDB,
+    namespace: &str,
+    key: KeyValue,
+    current: &Stored,
+) -> Result<(), String> {
+    let mutation = delete_mutation(namespace, key, current);
     store
         .mutation_manager()
         .write_mutations_receipt(vec![mutation])

@@ -1,17 +1,17 @@
-//! Seal and open the payloads of the personal database.
+//! Position-bound AES-256-GCM sealing and opening for signed-history payloads.
 //!
-//! The relay stores what a node signs, and it must learn nothing about the
-//! records in it. Every payload of the personal database is sealed with the
-//! database read key before the entry is signed: the accepted body of a `data`
-//! entry (a record write with its alternate keys, a schema put or drop) and the
-//! blob of a file that a record names. There is one mechanism for both: the
-//! AES-256-GCM envelope that LastDB already uses for stored data,
-//! `0x01 ‖ nonce(12) ‖ ciphertext ‖ tag(16)`, with a fresh random nonce.
+//! Both the personal database (`Sealer::for_node_seed`) and shared databases
+//! (`Sealer::for_read_key`, wrapped by [`crate::shared_seal`]) use [`Sealer`] so
+//! the relay learns nothing about record contents or schema definitions. Every
+//! payload is sealed with the database read key before the entry is signed —
+//! the accepted body of a personal `data` entry, the namespace-packed body of a
+//! shared `data` or `schema` entry, and any record file blob — using LastDB's
+//! standard AES-256-GCM envelope `0x01 ‖ nonce(12) ‖ ciphertext ‖ tag(16)` with
+//! a fresh random nonce.
 //!
-//! The bound data of the envelope is the database id, the node key, the device
-//! id and the `writer_seq` of the entry (32 + 32 + 32 + 8 bytes). A ciphertext
-//! that was moved to another position, another database or another stream does
-//! not open.
+//! Additional authenticated data binds each ciphertext to
+//! `database_id ‖ node_key ‖ device_id ‖ writer_seq` (32 + 32 + 32 + 8 bytes),
+//! so a ciphertext moved to another position, stream, or database does not open.
 
 use fold_db::crypto::envelope::{decrypt_envelope_with_aad, encrypt_envelope_with_aad};
 use mutation_log::{DatabaseId, DeviceId, EntryHeader, NodeKey, SealOpener};
@@ -20,6 +20,7 @@ use zeroize::Zeroizing;
 use crate::personal_identity;
 
 /// The key and database that seal and open payloads.
+#[derive(Clone)]
 pub(crate) struct Sealer {
     key: Zeroizing<[u8; 32]>,
     database: DatabaseId,

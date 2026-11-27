@@ -1,15 +1,17 @@
 //! Author one signed entry on this node's device stream.
 //!
-//! The entry is accepted on a copy of the history, appended to the authored
-//! log, and the sync loop is woken. All of it happens under the history lock,
-//! so two callers cannot take the same `writer_seq`.
+//! The entry (together with `birth` when the publisher signs its first entry)
+//! is accepted on a copy of the history, appended to the authored log in one
+//! atomic batch, and the sync loop is woken. All of it happens under the
+//! history lock, so two callers cannot take the same `writer_seq`.
 
+use std::cell::Cell;
 use std::path::Path;
 
 use app_identity_crypto::SigningKey;
 use mutation_log::{
-    entry_hash, AcceptOutcome, AuthorCtx, DatabaseId, EntryHash, NodeKey, RejectReason,
-    SignedEntry, VerifiedHistory,
+    entry_hash, stream_id_of, AcceptOutcome, AuthorCtx, DatabaseId, EntryHash, NodeKey,
+    RejectReason, SignedEntry, VerifiedHistory,
 };
 
 use super::birth;
@@ -41,7 +43,8 @@ pub(crate) fn identity_of(host: &Host) -> Result<AuthorIdentity, ChainError> {
     })
 }
 
-/// Author a publisher entry. The first one also authors the signed birth.
+/// Author a publisher entry. The first one also authors the signed birth in the
+/// same atomic batch.
 pub(super) fn author_publisher(
     histories: &HistoryMap,
     target: &Target<'_>,
@@ -69,11 +72,46 @@ fn author_with(
         .map_err(|_| ChainError::Invalid("database id is not a 64-hex id"))?;
     let result = histories
         .with_mut(target.database_id, |history| {
-            if publisher {
-                ensure_publisher(history, target, database)?;
-            }
-            let entry = build(base_ctx(history, database, target.identity), history)?;
-            accept_local(history, target, &entry)
+            let cause: Cell<Option<ChainError>> = Cell::new(None);
+            let out: Cell<Option<Authored>> = Cell::new(None);
+            history_store::commit_authored_batch(target.home, history, |next| {
+                let mut batch = Vec::with_capacity(2);
+                if publisher {
+                    if let Err(err) = ensure_publisher(next, target, database, &mut batch) {
+                        cause.set(Some(err));
+                        return Err("publisher check failed".into());
+                    }
+                }
+                let entry = match build(base_ctx(next, database, target.identity), next) {
+                    Ok(entry) => entry,
+                    Err(err) => {
+                        cause.set(Some(err));
+                        return Err("entry build failed".into());
+                    }
+                };
+                match stage_local(next, entry, &mut batch) {
+                    Ok(authored) => {
+                        out.set(Some(authored));
+                        Ok(batch)
+                    }
+                    Err(err) => {
+                        cause.set(Some(err));
+                        Err("entry acceptance failed".into())
+                    }
+                }
+            })
+            .map_err(|error| {
+                if let Some(err) = cause.take() {
+                    return err;
+                }
+                tracing::warn!(
+                    target: "lastdbd::log_sync",
+                    %error,
+                    "authored entry was not appended to the log"
+                );
+                ChainError::Unconfirmed
+            })?;
+            out.take().ok_or(ChainError::Unconfirmed)
         })
         .map_err(|_| ChainError::Unconfirmed)?;
     if result.is_ok() {
@@ -82,7 +120,7 @@ fn author_with(
     result
 }
 
-pub(super) fn base_ctx(
+fn base_ctx(
     history: &VerifiedHistory,
     database_id: DatabaseId,
     identity: &AuthorIdentity,
@@ -103,6 +141,7 @@ fn ensure_publisher(
     history: &mut VerifiedHistory,
     target: &Target<'_>,
     database: DatabaseId,
+    batch: &mut Vec<SignedEntry>,
 ) -> Result<(), ChainError> {
     if history.owner().is_none() {
         let material = birth::load(target.home, target.database_id)
@@ -113,7 +152,7 @@ fn ensure_publisher(
         let ctx = base_ctx(history, database, target.identity);
         let entry =
             birth::entry(&material, &ctx, target.identity).map_err(|_| ChainError::Unconfirmed)?;
-        accept_local(history, target, &entry)?;
+        stage_local(history, entry, batch)?;
     }
     if history.owner() == Some(target.identity.node_key) {
         Ok(())
@@ -124,29 +163,34 @@ fn ensure_publisher(
     }
 }
 
-fn accept_local(
+fn stage_local(
     history: &mut VerifiedHistory,
-    target: &Target<'_>,
-    entry: &SignedEntry,
+    entry: SignedEntry,
+    batch: &mut Vec<SignedEntry>,
 ) -> Result<Authored, ChainError> {
-    let hash = entry_hash(entry).map_err(|_| ChainError::Unconfirmed)?;
-    let writer_seq = entry.header().writer_seq;
-    match history_store::commit_authored(target.home, history, entry) {
-        Ok(AcceptOutcome::Accept { .. }) => {}
-        Ok(AcceptOutcome::Pending { reason }) => {
-            tracing::warn!(target: "lastdbd::log_sync", ?reason, "authored entry is pending locally");
-            return Err(ChainError::Unconfirmed);
-        }
-        Ok(AcceptOutcome::Reject { reason }) => return Err(rejected(&reason)),
-        Err(error) => {
-            tracing::warn!(target: "lastdbd::log_sync", %error, "authored entry was not appended to the log");
-            return Err(ChainError::Unconfirmed);
-        }
+    if history.pending_on(&stream_id_of(&entry)) {
+        tracing::warn!(
+            target: "lastdbd::log_sync",
+            "authored stream has entries waiting for a dependency"
+        );
+        return Err(ChainError::Unconfirmed);
     }
-    Ok(Authored {
-        entry_hash: hash,
-        writer_seq,
-    })
+    let hash = entry_hash(&entry).map_err(|_| ChainError::Unconfirmed)?;
+    let writer_seq = entry.header().writer_seq;
+    match history.accept_entry(entry.clone()) {
+        AcceptOutcome::Accept { .. } => {
+            batch.push(entry);
+            Ok(Authored {
+                entry_hash: hash,
+                writer_seq,
+            })
+        }
+        AcceptOutcome::Pending { reason } => {
+            tracing::warn!(target: "lastdbd::log_sync", ?reason, "authored entry is pending locally");
+            Err(ChainError::Unconfirmed)
+        }
+        AcceptOutcome::Reject { reason } => Err(rejected(&reason)),
+    }
 }
 
 fn rejected(reason: &RejectReason) -> ChainError {
