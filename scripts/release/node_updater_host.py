@@ -55,7 +55,7 @@ class Unix(http.client.HTTPConnection):
     def connect(self):
         self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self.sock.settimeout(60)
-        self.sock.connect(self.path)
+        self.sock.connect(str(self.path))
 
 
 def call(sock, path, body=None):
