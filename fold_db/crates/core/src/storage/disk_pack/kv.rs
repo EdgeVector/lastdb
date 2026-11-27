@@ -180,26 +180,28 @@ fn plan_mutations(
     deletes.sort();
     deletes.dedup();
     let bodies = rt.raw_many(ctx, &deletes, pending)?;
+    let lengths = |body: &Option<Vec<u8>>| body.as_ref().map(|v| v.len() as u64);
     let mut present: BTreeMap<_, _> = deletes
         .into_iter()
-        .zip(bodies.iter().map(Option::is_some))
+        .zip(bodies.iter().map(lengths))
         .collect();
     let mut out = Vec::with_capacity(mutations.len());
     for mutation in mutations {
         let coord = coordinate(namespace, mutation.key());
         match mutation {
             KvMutation::Put { value, .. } => {
-                present.insert(coord.clone(), true);
+                present.insert(coord.clone(), Some(value.len() as u64));
                 out.push(HomeMutation::new(coord.0, coord.1, Some(value)));
             }
-            KvMutation::Delete { .. } if present.insert(coord.clone(), false) == Some(true) => {
-                out.push(HomeMutation::new(coord.0, coord.1, None));
+            KvMutation::Delete { .. } => {
+                if let Some(hides) = present.insert(coord.clone(), None).flatten() {
+                    out.push(HomeMutation::new(coord.0, coord.1, None).with_hides(hides));
+                }
             }
-            KvMutation::Delete { .. } => {}
             // No existence read: a delete of an absent key is one tombstone, and no read or
             // range returns a tombstone as a value.
             KvMutation::Trim { .. } => {
-                present.insert(coord.clone(), false);
+                present.insert(coord.clone(), None);
                 out.push(HomeMutation::new(coord.0, coord.1, None));
             }
         }

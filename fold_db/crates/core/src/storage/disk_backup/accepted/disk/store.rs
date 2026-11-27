@@ -40,19 +40,11 @@ fn parse_seq(key: &str) -> Result<u64, Error> {
 }
 
 fn put(collection: &str, key: String, body: Vec<u8>) -> HomeMutation {
-    HomeMutation {
-        collection: collection.into(),
-        key,
-        body: Some(body),
-    }
+    HomeMutation::new(collection, key, Some(body))
 }
 
 fn delete(collection: &str, key: String) -> HomeMutation {
-    HomeMutation {
-        collection: collection.into(),
-        key,
-        body: None,
-    }
+    HomeMutation::new(collection, key, None)
 }
 
 fn budget() -> ReadBudget {

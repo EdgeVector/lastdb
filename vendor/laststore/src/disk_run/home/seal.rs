@@ -23,6 +23,9 @@ const SEAL_MIN_BYTES: u64 = 64 << 10;
 const MAX_MEMORY_BYTES: u64 = 256 << 20;
 
 pub(super) type Records = Vec<(Vec<u8>, Option<Vec<u8>>)>;
+/// One logged record: key, body, and logical bytes the tombstone hides.
+pub(super) type LoggedRecord = (Vec<u8>, Option<Vec<u8>>, u64);
+pub(super) type LoggedRecords = Vec<LoggedRecord>;
 
 /// Log bytes that start a seal: a quarter of the run bytes, kept between `SEAL_MIN_BYTES` and
 /// `SEAL_BYTES`. Logged commits are frames, larger than the same records in a run, so a small
@@ -32,18 +35,58 @@ fn seal_bytes(held: &Manifest) -> u64 {
     (runs / 4).clamp(SEAL_MIN_BYTES, SEAL_BYTES)
 }
 
-/// Estimated run bytes that `tombstones` new tombstones hide: the mean file bytes of one live
-/// record in the runs. A tombstone frame is small, but the record it deletes stays in a run
-/// until a seal and a merge.
+/// Logical bytes that `tombstones` of unknown size hide: the mean logical bytes of one live key.
+/// A delete that already read its value passes that length instead. The mean of every key is
+/// much smaller than one user record when the home also holds short keys, so it is only an
+/// estimate for tombstones whose size was not read.
 fn hidden_bytes(held: &Manifest, tombstones: u64) -> u64 {
     if tombstones == 0 {
         return 0;
     }
     let (bytes, live) = held.newest_first().fold((0u64, 0u64), |(b, n), r| {
         let live = r.meta.records.saturating_sub(r.meta.tombstones);
-        (b.saturating_add(r.meta.file_bytes), n.saturating_add(live))
+        (
+            b.saturating_add(r.meta.logical_bytes),
+            n.saturating_add(live),
+        )
     });
     (bytes / live.max(1)).saturating_mul(tombstones)
+}
+
+fn tombstone_hidden(held: &Manifest, records: &[LoggedRecord]) -> u64 {
+    let (mut known, mut unknown) = (0u64, 0u64);
+    for (_, body, hides) in records {
+        if body.is_none() {
+            if *hides > 0 {
+                known = known.saturating_add(*hides);
+            } else {
+                unknown += 1;
+            }
+        }
+    }
+    known.saturating_add(hidden_bytes(held, unknown))
+}
+
+pub(super) fn logged_ops(
+    operations: Vec<super::compaction::HomeMutation>,
+) -> Result<LoggedRecords> {
+    let mut records = Vec::with_capacity(operations.len());
+    for op in operations.into_iter().rev() {
+        let key = super::run_key(&op.collection, op.key.as_bytes())?;
+        records.push((key, op.body, op.hides));
+    }
+    records.sort_by(|a, b| a.0.cmp(&b.0));
+    records.dedup_by(|later, first| later.0 == first.0);
+    Ok(records)
+}
+
+pub(super) fn as_records(records: LoggedRecords) -> Records {
+    records.into_iter().map(|(k, body, _)| (k, body)).collect()
+}
+
+/// True when `hidden` logical bytes should be dropped by a base merge.
+pub(super) fn reclaim_ready(hidden: u64, total: u64) -> bool {
+    hidden > (64 << 10) && hidden.saturating_mul(8) > total
 }
 
 fn full() -> Error {
@@ -57,10 +100,11 @@ impl RunHome {
     }
 
     /// Commit sorted records with unique keys through the commit log.
-    pub(super) fn commit_logged(&self, records: Records) -> Result<()> {
+    /// Each record is `(key, body, logical bytes the tombstone hides)`.
+    pub(super) fn commit_logged(&self, records: LoggedRecords) -> Result<()> {
         let mut payload = Vec::new();
         let mut prev: &[u8] = &[];
-        for (key, body) in &records {
+        for (key, body, _) in &records {
             put_record(&mut payload, prev, key, body.as_deref());
             prev = key.as_slice();
         }
@@ -69,11 +113,11 @@ impl RunHome {
             let _seal = unpoison(&self.seal_mutex);
             let _commit = self.commit_lock()?;
             self.seal_now()?;
-            return self.commit_run(&records);
+            return self.commit_run(&as_records(records));
         }
         let _commit = self.commit_lock()?;
         if log.is_closed() {
-            return self.commit_run(&records);
+            return self.commit_run(&as_records(records));
         }
         let held = self.held();
         let ctr = held
@@ -86,11 +130,10 @@ impl RunHome {
             self.poisoned.store(true, Ordering::Release);
             return Err(err);
         }
-        let tombstones = records.iter().filter(|(_, body)| body.is_none()).count() as u64;
-        let hidden = hidden_bytes(&held, tombstones);
+        let hidden = tombstone_hidden(&held, &records);
         let found = records
             .into_iter()
-            .map(|(key, body)| (key, body.map_or(Found::Tombstone, Found::Value)))
+            .map(|(key, body, _)| (key, body.map_or(Found::Tombstone, Found::Value)))
             .collect();
         let mut cur = self.current.write().map_err(|_| self.poisoned_lock())?;
         let mut next = (**cur).clone();
@@ -99,10 +142,16 @@ impl RunHome {
         Ok(())
     }
 
-    /// True when the memory layer is large or a seal stopped half way.
+    /// True when the memory layer is large, a seal stopped half way, or in-memory tombstones
+    /// hide enough logical bytes that a base merge would drop them.
     pub(super) fn wants_seal(&self) -> bool {
         let held = self.held();
-        held.mem.has_frozen() || held.mem.seal_weight() >= seal_bytes(&held)
+        if held.mem.has_frozen() {
+            return true;
+        }
+        let total = held.newest_first().map(|r| r.meta.logical_bytes).sum();
+        held.mem.active_log_bytes() >= seal_bytes(&held)
+            || reclaim_ready(held.mem.active_hidden(), total)
     }
 
     /// One background seal: switch appends to a new log file, then write the old part as a run.
