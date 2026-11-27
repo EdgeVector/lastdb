@@ -148,7 +148,7 @@ pub(super) fn install_id(paths: &Paths) -> Result<String, String> {
         return Ok(id);
     }
     let path = paths.dir().join("install-id");
-    let id = fold_db::hex::hex_lower(&rand::random::<[u8; 16]>());
+    let id = fold_db::hex::hex_lower(rand::random::<[u8; 16]>());
     atomic_write(&path, format!("{id}\n").as_bytes(), 0o600)?;
     Ok(id)
 }

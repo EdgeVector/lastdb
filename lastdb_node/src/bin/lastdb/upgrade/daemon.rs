@@ -102,7 +102,7 @@ pub(super) fn record_hash(
     let item = crate::v1_records::record_item(schema, hash, range, None);
     let page = crate::v1_records::read_page(&target(socket), &item, SOCKET_TIMEOUT)?;
     let bytes = serde_json::to_vec(&page["records"]).map_err(|e| e.to_string())?;
-    Ok(fold_db::hex::hex_lower(&Sha256::digest(&bytes)))
+    Ok(fold_db::hex::hex_lower(Sha256::digest(&bytes)))
 }
 
 /// The first key of a `keys_only` listing of the schema with the most records, and

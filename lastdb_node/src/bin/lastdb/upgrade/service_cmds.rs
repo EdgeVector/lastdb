@@ -275,7 +275,7 @@ fn adopt(paths: &Paths, label: &str, accept_behind: bool) -> Result<Outcome, Str
         cfg: &cfg,
         label,
         from,
-        to: staged.version.clone(),
+        to: staged.version,
         trigger: "manual",
         accept_behind,
         adopt: true,

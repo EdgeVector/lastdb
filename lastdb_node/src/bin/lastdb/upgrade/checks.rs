@@ -28,7 +28,7 @@ pub(super) fn sha256_file(path: &Path) -> Result<String, String> {
         }
         hasher.update(&buf[..n]);
     }
-    Ok(fold_db::hex::hex_lower(&hasher.finalize()))
+    Ok(fold_db::hex::hex_lower(hasher.finalize()))
 }
 
 /// The two binaries are regular files with the listed size and hash.

@@ -93,7 +93,7 @@ async fn download(url: &str, dest: &Path, expect_bytes: u64) -> Result<String, S
     if total != expect_bytes {
         return Err(refused("the archive is smaller than the list says"));
     }
-    Ok(fold_db::hex::hex_lower(&hasher.finalize()))
+    Ok(fold_db::hex::hex_lower(hasher.finalize()))
 }
 
 fn finalize_modes(dir: &Path, release_json: Option<&[u8]>) -> Result<(), StageError> {
