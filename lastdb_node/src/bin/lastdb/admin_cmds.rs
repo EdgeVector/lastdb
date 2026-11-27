@@ -181,6 +181,7 @@ pub(super) fn status(
             "running": running, "daemon_status": daemon_status, "daemon_pid_alive": running,
             "health_error": health.as_ref().err(), "daemon_build": daemon_build, "cli_build": cli_build,
             "build_agreement": agree, "cloud_sync": cloud_sync, "warm_set": warm, "notes": [note],
+            "upgrade": super::upgrade::status_line(&home),
         }));
     } else {
         println!(
@@ -229,6 +230,7 @@ pub(super) fn status(
         {
             println!("{line}");
         }
+        println!("{}", super::upgrade::status_line(&home));
         if std::fs::read(home.join("data").join(NODE_MARKER))
             .ok()
             .as_deref()

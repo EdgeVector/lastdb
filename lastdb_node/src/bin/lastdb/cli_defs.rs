@@ -182,6 +182,13 @@ pub(super) enum Command {
     },
     #[command(subcommand)]
     App(AppCommand),
+    /// Switch this host to a newer LastDB release, safely. The newest release this
+    /// install may take, drained, stopped cleanly, started, verified and soaked, with
+    /// an automatic rollback.
+    Upgrade(super::upgrade::UpgradeArgs),
+    /// Install, or take over, the service that runs `<home>/current/lastdbd`.
+    #[command(subcommand)]
+    Service(super::upgrade::ServiceCommand),
 }
 
 #[derive(Subcommand, Debug)]
