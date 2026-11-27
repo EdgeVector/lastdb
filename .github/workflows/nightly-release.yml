@@ -9,6 +9,8 @@ on:
       - '.github/workflows/nightly-release.yml'
       - 'scripts/harness.py'
       - 'scripts/release/nightly_*.py'
+      - 'scripts/release/entitlements.plist'
+      - 'scripts/release/macos_sign.py'
       - 'scripts/benchmarks/artifact.py'
       - 'lastdb_node/build.rs'
       - 'Cargo.toml'
@@ -122,8 +124,14 @@ jobs:
           - os: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
             architecture: x86_64
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            architecture: aarch64
     # Only fixed standard hosted labels; never larger or self-hosted runners.
     runs-on: ${{ matrix.os }}
+    # The macOS cell signs and notarizes with the Apple credentials of this environment, which
+    # accepts only protected main. A pull request build cannot reach it and signs ad hoc.
+    environment: ${{ (matrix.target == 'aarch64-apple-darwin' && github.event_name != 'pull_request') && 'node-release' || '' }}
     timeout-minutes: 90
     permissions:
       contents: read
@@ -162,12 +170,21 @@ jobs:
         with:
           key: nightly-release-${{ matrix.target }}
           save-if: ${{ github.event_name != 'pull_request' }}
-      - name: Build, verify, and package the exact release CLI and daemon
+      - name: Build, sign, verify, and package the exact release CLI and daemon
+        env:
+          MACOS_SIGNING: ${{ github.event_name == 'pull_request' && 'ad-hoc' || 'developer-id' }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: >-
           python3 scripts/release/nightly_package.py build-target --target "$TARGET"
           --out-dir "$RUNNER_TEMP/nightly-bundles" --git-oid "$SOURCE_SHA"
           --expect-version "$NIGHTLY_VERSION" --source-epoch "$SOURCE_EPOCH"
           --build-log "$RUNNER_TEMP/nightly-evidence/build.log"
+          --macos-signing "$MACOS_SIGNING"
       - name: Use the packaged programs for isolated durable writes, reads, and recovery
         timeout-minutes: 10
         shell: bash
