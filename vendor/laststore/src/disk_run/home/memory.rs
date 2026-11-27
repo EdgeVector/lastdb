@@ -21,8 +21,7 @@ pub(super) struct Memory {
     frozen_commits: u64,
     active_bytes: u64,
     frozen_bytes: u64,
-    /// Run bytes the active tombstones are estimated to hide. A seal and the merges after it
-    /// reclaim them, so they count toward the seal.
+    /// Logical bytes the active tombstones hide. A seal and the merges after it reclaim them.
     active_hidden: u64,
 }
 
@@ -62,9 +61,15 @@ impl Memory {
         self.frozen_commits
     }
 
-    /// Bytes that decide a seal: active log bytes plus the run bytes active tombstones hide.
-    pub(super) fn seal_weight(&self) -> u64 {
-        self.active_bytes.saturating_add(self.active_hidden)
+    /// Log bytes of the active part. Tombstone sizes are [`Self::active_hidden`], not part of this.
+    pub(super) fn active_log_bytes(&self) -> u64 {
+        self.active_bytes
+    }
+
+    /// Logical bytes the active tombstones hide. Known deletes pass the value length; the rest
+    /// use the mean logical size of one live key.
+    pub(super) fn active_hidden(&self) -> u64 {
+        self.active_hidden
     }
 
     /// Log bytes of both parts.
@@ -77,8 +82,8 @@ impl Memory {
         !self.frozen.is_empty()
     }
 
-    /// Add one commit: sorted records with unique keys, its bytes in the log, and the run bytes
-    /// its tombstones are estimated to hide.
+    /// Add one commit: sorted records with unique keys, its log bytes, and the logical bytes
+    /// its tombstones hide.
     pub(super) fn push(&mut self, records: Vec<(Vec<u8>, Found)>, cost: u64, hidden: u64) {
         let mut seg: Segment = records
             .into_iter()
