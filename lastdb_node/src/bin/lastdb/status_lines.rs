@@ -1,9 +1,13 @@
 //! The commit log line of `lastdb status`, from `/api/status`, and the warm set
 //! line, from `/api/db/native-status`.
 
+use std::path::Path;
+use std::time::Duration;
+
 use serde_json::{json, Value};
 
 use super::snapshot_line::size;
+use super::uds_client::{get_path_retry, parse_json_response};
 
 pub(crate) fn commit_log_line(log: &Value) -> Option<String> {
     let n = |k: &str| log[k].as_u64();
@@ -17,10 +21,15 @@ pub(crate) fn commit_log_line(log: &Value) -> Option<String> {
     ))
 }
 
-/// The warm set counters of a `/api/db/native-status` reply. `hits` and
-/// `misses` count record fetches since the daemon started: a hit is answered
-/// from memory, a miss from disk.
-pub(crate) fn warm_set(native: &Value) -> Option<Value> {
+/// The warm set counters from `/api/db/native-status`. `hits` and `misses`
+/// count record fetches since the daemon started: a hit is answered from
+/// memory, a miss from disk. `None` when the daemon is not serving.
+pub(crate) fn warm_set(running: bool, socket: &Path, budget: Duration) -> Option<Value> {
+    if !running {
+        return None;
+    }
+    let raw = get_path_retry(socket, "/api/db/native-status", budget).ok()?;
+    let native = parse_json_response(&raw, "native status").ok()?;
     let disk = native.get("native_disk")?;
     let n = |k: &str| disk[k].as_u64();
     let bytes = |k: &str| disk["core_warm_bytes"][k].as_u64();

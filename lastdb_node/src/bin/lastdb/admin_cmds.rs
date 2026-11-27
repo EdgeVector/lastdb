@@ -167,10 +167,7 @@ pub(super) fn status(
         .as_ref()
         .and_then(|s| s.get("cloud_sync"))
         .cloned();
-    let warm = running
-        .then(|| get_path_retry(&socket, "/api/db/native-status", budget))
-        .and_then(|r| parse_json_response(&r.ok()?, "native status").ok())
-        .and_then(|v| super::status_lines::warm_set(&v));
+    let warm = super::status_lines::warm_set(running, &socket, budget);
     let daemon_status = health.as_ref().map_or_else(
         |e| format!("lastdbd: not reachable — {e}"),
         |()| String::from("serving"),
