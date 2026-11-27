@@ -26,7 +26,15 @@ pub(super) struct Tail {
     named: BTreeSet<String>,
     entries: u64,
     entry_bytes: u64,
+    /// The hash of the snapshot entry that the tail follows.
+    snapshot_hash: EntryHash,
+    /// For each stream, the last entry read and its hash, so that a later pass of the same sweep
+    /// reads only the entries appended since.
+    read_to: BTreeMap<String, Position>,
 }
+
+/// The last entry read of a stream, and the hash the next entry chains to.
+type Position = (u64, Option<EntryHash>);
 
 /// The manifest that the newest snapshot entry names, fetched from the relay and checked
 /// against the digest and the length in the entry.
@@ -52,27 +60,41 @@ pub(super) async fn manifest_of(
 /// Read from the relay every entry after the positions of `snapshot`, up to the listed heads,
 /// and the snapshot entry itself. Every entry is verified by signature and hash chain before the
 /// sweep trusts what it names.
+///
+/// `previous` is the tail an earlier pass of the same sweep read. When it follows the same
+/// snapshot entry, the read goes on from where it ended: a stream only grows after the snapshot,
+/// so the entries it read are still the entries the relay holds. Without this, each pass read the
+/// whole tail again; after an old snapshot that is thousands of segments for every pass, and the
+/// sync turn waited for all of them before it sent anything.
 pub(super) async fn read_tail(
     ctx: &Ctx<'_>,
     client: &RelayClient,
     streams: &[RelayStream],
     snapshot_head: &StreamHead,
     snapshot: &SnapshotBody,
+    previous: Option<Tail>,
 ) -> Result<Option<Tail>, String> {
     check_stream_coverage(streams, snapshot)?;
+    let mut tail = previous
+        .filter(|tail| tail.snapshot_hash == snapshot_head.entry_hash)
+        .unwrap_or_else(|| Tail {
+            named: BTreeSet::new(),
+            entries: 0,
+            entry_bytes: 0,
+            snapshot_hash: snapshot_head.entry_hash,
+            read_to: BTreeMap::new(),
+        });
+    let resume = std::mem::take(&mut tail.read_to);
     let mut reader = TailReader {
         ctx,
         client,
         snapshot_head,
         snapshot,
-        tail: Tail {
-            named: BTreeSet::new(),
-            entries: 0,
-            entry_bytes: 0,
-        },
+        tail,
     };
     for stream in streams {
-        if !reader.read_stream(stream).await? {
+        let at = resume.get(&stream.device_id).copied();
+        if !reader.read_stream(stream, at).await? {
             return Ok(None);
         }
     }
@@ -154,8 +176,35 @@ impl TailReader<'_, '_> {
         Ok((position, expected_prev))
     }
 
-    async fn read_stream(&mut self, stream: &RelayStream) -> Result<bool, String> {
-        let (position, mut expected_prev) = self.start_for(stream)?;
+    /// Where a stream read earlier in this sweep goes on: after the last entry read, which the
+    /// relay must still hold with the same hash when it is the head.
+    fn resume_at(stream: &RelayStream, at: Position) -> Result<Position, String> {
+        let (position, prev) = at;
+        if position > stream.head_seq {
+            return Err(format!(
+                "the relay holds stream {} through entry {} only, below entry {position} that this sweep read",
+                stream.device_id, stream.head_seq
+            ));
+        }
+        if position == stream.head_seq && prev.is_some_and(|hash| hash.to_hex() != stream.head_hash)
+        {
+            return Err(format!(
+                "stream {} at entry {position} does not match the entry this sweep read",
+                stream.device_id
+            ));
+        }
+        Ok(at)
+    }
+
+    async fn read_stream(
+        &mut self,
+        stream: &RelayStream,
+        at: Option<Position>,
+    ) -> Result<bool, String> {
+        let (position, mut expected_prev) = match at {
+            Some(at) => Self::resume_at(stream, at)?,
+            None => self.start_for(stream)?,
+        };
         let mut next = position + 1;
         let mut cursor: Option<String> = None;
         let mut empty_pages: u32 = 0;
@@ -213,6 +262,9 @@ impl TailReader<'_, '_> {
                 next += 1;
             }
         }
+        self.tail
+            .read_to
+            .insert(stream.device_id.clone(), (next - 1, expected_prev));
         Ok(true)
     }
 

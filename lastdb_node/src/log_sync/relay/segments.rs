@@ -7,7 +7,14 @@ use relay_protocol::{
     SegmentRef,
 };
 
+use futures::{StreamExt, TryStreamExt};
+
 use super::{append_counts, RelayClient, BEHIND_THE_TRIM};
+
+/// Segments of one page fetched at once. Each fetch opens a fresh connection to the store, so a
+/// page of one-entry segments fetched one after another costs a round trip and a handshake per
+/// entry; a sweep that reads the entries after an old snapshot reads thousands of them.
+const SEGMENT_FETCHES: usize = 8;
 
 /// One page of a `log.read`.
 pub(in crate::log_sync) struct Page {
@@ -97,13 +104,24 @@ impl RelayClient {
             })?;
         const BAD: &str = "relay log.read returned invalid entries";
         let skip_below = (cursor.is_none() && device_id.is_some()).then_some(from_seq);
+        // The segments of the page are fetched a few at a time, and opened in their place.
+        let opened: Vec<Option<Vec<SignedEntry>>> =
+            futures::stream::iter(items.iter().map(|item| async move {
+                match item {
+                    ReadItem::Segment { segment } => self.open_segment(segment).await.map(Some),
+                    ReadItem::Entry(_) => Ok(None),
+                }
+            }))
+            .buffered(SEGMENT_FETCHES)
+            .try_collect()
+            .await?;
         let mut page = Page {
             entries: Vec::with_capacity(items.len()),
             cursor: next,
             in_segment: Vec::with_capacity(items.len()),
             segments: Vec::new(),
         };
-        for (index, item) in items.into_iter().enumerate() {
+        for (index, (item, opened)) in items.into_iter().zip(opened).enumerate() {
             match item {
                 ReadItem::Entry(value) => {
                     page.entries
@@ -111,7 +129,7 @@ impl RelayClient {
                     page.in_segment.push(false);
                 }
                 ReadItem::Segment { segment } => {
-                    let entries = self.open_segment(&segment).await?;
+                    let entries = opened.unwrap_or_default();
                     let from = if index == 0 {
                         skip_below.unwrap_or(0)
                     } else {
