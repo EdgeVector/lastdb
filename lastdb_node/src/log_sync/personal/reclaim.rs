@@ -34,7 +34,7 @@ use super::reclaim_view::{manifest_of, read_tail, Seen};
 use super::snapshot_entry::snapshot_head;
 use super::snapshot_known as known;
 use super::snapshot_lane as lane;
-use super::snapshot_state::RECLAIM;
+use super::snapshot_state::{read_request, RECLAIM};
 use super::Ctx;
 use crate::host::cloud_sync::ReclaimStatus;
 use crate::log_sync::blob_transfer::{HeadAt, DROP_BATCH, DROP_HEADS};
@@ -61,6 +61,7 @@ enum Pass {
     Clean(Box<ReclaimStatus>),
     Dropped,
     Trimming,
+    SnapshotPending,
     Refused(u64),
     NotDue,
     TooManyStreams(u64),
@@ -89,6 +90,11 @@ pub(super) async fn run(
     streams: &[RelayStream],
 ) -> Result<(), String> {
     let (home, database_id) = (&ctx.host.home, &ctx.database_id);
+    // A fresh cut makes the old tail cheaper to reclaim. Do not make that cut
+    // wait behind a sweep of the history it will replace.
+    if read_request(home, database_id).is_some() {
+        return Ok(());
+    }
     let request = RECLAIM.waiting(home, database_id);
     let due = state::refresh_due(ctx, client, streams);
     // A sweep that stopped trying waits for the next snapshot or for a request.
@@ -201,10 +207,13 @@ async fn sweep(
         trimmed_seq: None,
     };
     for _ in 0..PASSES {
+        if read_request(&ctx.host.home, &ctx.database_id).is_some() {
+            return Ok(Swept::Again);
+        }
         match pass(ctx, &mut counter, &mut turn).await? {
             Pass::Clean(status) => return Ok(Swept::Done(status)),
             Pass::Dropped => {}
-            Pass::Trimming => return Ok(Swept::Again),
+            Pass::Trimming | Pass::SnapshotPending => return Ok(Swept::Again),
             Pass::Refused(seq) => return Ok(Swept::Refused(seq)),
             Pass::NotDue => return Ok(Swept::NotDue),
             Pass::TooManyStreams(seq) => return Ok(Swept::TooManyStreams(seq)),
@@ -316,7 +325,9 @@ async fn pass(
         }
         turn.trimmed_seq = Some(head.writer_seq);
     }
-    let tail = read_tail(ctx, client, &streams, &head, &snapshot).await?;
+    let Some(tail) = read_tail(ctx, client, &streams, &head, &snapshot).await? else {
+        return Ok(Pass::SnapshotPending);
+    };
     let seen = Seen {
         snapshot_seq: head.writer_seq,
         manifest_sha256,
