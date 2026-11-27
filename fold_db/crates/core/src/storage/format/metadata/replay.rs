@@ -366,7 +366,7 @@ impl Metadata {
         if record_keys.is_empty() {
             return Ok(());
         }
-        let store = runtime.open_store(super::METADATA_NAMESPACE).await?;
+        let store = runtime.open_store(super::METADATA_NAMESPACE);
         let meta = Self::new(store, Arc::clone(runtime));
         let mut staged = Vec::with_capacity(record_keys.len() * 4);
         for addr in record_keys {

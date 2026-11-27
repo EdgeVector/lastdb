@@ -1,4 +1,4 @@
-//! Accepted mutation log, database snapshots, and the native cloud work guard.
+//! The spool of captured writes, database snapshots, and the native cloud work guard.
 
 pub mod accepted;
 mod files;

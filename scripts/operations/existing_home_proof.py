@@ -43,8 +43,18 @@ def first_snapshot_done(device):
 
 
 def snapshots_on(relay, database):
-    found = (relay.data / "logs" / database)
-    return sum(1 for path in found.glob("*/*/*.json") if '"kind":"snapshot"' in path.read_text()) if found.is_dir() else 0
+    found = relay.data / "logs" / database
+    if not found.is_dir():
+        return 0
+    total = 0
+    for path in found.glob("*/*/*.json"):
+        try:
+            text = path.read_text()
+        except FileNotFoundError:
+            continue
+        if '"kind":"snapshot"' in text:
+            total += 1
+    return total
 
 
 def write_before(device, folder, source, state):

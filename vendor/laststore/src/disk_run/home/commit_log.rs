@@ -5,12 +5,14 @@
 //! frontier and requires them to be consecutive. A seal publishes them in a run, and the files
 //! whose commits CURRENT then holds are removed.
 
+mod replay;
+pub(super) use replay::replay;
+
 use super::memory::Memory;
 use super::unpoison;
-use crate::disk_run::codec::{corrupt, decode_block, BlockRecords};
 use crate::durability::{sync_directory, sync_dirty_file};
-use crate::frame::{decode_frame, encoded_len, MAX_DECOMPRESSED_FRAME_BYTES};
-use crate::{Error, Result};
+use crate::frame::MAX_DECOMPRESSED_FRAME_BYTES;
+use crate::Result;
 use serde::Serialize;
 use std::fs::{self, File, OpenOptions};
 use std::os::unix::fs::{DirBuilderExt, FileExt, OpenOptionsExt};
@@ -148,8 +150,9 @@ impl CommitLog {
         let len = frame.len() as u64;
         let mut st = unpoison(&self.state);
         if st.active.as_ref().is_none_or(|a| a.used + len > a.cap) {
+            let min_seq = st.active.as_ref().map_or(0, |a| a.seq);
             let fresh = match st.spare.take() {
-                Some(spare) if spare.cap >= len => spare,
+                Some(spare) if spare.cap >= len && spare.seq > min_seq => spare,
                 other => {
                     st.retired.extend(other.map(|f| (f.seq, 0)));
                     self.new_file(len.max(FILE_BYTES))?
@@ -174,14 +177,25 @@ impl CommitLog {
 
     /// Create the file that the next seal switches appends to, outside the commit lock.
     pub(super) fn add_spare(&self) -> Result<()> {
-        if unpoison(&self.state).spare.is_some() {
-            return Ok(());
-        }
-        let file = self.new_file(FILE_BYTES)?;
-        let mut st = unpoison(&self.state);
-        match &st.spare {
-            None => st.spare = Some(file),
-            Some(_) => st.retired.push((file.seq, 0)),
+        while !self.is_closed() {
+            {
+                let mut st = unpoison(&self.state);
+                let min_seq = st.active.as_ref().map_or(0, |a| a.seq);
+                if st.spare.as_ref().is_some_and(|s| s.seq > min_seq) {
+                    return Ok(());
+                }
+                if let Some(stale) = st.spare.take() {
+                    st.retired.push((stale.seq, 0));
+                }
+            }
+            let file = self.new_file(FILE_BYTES)?;
+            let mut st = unpoison(&self.state);
+            let min_seq = st.active.as_ref().map_or(0, |a| a.seq);
+            if st.spare.is_none() && file.seq > min_seq {
+                st.spare = Some(file);
+                return Ok(());
+            }
+            st.retired.push((file.seq, 0));
         }
         Ok(())
     }
@@ -190,7 +204,9 @@ impl CommitLog {
     pub(super) fn switch_to_spare(&self) {
         let mut st = unpoison(&self.state);
         if let Some(fresh) = st.spare.take() {
-            if let Some(old) = st.active.replace(fresh) {
+            if st.active.as_ref().is_some_and(|a| fresh.seq <= a.seq) {
+                st.retired.push((fresh.seq, 0));
+            } else if let Some(old) = st.active.replace(fresh) {
                 st.retired.push((old.seq, old.last_ctr));
             }
         }
@@ -250,80 +266,4 @@ pub(super) fn remove_dir(dir: &Path) -> Result<()> {
         res => res?,
     }
     sync_directory(dir.parent().unwrap_or(Path::new(".")))
-}
-
-/// Rebuild the memory layer from the log of the home at `root`, whose CURRENT holds every
-/// commit up to `sealed`. `None` for the files when the home has no log.
-pub(super) fn replay(
-    root: &Path,
-    key: &[u8; 32],
-    sealed: u64,
-) -> Result<(Memory, Option<LogFiles>)> {
-    let dir = root.join(LOG);
-    let entries = match fs::read_dir(&dir) {
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok((Memory::default(), None)),
-        res => res?,
-    };
-    let mut seqs = Vec::new();
-    for entry in entries {
-        if seqs.len() >= MAX_FILES {
-            return Err(Error::WriteCapacity("commit log has too many files".into()));
-        }
-        let name = entry?.file_name();
-        let text = name.to_string_lossy();
-        seqs.extend(
-            text.strip_suffix(SUFFIX)
-                .and_then(|s| s.parse::<u64>().ok()),
-        );
-    }
-    seqs.sort_unstable();
-    let (mut frames, mut files) = (Vec::new(), Vec::new());
-    for &seq in &seqs {
-        let bytes = fs::read(file_path(&dir, seq))?;
-        files.push((seq, read_frames(key, &bytes, sealed, &mut frames)?));
-    }
-    frames.sort_unstable_by_key(|(ctr, _, _)| *ctr);
-    let mut memory = Memory::default();
-    for (n, (ctr, records, cost)) in (1u64..).zip(frames) {
-        if Some(ctr) != sealed.checked_add(n) {
-            return Err(corrupt("commit log: a logged commit is missing"));
-        }
-        // Replay does not estimate the run bytes that replayed tombstones hide.
-        memory.push(records, cost, 0);
-    }
-    let next_seq = seqs.last().map_or(1, |s| s + 1);
-    Ok((memory, Some(LogFiles { next_seq, files })))
-}
-
-/// Decode the frames of one log file and keep those above `sealed`. Returns the last commit
-/// number in the file.
-fn read_frames(
-    key: &[u8; 32],
-    bytes: &[u8],
-    sealed: u64,
-    out: &mut Vec<(u64, BlockRecords, u64)>,
-) -> Result<u64> {
-    let (mut at, mut last) = (0usize, 0u64);
-    while let Some(len) = encoded_len(&bytes[at..]).filter(|&n| n <= bytes.len() - at) {
-        match decode_frame(
-            key,
-            &bytes[at..at + len],
-            MAX_DECOMPRESSED_FRAME_BYTES,
-            (None, None),
-        ) {
-            Ok((_, ctr, payload)) => {
-                if ctr > sealed {
-                    out.push((ctr, decode_block(&payload)?, len as u64));
-                }
-                last = last.max(ctr);
-                at += len;
-            }
-            // A torn last append ends the file. A whole frame after it would be a lost commit.
-            Err(_) if encoded_len(&bytes[at + len..]).is_some() => {
-                return Err(corrupt("commit log: an unreadable logged commit"));
-            }
-            Err(_) => break,
-        }
-    }
-    Ok(last)
 }

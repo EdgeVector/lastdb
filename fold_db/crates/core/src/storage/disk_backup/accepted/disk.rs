@@ -24,7 +24,7 @@ use laststore::disk_run::home::HomeMutation;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard};
-use types::{id_ok, sha_ok, spool_cap, State};
+use types::{id_ok, spool_cap, State};
 use upload::Checkpoint;
 
 /// The folder of sealed files, beside the main home's runs.
@@ -32,11 +32,6 @@ pub(in crate::storage) const FILES_DIR: &str = "accepted-files";
 /// The spool folder of builds before the spool moved into the store.
 pub(in crate::storage) const OLD_DIR: &str = "accepted-v1";
 pub(super) const MAX_PAGE: u32 = 90;
-/// The id records of this many of the newest writes stay. No write path reads them: the id of
-/// a captured write is new by construction (see `capture`).
-const IDS_KEPT: u64 = 10_000;
-/// How many acknowledged entries pass between two trims of the id records.
-const TRIM_EVERY: u64 = 2_500;
 /// Deletes in one commit of a reset, below the operation limit of a commit.
 const CLEAR_PART: usize = 8_192;
 
@@ -56,17 +51,12 @@ struct Inner {
     blocked: bool,
     /// The state row in memory differs from the store. The next commit writes it.
     unsaved: bool,
-    /// Acknowledged entries since the id records were last trimmed.
-    since_trim: u64,
-    /// Id records the store holds.
-    ids: u64,
     planned: Option<Planned>,
 }
 
 /// What a commit in flight adds to the spool.
 struct Planned {
     last: u64,
-    notes: u64,
     added: u64,
     files: Vec<PathBuf>,
     saves_state: bool,
@@ -77,9 +67,6 @@ pub(in crate::storage) struct Change {
     ops: Vec<HomeMutation>,
     state: State,
     released: u64,
-    acknowledged: u64,
-    trimmed: u64,
-    did_trim: bool,
     remove: Vec<PathBuf>,
     clears: bool,
 }
@@ -147,14 +134,13 @@ impl Log {
         self.lock()?.refuse_gap()
     }
 
-    /// Whether the spool takes `notes` after the queued, uncommitted writes: no gap, the id and
-    /// sha formats, the sequence room, and the spool cap.
+    /// Whether the spool takes `notes` after the queued, uncommitted writes: no gap, the id
+    /// format, the sequence room, and the spool cap.
     ///
-    /// It does not read the id records, and no write path does: the cloud log is not read back
-    /// for a check. The id of a captured write is new by construction: a record write carries a
-    /// fresh UUIDv4 that the node made, and a schema put or drop names its author millisecond,
-    /// which is above that of every earlier entry (see `capture`). The caller compares the ids
-    /// with the queued writes.
+    /// The spool stores no id index: a captured write's id is new by construction — a record
+    /// write carries a fresh UUIDv4 that the node made, and a schema put or drop names its
+    /// author millisecond, which is above that of every earlier entry (see `capture`). The
+    /// caller compares the ids with the queued writes.
     pub(in crate::storage) fn check_admissible(
         &self,
         queued_notes: usize,
@@ -173,7 +159,7 @@ impl Log {
             .ok_or(Error::Unavailable)?;
         let mut batch_bytes = 0u64;
         for note in notes {
-            if !id_ok(&note.mutation_id) || !sha_ok(&note.plaintext_sha256) {
+            if !id_ok(&note.mutation_id) {
                 return Err(Error::Conflict);
             }
             batch_bytes = batch_bytes
@@ -191,11 +177,9 @@ impl Log {
     /// The operations that put `notes` in the spool, for the commit that writes them. A state
     /// row that changed since the last commit goes with them. Sealed files are written now.
     ///
-    /// This runs inside the commit turn and does not read the id records: the cloud log is not
-    /// read back for a check, and the id of a captured write is new by construction (see
-    /// [`Self::check_admissible`]). `precheck_accepted_queue` compared the ids with every queued,
-    /// uncommitted write under both gates. The `seen` set below still refuses a repeat inside one
-    /// turn.
+    /// This runs inside the commit turn. `precheck_accepted_queue` compared the ids with every
+    /// queued, uncommitted write under both gates; the `seen` set below still refuses a repeat
+    /// inside one turn.
     pub(in crate::storage) fn prepare(
         &self,
         before: Frontiers,
@@ -214,7 +198,6 @@ impl Log {
         let mut ops = Vec::new();
         let mut planned = Planned {
             last: inner.head,
-            notes: notes.len() as u64,
             added: 0,
             files: Vec::new(),
             saves_state: false,
@@ -223,10 +206,7 @@ impl Log {
             let mut seen = std::collections::BTreeSet::new();
             let mut added = 0u64;
             for note in notes {
-                if !id_ok(&note.mutation_id)
-                    || !sha_ok(&note.plaintext_sha256)
-                    || !seen.insert(note.mutation_id.as_str())
-                {
+                if !id_ok(&note.mutation_id) || !seen.insert(note.mutation_id.as_str()) {
                     return Err(Error::Conflict);
                 }
                 added = added.checked_add(note.byte_weight()).ok_or(Error::Spool)?;
@@ -271,7 +251,6 @@ impl Log {
         };
         inner.head = planned.last;
         inner.retained = inner.retained.saturating_add(planned.added);
-        inner.ids = inner.ids.saturating_add(planned.notes);
         if planned.saves_state {
             inner.unsaved = false;
             inner.history = false;
@@ -341,7 +320,6 @@ impl Log {
             snapshot_required: status.snapshot_required,
             gap: status.gap,
             retained_bytes: inner.retained,
-            id_records: inner.ids,
             uploaded_writer_seq: inner
                 .state
                 .as_ref()

@@ -7,7 +7,6 @@ use crate::storage::disk_pack::transaction::{self, batch_bytes, PendingBatch};
 use crate::storage::disk_pack::{
     cas_delete, creation_refusal, map, record_warm, PackRuntime, StorageError, StorageResult,
 };
-use crate::storage::format::{NAMESPACES, REGISTRY};
 use lastdb_model::storage_policy::native_write::PENDING_MEMORY_BYTES;
 use laststore::disk_run::home::HomeMutation;
 use laststore::space::reserve_space;
@@ -37,12 +36,7 @@ impl PackRuntime {
         note_bytes: u64,
         prev: Option<&PreparedCommit>,
     ) -> StorageResult<PreparedCommit> {
-        let ns_only = mutations.iter().all(|o| {
-            o.collection == REGISTRY
-                && o.key.starts_with(NAMESPACES)
-                && o.body.as_deref() == Some(&[1])
-        });
-        if self.fresh_initialization_pending() && !ns_only {
+        if self.fresh_initialization_pending() {
             return Err(creation_refusal(
                 "creation holds durable proofs; source writes must wait",
             ));

@@ -37,12 +37,10 @@ pub(crate) mod bind {
         content_key: [u8; 32],
     ) -> StorageResult<BoundFormat> {
         let runtime = Arc::clone(&store.runtime);
-        let (main, metadata_kv, schemas_kv, states_kv) = tokio::try_join!(
-            store.open_namespace(MAIN_NAMESPACE),
-            store.open_namespace(METADATA_NAMESPACE),
-            store.open_namespace(SCHEMAS_NAMESPACE),
-            store.open_namespace(SCHEMA_STATES_NAMESPACE),
-        )?;
+        let main = store.open_namespace(MAIN_NAMESPACE)?;
+        let metadata_kv = store.open_namespace(METADATA_NAMESPACE)?;
+        let schemas_kv = store.open_namespace(SCHEMAS_NAMESPACE)?;
+        let states_kv = store.open_namespace(SCHEMA_STATES_NAMESPACE)?;
         let schemas = SchemaFormat::new(schemas_kv, states_kv, Arc::clone(&runtime));
         let metadata = Metadata::new(metadata_kv.clone(), Arc::clone(&runtime));
         transaction::scope(Arc::clone(&runtime), async {

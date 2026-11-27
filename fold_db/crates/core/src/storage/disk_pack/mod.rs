@@ -84,9 +84,6 @@ pub struct PackRuntime {
     pub(in crate::storage) serving: AtomicBool,
     pub(in crate::storage::disk_pack) failed_write: Mutex<Option<SpaceReservation>>,
     pub(in crate::storage) space_policy: SpacePolicy,
-    /// Namespaces whose registry row this runtime has seen committed, or queued to commit.
-    /// No code removes a registry row, so a later write to one of them does not read it again.
-    pub(in crate::storage::disk_pack) known_namespaces: Mutex<std::collections::BTreeSet<String>>,
 }
 
 impl PackRuntime {

@@ -168,6 +168,14 @@ impl Memory {
             .collect()
     }
 
+    /// The newest logged record of every key in the memory layer, tombstones included.
+    pub(super) fn all_records(&self) -> Vec<(Vec<u8>, Found)> {
+        Self::merged(self.newest_first(), &[], None)
+            .into_iter()
+            .map(|(key, body)| (key, found(body)))
+            .collect()
+    }
+
     /// The newest record of each key in the frozen part, in key order.
     pub(super) fn frozen_records(&self) -> BTreeMap<Vec<u8>, Option<Arc<[u8]>>> {
         Self::merged(self.frozen.iter(), &[], None)

@@ -153,6 +153,9 @@ impl RunHome {
     pub fn cleanup_step(&self, policy: &SpacePolicy) -> Result<bool> {
         self.refuse_if_poisoned()?;
         let _merge = unpoison(&self.merge_mutex);
+        if self.has_unsealed_commits() {
+            return self.seal_step().map(|()| true);
+        }
         let held = self.held();
         if !held.merging.is_empty() {
             return self.base_step(None, policy).map(|()| true);
@@ -253,6 +256,7 @@ impl RunHome {
             self.held()
         };
         let inventory = with_inv.then(|| {
+            let mem = root.mem.all_records();
             let runs: Vec<_> = root
                 .tiered()
                 .chain(&root.merging)
@@ -260,7 +264,7 @@ impl RunHome {
                 .collect();
             let base = root.base.iter().map(|r| r.path.clone()).collect();
             let (complete, merged_keys) =
-                count_merged_keys(&self.key, root.retained_bytes(), &runs, base, deadline);
+                count_merged_keys(&self.key, root.retained_bytes(), mem, &runs, base, deadline);
             LogicalInventory {
                 complete,
                 merged_keys,
@@ -277,31 +281,37 @@ impl RunHome {
 fn count_merged_keys(
     key: &[u8; 32],
     retained: u64,
+    mem: Vec<(Vec<u8>, Found)>,
     runs: &[PathBuf],
     base: Vec<PathBuf>,
     deadline: Instant,
 ) -> (bool, u64) {
     let mut merged = 0u64;
     let complete = (|| -> Result<()> {
-        let count = runs.len() + usize::from(!base.is_empty());
-        if count == 0 {
+        let file_count = runs.len() + usize::from(!base.is_empty());
+        if mem.is_empty() && file_count == 0 {
             return Ok(());
         }
-        if count > 512 || retained > 56 << 20 {
+        if file_count > 512 || retained > 56 << 20 {
             return Err(Error::ReadBudgetExceeded);
         }
-        let allow = ((56 << 20) - retained) / count as u64;
-        let mut sources: Vec<_> = runs
-            .iter()
-            .map(|p| Ok(Arc::new(RunReader::open_with_limit(p, key, Some(allow))?).iter()))
-            .collect::<Result<_>>()?;
-        if !base.is_empty() {
-            sources.push(RunRange::sequence(
-                base,
-                key,
-                Bound::Unbounded,
-                Bound::Unbounded,
-            ));
+        let mut sources = Vec::with_capacity(usize::from(!mem.is_empty()) + file_count);
+        if !mem.is_empty() {
+            sources.push(RunRange::memory(mem));
+        }
+        if file_count > 0 {
+            let allow = ((56 << 20) - retained) / file_count as u64;
+            for p in runs {
+                sources.push(Arc::new(RunReader::open_with_limit(p, key, Some(allow))?).iter());
+            }
+            if !base.is_empty() {
+                sources.push(RunRange::sequence(
+                    base,
+                    key,
+                    Bound::Unbounded,
+                    Bound::Unbounded,
+                ));
+            }
         }
         for item in MergeIter::new(sources) {
             if merged >= 50_000_000 || Instant::now() >= deadline {

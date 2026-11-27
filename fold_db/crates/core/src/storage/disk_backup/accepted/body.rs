@@ -2,7 +2,7 @@
 
 use crate::schema::types::{KeyValue, Mutation, MutationType};
 use crate::storage::error::{StorageError, StorageResult};
-use lastdb_model::hex::{hex_lower, sha256_hex};
+use lastdb_model::hex::hex_lower;
 use lastdb_model::record_value::{FileMarker, InlineFile};
 use serde::Serialize;
 use serde_json::Value;
@@ -104,8 +104,8 @@ pub(super) struct RecordParts<'a> {
     pub definition_id: Option<&'a str>,
 }
 
-/// The canonical bytes of a body, and their SHA-256. The author seals and signs these bytes.
-pub(super) fn plain(body: &Body<'_>) -> StorageResult<(Vec<u8>, String)> {
+/// The canonical bytes of a body. The author seals and signs these bytes.
+pub(super) fn plain(body: &Body<'_>) -> StorageResult<Vec<u8>> {
     let plain = cloud_backup_protocol::v2::hash::canonical_bytes(body)
         .map_err(|_| StorageError::SerializationError("accepted body is not canonical".into()))?;
     if plain.len() > BODY_MAX {
@@ -118,8 +118,7 @@ pub(super) fn plain(body: &Body<'_>) -> StorageResult<(Vec<u8>, String)> {
             "accepted mutation id is not a durable name".into(),
         ));
     }
-    let digest = sha256_hex(&plain);
-    Ok((plain, digest))
+    Ok(plain)
 }
 
 pub(super) fn file_section<'a>(

@@ -234,7 +234,7 @@ impl RunRead {
     /// commits are replayed into memory; the log stays as it is.
     pub fn open_existing(root: &Path, key: &[u8; 32], budget: ReadBudget) -> Result<Self> {
         let (dir, _, lock, mut manifest) = lock_and_load(root, key, false)?;
-        manifest.mem = replay(&dir, key, manifest.frontier)?.0;
+        manifest.mem = replay(&dir, key, &manifest, false)?.0;
         Self::build(Arc::new(manifest), *key, Arc::new(lock), budget, None)
     }
 

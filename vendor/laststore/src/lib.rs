@@ -188,8 +188,8 @@ pub(crate) mod frame {
         Ok((id, counter, len, bytes[5]))
     }
 
-    /// Encoded length of the frame whose header starts `bytes`. `None` when no frame header
-    /// starts there, for example in the zeros after the last frame of a log file.
+    /// Encoded length of the frame whose header starts `bytes`, or `None` when `bytes` is shorter
+    /// than a frame header or does not start with valid header magic, version, and flags.
     pub(crate) fn encoded_len(bytes: &[u8]) -> Option<usize> {
         let (_, _, len, _) = decode_header(bytes.first_chunk::<HEADER_SIZE>()?).ok()?;
         len.checked_add(HEADER_SIZE + TAG_SIZE)

@@ -342,7 +342,6 @@ impl PackNamespacedStore {
             initializing,
             failed_write: Mutex::new(None),
             space_policy,
-            known_namespaces: Mutex::default(),
         });
         runtime.spawn_merges();
         Ok(Self { runtime })

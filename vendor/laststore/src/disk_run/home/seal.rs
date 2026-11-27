@@ -23,8 +23,8 @@ const SEAL_MIN_BYTES: u64 = 64 << 10;
 const MAX_MEMORY_BYTES: u64 = 256 << 20;
 
 pub(super) type Records = Vec<(Vec<u8>, Option<Vec<u8>>)>;
-/// One logged record: key, body, and logical bytes the tombstone hides.
-pub(super) type LoggedRecord = (Vec<u8>, Option<Vec<u8>>, u64);
+/// One logged record: key, body, and known value bytes the tombstone hides.
+pub(super) type LoggedRecord = (Vec<u8>, Option<Vec<u8>>, Option<u64>);
 pub(super) type LoggedRecords = Vec<LoggedRecord>;
 
 /// Log bytes that start a seal: a quarter of the run bytes, kept between `SEAL_MIN_BYTES` and
@@ -35,36 +35,37 @@ fn seal_bytes(held: &Manifest) -> u64 {
     (runs / 4).clamp(SEAL_MIN_BYTES, SEAL_BYTES)
 }
 
-/// Logical bytes that `tombstones` of unknown size hide: the mean logical bytes of one live key.
-/// A delete that already read its value passes that length instead. The mean of every key is
-/// much smaller than one user record when the home also holds short keys, so it is only an
-/// estimate for tombstones whose size was not read.
-fn hidden_bytes(held: &Manifest, tombstones: u64) -> u64 {
+/// Logical bytes that `tombstones` of unknown size hide in older runs: the mean logical bytes of
+/// one live record. A delete that knows its prior value size passes `Some(bytes)` instead.
+pub(super) fn hidden_bytes(held: &Manifest, tombstones: u64) -> u64 {
     if tombstones == 0 {
         return 0;
     }
     let (bytes, live) = held.newest_first().fold((0u64, 0u64), |(b, n), r| {
         let live = r.meta.records.saturating_sub(r.meta.tombstones);
-        (
-            b.saturating_add(r.meta.logical_bytes),
-            n.saturating_add(live),
-        )
+        let live_bytes = r
+            .meta
+            .logical_bytes
+            .saturating_sub(r.meta.tombstone_key_bytes);
+        (b.saturating_add(live_bytes), n.saturating_add(live))
     });
     (bytes / live.max(1)).saturating_mul(tombstones)
 }
 
 fn tombstone_hidden(held: &Manifest, records: &[LoggedRecord]) -> u64 {
-    let (mut known, mut unknown) = (0u64, 0u64);
-    for (_, body, hides) in records {
+    let (mut stale, mut unknown) = (0u64, 0u64);
+    for (key, body, hides) in records {
         if body.is_none() {
-            if *hides > 0 {
-                known = known.saturating_add(*hides);
+            let klen = key.len() as u64;
+            if let Some(vlen) = hides {
+                stale = stale.saturating_add(vlen.saturating_add(2 * klen));
             } else {
+                stale = stale.saturating_add(klen);
                 unknown += 1;
             }
         }
     }
-    known.saturating_add(hidden_bytes(held, unknown))
+    stale.saturating_add(hidden_bytes(held, unknown))
 }
 
 pub(super) fn logged_ops(
@@ -94,6 +95,11 @@ fn full() -> Error {
 }
 
 impl RunHome {
+    /// True when the memory layer holds logged commits that no run holds yet.
+    pub fn has_unsealed_commits(&self) -> bool {
+        self.held().mem.commits() > 0
+    }
+
     /// True when commits go through an open commit log.
     pub(super) fn log_open(&self) -> bool {
         self.log.as_ref().is_some_and(|l| !l.is_closed())

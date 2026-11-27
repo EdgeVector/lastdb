@@ -1,15 +1,12 @@
-//! Ordered logical stream of accepted database writes: the cloud log.
+//! The spool of accepted database writes: this device's signed stream on its way to the relay.
 //!
-//! The byte-backup mutation journal retains encrypted run files and can
-//! acknowledge a commit that never entered it. This stream records one
-//! sealed logical entry per accepted user write before the caller ack.
+//! Each commit of a captured home writes one sealed, signed entry per accepted user write in
+//! the same commit as the write itself, before the caller is told.
 //!
-//! The code calls it the spool, and the status fields keep that name
-//! (`spool_head`, `spool_confirmed_through`). It is the cloud log: it exists
-//! only to send this device's signed stream to the cloud. The local node
-//! writes its entries and never reads them back for a check. The sender's one
-//! read of a finished entry is the upload itself. Only logs from other devices
-//! are opened, when they arrive.
+//! The spool (`spool_head`, `spool_confirmed_through` in status) exists only to send this
+//! device's signed stream to the relay. The local node writes its entries and never reads
+//! them back for a check; the sender's one read of a finished entry is the upload itself.
+//! Only streams from other devices are opened, when they arrive.
 
 mod author;
 mod body;
@@ -80,8 +77,6 @@ pub struct SpoolReport {
     pub gap: bool,
     /// Bytes of the entries still to send, with their sealed files.
     pub retained_bytes: u64,
-    /// Id records of recent writes. The write path does not read them.
-    pub id_records: u64,
     /// Last sequence number of this device's stream the relay confirmed.
     pub uploaded_writer_seq: Option<u64>,
 }

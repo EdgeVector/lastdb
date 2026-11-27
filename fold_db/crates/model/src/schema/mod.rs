@@ -186,8 +186,7 @@ pub mod types {
 
     pub mod mutation {
         pub use crate::schema::mutation::{
-            ContributionAdmission, FileWrite, FileWriteIssuer, LocalFileReference, Mutation,
-            SealedRecordFile,
+            FileWrite, FileWriteIssuer, LocalFileReference, Mutation, SealedRecordFile,
         };
     }
     pub mod operations {

@@ -196,7 +196,7 @@ async fn apply_record(
     // Raise the author clock past this entry, so a write made here after it is
     // above it.
     manager.observe_replay_time(stamp.ordering_ms).await?;
-    if !schema_holds(ctx, stamp, &mutation).await? {
+    if !schema_holds(ctx, &mutation).await? {
         return Ok(());
     }
     manager.merge_replay_record(mutation, stamp).await
@@ -204,11 +204,7 @@ async fn apply_record(
 
 /// True when the schema of a record entry is installed. False when a newer
 /// schema drop removed it, so the entry changes nothing.
-async fn schema_holds(
-    ctx: &Ctx<'_>,
-    stamp: &ReplayStamp,
-    mutation: &Mutation,
-) -> Result<bool, SchemaError> {
+async fn schema_holds(ctx: &Ctx<'_>, mutation: &Mutation) -> Result<bool, SchemaError> {
     if ctx
         .host
         .db
@@ -223,7 +219,7 @@ async fn schema_holds(
         .host
         .db
         .mutation_manager()
-        .replay_schema_dropped_after(&mutation.schema_name, stamp)
+        .is_replay_schema_dropped(&mutation.schema_name)
         .await?;
     if dropped {
         Ok(false)
