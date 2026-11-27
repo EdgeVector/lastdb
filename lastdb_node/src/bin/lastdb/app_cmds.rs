@@ -184,12 +184,11 @@ fn find_catalog_for_app(
             Err(e) => return Err(e),
         }
     }
-    let range = match range_hint {
-        Some(r) => r,
-        None => {
-            let (_, _, api, _, min_api) = registry::running_node(home)?;
-            (min_api, api)
-        }
+    let range = if let Some(r) = range_hint {
+        r
+    } else {
+        let (_, _, api, _, min_api) = registry::running_node(home)?;
+        (min_api, api)
     };
     Err(missing_app_error(app_id, range, false))
 }
