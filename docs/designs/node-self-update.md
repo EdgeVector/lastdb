@@ -260,7 +260,9 @@ before the drain, and nothing in a download runs before its hashes and signature
   the window, except for a withdrawn running build (section 7).
 - **`lastdb service adopt --label <l>`** rewrites an existing job to run
   `<home>/current/lastdbd` once, with drain, strict stop, start and verify. It never moves
-  a file inside the home.
+  a file inside the home. A job that already runs `<home>/current/lastdbd` but that this
+  home's config does not name (a hand-made job whose `current` points outside
+  `programs/`) is adopted the same way. Only a home whose config names the label refuses.
 - The CLI on PATH (`~/.local/bin/lastdb`) is a link to `<home>/current/lastdb`.
 
 ## 12. Release artifacts
