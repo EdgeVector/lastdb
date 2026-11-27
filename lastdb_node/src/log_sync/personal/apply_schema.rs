@@ -2,10 +2,10 @@
 //!
 //! A schema has a winner row for its newest put or drop and a `drop-winner` row
 //! for its newest drop, incompatible replacement, or post-drop recreation.
-//! Compatible additive upgrades converge to the superset definition regardless
-//! of arrival order; mutually incompatible definitions resolve to the newest
-//! stamp and replace the losing schema's rows idempotently so no conflict can
-//! stall the stream checkpoint.
+//! Every schema put or drop is ordered by `ReplayStamp`: compatible additive
+//! evolutions preserve existing records, while incompatible definitions resolve
+//! to the newest stamp and replace the losing schema's rows idempotently so no
+//! conflict can stall the stream checkpoint.
 
 use fold_db::fold_db_core::mutation_manager::{ReplayStamp, ReplayStreamHead};
 use fold_db::schema::types::{Schema, SchemaError};
@@ -105,8 +105,8 @@ async fn put_schema(
             )
             .await;
         match outcome {
-            Ok(Some(false)) | Err(SchemaError::Blocked(_)) if attempt == 0 => {}
             Ok(_) => return Ok(ApplyOutcome::Applied),
+            Err(SchemaError::Blocked(_)) if attempt == 0 => {}
             Err(error) => {
                 return Err(failed(
                     "a schema of another device could not be applied",
@@ -147,31 +147,33 @@ async fn classify_in_scope(
     replaced_here: bool,
 ) -> Result<SchemaPlan, SchemaError> {
     let manager = ctx.host.db.mutation_manager();
-    let drop_held = manager.replay_schema_drop_winner(name).await?;
-    if !replaced_here && drop_held.as_ref().is_some_and(|held| held >= stamp) {
+    let held = manager.replay_schema_winner(name).await?;
+    let drop_held = ctx
+        .host
+        .db
+        .db_ops()
+        .metadata()
+        .replay_drop_winner(name)
+        .await?;
+    if !replaced_here && drop_held.as_ref().is_some_and(|floor| floor >= stamp) {
         return Ok(SchemaPlan::NoOp);
     }
-    let held = manager.replay_schema_winner(name).await?;
     let existing = ctx.host.db.schema_manager().get_schema_metadata(name)?;
     if let Some(stored) = existing {
-        let forward_ok = SchemaCore::is_compatible_update(&stored, definition)?;
-        let reverse_ok = SchemaCore::is_compatible_update(definition, &stored)?;
-        let plan = if forward_ok && reverse_ok {
-            if held.as_ref().is_some_and(|winner| winner >= stamp) {
+        if let Some(winner) = held.filter(|winner| winner >= stamp) {
+            let compatible = SchemaCore::is_compatible_update(definition, &stored)?;
+            return Ok(if compatible {
                 SchemaPlan::NoOp
             } else {
-                SchemaPlan::Load { fence_drop: false }
-            }
-        } else if forward_ok {
+                SchemaPlan::FenceLoser(winner)
+            });
+        }
+        let compatible = SchemaCore::is_compatible_update(&stored, definition)?;
+        return Ok(if compatible {
             SchemaPlan::Load { fence_drop: false }
-        } else if reverse_ok {
-            SchemaPlan::NoOp
-        } else if let Some(winner) = held.filter(|winner| winner >= stamp) {
-            SchemaPlan::FenceLoser(winner)
         } else {
             SchemaPlan::ReplaceIncompatible
-        };
-        return Ok(plan);
+        });
     }
     if !replaced_here && held.as_ref().is_some_and(|winner| winner >= stamp) {
         return Ok(SchemaPlan::NoOp);
@@ -187,7 +189,7 @@ async fn commit_put(
     definition: Schema,
     stamp: &ReplayStamp,
     replace_receipt: (&[u8; 32], &[u8; 32]),
-) -> Result<bool, SchemaError> {
+) -> Result<(), SchemaError> {
     let manager = ctx.host.db.mutation_manager();
     manager.observe_replay_time(stamp.ordering_ms).await?;
     let replaced_here = ctx
@@ -197,25 +199,10 @@ async fn commit_put(
         .replay_receipt_exists(replace_receipt.0, replace_receipt.1)
         .await?;
     match classify_in_scope(ctx, name, &definition, stamp, replaced_here).await? {
-        SchemaPlan::NoOp => {
-            if ctx
-                .host
-                .db
-                .schema_manager()
-                .get_schema_metadata(name)?
-                .is_some()
-                && manager
-                    .replay_schema_drop_winner(name)
-                    .await?
-                    .is_none_or(|drop_stamp| &drop_stamp < stamp)
-            {
-                manager.accept_replay_schema(name, stamp).await?;
-            }
-            Ok(true)
-        }
+        SchemaPlan::NoOp => Ok(()),
         SchemaPlan::FenceLoser(winner) => {
             manager.accept_replay_drop_schema(name, &winner).await?;
-            Ok(true)
+            Ok(())
         }
         SchemaPlan::Load { fence_drop } => {
             ctx.host
@@ -227,9 +214,11 @@ async fn commit_put(
             if fence_drop {
                 manager.accept_replay_drop_schema(name, stamp).await?;
             }
-            Ok(true)
+            Ok(())
         }
-        SchemaPlan::ReplaceIncompatible => Ok(false),
+        SchemaPlan::ReplaceIncompatible => Err(SchemaError::Blocked(
+            "schema changed incompatibly during replay; retrying replacement".into(),
+        )),
     }
 }
 

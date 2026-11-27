@@ -211,20 +211,20 @@ def schema_conflicts_do_not_stall(merge, a, b, c):
         after_b = f"after-conflict-b-{idx}"
         merge.relay.stop()
         # Earlier offline device defines incompatible schema `theta` (field `legacy`) + attachment `lose`,
-        # and additive v2 schema `iota` (fields `id`, `note`, `extra`) + record using `extra`.
+        # and v1 schema `iota` (fields `id`, `note`) + plain record.
         system_seed(a.node, definition(theta, "Hash", ["id", "legacy"], description_prefix="Personal proof "))
         a.write([v1.create_item(theta, {"hash": "t-lose"}, {"id": "t-lose", "legacy": "old-shape"},
                                 file=merge.files["lose"])])
-        system_seed(a.node, definition(iota, "Hash", ["id", "note", "extra"], description_prefix="Personal proof "))
-        a.write([v1.create_item(iota, {"hash": "i-v2"}, {"id": "i-v2", "note": "from-a", "extra": "kept"})])
+        system_seed(a.node, definition(iota, "Hash", FIELDS, description_prefix="Personal proof "))
+        a.write([v1.create_item(iota, {"hash": "i-v1"}, {"id": "i-v1", "note": "from-a"})])
         time.sleep(1.5)
         # Later offline device defines incompatible winning schema `theta` (fields `id`, `note`) + attachment `two`,
-        # and older v1 subset schema `iota` (fields `id`, `note`) + plain record.
+        # and compatible additive v2 schema `iota` (fields `id`, `note`, `extra`) + record using `extra`.
         system_seed(b.node, definition(theta, "Hash", FIELDS, description_prefix="Personal proof "))
         b.write([v1.create_item(theta, {"hash": "t-win"}, {"id": "t-win", "note": "new-shape"},
                                 file=merge.files["two"])])
-        system_seed(b.node, definition(iota, "Hash", FIELDS, description_prefix="Personal proof "))
-        b.write([v1.create_item(iota, {"hash": "i-v1"}, {"id": "i-v1", "note": "from-b"})])
+        system_seed(b.node, definition(iota, "Hash", ["id", "note", "extra"], description_prefix="Personal proof "))
+        b.write([v1.create_item(iota, {"hash": "i-v2"}, {"id": "i-v2", "note": "from-b", "extra": "kept"})])
         time.sleep(1.5)
         # Device A also writes offline against its losing `theta` after B's schema timestamp, plus unrelated ZETA edits.
         a.write([v1.create_item(theta, {"hash": "t-late-lose"}, {"id": "t-late-lose", "legacy": "stale"})])
@@ -235,8 +235,8 @@ def schema_conflicts_do_not_stall(merge, a, b, c):
         merge.settled(f"f-after-b-{idx}", after_b, "unrelated-after-b", "two")
         expected_theta = {"t-win": {"id": "t-win", "note": "new-shape"}}
         expected_iota = {
-            "i-v2": {"id": "i-v2", "note": "from-a", "extra": "kept"},
-            "i-v1": {"id": "i-v1", "note": "from-b"},
+            "i-v1": {"id": "i-v1", "note": "from-a"},
+            "i-v2": {"id": "i-v2", "note": "from-b", "extra": "kept"},
         }
         wait(f"every device to converge on {theta} and {iota}",
              lambda th=theta, io=iota, et=expected_theta, ei=expected_iota: all(
