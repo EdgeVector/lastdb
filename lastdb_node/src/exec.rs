@@ -44,6 +44,7 @@ mod database_received;
 mod database_routes;
 mod database_share;
 mod mutation;
+mod prepare_stop_routes;
 mod query;
 mod reply;
 mod schema_declare;
@@ -201,9 +202,11 @@ pub(in crate::exec) async fn execute_data_route_with_timeout(
             DataRoute::DbSchemaRetention => heap_route!(admin_routes::db_retention, req, ctx, host),
             DataRoute::BackupSnapshot => heap_route!(admin_routes::backup_snapshot, req, ctx, host),
             DataRoute::CloudWake => return admin_routes::cloud_wake(req, ctx, host),
-            DataRoute::PrepareStop => heap_route!(admin_routes::prepare_stop, req, ctx, host),
+            DataRoute::PrepareStop => {
+                heap_route!(prepare_stop_routes::prepare_stop, req, ctx, host)
+            }
             DataRoute::PrepareStopCancel => {
-                return admin_routes::prepare_stop_cancel(req, ctx);
+                return prepare_stop_routes::prepare_stop_cancel(req, ctx);
             }
             DataRoute::V1Read => heap_route!(app_api::read_route, req, ctx, host),
             DataRoute::V1Write => heap_route!(app_api::write_route, req, ctx, host),
