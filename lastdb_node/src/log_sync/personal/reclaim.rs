@@ -30,7 +30,7 @@ use std::sync::{LazyLock, Mutex};
 use super::reclaim_count::Counter;
 use super::reclaim_state as state;
 pub(super) use super::reclaim_state::{mark_due, pending};
-use super::reclaim_view::{manifest_of, read_tail, Seen};
+use super::reclaim_view::{manifest_of, read_tail, Seen, Tail};
 use super::snapshot_entry::snapshot_head;
 use super::snapshot_known as known;
 use super::snapshot_lane as lane;
@@ -81,6 +81,8 @@ struct SweepTurn<'a> {
     due: Option<&'a state::Due>,
     asked: bool,
     trimmed_seq: Option<u64>,
+    /// The entries after the snapshot that an earlier pass read; the next pass reads on from them.
+    tail: Option<Tail>,
 }
 
 /// Run the sweep when one is due or asked for. The caller is a sync turn, after its send step.
@@ -205,6 +207,7 @@ async fn sweep(
         due,
         asked,
         trimmed_seq: None,
+        tail: None,
     };
     for _ in 0..PASSES {
         if read_request(&ctx.host.home, &ctx.database_id).is_some() {
@@ -325,7 +328,8 @@ async fn pass(
         }
         turn.trimmed_seq = Some(head.writer_seq);
     }
-    let Some(tail) = read_tail(ctx, client, &streams, &head, &snapshot).await? else {
+    let Some(tail) = read_tail(ctx, client, &streams, &head, &snapshot, turn.tail.take()).await?
+    else {
         return Ok(Pass::SnapshotPending);
     };
     let seen = Seen {
@@ -349,6 +353,7 @@ async fn pass(
         counter.finish()?;
         return Ok(Pass::Clean(Box::new(status)));
     }
+    turn.tail = Some(tail);
     drop_batches(ctx, counter, head.writer_seq, &heads, &listed, &dead).await
 }
 
