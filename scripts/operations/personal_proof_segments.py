@@ -18,7 +18,13 @@ def stored_items(directory):
     """The items a reference relay stream directory holds, ascending by key: `(key, value)`. An
     item is a signed entry stored at its seq, or a segment item stored at its last seq."""
     found = [(int(path.stem), path) for path in directory.glob("*.json") if path.stem.isdigit()]
-    return [(key, json.loads(path.read_text())) for key, path in sorted(found)]
+    items = []
+    for key, path in sorted(found):
+        try:
+            items.append((key, json.loads(path.read_text())))
+        except FileNotFoundError:
+            continue
+    return items
 
 
 def stored_entries(directory):
@@ -31,7 +37,13 @@ def stored_entries(directory):
         if segment is None:
             entries[key] = value
             continue
-        held = segment_lines((blobs / segment["sha256"]).read_bytes())
+        try:
+            raw = (blobs / segment["sha256"]).read_bytes()
+        except FileNotFoundError:
+            if not (directory / f"{key}.json").exists():
+                continue
+            raise
+        held = segment_lines(raw)
         seqs = [entry["writer_seq"] for entry in held]
         require(seqs == list(range(segment["first_seq"], segment["last_seq"] + 1)),
                 f"the segment at {key} holds entries {seqs[:1]}..{seqs[-1:]}, not {segment['first_seq']}..{key}")

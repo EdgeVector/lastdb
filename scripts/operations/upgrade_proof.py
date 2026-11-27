@@ -195,6 +195,15 @@ def leave_old_spool(device, out):
     return True
 
 
+def check_stream_tail(relay, device, snapshot_head, after):
+    def consistent():
+        floor = relay.stream_floor(device.database, device.device_id())
+        require(0 <= floor <= snapshot_head, "the relay trimmed beyond the previous build's snapshot")
+        return relay.stream_entries(device.database, device.device_id()) == list(range(floor + 1, after + 1))
+
+    wait("the relay to hold every entry after its snapshot-covered floor across both builds", consistent)
+
+
 def prove(relay, previous, devices, out, summary):
     old, upgraded, first, second = devices
     folder, source = out / "file-dir", out / "source-files"
@@ -253,10 +262,7 @@ def prove(relay, previous, devices, out, summary):
     wait("the upgraded home to upload", upgraded.synced_up)
     after, acked = heads(upgraded)
     require(after == before + 8 and acked == after, f"after 8 writes the spool holds head {after}, acknowledged {acked}")
-    floor = relay.stream_floor(upgraded.database, upgraded.device_id())
-    require(0 <= floor <= snapshot_head, "the relay trimmed beyond the previous build's snapshot")
-    require(relay.stream_entries(upgraded.database, upgraded.device_id()) == list(range(floor + 1, after + 1)),
-            "the relay does not hold every entry after its snapshot-covered floor across both builds")
+    check_stream_tail(relay, upgraded, snapshot_head, after)
     require(upgraded.snapshot() == state, "the upgraded home does not read its old and new records")
     check_account(upgraded, had_account)
     print(f"2. the build under test started on the same home: cloud sync connected with no error ({sync['environment']}), "

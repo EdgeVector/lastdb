@@ -362,7 +362,10 @@ def relay_files(relay):
 def relay_holds_none(relay, secrets):
     """No stored relay byte holds any of `secrets`."""
     for path in relay_files(relay):
-        data = path.read_bytes()
+        try:
+            data = path.read_bytes()
+        except FileNotFoundError:
+            continue
         for secret in secrets:
             require(secret.encode() not in data, f"the relay file {path.name} holds {secret!r}")
 
