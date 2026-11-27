@@ -108,6 +108,8 @@ fn exact(path: &str) -> Option<&'static str> {
         "/api/status" => "/api/status",
         "/api/system/auto-identity" => "/api/system/auto-identity",
         "/api/system/boot-identity" => "/api/system/boot-identity",
+        "/api/system/prepare-stop" => "/api/system/prepare-stop",
+        "/api/system/prepare-stop/cancel" => "/api/system/prepare-stop/cancel",
         "/v1/read" => "/v1/read",
         "/v1/write" => "/v1/write",
         "/v1/x/changes" => "/v1/x/changes",

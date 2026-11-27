@@ -11,13 +11,13 @@ use super::wire;
 use crate::host::Host;
 use crate::lastdb_uds::uds_http::{UdsRequest, UdsResponse};
 
-fn require_owner(ctx: &AccessContext, msg: &'static str) -> Result<(), HostError> {
+pub(super) fn require_owner(ctx: &AccessContext, msg: &'static str) -> Result<(), HostError> {
     ctx.is_owner
         .then_some(())
         .ok_or_else(|| HostError::new(403, msg))
 }
 
-fn require_empty_json_body(body: &[u8], msg: &'static str) -> Result<(), HostError> {
+pub(super) fn require_empty_json_body(body: &[u8], msg: &'static str) -> Result<(), HostError> {
     if body.is_empty()
         || serde_json::from_slice::<serde_json::Map<String, Value>>(body)
             .is_ok_and(|f| f.is_empty())
