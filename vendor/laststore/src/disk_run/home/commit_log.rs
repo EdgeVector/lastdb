@@ -150,8 +150,9 @@ impl CommitLog {
         let len = frame.len() as u64;
         let mut st = unpoison(&self.state);
         if st.active.as_ref().is_none_or(|a| a.used + len > a.cap) {
+            let min_seq = st.active.as_ref().map_or(0, |a| a.seq);
             let fresh = match st.spare.take() {
-                Some(spare) if spare.cap >= len => spare,
+                Some(spare) if spare.cap >= len && spare.seq > min_seq => spare,
                 other => {
                     st.retired.extend(other.map(|f| (f.seq, 0)));
                     self.new_file(len.max(FILE_BYTES))?
@@ -176,14 +177,25 @@ impl CommitLog {
 
     /// Create the file that the next seal switches appends to, outside the commit lock.
     pub(super) fn add_spare(&self) -> Result<()> {
-        if unpoison(&self.state).spare.is_some() {
-            return Ok(());
-        }
-        let file = self.new_file(FILE_BYTES)?;
-        let mut st = unpoison(&self.state);
-        match &st.spare {
-            None => st.spare = Some(file),
-            Some(_) => st.retired.push((file.seq, 0)),
+        while !self.is_closed() {
+            {
+                let mut st = unpoison(&self.state);
+                let min_seq = st.active.as_ref().map_or(0, |a| a.seq);
+                if st.spare.as_ref().is_some_and(|s| s.seq > min_seq) {
+                    return Ok(());
+                }
+                if let Some(stale) = st.spare.take() {
+                    st.retired.push((stale.seq, 0));
+                }
+            }
+            let file = self.new_file(FILE_BYTES)?;
+            let mut st = unpoison(&self.state);
+            let min_seq = st.active.as_ref().map_or(0, |a| a.seq);
+            if st.spare.is_none() && file.seq > min_seq {
+                st.spare = Some(file);
+                return Ok(());
+            }
+            st.retired.push((file.seq, 0));
         }
         Ok(())
     }
@@ -192,7 +204,9 @@ impl CommitLog {
     pub(super) fn switch_to_spare(&self) {
         let mut st = unpoison(&self.state);
         if let Some(fresh) = st.spare.take() {
-            if let Some(old) = st.active.replace(fresh) {
+            if st.active.as_ref().is_some_and(|a| fresh.seq <= a.seq) {
+                st.retired.push((fresh.seq, 0));
+            } else if let Some(old) = st.active.replace(fresh) {
                 st.retired.push((old.seq, old.last_ctr));
             }
         }

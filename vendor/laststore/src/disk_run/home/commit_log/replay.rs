@@ -39,18 +39,24 @@ pub(in crate::disk_run::home) fn replay(
         );
     }
     seqs.sort_unstable();
-    let mut last_non_empty = None;
-    for &seq in &seqs {
-        if fs::metadata(file_path(&dir, seq))?.len() > 0 {
-            last_non_empty = Some(seq);
-        }
-    }
-    let (mut frames, mut scanned) = (Vec::new(), Vec::with_capacity(seqs.len()));
+    let (mut frames, mut scanned, mut max_last) = (Vec::new(), Vec::with_capacity(seqs.len()), 0);
     for &seq in &seqs {
         let bytes = fs::read(file_path(&dir, seq))?;
-        let allow_torn = Some(seq) == last_non_empty;
-        let (last, valid_len) = read_frames(key, &bytes, sealed, allow_torn, &mut frames)?;
+        let (last, valid_len) = read_frames(key, &bytes, sealed, &mut frames)?;
+        max_last = max_last.max(last);
         scanned.push((seq, last, valid_len, bytes.len()));
+    }
+    let mut torn_files = 0usize;
+    for &(_, last, valid_len, total_len) in &scanned {
+        if valid_len < total_len {
+            torn_files += 1;
+            // Only the one active tip file may have a torn tail: either after `max_last`, or on
+            // the first append to a newly switched file (`last == 0`; any lost unsealed commit
+            // below `max_last` fails the consecutive-frontier check below).
+            if torn_files > 1 || (last > 0 && last < max_last) {
+                return Err(corrupt("commit log: an unreadable logged commit"));
+            }
+        }
     }
     frames.sort_unstable_by_key(|(ctr, _, _)| *ctr);
     let mut memory = Memory::default();
@@ -130,13 +136,12 @@ fn read_frames(
     key: &[u8; 32],
     bytes: &[u8],
     sealed: u64,
-    allow_torn_tail: bool,
     out: &mut Vec<(u64, BlockRecords, u64)>,
 ) -> Result<(u64, usize)> {
     let (mut at, mut last) = (0usize, 0u64);
     while at < bytes.len() {
         let Some(len) = encoded_len(&bytes[at..]).filter(|&n| n <= bytes.len() - at) else {
-            if !allow_torn_tail || has_later_frame(key, &bytes[at + 1..]) {
+            if has_later_frame(key, &bytes[at + 1..]) {
                 return Err(corrupt("commit log: an unreadable logged commit"));
             }
             break;
@@ -154,8 +159,8 @@ fn read_frames(
                 last = last.max(ctr);
                 at += len;
             }
-            // Only the tail of the newest non-empty file may be torn, with no valid frame after it.
-            Err(_) if !allow_torn_tail || has_later_frame(key, &bytes[at + 1..]) => {
+            // A valid frame after an unreadable one in the same file would be a lost commit.
+            Err(_) if has_later_frame(key, &bytes[at + 1..]) => {
                 return Err(corrupt("commit log: an unreadable logged commit"));
             }
             Err(_) => break,
