@@ -26,8 +26,8 @@ yet. Each later PR updates the section it builds and marks it "built".
 ```
 
 - `node_index` per environment, beside `registry_index` in `environments.json`:
-  - prod: `https://lastdb-app-registry-prod-152335099025.s3.us-east-1.amazonaws.com/v1/node`
-  - dev: `https://lastdb-app-registry-dev-152335099025.s3.us-east-1.amazonaws.com/v1/node`
+  - prod: the app registry bucket's base URL for prod + `/v1/node` (the host of `registry_index` in `lastdb_node/environments.json`)
+  - dev: the app registry bucket's base URL for dev + `/v1/node` (the host of `registry_index` in `lastdb_node/environments.json`)
 - `channel`: `stable` or `nightly`.
 - `target`: `aarch64-apple-darwin`, `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`.
 - Objects are public-read, `Content-Type: application/json`, `Cache-Control: max-age=60`.
