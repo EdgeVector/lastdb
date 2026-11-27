@@ -5,7 +5,7 @@ use std::process::Command;
 
 /// Public DSN for the `lastdb-mini` Sentry project (not a secret).
 const DEFAULT_USER_DEVICE_DSN: &str =
-    "https://2de2e2512878eedeef5359696ac37e70@o4511522196291584.ingest.us.sentry.io/4511737993101312";
+    "https://2de2e2512878eedeef5359696ac37e70@o4511522196291584.ingest.us.sentry.io/4511737993101312"; // secret-scan-ok: public lastdb-mini client DSN
 
 fn main() {
     for key in ["GITHUB_SHA", "OBS_SENTRY_RELEASE", "LASTDB_SENTRY_DSN"] {
