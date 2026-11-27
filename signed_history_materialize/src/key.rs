@@ -1,7 +1,7 @@
 //! Map a history record key onto the FoldDB key of its schema.
 
 use fold_db::fold_db_core::FoldDB;
-use fold_db::schema::types::KeyValue;
+use fold_db::schema::types::{KeyValue, Schema};
 use mutation_log::split_record_key;
 
 /// Canonicalize `(hash, range)` against `namespace`'s primary key when `namespace`
@@ -44,16 +44,29 @@ pub fn key_value(store: &FoldDB, namespace: &str, record_key: &str) -> Result<Ke
         .get_schema_metadata(namespace)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("schema {namespace} is not declared"))?;
+    key_value_for_schema(&schema, namespace, record_key)
+}
+
+pub(crate) fn key_value_for_schema(
+    schema: &Schema,
+    namespace: &str,
+    record_key: &str,
+) -> Result<KeyValue, String> {
     let keys = schema.require_record_keys().map_err(|e| e.to_string())?;
-    if keys.primary.range_type.is_none() {
-        return Ok(KeyValue::new(Some(record_key.to_owned()), None));
-    }
-    let (hash, range) = split_record_key(record_key)
-        .ok_or_else(|| format!("{namespace}/{record_key} has no range part for its ranged key"))?;
-    let profile = keys.primary.range_profile()?;
-    let encoded = profile.encode_value(range)?;
-    let canon_range = profile.decode_value(&encoded)?;
-    Ok(KeyValue::new(Some(hash.to_owned()), Some(canon_range)))
+    let kv = if keys.primary.range_type.is_none() {
+        KeyValue::new(Some(record_key.to_owned()), None)
+    } else {
+        let (hash, range) = split_record_key(record_key).ok_or_else(|| {
+            format!("{namespace}/{record_key} has no range part for its ranged key")
+        })?;
+        let profile = keys.primary.range_profile()?;
+        let encoded = profile.encode_value(range)?;
+        let canon_range = profile.decode_value(&encoded)?;
+        KeyValue::new(Some(hash.to_owned()), Some(canon_range))
+    };
+    keys.primary
+        .validate_coordinates(kv.hash.as_deref(), kv.range.as_deref())?;
+    Ok(kv)
 }
 
 /// Canonicalize an already-joined history `record_key` against `namespace` in `store`.

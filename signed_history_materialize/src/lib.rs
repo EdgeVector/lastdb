@@ -13,6 +13,7 @@ mod key;
 mod read;
 mod schema;
 mod store;
+mod validate;
 
 pub use apply::{
     apply_history, decode_record_value, encode_record_value, reconcile_keys, resolve_alternates,

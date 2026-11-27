@@ -4,11 +4,14 @@ use fold_db::fold_db_core::FoldDB;
 use fold_db::schema::types::{Schema, SchemaError};
 use mutation_log::VerifiedHistory;
 
+use crate::validate::validate_schema;
+
 /// Install every valid schema declaration carried by `history`.
 ///
 /// A missing declaration is not invented here. Invalid schema definitions are
-/// logged and skipped so a bad declaration on one namespace cannot block
-/// materialization of the rest of the database.
+/// validated in memory, logged, and skipped so a bad declaration cannot block
+/// materialization, while storage and backend errors propagate so retry stays
+/// scheduled.
 pub async fn declare_history_schemas(
     store: &FoldDB,
     history: &VerifiedHistory,
@@ -39,22 +42,30 @@ async fn declare_one(store: &FoldDB, namespace: &str, definition: &[u8]) -> Resu
         );
         return Ok(());
     }
-    if let Some(existing) = store
+    let existing = store
         .schema_manager()
         .get_schema_metadata(namespace)
-        .map_err(|error| format!("read schema {namespace}: {error}"))?
-    {
-        if already_installed(&existing, &schema) {
+        .map_err(|error| format!("read schema {namespace}: {error}"))?;
+    if let Err(reason) = validate_schema(&schema, existing.as_ref()) {
+        tracing::warn!(
+            namespace = %namespace,
+            %reason,
+            "skipping invalid or incompatible schema definition in signed history"
+        );
+        return Ok(());
+    }
+    if let Some(existing) = &existing {
+        if already_installed(existing, &schema) {
             return Ok(());
         }
     }
     match store.schema_manager().load_schema_internal(schema).await {
         Ok(()) => Ok(()),
-        Err(error) if invalid_schema_error(&error) => {
+        Err(error) if is_incompatible_schema_error(&error) => {
             tracing::warn!(
                 namespace = %namespace,
                 %error,
-                "skipping rejected schema definition in signed history"
+                "skipping incompatible schema update in signed history"
             );
             Ok(())
         }
@@ -76,10 +87,14 @@ fn already_installed(existing: &Schema, incoming: &Schema) -> bool {
     *existing == normalized
 }
 
-fn invalid_schema_error(error: &SchemaError) -> bool {
+fn is_incompatible_schema_error(error: &SchemaError) -> bool {
     match error {
         SchemaError::InvalidField(_) => true,
-        SchemaError::InvalidData(msg) => !msg.contains("poisoned"),
+        SchemaError::InvalidData(msg) => {
+            msg.starts_with("explicit primary/alternate key declarations are immutable")
+                || msg.starts_with("changing the file requirement needs a new schema identity")
+                || (msg.starts_with("existing field '") && msg.contains("cannot "))
+        }
         _ => false,
     }
 }
