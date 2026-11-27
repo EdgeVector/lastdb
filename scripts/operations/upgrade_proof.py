@@ -25,8 +25,9 @@ the two builds' `lastdbd` and `lastdb`, and the `reference_relay` built from the
    and follow the head, and `backup snapshot --wait` succeeds.
 3. Build under test: a restore from the recovery phrase into a fresh home, from the previous
    build's snapshot and the entries after it, equals the upgraded home key by key.
-4. Build under test: after its own snapshot and a tail, a second restore installs that snapshot,
-   replays only the tail and equals the upgraded home.
+4. Build under test: after its own snapshot, the reclaim that follows it (read from status, with a
+   bound), and a tail, a second restore installs that snapshot, replays only the tail and equals
+   the upgraded home. Exactly one snapshot then lives on the relay.
 
 A step that the previous build cannot run fails the proof. It never skips.
 """
@@ -269,12 +270,16 @@ def prove(relay, previous, devices, out, summary):
           "entries after it, and equals the upgraded home key by key", flush=True)
 
     # 4. The build under test takes its own snapshot; a restore installs it and replays only the tail after it.
+    # `backup snapshot --wait` returns after capture and upload. The trim and reclaim of the previous
+    # snapshot run in later sync turns and are reported in `cloud_sync.reclaim`. Wait for that before
+    # requiring the relay to hold exactly one snapshot.
     count = snapshots_on(relay, upgraded.database)
     taken = upgraded.snapshot_now()
-    # The build under test keeps one snapshot on the relay: its own replaces the previous build's.
-    require(taken["snapshot_seq"] == count + 1 and snapshots_on(relay, upgraded.database) == 1,
-            f"the snapshot of the build under test is not the one snapshot on the relay: {taken!r}")
+    require(taken["snapshot_seq"] == count + 1,
+            f"the snapshot of the build under test is not the next on the relay: {taken!r}")
     swept(upgraded, taken["snapshot_seq"])
+    require(snapshots_on(relay, upgraded.database) == 1,
+            f"the snapshot of the build under test is not the one snapshot on the relay after reclaim: {taken!r}")
     for key in fresh[2:5]:
         upgraded.change([replace(ALPHA, key, "tail")])
         expect(state, ALPHA, key, "tail")
