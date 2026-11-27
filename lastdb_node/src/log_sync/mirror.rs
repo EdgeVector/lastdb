@@ -49,9 +49,8 @@ pub(super) struct MirrorCtx<'a> {
 
 /// Author signed entries for an owned write and wake sync.
 ///
-/// No-op when `database_id` is not an owned shareable database. On a second
-/// publisher device (`birth.json` absent), the history must already hold the
-/// publisher birth pulled from the relay.
+/// No-op when `database_id` is not an owned shareable database or holds neither
+/// local birth material nor an accepted publisher birth (not a signed-log share).
 pub fn mirror_owned_write(
     host: &Host,
     database_id: &str,
@@ -65,6 +64,11 @@ pub fn mirror_owned_write(
     }
     let histories = super::histories_for(host);
     let material = birth::load(&host.home, database_id)?;
+    if material.is_none()
+        && !histories.with_mut(database_id, |history| history.owner().is_some())?
+    {
+        return Ok(());
+    }
     let store = materialize::store_for(host, database_id)
         .ok_or_else(|| "no FoldDB store is open for this database".to_owned())?;
     let identity = chain_author::identity_of(host).map_err(|e| e.reply().message.to_owned())?;

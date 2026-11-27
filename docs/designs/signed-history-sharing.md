@@ -36,7 +36,7 @@ A member never signs a direct entry. A `write` grant does not let a member write
 ## Publisher write path
 
 1. The store validates the write and commits it.
-2. The node signs the `data` entries (and the `schema` entry first, when the schema is new or changed) and appends them to the log through `history_store::commit_authored`. The commit accepts the entry on a copy of the history, appends it to `authored.json`, swaps the copy in, and wakes sync. A second publisher device under the same node key registers the shareable database with its 64-hex `Idempotency-Key`, pulls the birth and existing streams from the relay without local `birth.json`, and signs on its own device stream.
+2. The node signs the `data` entries (and the `schema` entry first, when the schema is new or changed) and appends them to the log through `history_store::commit_authored`. The commit accepts the entry on a copy of the history, appends it to `authored.json`, swaps the copy in, and wakes sync. A second publisher device under the same node key registers the shareable database with its 64-hex `Idempotency-Key`, pulls the birth and existing streams from the relay without local `birth.json`, and then signs on its own device stream.
 3. An entry that cannot be signed leaves a record with no entry. `reconcile_keys` puts each key back to its history winner, or to no record, and the caller gets the error.
 
 One window remains: a crash between step 1 and step 2 leaves a record with no entry until a later write touches that key.
