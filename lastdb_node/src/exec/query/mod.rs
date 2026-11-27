@@ -2,10 +2,8 @@
 
 use std::sync::Arc;
 
-use fold_db::db_operations::PageEnd;
-use fold_db::schema::types::field::{HashRangeFilter, KeyWindow};
+use fold_db::schema::types::field::KeyWindow;
 use fold_db::schema::types::key_comparison::KeyComparisonContext;
-use fold_db::schema::types::operations::SortOrder;
 use fold_db::schema::types::{KeyValue, Query, QueryCursor};
 use serde_json::Value;
 
@@ -16,10 +14,7 @@ use crate::host::Host;
 
 mod format;
 
-use format::{
-    cursor_payload, format_alternate_page, format_rows, full_schema_scan_rejection, page_payload,
-    sort_rows,
-};
+use format::{cursor_payload, format_alternate_page, format_rows, sort_rows};
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub(in crate::exec) enum QueryResponseFormat {
@@ -46,7 +41,12 @@ pub(in crate::exec) async fn execute_query(
 }
 
 async fn execute_query_scoped(host: &Host, mut req: QueryRequest) -> Result<Value, HostError> {
-    let requested = req.query.schema_name.clone();
+    if req.offset.unwrap_or(0) != 0 {
+        return Err(HostError::new(
+            400,
+            "offset paging is not supported; use a cursor",
+        ));
+    }
     if let Some(canonical) = resolve_schema_name(host, &req.query.schema_name)? {
         req.query.schema_name = canonical;
     } else if req
@@ -65,21 +65,10 @@ async fn execute_query_scoped(host: &Host, mut req: QueryRequest) -> Result<Valu
         ));
     }
     if req.query.filter.is_none() {
-        let schema = host
-            .records()
-            .schema_manager()
-            .get_schema_metadata(&req.query.schema_name)
-            .map_err(|e| HostError::internal(e.to_string()))?;
-        return Err(full_schema_scan_rejection(&requested, schema.as_ref()));
+        return Err(HostError::new(400, "a query requires a key filter"));
     }
     if req.query.key_name.is_some() {
         return alternate_execute(host, req).await;
-    }
-    if req.cursor.is_some() && matches!(req.query.sort_order, Some(SortOrder::Desc)) {
-        return Err(HostError::new(
-            400,
-            "Query cursors require ascending keyed reads; use an offset for descending reads",
-        ));
     }
     let cmp: Option<Arc<KeyComparisonContext>> = host
         .records()
@@ -89,14 +78,8 @@ async fn execute_query_scoped(host: &Host, mut req: QueryRequest) -> Result<Valu
         .map(|s| host.records().db_ops().records().key_comparison_context(&s))
         .transpose()?;
     let (query, cursor, binding) = prepare_comparison(req.query, req.cursor, cmp.as_deref())?;
-    let fut = execute_primary_query(
-        host,
-        query,
-        (clamp_request_limit(req.limit), req.offset.unwrap_or(0)),
-        cursor.as_ref(),
-        binding,
-        req.response_format,
-    );
+    let limit = clamp_request_limit(req.limit);
+    let fut = execute_primary_query(host, query, limit, cursor, binding, req.response_format);
     if let Some(c) = cmp {
         c.run(fut).await
     } else {
@@ -105,12 +88,6 @@ async fn execute_query_scoped(host: &Host, mut req: QueryRequest) -> Result<Valu
 }
 
 async fn alternate_execute(host: &Host, req: QueryRequest) -> Result<Value, HostError> {
-    if req.offset.unwrap_or_default() != 0 {
-        return Err(HostError::new(
-            400,
-            "alternate pages use cursors rather than offsets",
-        ));
-    }
     let records = host.records();
     let exec = records.query_executor();
     let limit = clamp_request_limit(req.limit);
@@ -125,57 +102,26 @@ async fn alternate_execute(host: &Host, req: QueryRequest) -> Result<Value, Host
 async fn execute_primary_query(
     host: &Host,
     query: Query,
-    (limit, offset): (usize, usize),
-    cursor: Option<&KeyValue>,
+    limit: usize,
+    cursor: Option<KeyValue>,
     binding: Option<String>,
     fmt: QueryResponseFormat,
 ) -> Result<Value, HostError> {
+    let overfetch = limit.saturating_add(1);
+    let window = match cursor {
+        Some(after) => KeyWindow::after(after, overfetch),
+        None => KeyWindow::offset(0, overfetch),
+    };
     let records = host.records();
     let exec = records.query_executor();
-    let desc = matches!(query.sort_order, Some(SortOrder::Desc));
-    let total = if query.expected_total_count.is_some() || (cursor.is_none() && desc) {
-        exec.count_query_rows(&query).await?
-    } else {
-        None
-    };
-    let Some(window) = keyed_window(&query, limit, offset, cursor, total)? else {
-        let (all, _) = execute_query_rows(host, query, None, fmt).await?;
-        let n = all.len();
-        let page: Vec<_> = all.into_iter().skip(offset).take(limit).collect();
-        let more = offset.saturating_add(page.len()) < n;
-        return Ok(page_payload(page, Some(n), (limit, offset), more, None));
-    };
-    let (page, end) = execute_query_rows(host, query, Some(window), fmt).await?;
-    Ok(if desc && total.is_some() {
-        cursor_payload(page, total, (limit, offset), None, None, false)
-    } else {
-        cursor_payload(page, total, (limit, offset), end.resume, binding, true)
-    })
-}
-
-async fn execute_query_rows(
-    host: &Host,
-    query: Query,
-    window: Option<KeyWindow>,
-    fmt: QueryResponseFormat,
-) -> Result<(Vec<Value>, PageEnd), HostError> {
-    let sort_order = query.sort_order.clone();
-    let records = host.records();
-    let exec = records.query_executor();
-    let (result, end) = match window {
-        Some(w) if !matches!(sort_order, Some(SortOrder::Desc)) => {
-            fold_db::db_operations::with_query_page_tally(exec.query_window(query, w)).await
-        }
-        Some(w) => (exec.query_window(query, w).await, PageEnd::default()),
-        None => (exec.query(query).await, PageEnd::default()),
-    };
+    let (result, end) =
+        fold_db::db_operations::with_query_page_tally(exec.query_window(query, window)).await;
     let mut results = format_rows(result?, fmt == QueryResponseFormat::Values);
     sort_rows(
         &mut results,
-        sort_order.as_ref(),
         KeyComparisonContext::capture_current_range_comparison().as_ref(),
     )?;
-    Ok((results, end))
+    Ok(cursor_payload(results, limit, end.resume, binding))
 }
 
 fn prepare_comparison(
@@ -216,44 +162,4 @@ fn prepare_comparison(
         })
         .transpose()?;
     Ok((query, cursor, binding))
-}
-
-fn keyed_window(
-    query: &Query,
-    limit: usize,
-    offset: usize,
-    cursor: Option<&KeyValue>,
-    total: Option<usize>,
-) -> Result<Option<KeyWindow>, HostError> {
-    match (total, query.expected_total_count) {
-        (Some(t), Some(exp)) if exp != t => {
-            return Err(HostError::new(
-                409,
-                "expected_total_count did not match the keyed count",
-            ));
-        }
-        (None, Some(_)) => {
-            return Err(HostError::new(
-                400,
-                "expected_total_count is unavailable for this query",
-            ));
-        }
-        _ => {}
-    }
-    let desc = matches!(query.sort_order, Some(SortOrder::Desc));
-    let cross_hash = desc
-        && matches!(&query.filter, Some(HashRangeFilter::HashRangeKeys(keys))
-            if keys.first().is_some_and(|(h, _)| keys.iter().any(|(o, _)| o != h)));
-    if cross_hash || (desc && total.is_none()) {
-        return Ok(None);
-    }
-    let overfetch = limit.saturating_add(1);
-    Ok(Some(if let Some(after) = cursor {
-        KeyWindow::after(after.clone(), overfetch)
-    } else if let (true, Some(t)) = (desc, total) {
-        let asc_off = t.saturating_sub(offset.saturating_add(overfetch));
-        KeyWindow::offset(asc_off, t.saturating_sub(offset).saturating_sub(asc_off))
-    } else {
-        KeyWindow::offset(offset, overfetch)
-    }))
 }

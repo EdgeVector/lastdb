@@ -1,8 +1,11 @@
 //! `POST /api/databases/{id}/change`: the proposal document read as one
 //! `/v1/write` item, for the direct path.
 
+use std::collections::HashMap;
+
 use fold_db::schema::types::KeyValue;
-use serde_json::{json, Value};
+use serde::Deserialize;
+use serde_json::Value;
 
 use super::write::{run, Alternates, FileInput, Op, WriteItem};
 use super::{bad, require_write};
@@ -12,79 +15,122 @@ use crate::host::Host;
 /// One change to one record, parsed from a proposal document for the direct path.
 pub(in crate::exec) struct Change(WriteItem);
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ChangeDoc {
+    #[serde(rename = "type")]
+    kind: String,
+    schema: String,
+    key_value: KeyValue,
+    mutation_type: String,
+    expected: ExpectedDoc,
+    #[serde(default)]
+    record: Option<HashMap<String, Value>>,
+    #[serde(default)]
+    alternates: Option<Alternates>,
+    #[serde(default)]
+    file: Option<Value>,
+    #[serde(default)]
+    definition_id: Option<String>,
+    #[serde(default)]
+    convergence: Option<String>,
+    #[serde(default)]
+    durability: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ExpectedDoc {
+    #[serde(rename = "type")]
+    kind: String,
+    #[serde(default)]
+    revision: Option<String>,
+}
+
 /// Read the proposal document of `POST /api/databases/{id}/change` as one
 /// `/v1/write` item of `database`. This is the direct path's reading of the
 /// document: `expected` becomes the revision a replace or delete names, and a
 /// create expects the key absent. A file is refused, as the proposal path does.
 pub(in crate::exec) fn parse_change(body: &[u8], database: &str) -> Result<Change, HostError> {
-    let Ok(Value::Object(mut doc)) = serde_json::from_slice::<Value>(body) else {
-        return Err(bad("the change document must be a JSON object"));
-    };
-    if doc.get("type").and_then(Value::as_str) != Some("mutation") {
+    let doc: ChangeDoc = serde_json::from_slice(body)
+        .map_err(|error| bad(format!("invalid change document: {error}")))?;
+    if doc.kind != "mutation" {
         return Err(bad("type must be mutation"));
     }
-    if doc.get("file").is_some_and(|file| !file.is_null()) {
+    if doc.file.is_some() {
         return Err(bad("the change call does not take a file"));
     }
-    let mutation_type = doc.get("mutation_type").and_then(Value::as_str);
-    let op = match mutation_type {
-        Some("create") => Op::Create,
-        Some("replace") => Op::Replace,
-        Some("delete") => Op::Delete,
+    if doc.definition_id.as_deref().is_some_and(str::is_empty) {
+        return Err(bad("definition_id must not be empty"));
+    }
+    if doc
+        .convergence
+        .as_deref()
+        .is_some_and(|c| !matches!(c, "sync" | "async"))
+    {
+        return Err(bad("convergence must be sync or async"));
+    }
+    if doc
+        .durability
+        .as_deref()
+        .is_some_and(|d| !matches!(d, "queued" | "durable"))
+    {
+        return Err(bad("durability must be queued or durable"));
+    }
+    let op = match doc.mutation_type.as_str() {
+        "create" => Op::Create,
+        "replace" => Op::Replace,
+        "delete" => Op::Delete,
         _ => return Err(bad("mutation_type must be create, replace or delete")),
     };
-    let schema = match doc.remove("schema") {
-        Some(Value::String(schema)) if !schema.is_empty() && schema.len() <= 128 => schema,
-        _ => return Err(bad("schema is required")),
-    };
-    let key: KeyValue = serde_json::from_value(doc.remove("key_value").unwrap_or(Value::Null))
-        .map_err(|_| bad("key_value must be an object with hash and range"))?;
-    if key.hash.as_deref().is_none_or(str::is_empty) {
+    if doc.schema.is_empty() || doc.schema.len() > 128 {
+        return Err(bad("schema is required"));
+    }
+    if doc.key_value.hash.as_deref().is_none_or(str::is_empty) {
         return Err(bad("key_value.hash is required"));
     }
-    let expected = doc.remove("expected").unwrap_or(Value::Null);
-    let revision = match (op, expected.get("type").and_then(Value::as_str)) {
-        (Op::Create, Some("absent")) => None,
-        (Op::Replace | Op::Delete, Some("revision")) => Some(
-            expected
-                .get("revision")
-                .and_then(Value::as_str)
-                .ok_or_else(|| bad("expected.revision must be a string"))?
-                .to_owned(),
-        ),
-        _ => {
-            return Err(bad(
-                "a create expects absent; a replace or delete expects a revision",
-            ))
-        }
-    };
-    let record = match (op, doc.remove("record")) {
+    let revision = parse_expected(op, doc.expected)?;
+    let record = match (op, doc.record) {
         (Op::Delete, _) => None,
-        (_, Some(Value::Object(map))) => Some(map.into_iter().collect()),
+        (_, Some(map)) => Some(map),
         _ => return Err(bad("a create or replace carries a record")),
     };
     // A delete names no alternates: the node reads the live record's addresses.
     let alternates = if op == Op::Delete {
-        // The proposal path refuses alternates on a delete, so the direct path does too.
-        let named = doc.get("alternates");
-        if named.is_some_and(|v| !v.is_null() && v.as_object().is_none_or(|m| !m.is_empty())) {
+        if doc
+            .alternates
+            .as_ref()
+            .is_some_and(|named| !named.is_empty())
+        {
             return Err(bad("a delete names no alternates"));
         }
         Alternates::new()
     } else {
-        serde_json::from_value(doc.remove("alternates").unwrap_or(json!({})))
-            .map_err(|_| bad("alternates must map a name to a key or null"))?
+        doc.alternates.unwrap_or_default()
     };
     Ok(Change(WriteItem {
         database: Some(database.to_owned()),
-        schema,
+        schema: doc.schema,
         op,
-        key,
+        key: doc.key_value,
         record,
         alternates,
         revision,
         file: FileInput::Absent,
     }))
+}
+
+fn parse_expected(op: Op, expected: ExpectedDoc) -> Result<Option<String>, HostError> {
+    match (op, expected.kind.as_str(), expected.revision) {
+        (Op::Create, "absent", None) => Ok(None),
+        (Op::Replace | Op::Delete, "revision", Some(revision)) => Ok(Some(revision)),
+        (Op::Replace | Op::Delete, "revision", None) => {
+            Err(bad("expected.revision must be a string"))
+        }
+        _ => Err(bad(
+            "a create expects absent; a replace or delete expects a revision",
+        )),
+    }
 }
 
 /// On the app socket the calling app must hold a write grant for the schema a

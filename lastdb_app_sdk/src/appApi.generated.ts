@@ -53,7 +53,7 @@ export const APP_API_ERROR_REASONS = [
 /** One value of `APP_API_ERROR_REASONS`. */
 export type ErrorReason = (typeof APP_API_ERROR_REASONS)[number];
 
-/** 1 to 64 bytes: ASCII letters, digits, hyphen, and underscore. Omit the field to use the personal database. An unknown identifier is not_found and its message is "database is not registered on this node". A received database can be read. A write to one is permission_denied because a received database is read only. /v1/x/changes does not serve a received database. */
+/** 1 to 64 bytes: ASCII letters, digits, hyphen, and underscore. Omit the field to use the personal database. An unknown identifier is not_found and its message is "database is not registered on this node". A received database can be read. /v1/write writes to one when this node's role is write and its newest held write lease covers it; otherwise /v1/write is permission_denied ("a received database is read only") and writes use /v1/x/databases (change or submit). /v1/x/changes does not serve a received database. */
 export type DatabaseName = string;
 
 /** Schema name. On the app socket the name must be exact. On the owner socket a loose form can resolve. An empty name is refused on changes. */
@@ -645,7 +645,7 @@ export interface DatabasesLeaseRequest {
 export interface DatabasesLeaseLengthRequest {
   action: 'lease_length';
   database?: DatabaseSelector;
-  /** Minimum 0. */
+  /** Minimum 10000. Maximum 7776000000. */
   length_ms: number | null;
   name?: never;
   kind?: never;
@@ -795,7 +795,7 @@ export interface DatabasesPublish {
 
 /** One database from list, create, or accept. A received database includes publish, and includes selfAccess when this node holds its signed history and has an active role. An owned shareable database includes leaseLengthMs when a lease length is set. */
 export interface DatabasesListItem {
-  /** Integer. Minimum 1. */
+  /** Integer. Minimum 10000. */
   leaseLengthMs?: number;
   selfAccess?: DatabasesSelfAccess;
   publish?: DatabasesPublish;
@@ -905,7 +905,7 @@ export interface DatabasesLeaseReply {
   user_hash: string;
   databaseId: string;
   role: null | 'read' | 'submit' | 'write';
-  /** Integer. Minimum 1. */
+  /** Integer. Minimum 10000. */
   leaseLengthMs?: number;
   lease: null | DatabasesLease;
   [key: string]: unknown;
@@ -916,7 +916,7 @@ export interface DatabasesLeaseLengthReply {
   ok: boolean;
   user_hash: string;
   databaseId: string;
-  /** Minimum 0. */
+  /** Minimum 10000. */
   leaseLengthMs: number | null;
   [key: string]: unknown;
 }

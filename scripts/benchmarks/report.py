@@ -278,22 +278,21 @@ def render_native(output):
     manifest = json.loads((output / "benchmark.json").read_text())
     if not manifest["complete"] or not manifest["recipe"]["native_timing"]:
         raise ValueError("The separate native diagnostic campaign is incomplete")
-    largest = lambda phases: (", ".join(f"{k}={v['mean'] / 1000:.3f} ({v['reported']} records)"
+    largest = lambda phases: (", ".join(f"{k}={v['mean'] / 1000:.3f} ({v['reported']} requests)"
                               for k, v in sorted(phases.items(), key=lambda i: i[1]["mean"], reverse=True)[:5]) or "unreported")
     lines = ["# Native write diagnostics — separate from ordinary latency", "",
              f"Driver: `{manifest['driver_revision']}`. Pairs: {manifest['recipe']['pairs']}.",
              f"Requested socket workers (0 = product default): {manifest['recipe'].get('uds_workers', 'unreported')}",
              "Native timing is enabled only for these generated CI homes.",
              "Instrumentation can change latency; use the ordinary campaign for the speed comparison.",
-             "Scope means are per native request; physical means are per distinct commit.",
-             "A physical commit can serve several requests, including background work.",
-             "Nested phase values overlap. Do not add them or assign one shared commit to each request.", "",
-             "| Run / case | Write scopes | Physical commits | Scope mean ms | Largest scope phases ms |",
+             "All phase averages come from `GET /api/ops` (`write_phases`) per committed write request.",
+             "Distinct physical commit counts are unreported; concurrent queued requests record shared commit turn timings on each request.",
+             "Dotted sub-phases overlap their parent phase. Do not add a parent phase to its children.", "",
+             "| Run / case | Write requests | Physical commits | Handler mean ms | Largest request phases ms |",
              "|---|---:|---:|---:|---|"]
-    physical_lines = ["", "| Run / case | Commit mean ms | Largest physical phases ms |", "|---|---:|---|"]
-    tails = ["", "## Exact slow update requests", "",
-             "Each request joins to an enclosed scope and one distinct physical commit by sequence and time.",
-             "Shared physical commits retain their request count; their cost is not assigned to every request.", ""]
+    commit_lines = ["", "| Run / case | Request commit mean ms | Largest request commit sub-phases ms |", "|---|---:|---|"]
+    tails = ["", "## Slow update requests", "",
+             "Five slowest measured update calls per run, with their RPC latency and process counter deltas.", ""]
     for run in manifest["runs"]:
         if not run["complete"]:
             raise ValueError("A native diagnostic run did not complete")
@@ -303,12 +302,15 @@ def render_native(output):
         for name in NATIVE_CASES:
             case = data["cases"][name]
             label = f"{run['directory']} / {name}"
-            lines.append(f"| {label} | {case['scopes']} | {case['distinct_physical_commits']} | "
-                         f"{case['scope_mean_us'] / 1000:.3f} | {largest(case['scope_phases_us'])} |")
-            physical_lines.append(f"| {label} | {case['physical_mean_us'] / 1000:.3f} | {largest(case['physical_phases_us'])} |")
+            commits = case.get("distinct_physical_commits")
+            commits_text = str(commits) if commits is not None else "unreported"
+            lines.append(f"| {label} | {case['write_requests']} | {commits_text} | "
+                         f"{case['handler_mean_us'] / 1000:.3f} | {largest(case['request_phases_us'])} |")
+            commit_lines.append(f"| {label} | {case['request_commit_mean_us'] / 1000:.3f} | "
+                                f"{largest(case['request_commit_phases_us'])} |")
             for req in case.get("slowest_requests", []):
                 tails.extend([f"### {label}: {req['request_id']}", "", "```json", json.dumps(req, sort_keys=True), "```", ""])
-    return "\n".join(lines + physical_lines + tails) + "\n"
+    return "\n".join(lines + commit_lines + tails) + "\n"
 
 
 def main():

@@ -4,14 +4,13 @@
 from __future__ import annotations
 
 import argparse
-from bisect import bisect_left
 from concurrent.futures import ThreadPoolExecutor
 import hashlib, json, os, re, signal, sys, threading, time
 from pathlib import Path
-from statistics import mean, median
+from statistics import median
 
 from node import Node, file_hash, publish_summary, save
-from phases import capture_phases
+from phases import capture_phases, read_ops
 from process_counters import counter_delta, read_counters
 from run import host_details, interrupted
 from workload import FIELDS, HASH, SCHEMA, Workload, benchmark_schema, describe, encoded, fields, key, read_rows
@@ -91,6 +90,7 @@ class Writers:
             return rows
 
         status = self.node.call("/api/status")[0]["status"]
+        ops_before = read_ops(self.node)
         with ThreadPoolExecutor(max_workers=clients) as pool:
             futures = [pool.submit(worker, client) for client in range(clients)]
             before = {"daemon": read_counters(self.node.process.pid), "client": read_counters(os.getpid())}
@@ -113,7 +113,9 @@ class Writers:
             if cpu is None or not observation["process_identity_same"]:
                 raise ValueError(f"Missing stable {label} CPU observations")
             observation["average_cpu_cores"] = cpu / observation["elapsed_ns"]
-        result["phase_coverage"] = capture_phases(self.node, self.node.output, name, self.sequence, rows)
+        coverage = capture_phases(self.node, self.node.output, name, self.sequence, rows, ops_before)
+        result["phase_coverage"] = coverage
+        result["write_phases"] = coverage.get("write_phases")
         self.sequence += 1
         save(self.node.output / f"{name}-samples.json", rows)
         self.verify()
@@ -122,70 +124,24 @@ class Writers:
         return result
 
 
-def summarize(events):
-    names = {name for event in events for name in event.get("phases_us", {})}
-    return {name: {"reported": sum(name in e.get("phases_us", {}) for e in events),
-                   "mean_us": mean(e["phases_us"][name] for e in events if name in e.get("phases_us", {})),
-                   "median_us": median(e["phases_us"][name] for e in events if name in e.get("phases_us", {}))}
-            for name in sorted(names)}
-
-
-def totals(events):
-    names = {name for event in events for name in event.get("counts", {})}
-    return {name: {"reported": sum(name in e.get("counts", {}) for e in events),
-                   "total": sum(e.get("counts", {}).get(name, 0) for e in events)}
-            for name in sorted(names)}
-
-
 def diagnostics(directory, cases):
     path = directory / "node.log"
     if path.stat().st_size > 256 * 2**20:
         raise ValueError("The investigation log exceeds its 256 MiB bound")
-    events, snapshots = [], []
-    with path.open() as source:
-        for line in source:
-            if "LASTDB_SNAPSHOT_TIMING " in line:
-                parsed = json.loads(line.split("LASTDB_SNAPSHOT_TIMING ", 1)[1])
-                events.append(parsed)
-                snapshots.append(parsed)
-            elif "LASTDB_WRITE_REQUEST_TIMING " in line:
-                events.append(json.loads(line.split("LASTDB_WRITE_REQUEST_TIMING ", 1)[1]))
     for case in cases:
-        if not case["native_timing"]:
-            continue
-        first, last = case["case_started_unix_us"], case["case_ended_unix_us"]
-        selected = [e for e in events if first <= e["started_us"] <= e["ended_us"] <= last]
-        requests = [e for e in selected if e["kind"] == "request"]
-        if len(requests) != case["requests"] or any(e["status"] != 200 for e in requests):
-            raise ValueError("Native HTTP request clocks do not cover all successful measured calls")
-        scopes = [e for e in selected if e["kind"] == "scope" and e["background"] is False]
-        sequences = sorted(e["sequence"] for e in scopes)
-        if len(scopes) < case["requests"] or len(set(sequences)) != len(sequences):
-            raise ValueError("Observed foreground storage scopes are incomplete or duplicated")
-        commits = [e for e in selected if e["kind"] == "commit" and e["ok"]
-                   and (pos := bisect_left(sequences, e["first_sequence"])) < len(sequences)
-                   and sequences[pos] <= e["sequence"]]
-        if any(sum(c["first_sequence"] <= seq <= c["sequence"] for c in commits) != 1 for seq in sequences):
-            raise ValueError("A write scope lacks one distinct durable publication")
-        case["native"] = {"http_requests": len(requests), "request_phases": summarize(requests),
-                          "socket_queue_mean_us": mean(e["queue_wait_us"] for e in requests),
-                          "scopes": len(scopes), "extra_foreground_scopes": len(scopes) - len(requests),
-                          "scope_population": "All observed foreground storage work, including author-clock metadata",
-                          "commits": len(commits), "requests_per_commit": mean(c["requests"] for c in commits),
-                          "scope_phases": summarize(scopes), "commit_phases": summarize(commits),
-                          "commit_mean_us": mean(c["total_us"] for c in commits),
-                          "commit_slots_include_background": True, "scope_phase_totals_overlap": False}
-        snap_selected = [e for e in snapshots if first <= e["started_us"] <= e["ended_us"] <= last]
-        prepare = [e for e in snap_selected if e["kind"] == "prepare"]
-        if len(prepare) < case["requests"]:
-            raise ValueError("Logical preparation records do not cover all measured calls")
-        case["preparation"] = {"records": len(prepare), "phases": summarize(prepare), "counts": totals(prepare)}
-        reuse = [e for e in snap_selected if e["kind"] == "write_reads"]
-        if reuse and len(reuse) < case["requests"]:
-            raise ValueError("Private write reuse records are incomplete")
-        case["write_reads"] = {"records": len(reuse), "counts": totals(reuse),
-                               "scope": "Absent instrumentation is unreported, not zero reuse"}
-        save(directory / f"{case['name']}.json", case)
+        wp = case.get("write_phases")
+        if wp is not None and wp["writes"] != case["requests"]:
+            raise ValueError("Committed /api/ops write_phases count differs from measured write calls")
+
+
+def _phase_mean_ms(case, name):
+    wp = case.get("write_phases")
+    if not wp:
+        return None
+    for row in wp.get("phases") or []:
+        if row["phase"] == name:
+            return row["mean_ns"] / 1e6
+    return None
 
 
 def measure_home(args, label, pair):
@@ -226,11 +182,11 @@ def render_report(output):
              "Six fresh homes form three alternating base/candidate pairs on this runner.",
              "Every client owns different keys in one schema and one hash.",
              "Each case completes 2,048 single-record durable RPCs and verifies the final values.",
-             "The final pair also records native phases after a restart. Native latency is separate from the ordinary comparison.",
-             "All phase averages cover complete foreground storage work; nested preparation stages overlap.",
-             "Extra metadata scopes remain explicit. Missing instrumentation is unreported, not zero.", "",
-             "| Home / case | P95 ms | Records/s | Daemon CPU cores | Logical prepare mean ms | Reused disk records |",
-             "|---|---:|---:|---:|---:|---:|"]
+             "Request phase means come from `GET /api/ops` (`write_phases`) per committed write request.",
+             "Concurrent queued requests record shared commit turn timings on each request; distinct physical commits are unreported.",
+             "Dotted sub-phases overlap their parent phase; missing instrumentation is unreported, not zero.", "",
+             "| Home / case | P95 ms | Records/s | Daemon CPU cores | Prepare mean ms | Request commit mean ms | Handler mean ms |",
+             "|---|---:|---:|---:|---:|---:|---:|"]
     ordinary, detail = {label: [] for label in ("baseline", "candidate")}, []
     for home in data["homes"]:
         cleanup = json.loads((output / home["directory"] / "cleanup.json").read_text())
@@ -240,16 +196,13 @@ def render_report(output):
             metrics = case["metrics"]
             if case["name"] == "ordinary-16":
                 ordinary[home["label"]].append(metrics)
-            prepare = case.get("native", {}).get("scope_phases", {}).get("logical_prepare_us", {}).get("mean_us")
-            reuse = case.get("write_reads", {}).get("counts", {}).get("reused_records", {}).get("total")
-            prep_text = f"{prepare / 1000:.3f}" if prepare is not None else "unreported"
+            fmt = lambda name: f"{val:.3f}" if (val := _phase_mean_ms(case, name)) is not None else "unreported"
             lines.append(f"| {home['directory']} / {case['name']} | {metrics['p95_ms']:.3f} | "
                          f"{metrics['records_per_second']:.2f} | {case['process']['daemon']['average_cpu_cores']:.3f} | "
-                         f"{prep_text} | {reuse if reuse is not None else 'unreported'} |")
-            if "preparation" in case:
-                detail.extend(["", f"## {home['directory']} preparation", "", "```json",
-                               json.dumps({"native": case["native"], "preparation": case["preparation"],
-                                           "write_reads": case["write_reads"]}, indent=2, sort_keys=True), "```"])
+                         f"{fmt('prepare')} | {fmt('commit')} | {fmt('handler')} |")
+            if case["name"] == "native-16" and case.get("write_phases"):
+                detail.extend(["", f"## {home['directory']} `/api/ops` write_phases", "", "```json",
+                               json.dumps(case["write_phases"], indent=2, sort_keys=True), "```"])
     if any(len(values) != 3 for values in ordinary.values()):
         raise ValueError("Ordinary measurements lack three complete pairs")
     lines.extend(["", "| Ordinary median of three cases | Base | Candidate | Change |", "|---|---:|---:|---:|"])

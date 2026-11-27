@@ -60,7 +60,6 @@ jobs:
           scripts/harness.py
           scripts/operations/*.py
           scripts/benchmarks/*.py
-          scripts/cloud_backup/*.py
           scripts/release/*.py
           scripts/ci/*.py
       - name: No build-artifact blobs in tree

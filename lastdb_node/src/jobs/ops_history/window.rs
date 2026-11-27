@@ -25,12 +25,12 @@ pub fn window(home: &Path, since_secs: u64, now: u64) -> Result<Value, String> {
     })?;
     let cutoff = now.saturating_sub(since_secs);
     let mut sum = Sum::default();
-    for (index, file) in found.iter().enumerate() {
-        // Every line of a file is older than the start of the next file.
-        if found
-            .get(index + 1)
-            .is_some_and(|next| next.start <= cutoff)
-        {
+    for file in &found {
+        // A file holds only lines from its own UTC day, so every line in it is before `day_end`.
+        let day_end = (file.start / store::DAY_SECS)
+            .saturating_add(1)
+            .saturating_mul(store::DAY_SECS);
+        if day_end <= cutoff {
             continue;
         }
         let Ok(Some(bytes)) =
@@ -165,7 +165,14 @@ impl Sum {
                 })
             })
             .collect();
-        calls.sort_by_key(|row| std::cmp::Reverse(number(row, "total_ns")));
+        calls.sort_by(|left, right| {
+            number(right, "total_ns")
+                .cmp(&number(left, "total_ns"))
+                .then(number(right, "count").cmp(&number(left, "count")))
+                .then(str_field(left, "caller").cmp(str_field(right, "caller")))
+                .then(str_field(left, "client").cmp(str_field(right, "client")))
+                .then(str_field(left, "call").cmp(str_field(right, "call")))
+        });
         let mut schemas: Vec<Value> = self
             .schemas
             .into_iter()
@@ -180,7 +187,15 @@ impl Sum {
                 })
             })
             .collect();
-        schemas.sort_by_key(|row| std::cmp::Reverse(number(row, "total_ns")));
+        schemas.sort_by(|left, right| {
+            number(right, "total_ns")
+                .cmp(&number(left, "total_ns"))
+                .then(number(right, "items").cmp(&number(left, "items")))
+                .then(str_field(left, "caller").cmp(str_field(right, "caller")))
+                .then(str_field(left, "client").cmp(str_field(right, "client")))
+                .then(str_field(left, "schema").cmp(str_field(right, "schema")))
+                .then(str_field(left, "op").cmp(str_field(right, "op")))
+        });
         let phases: Vec<Value> = self
             .phases
             .into_iter()
@@ -228,12 +243,12 @@ fn number(value: &Value, key: &str) -> u64 {
     value.get(key).and_then(Value::as_u64).unwrap_or(0)
 }
 
+fn str_field<'a>(value: &'a Value, key: &str) -> &'a str {
+    value.get(key).and_then(Value::as_str).unwrap_or("")
+}
+
 fn text(value: &Value, key: &str) -> String {
-    value
-        .get(key)
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_owned()
+    str_field(value, key).to_owned()
 }
 
 fn text_or_null(value: String) -> Value {
