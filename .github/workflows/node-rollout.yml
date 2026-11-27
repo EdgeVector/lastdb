@@ -1,0 +1,49 @@
+name: Node release rollout
+
+# Hourly: raise the rollout percentage of active stable entries (10 -> 50 after 24 hours,
+# -> 100 after 48 hours). It writes only when a percentage changes.
+on:
+  schedule:
+    - cron: '23 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  advance:
+    name: Advance the stable rollout in ${{ matrix.env }}
+    if: github.repository == 'EdgeVector/lastdb' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - env: prod
+            environment: node-release
+          - env: dev
+            environment: node-release-dev
+    environment: ${{ matrix.environment }}
+    concurrency:
+      group: node-list-${{ matrix.env }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: python3 -m pip install --quiet cryptography==46.0.3
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.NODE_RELEASE_ROLE_ARN }}
+          aws-region: us-east-1
+      - name: Advance
+        env:
+          ENV_NAME: ${{ matrix.env }}
+        run: python3 scripts/release/node_list.py advance --env "$ENV_NAME"
