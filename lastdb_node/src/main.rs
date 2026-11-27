@@ -203,7 +203,7 @@ fn serve_node(
 }
 
 fn run() -> Result<(), String> {
-    let _sentry = host::init_daemon_logging();
+    let _sentry = host::init_daemon_logging().map_err(|e| e.to_string())?;
     let cli = Cli::try_parse().unwrap_or_else(|e| {
         if matches!(
             e.kind(),

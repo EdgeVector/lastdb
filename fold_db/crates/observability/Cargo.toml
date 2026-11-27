@@ -4,7 +4,8 @@ name = "observability"
 version = "0.1.0"
 edition.workspace = true
 publish = false
-description = "Shared telemetry substrate for LastDB (JSON formatting, crash hooks, and optional Sentry)."
+description = "Shared telemetry substrate for LastDB (JSON formatting, crash hooks, and Sentry fault reporting)."
+build = "build.rs"
 
 [features]
 default = []
@@ -15,7 +16,7 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter", "json", "fmt"] }
 tracing-appender = "0.2"
 tracing-log = "0.2"
-sentry = { workspace = true, optional = true, features = ["reqwest", "rustls"] }
+sentry = { workspace = true, optional = true, features = ["reqwest", "rustls", "backtrace"] }
 sentry-tracing = { version = "0.47", optional = true }
 thiserror = { workspace = true }
 once_cell = { workspace = true }

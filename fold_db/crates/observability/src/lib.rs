@@ -11,23 +11,27 @@ use tracing_subscriber::fmt::{format::Writer, FmtContext, FormatEvent, FormatFie
 use tracing_subscriber::{layer::SubscriberExt, registry::LookupSpan, EnvFilter, Registry};
 
 static INIT_ONCE: OnceCell<()> = OnceCell::new();
-#[cfg(feature = "sentry")]
-static LAMBDA_SERVICE_NAME: OnceCell<&'static str> = OnceCell::new();
 
-pub mod crash {
-    use std::io::Write;
-    pub fn write_panic_marker() {
-        let _ = writeln!(std::io::stderr().lock(), "LastDB panic");
-    }
-    pub fn install_private_panic_hook() {
-        std::panic::set_hook(Box::new(|_| write_panic_marker()));
-    }
+pub mod crash;
+pub mod release;
+
+#[cfg(feature = "sentry")]
+mod fault;
+
+#[cfg(feature = "sentry")]
+mod error_imp;
+
+/// Where fault events are reported from. Environment is derived here, never from a toggle.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FaultSurface {
+    /// Installed lastdbd / CLI / People: environment is always `user`.
+    User,
+    /// Cloud Lambda: environment is the deploy stage (`dev` or `prod`).
+    Lambda { environment: &'static str },
 }
 
 pub mod layers {
     pub mod error {
-        pub const OBS_SENTRY_RELEASE_ENV: &str = "OBS_SENTRY_RELEASE";
-
         #[must_use = "SentryGuard must be held for the lifetime of the binary or buffered events may be dropped"]
         pub struct SentryGuard {
             #[cfg(feature = "sentry")]
@@ -40,169 +44,31 @@ pub mod layers {
             }
         }
 
-        pub use crate::error_imp::{build_error_layer, ErrorLayer};
-    }
-}
+        #[cfg(feature = "sentry")]
+        pub use crate::error_imp::{build_error_layer, init_sentry_client, ErrorLayer};
 
-#[cfg(not(feature = "sentry"))]
-mod error_imp {
-    use crate::layers::error::SentryGuard;
-    pub struct ErrorLayer<S>(std::marker::PhantomData<fn(S)>);
-    impl<S: tracing::Subscriber> tracing_subscriber::layer::Layer<S> for ErrorLayer<S> {}
-    pub fn build_error_layer<S>() -> Option<(ErrorLayer<S>, SentryGuard)> {
-        None
-    }
-}
+        #[cfg(not(feature = "sentry"))]
+        pub type ErrorLayer<S> = FilteredNoop<S>;
 
-#[cfg(feature = "sentry")]
-mod error_imp {
-    use crate::layers::error::{SentryGuard, OBS_SENTRY_RELEASE_ENV};
-    use crate::LAMBDA_SERVICE_NAME;
-    use sentry::protocol::Event as SentryEvent;
-    use sentry_tracing::EventMapping;
-    use std::{borrow::Cow, collections::BTreeMap, env, fmt::Write as _, sync::Arc};
-    use tracing::{Level, Metadata, Subscriber};
-    use tracing_subscriber::filter::{filter_fn, FilterFn, Filtered};
-    use tracing_subscriber::{layer::Layer, registry::LookupSpan};
+        #[cfg(not(feature = "sentry"))]
+        pub struct FilteredNoop<S>(std::marker::PhantomData<fn(S)>);
 
-    const DSN_ENV: &str = "OBS_SENTRY_DSN";
-    pub type ErrorLayer<S> = Filtered<sentry_tracing::SentryLayer<S>, FilterFn, S>;
+        #[cfg(not(feature = "sentry"))]
+        impl<S: tracing::Subscriber> tracing_subscriber::layer::Layer<S> for FilteredNoop<S> {}
 
-    fn parse_dsn(raw: &str) -> Option<sentry::types::Dsn> {
-        let raw = raw.trim();
-        if raw.is_empty() {
-            return None;
+        #[cfg(not(feature = "sentry"))]
+        pub fn build_error_layer<S>(
+            _surface: crate::FaultSurface,
+        ) -> Result<(ErrorLayer<S>, SentryGuard), crate::ObsError> {
+            Err(crate::ObsError::SentryRequired)
         }
-        if raw.starts_with("lastsecrets:") {
-            eprintln!("observability: {DSN_ENV} is a lastsecrets locator (not a Sentry DSN); Sentry disabled.");
-            return None;
-        }
-        raw.parse()
-            .inspect_err(|e| eprintln!("observability: invalid {DSN_ENV} ({e}); Sentry disabled"))
-            .ok()
-    }
 
-    pub fn build_error_layer<S: Subscriber + for<'a> LookupSpan<'a>>(
-    ) -> Option<(ErrorLayer<S>, SentryGuard)> {
-        let dsn = parse_dsn(&env::var(DSN_ENV).ok()?)?;
-        let non_empty = |k| env::var(k).ok().filter(|v| !v.is_empty());
-        let opts = sentry::ClientOptions {
-            release: Some(
-                non_empty(OBS_SENTRY_RELEASE_ENV)
-                    .map_or(Cow::Borrowed(env!("CARGO_PKG_VERSION")), Cow::Owned),
-            ),
-            environment: non_empty("OBS_SENTRY_ENVIRONMENT").map(Cow::Owned),
-            default_integrations: false,
-            send_default_pii: false,
-            attach_stacktrace: false,
-            max_breadcrumbs: 0,
-            before_send: Some(Arc::new(|ev| Some(sanitize(&ev)))),
-            ..sentry::ClientOptions::default()
-        };
-        let _client = sentry::init((dsn, opts));
-        let filter: FilterFn =
-            filter_fn(|m: &Metadata<'_>| !m.is_event() || *m.level() == Level::ERROR);
-        let layer = sentry_tracing::layer()
-            .event_mapper(map_event::<S>)
-            .with_filter(filter);
-        Some((layer, SentryGuard { _client }))
-    }
-
-    #[allow(
-        clippy::needless_pass_by_value,
-        reason = "sentry_tracing::SentryLayer::event_mapper callback signature passes Context<'_, S> by value"
-    )]
-    fn map_event<S: Subscriber + for<'a> LookupSpan<'a>>(
-        event: &tracing::Event<'_>,
-        ctx: tracing_subscriber::layer::Context<'_, S>,
-    ) -> EventMapping {
-        let ev = sentry_tracing::event_from_event(event, Some(&ctx));
-        if is_disk_full(&ev) {
-            let mut b = sentry_tracing::breadcrumb_from_event(event, Some(&ctx));
-            b.data
-                .insert("lastdbd.event_class".into(), "disk_full_storage".into());
-            return EventMapping::Breadcrumb(b);
+        #[cfg(not(feature = "sentry"))]
+        pub fn init_sentry_client(
+            _surface: crate::FaultSurface,
+        ) -> Result<SentryGuard, crate::ObsError> {
+            Err(crate::ObsError::SentryRequired)
         }
-        EventMapping::Event(ev)
-    }
-
-    fn is_disk_full(ev: &SentryEvent<'_>) -> bool {
-        let mut s = ev.message.clone().unwrap_or_default();
-        if let Some(l) = &ev.logentry {
-            let _ = write!(s, " {}", l.message);
-            for p in &l.params {
-                let _ = write!(s, " {p}");
-            }
-        }
-        for v in ev.extra.values() {
-            let _ = write!(s, " {v}");
-        }
-        let s = s.to_ascii_lowercase();
-        "storagefull|storage full|no space left on device|enospc"
-            .split('|')
-            .any(|n| s.contains(n))
-            && ["storage", "db", "database"].iter().any(|n| s.contains(n))
-    }
-
-    fn numeric_version(rel: &str) -> Option<&str> {
-        let v = rel.strip_prefix('v').unwrap_or(rel).split('-').next()?;
-        let mut p = v.split('.');
-        ([p.next(), p.next(), p.next()].into_iter().all(|x| {
-            x.is_some_and(|s| (1..=6).contains(&s.len()) && s.bytes().all(|b| b.is_ascii_digit()))
-        }) && p.next().is_none())
-        .then_some(v)
-    }
-
-    fn sanitize(src: &SentryEvent<'_>) -> SentryEvent<'static> {
-        let env_tag = src.environment.as_deref().filter(|v| {
-            "production|development|prod|dev|staging"
-                .split('|')
-                .any(|a| a == *v)
-        });
-        SentryEvent {
-            level: src.level,
-            platform: "native".into(),
-            message: Some("Application fault: application_error".into()),
-            fingerprint: vec!["private_fault".into(), "application_error".into()].into(),
-            release: src
-                .release
-                .as_deref()
-                .and_then(numeric_version)
-                .map(|v| v.to_owned().into()),
-            environment: env_tag.map(|v| v.to_owned().into()),
-            tags: fault_tags(),
-            ..SentryEvent::default()
-        }
-    }
-
-    fn is_ident(s: &str, dash: bool) -> bool {
-        !s.is_empty()
-            && s.bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b == b'_' || (dash && b == b'-'))
-    }
-
-    fn fault_tags() -> BTreeMap<String, String> {
-        let env_if = |key: &str, ok: fn(&str) -> bool| {
-            let r = env::var(key).ok()?;
-            let v = r.trim();
-            ok(v).then(|| v.to_owned())
-        };
-        let mut tags = BTreeMap::from([
-            ("fault_category".into(), "application_error".into()),
-            ("os".into(), env::consts::OS.into()),
-        ]);
-        if let Some(&s) = LAMBDA_SERVICE_NAME.get().filter(|s| is_ident(s, false)) {
-            tags.insert("service".into(), s.into());
-        }
-        if let Some(v) = env_if("AWS_LAMBDA_FUNCTION_VERSION", |v| {
-            v == "$LATEST" || (!v.is_empty() && v.bytes().all(|b| b.is_ascii_digit()))
-        }) {
-            tags.insert("function_version".into(), v);
-        }
-        if let Some(v) = env_if("AWS_LAMBDA_FUNCTION_NAME", |v| is_ident(v, true)) {
-            tags.insert("function_name".into(), v);
-        }
-        tags
     }
 }
 
@@ -212,22 +78,51 @@ pub enum ObsError {
     AlreadyInitialized,
     #[error("failed to install tracing subscriber: {0}")]
     SubscriberInstall(String),
+    #[error("OBS_SENTRY_DSN is required for Lambda fault reporting")]
+    LambdaDsnRequired,
+    #[error("invalid Sentry DSN: {0}")]
+    InvalidDsn(String),
+    #[error("Lambda ENVIRONMENT must be dev or prod")]
+    LambdaEnvironmentRequired,
+    #[error("Sentry fault reporting is required but the sentry feature is not enabled")]
+    SentryRequired,
 }
 
 #[must_use = "ObsGuard must be held for the lifetime of the binary or log lines may be dropped"]
 pub struct ObsGuard {
-    _sentry: Option<layers::error::SentryGuard>,
+    _sentry: layers::error::SentryGuard,
     _worker: WorkerGuard,
 }
 
 impl fmt::Debug for ObsGuard {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("ObsGuard")
-            .field("sentry_guard", &self._sentry.is_some())
-            .finish_non_exhaustive()
+        f.debug_struct("ObsGuard").finish_non_exhaustive()
     }
 }
 
+/// Record the service name used on Sentry `service` tags (no-op without `sentry`).
+pub fn set_service_name(service_name: &'static str) {
+    assert!(
+        !service_name.trim().is_empty(),
+        "service.name must be non-empty"
+    );
+    #[cfg(feature = "sentry")]
+    fault::remember_service(service_name);
+}
+
+/// Derive the Lambda deploy environment from `ENVIRONMENT` (`dev` or `prod`).
+pub fn lambda_environment_from_env() -> Result<&'static str, ObsError> {
+    match std::env::var("ENVIRONMENT") {
+        Ok(v) => match v.trim() {
+            "prod" | "production" => Ok("prod"),
+            "dev" | "development" => Ok("dev"),
+            _ => Err(ObsError::LambdaEnvironmentRequired),
+        },
+        Err(_) => Err(ObsError::LambdaEnvironmentRequired),
+    }
+}
+
+/// Initialize JSON logging and Sentry for a Lambda service.
 pub fn init_lambda(service_name: &'static str, _version: &str) -> Result<ObsGuard, ObsError> {
     assert!(
         !service_name.trim().is_empty(),
@@ -236,12 +131,15 @@ pub fn init_lambda(service_name: &'static str, _version: &str) -> Result<ObsGuar
     INIT_ONCE
         .set(())
         .map_err(|()| ObsError::AlreadyInitialized)?;
+    crash::install_private_panic_hook();
     #[cfg(feature = "sentry")]
-    let _ = LAMBDA_SERVICE_NAME.set(service_name);
+    fault::remember_service(service_name);
+    let environment = lambda_environment_from_env()?;
     let _ = LogTracer::init();
     let (writer, _worker) = tracing_appender::non_blocking(io::stdout());
     let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
-    let (error_layer, _sentry) = layers::error::build_error_layer().unzip();
+    let (error_layer, _sentry) =
+        layers::error::build_error_layer(FaultSurface::Lambda { environment })?;
     let fmt_layer = tracing_subscriber::fmt::layer()
         .event_format(RedactingFormat)
         .with_writer(writer);
