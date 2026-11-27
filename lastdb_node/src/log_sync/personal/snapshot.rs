@@ -13,8 +13,9 @@
 //!    only step that needs a quiet instant, and it runs inside a sync turn. The pinned
 //!    files and the positions stay valid however many writes follow.
 //!
-//! Steps 2 to 7 are slow and run in the snapshot lane (`snapshot_lane`), so entries are still
-//! sent and acknowledged and the other devices are still read while they run. The first
+//! Steps 2 to 5 are slow and run in the snapshot lane (`snapshot_lane`), so entries are still
+//! sent and acknowledged and the other devices are still read while they run. Steps 6 and 7 run
+//! in later sync turns through the persisted reclaim mark. The first
 //! snapshot of a home that held data before it began to capture runs them inside the turn,
 //! because the spool is not sent until that snapshot is named.
 //!
@@ -31,10 +32,8 @@
 //!    them, because the relay drops nothing once the head of the snapshot stream moved. From the
 //!    append to the record a mark is on disk (`snapshot-unverified`): if the check does not end,
 //!    the next clean turn takes a snapshot again, so an incomplete one does not stay the newest.
-//! 6. Ask the relay to drop what this snapshot covers (`trim_covered`): the entries up to its
-//!    positions and the older snapshot entries. The relay then holds one snapshot. A failed or
-//!    unknown trim only leaves the relay larger.
-//! 7. Mark a sweep as due for this snapshot (`reclaim`). A sync turn then drops every stored
+//! 6. Mark a trim and sweep as due for this snapshot (`reclaim`). Later sync turns first ask the
+//!    relay to drop the entries this snapshot covers, then drop every stored
 //!    file that this snapshot and the entries after it do not name: the files of the snapshot
 //!    before, and the sealed files of the entries the trim dropped. While a new snapshot
 //!    uploads, the relay holds the old and the new one, and at no other time.
@@ -56,9 +55,7 @@ use fold_db::storage::disk_pack::NativeCloudWorkGuard;
 use mutation_log::SnapshotThrough;
 
 use super::reclaim;
-use super::snapshot_entry::{
-    require_covers_latest, require_empty_for_first, through_of, trim_covered,
-};
+use super::snapshot_entry::{require_covers_latest, require_empty_for_first, through_of};
 use super::snapshot_known as known;
 use super::snapshot_lane as lane;
 use super::snapshot_manifest::{self as manifest, Manifest};
@@ -131,8 +128,8 @@ pub(super) async fn run(
     Ok(())
 }
 
-/// The lane: hash, upload, name and trim one frozen snapshot, then record how it ended. It
-/// returns nothing, because no turn waits for it.
+/// The lane hashes, uploads, names and verifies one frozen snapshot, then persists the work that
+/// remains for later sync turns. It returns nothing, because no turn waits for it.
 async fn upload(host: Arc<Host>, base: String, frozen: Frozen, request: Option<String>) {
     let prior = frozen.prior.clone();
     let opened =
@@ -152,7 +149,6 @@ async fn upload(host: Arc<Host>, base: String, frozen: Frozen, request: Option<S
         Ok((report, fresh)) => {
             tracing::info!(target: "lastdbd::log_sync", seq = report.snapshot_seq, files = report.files, uploaded = report.uploaded_files, "snapshot published");
             if fresh {
-                trim_covered(&ctx, &client, report.snapshot_seq).await;
                 reclaim::mark_due(&ctx, &client.base, report.snapshot_seq);
             } else {
                 host.cloud_sync.mark_snapshot(prior.0, prior.1);
@@ -247,7 +243,6 @@ async fn run_first_inner(ctx: &Ctx<'_>, client: &RelayClient) -> Result<Report, 
     };
     let (report, fresh) = publish_cut(ctx, client, frozen, true).await?;
     if fresh {
-        trim_covered(ctx, client, report.snapshot_seq).await;
         reclaim::mark_due(ctx, &client.base, report.snapshot_seq);
     }
     let opened = ctx.runtime.accepted_status().opened_frontier;

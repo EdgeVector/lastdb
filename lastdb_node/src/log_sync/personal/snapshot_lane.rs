@@ -3,8 +3,9 @@
 //! A snapshot uploads tens of megabytes. Done inside a turn, it holds back every entry and
 //! every acknowledgement for as long as the upload takes. A turn instead freezes the files at
 //! the one instant when the spool is acknowledged (see `snapshot::run`) and hands the rest, the
-//! hashing, the file uploads, the `snapshot` entry and the trim, to this lane. The lane is a
-//! task that the turn starts and that ends when its snapshot is done. There is at most one, so
+//! hashing, the file uploads and the `snapshot` entry to this lane. Later sync turns trim the
+//! covered log and reclaim obsolete files. The lane is a task that the turn starts and that ends
+//! when its snapshot is done. There is at most one, so
 //! there is one snapshot at a time. It has no timer and no queue.
 
 use std::collections::HashMap;
