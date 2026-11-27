@@ -4,8 +4,8 @@
 People owns the recipes and the DEV publisher secrets
 (EdgeVector/people `.github/workflows/dev-sharing.yml`). This gate starts
 that workflow on people main with `lastdb_source_sha` and fails when any
-sharing leg fails. It uses the same `secrets.GH_PAT` cross-repo pattern as
-`notify-schema-infra.yml`.
+sharing leg fails. It uses `secrets.GH_PAT` for the cross-repo workflow
+dispatch.
 
 Correlation is the People `run-name` only: exact
 `DEV sharing (<40-hex SHA>)` on `head_branch=main` (case-insensitive on the
@@ -60,7 +60,7 @@ def require_token() -> None:
     print(
         "people-dev-sharing-gate: GH_TOKEN is empty.\n"
         "Set secrets.GH_PAT on EdgeVector/lastdb with Actions write on "
-        f"{PEOPLE} (same cross-repo pattern as notify-schema-infra.yml).",
+        f"{PEOPLE}.",
         file=sys.stderr,
     )
     sys.exit(2)

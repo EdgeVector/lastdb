@@ -4,7 +4,7 @@ name = "schema_types"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
-description = "Pure wire/domain schema types for schema_service — no fold_db, storage, or HTTP. Diet cut #3 Lambda decouple."
+description = "Pure wire/domain schema types for LastDB — no fold_db storage or HTTP."
 
 [dependencies]
 serde = { workspace = true }

@@ -1,11 +1,12 @@
 //! Place each schema an app's signed access block names.
 //!
-//! For one name: the node already holds that definition, or Schema Service
-//! returns it, or the manifest entry hashes to the signed id. The node
-//! decides whether a later declare is a compatible change. `"*"` names no
-//! schema, so it places nothing by itself. When either side is `"*"`, each
+//! For one name: the node already holds that definition, or the manifest
+//! entry at the signed commit hashes to the signed id. The node decides
+//! whether a later declare is a compatible change. `"*"` names no schema,
+//! so it places nothing by itself. When either side is `"*"`, each
 //! manifest schema that no side names is placed from that manifest. When
 //! neither side is `"*"`, a manifest schema that no side names is not placed.
+//! A missing or mismatched manifest definition fails the install.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -17,13 +18,10 @@ use serde_json::Value;
 
 mod definition_id;
 mod manifest;
-mod service;
 
 struct Pending {
     schema: DeclarativeSchemaDefinition,
     retention: Option<Value>,
-    /// Where the definition came from, for the line install prints.
-    from: &'static str,
 }
 
 pub(super) fn place(
@@ -39,22 +37,24 @@ pub(super) fn place(
     }
     let socket = lastdb_node::lastdb_uds::socket_path(&home.join("data"));
     let held = node_definitions(&socket)?;
-    let mut ctx = Resolve {
-        source,
-        app_id,
-        loaded: None,
-        noted: false,
-    };
+    let mut loaded = None;
     let mut pending = Vec::new();
     for (name, signed_id) in &wanted {
         if held.get(name).and_then(Option::as_deref) == Some(signed_id.as_str()) {
             continue;
         }
         let node = node_state(&held, name);
-        pending.push(resolve(&mut ctx, name, signed_id, &node)?);
+        pending.push(resolve_named(
+            &mut loaded,
+            source,
+            app_id,
+            name,
+            signed_id,
+            &node,
+        )?);
     }
     if wide {
-        own_schemas(&mut ctx, &held, &wanted, &mut pending)?;
+        own_schemas(&mut loaded, source, app_id, &held, &wanted, &mut pending)?;
     }
     for item in pending {
         post_one(&socket, item)?;
@@ -70,8 +70,7 @@ fn side_is_all(side: &SchemaSet) -> bool {
 ///
 /// The listing signs the commit, so the manifest at that commit is the
 /// publisher's statement of these schemas. A `"*"` side cannot name them.
-/// They are posted the same way a manifest entry is posted when Schema
-/// Service misses: `placed schema <name> from the app's manifest`, with
+/// They are posted as `placed schema <name> from the app's manifest`, with
 /// that entry's retention.
 ///
 /// A name the node already holds at this definition stays, and its
@@ -79,12 +78,14 @@ fn side_is_all(side: &SchemaSet) -> bool {
 /// compatible change and refuses a breaking one. A refusal fails the
 /// install, and the previous version stays active.
 fn own_schemas(
-    ctx: &mut Resolve<'_>,
+    loaded: &mut Option<manifest::Catalog>,
+    source: &Path,
+    app_id: &str,
     held: &BTreeMap<String, Option<String>>,
     named: &BTreeMap<String, String>,
     pending: &mut Vec<Pending>,
 ) -> Result<(), String> {
-    let catalog = cached_manifest(&mut ctx.loaded, ctx.source, ctx.app_id)?;
+    let catalog = cached_manifest(loaded, source, app_id)?;
     for item in catalog.unnamed(named)? {
         let name = item.schema.name.clone();
         let id = definition_id::portable_id(&item.schema).map_err(|error| {
@@ -96,7 +97,6 @@ fn own_schemas(
         pending.push(Pending {
             schema: item.schema,
             retention: item.retention,
-            from: "the app's manifest",
         });
     }
     Ok(())
@@ -129,55 +129,25 @@ fn node_state(held: &BTreeMap<String, Option<String>>, name: &str) -> String {
     }
 }
 
-struct Resolve<'a> {
-    source: &'a Path,
-    app_id: &'a str,
-    loaded: Option<manifest::Catalog>,
-    noted: bool,
-}
-
-fn resolve(
-    ctx: &mut Resolve<'_>,
+fn resolve_named(
+    loaded: &mut Option<manifest::Catalog>,
+    source: &Path,
+    app_id: &str,
     name: &str,
     signed_id: &str,
     node: &str,
 ) -> Result<Pending, String> {
-    let service = match service::fetch(signed_id) {
-        Ok(schema) => {
-            return Ok(Pending {
-                schema,
-                retention: None,
-                from: "Schema Service",
-            });
-        }
-        Err(reason) => {
-            note_service_miss(ctx, name, &reason);
-            reason
-        }
-    };
-    let catalog = match cached_manifest(&mut ctx.loaded, ctx.source, ctx.app_id) {
+    let catalog = match cached_manifest(loaded, source, app_id) {
         Ok(catalog) => catalog,
-        Err(error) => return Err(not_placed(name, signed_id, node, &service, &error)),
+        Err(error) => return Err(not_placed(name, signed_id, node, &error)),
     };
     match catalog.definition(name, signed_id) {
         Ok(item) => Ok(Pending {
             schema: item.schema,
             retention: item.retention,
-            from: "the app's manifest",
         }),
-        Err(manifest) => Err(not_placed(name, signed_id, node, &service, &manifest)),
+        Err(manifest) => Err(not_placed(name, signed_id, node, &manifest)),
     }
-}
-
-fn note_service_miss(ctx: &mut Resolve<'_>, name: &str, reason: &str) {
-    if ctx.noted {
-        return;
-    }
-    ctx.noted = true;
-    tracing::debug!(
-        target: "lastdb::app",
-        "schema service did not supply {name}: {reason}"
-    );
 }
 
 fn cached_manifest<'a>(
@@ -192,9 +162,9 @@ fn cached_manifest<'a>(
         .ok_or_else(|| "manifest was not loaded".to_owned())
 }
 
-fn not_placed(name: &str, signed_id: &str, node: &str, service: &str, manifest: &str) -> String {
+fn not_placed(name: &str, signed_id: &str, node: &str, manifest: &str) -> String {
     format!(
-        "schema '{name}' at signed definition {signed_id} was not placed: {node}; Schema Service: {service}; manifest: {manifest}"
+        "schema '{name}' at signed definition {signed_id} was not placed: {node}; manifest: {manifest}"
     )
 }
 
@@ -228,7 +198,6 @@ fn node_definitions(socket: &Path) -> Result<BTreeMap<String, Option<String>>, S
 
 fn post_one(socket: &Path, item: Pending) -> Result<(), String> {
     let name = item.schema.name.clone();
-    let from = item.from;
     let namespace = name.split_once('/').map_or("", |(namespace, _)| namespace);
     let mut body = serde_json::json!({ "app_id": namespace, "schema": item.schema });
     if let Some(retention) = item.retention {
@@ -238,8 +207,8 @@ fn post_one(socket: &Path, item: Pending) -> Result<(), String> {
         .map_err(|error| refused(&name, &error))?;
     accept_declare(&name, &raw)?;
     // One line per schema this install placed, on stderr so the JSON on
-    // stdout stays whole. It says which source supplied the definition.
-    eprintln!("placed schema {name} from {from}");
+    // stdout stays whole.
+    eprintln!("placed schema {name} from the app's manifest");
     Ok(())
 }
 

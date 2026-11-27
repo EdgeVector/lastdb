@@ -4,7 +4,7 @@ name = "schema_service_core"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
-description = "Advisory Schema Service core — canonical field vocabulary and deterministic schema advice."
+description = "Offline schema advice vocabulary and deterministic draft review for LastDB apps."
 
 [dependencies]
 schema_types = { workspace = true }

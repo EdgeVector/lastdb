@@ -13,8 +13,8 @@ The app API is defined in `lastdb_node/app-api.json`.
 
 The LastDB monorepo — one cargo workspace for the platform: `fold_db`
 (core library), `lastdb_node` (Mini product: `lastdb` + `lastdbd`),
-`schema_service` (schema registry), shared host/identity crates,
-and related tools.
+shared schema types and offline advice vocabulary, shared host/identity
+crates, and related tools.
 
 **Product today is LastDB Mini only.** The headless daemon is `lastdbd`
 and the CLI is `lastdb`, both built from `lastdb_node`. There is no
@@ -44,8 +44,8 @@ deleted the desktop node on **2026-07-12**.
 ├── lastdb_app_sdk/             # TypeScript app SDK (data client)
 ├── lastdb_node/                # Mini product: lastdb + lastdbd (host, UDS, sync)
 ├── mutation_log/               # pure published-log state machine
-├── schema_service/             # advisory schema vocabulary + Lambda
-│   └── crates/{schema_types,core,server_lambda}
+├── schema_service/             # shared schema types + offline advice vocabulary
+│   └── crates/{schema_types,core}
 ├── scripts/                    # CI lints, benchmarks, release, and cloud checks
 ├── vendor/laststore/           # disk engine: disk format v2 (`laststore::disk_run`)
 └── docs/                       # designs for work in progress
@@ -56,7 +56,6 @@ deleted the desktop node on **2026-07-12**.
 | Component | Where the source lives | Where it deploys |
 | --- | --- | --- |
 | LastDB Mini (`lastdb` + `lastdbd`) | `lastdb_node` | Homebrew `edgevector/lastdb/lastdb` via [`.github/workflows/stable-release.yml`](.github/workflows/stable-release.yml) → `EdgeVector/homebrew-lastdb` |
-| schema_service Lambda | `schema_service/crates/server_lambda` | schema registry via [EdgeVector/schema-infra](https://github.com/EdgeVector/schema-infra) (submodules this repo) |
 
 Releases: nightly GitHub prereleases from `.github/workflows/nightly-release.yml`. There is no DMG
 or desktop-app channel.

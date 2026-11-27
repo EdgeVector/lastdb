@@ -6,8 +6,8 @@
 //! stored schema's wire form (`Schema::to_wire`). `from_catalog`
 //! (`schema_service/crates/schema_types/src/range_profile.rs`) recomputes the
 //! catalog hash and fills any missing field hash before the canonical hash.
-//! A normalized manifest entry and a Schema Service definition go through
-//! that same function here, without the node.
+//! A normalized manifest entry goes through that same function here, without
+//! the node.
 //!
 //! Declare clears field hashes and recomputes them before it stores the schema
 //! (`load_owned` in `exec/schema_declare/mod.rs`). `from_catalog` keeps a hash

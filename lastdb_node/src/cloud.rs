@@ -3,8 +3,7 @@ mod enrollment;
 
 pub use enrollment::{
     account_from_phrase, app_publisher_signing_key, load_verified_cloud_credentials,
-    pin_schema_service_environment_from_home, register_native_device, seed_from_phrase,
-    VerifiedHomeCredentials,
+    pin_environment_from_home, register_native_device, seed_from_phrase, VerifiedHomeCredentials,
 };
 
 use crate::offline_home::read_private_named;

@@ -301,13 +301,6 @@ pub mod endpoints {
         }
 
         #[must_use]
-        pub(crate) fn from_env() -> Self {
-            Self::explicit_from_env()
-                .or_else(|| HOME_ENV.get().copied())
-                .unwrap_or_else(Self::build_default)
-        }
-
-        #[must_use]
         pub fn from_env_or_prod() -> Self {
             Self::explicit_from_env()
                 .or_else(|| HOME_ENV.get().copied())
@@ -341,20 +334,6 @@ pub mod endpoints {
     impl std::fmt::Display for Environment {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             f.write_str(self.as_str())
-        }
-    }
-
-    pub fn schema_service_url() -> String {
-        let env_url = std::env::var("FOLD_SCHEMA_SERVICE_URL")
-            .ok()
-            .filter(|u| !u.trim().is_empty());
-        env_url.unwrap_or_else(|| schema_service_url_for(Environment::from_env()).to_string())
-    }
-
-    pub const fn schema_service_url_for(env: Environment) -> &'static str {
-        match env {
-            Environment::Dev => gen::DEV_SCHEMA_SERVICE,
-            Environment::Prod => gen::PROD_SCHEMA_SERVICE,
         }
     }
 

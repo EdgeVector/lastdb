@@ -72,14 +72,14 @@ This rule supersedes the local build commands and coordination rules below.
 > is also in the canonical model)
 
 One cargo workspace: `fold_db/crates/{core,model,observability}` (core engine,
-pure domain model, and telemetry), `schema_service/crates/{schema_types,core,server_lambda}`
-(cloud schema registry and pure wire types), `lastdb_node` (the `lastdb`/`lastdbd`
-Mini daemon — the shipped product, including the `host`, `lastdb_uds`,
-`lastdb_identity`, and `folddb_profile` modules), plus shared
-`app_identity_crypto`, `cloud_backup_protocol`, `database_policy`,
-`mutation_log`, and `vendor/laststore`. (The `fold_db_node` desktop node, Tauri
-app, and `file_to_markdown` were deleted in the Mini-only cutover 2026-07-12;
-restore point: branch `archive/desktop-dmg-pre-removal`.)
+pure domain model, and telemetry), `schema_service/crates/{schema_types,core}`
+(shared wire types and offline advice vocabulary for schema-advisor),
+`lastdb_node` (the `lastdb`/`lastdbd` Mini daemon — the shipped product,
+including the `host`, `lastdb_uds`, `lastdb_identity`, and `folddb_profile`
+modules), plus shared `app_identity_crypto`, `cloud_backup_protocol`,
+`database_policy`, `mutation_log`, and `vendor/laststore`. (The `fold_db_node`
+desktop node, Tauri app, and `file_to_markdown` were deleted in the Mini-only
+cutover 2026-07-12; restore point: branch `archive/desktop-dmg-pre-removal`.)
 
 ## CI checks
 
@@ -190,7 +190,7 @@ caveats, current gates/approvals, and gotchas, ask the brain
 - `concepts-fold-endpoint-registry` — `lastdb_node/environments.json` single source of truth (`folddb_profile` via `lastdb_node/build.rs`), no-hardcoded-urls lint.
 - `concepts-fold-trust-boundary-loopback` — loopback owner-context invariant + target trust model + door-2 release gate.
 - `concepts-fold-db-node-internals` — fold_db core architecture, storage, schema system, feature flags, AI provider config.
-- `concepts-fold-schema-service` — schema_service crates, cloud-only deploy, dual-signal canonicalization gate.
+- `concepts-fold-schema-service` — historical note; Schema Service HTTP is removed (advice vocabulary remains for schema-advisor).
 - `concepts-observability-conventions` — tracing/redaction/spawn/egress rules.
 - `concepts-edgevector-repo-layout`, `projects-monorepo-consolidation` — layout + migration history.
 - `concepts-claude-shell-gotchas-edgevector` — zsh glob / sandboxed PATH.

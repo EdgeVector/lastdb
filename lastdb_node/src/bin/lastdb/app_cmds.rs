@@ -32,7 +32,7 @@ fn pin_app_env(home: &Path, env_flag: Option<&str>) -> Result<(), String> {
     if let Some(env) = parse_catalog_env(env_flag)? {
         lastdb_node::profile::endpoints::set_home_environment(env);
     }
-    lastdb_node::cloud::pin_schema_service_environment_from_home(home);
+    lastdb_node::cloud::pin_environment_from_home(home);
     Ok(())
 }
 
@@ -97,7 +97,7 @@ pub(super) fn app_command(data_dir: Option<PathBuf>, action: AppCommand) -> Resu
             Ok(())
         }
         AppCommand::Status { app_id, check, .. } => {
-            lastdb_node::cloud::pin_schema_service_environment_from_home(&home);
+            lastdb_node::cloud::pin_environment_from_home(&home);
             lifecycle::status_apps(&home, app_id.as_deref(), check)
         }
         AppCommand::Publish(args) => interface_publish::publish_interface(&home, &args),

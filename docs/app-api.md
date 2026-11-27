@@ -290,30 +290,23 @@ goes into the listing, under the publisher signature:
 - Install refuses a listing that names an extension this build does not have.
 - An app that is not published declares nothing.
 
-Install places each schema named in `read` or `write` at the signed definition.
-`"*"` places nothing by itself. Names on the other side are placed as usual.
-When either side is `"*"`, install also places every schema in the manifest
-`schemas` array that no side names. The definition is the manifest entry at
-the installed commit. The listing signs that commit, so the entry is the
-publisher's statement. The installer prints
-`placed schema <name> from the app's manifest`, the same line it prints when
-Schema Service does not supply a named schema and the manifest entry matches
-the signed id. When neither side is `"*"`, a manifest schema that no side names
-is not placed. Publish's Schema Service push is the schemas the manifest
-lists, plus the names on a side that is a map. A `"*"` side adds none. An
-app with `"*"` on both sides still pushes every schema the manifest lists.
+Install places each schema named in `read` or `write` at the signed definition
+from the app's own `lastdb-app.json` at the signed commit. The installer
+verifies the manifest entry against the signed definition id and fails closed
+on a missing or mismatched definition. `"*"` places nothing by itself. Names
+on the other side are placed as usual. When either side is `"*"`, install also
+places every schema in the manifest `schemas` array that no side names. The
+listing signs that commit, so the entry is the publisher's statement. The
+installer prints `placed schema <name> from the app's manifest`. When neither
+side is `"*"`, a manifest schema that no side names is not placed.
 
 The installer reads the node's schemas once. A name already at the definition
 being placed stays, and its retention stays. For a name in the access block,
-the definition is taken from Schema Service
-(`GET /v1/schemas/<definition id>`, no credentials) when the returned
-definition hashes to the signed id. A miss, a timeout, or a hash that does
-not match falls through to the manifest entry of that name, with no warning.
-The manifest entry is used only when it hashes to the signed id, and it keeps
-its retention. A schema the access block does not name is not placed, unless
-a side is `"*"` and the manifest lists it. A listing with no access block
-installs as before. If none of the three supplies the signed definition,
-install fails and the previous version stays active.
+only the matching manifest entry is used, and it keeps its retention. A
+schema the access block does not name is not placed, unless a side is `"*"`
+and the manifest lists it. A listing with no access block installs as before.
+If the manifest does not supply the signed definition, install fails and the
+previous version stays active.
 
 A manifest schema placed because a side is `"*"` has no signed definition id
 in the access block. The node already holding that name at the manifest's
@@ -366,22 +359,6 @@ the public list, and install receipts store `private:<env>:<account>` rather
 than the raw private URL. `lastdb app show <app>` reads `GET /v1/apps/<app>` for
 the owner, refreshes the saved locator, and displays the list URL (or omits the
 raw URL with `--save`).
-
-## Schemas at publish
-
-`lastdb app publish` sends schema definitions to Schema Service after the
-registry lists the app. The set is every schema the manifest lists, plus every
-schema in `access.read` and `access.write`. Each definition is the wire form
-the running node holds, read in one request.
-
-Schema Service accepts the push only for an app the registry lists with the
-same commit and the same publisher key. It keeps each definition under the
-definition id computed from that wire form. A private app is not pushed.
-`--prepare` sends nothing.
-
-A failed push prints a warning. The app stays listed. With `--json`, the
-registry JSON gains a `schema_service` member (`registered` or `error`) and
-the command prints no extra line on stdout.
 
 ## The app socket
 
