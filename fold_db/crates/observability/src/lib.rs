@@ -21,6 +21,15 @@ mod fault;
 #[cfg(feature = "sentry")]
 mod error_imp;
 
+/// Where fault events are reported from. Environment is derived here, never from a toggle.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FaultSurface {
+    /// Installed lastdbd / CLI / People: environment is always `user`.
+    User,
+    /// Cloud Lambda: environment is the deploy stage (`dev` or `prod`).
+    Lambda { environment: &'static str },
+}
+
 pub mod layers {
     pub mod error {
         #[must_use = "SentryGuard must be held for the lifetime of the binary or buffered events may be dropped"]
@@ -49,25 +58,16 @@ pub mod layers {
 
         #[cfg(not(feature = "sentry"))]
         pub fn build_error_layer<S>(
-        ) -> Result<Option<(ErrorLayer<S>, SentryGuard)>, crate::ObsError> {
-            refuse_prod_without_sentry()?;
-            Ok(None)
+            _surface: crate::FaultSurface,
+        ) -> Result<(ErrorLayer<S>, SentryGuard), crate::ObsError> {
+            Err(crate::ObsError::SentryRequired)
         }
 
         #[cfg(not(feature = "sentry"))]
-        pub fn init_sentry_client() -> Result<Option<SentryGuard>, crate::ObsError> {
-            refuse_prod_without_sentry()?;
-            Ok(None)
-        }
-
-        #[cfg(not(feature = "sentry"))]
-        fn refuse_prod_without_sentry() -> Result<(), crate::ObsError> {
-            match std::env::var("OBS_SENTRY_ENVIRONMENT") {
-                Ok(v) if matches!(v.trim(), "prod" | "production") => {
-                    Err(crate::ObsError::ProdDsnRequired)
-                }
-                _ => Ok(()),
-            }
+        pub fn init_sentry_client(
+            _surface: crate::FaultSurface,
+        ) -> Result<SentryGuard, crate::ObsError> {
+            Err(crate::ObsError::SentryRequired)
         }
     }
 }
@@ -78,23 +78,25 @@ pub enum ObsError {
     AlreadyInitialized,
     #[error("failed to install tracing subscriber: {0}")]
     SubscriberInstall(String),
-    #[error("OBS_SENTRY_DSN is required when OBS_SENTRY_ENVIRONMENT is prod")]
-    ProdDsnRequired,
-    #[error("invalid OBS_SENTRY_DSN: {0}")]
+    #[error("OBS_SENTRY_DSN is required for Lambda fault reporting")]
+    LambdaDsnRequired,
+    #[error("invalid Sentry DSN: {0}")]
     InvalidDsn(String),
+    #[error("Lambda ENVIRONMENT must be dev or prod")]
+    LambdaEnvironmentRequired,
+    #[error("Sentry fault reporting is required but the sentry feature is not enabled")]
+    SentryRequired,
 }
 
 #[must_use = "ObsGuard must be held for the lifetime of the binary or log lines may be dropped"]
 pub struct ObsGuard {
-    _sentry: Option<layers::error::SentryGuard>,
+    _sentry: layers::error::SentryGuard,
     _worker: WorkerGuard,
 }
 
 impl fmt::Debug for ObsGuard {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("ObsGuard")
-            .field("sentry_guard", &self._sentry.is_some())
-            .finish_non_exhaustive()
+        f.debug_struct("ObsGuard").finish_non_exhaustive()
     }
 }
 
@@ -108,6 +110,18 @@ pub fn set_service_name(service_name: &'static str) {
     fault::remember_service(service_name);
 }
 
+/// Derive the Lambda deploy environment from `ENVIRONMENT` (`dev` or `prod`).
+pub fn lambda_environment_from_env() -> Result<&'static str, ObsError> {
+    match std::env::var("ENVIRONMENT") {
+        Ok(v) => match v.trim() {
+            "prod" | "production" => Ok("prod"),
+            "dev" | "development" => Ok("dev"),
+            _ => Err(ObsError::LambdaEnvironmentRequired),
+        },
+        Err(_) => Err(ObsError::LambdaEnvironmentRequired),
+    }
+}
+
 /// Initialize JSON logging and Sentry for a Lambda service.
 pub fn init_lambda(service_name: &'static str, _version: &str) -> Result<ObsGuard, ObsError> {
     assert!(
@@ -117,15 +131,15 @@ pub fn init_lambda(service_name: &'static str, _version: &str) -> Result<ObsGuar
     INIT_ONCE
         .set(())
         .map_err(|()| ObsError::AlreadyInitialized)?;
+    crash::install_private_panic_hook();
     #[cfg(feature = "sentry")]
     fault::remember_service(service_name);
+    let environment = lambda_environment_from_env()?;
     let _ = LogTracer::init();
     let (writer, _worker) = tracing_appender::non_blocking(io::stdout());
     let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
-    let (error_layer, _sentry) = match layers::error::build_error_layer()? {
-        Some((layer, guard)) => (Some(layer), Some(guard)),
-        None => (None, None),
-    };
+    let (error_layer, _sentry) =
+        layers::error::build_error_layer(FaultSurface::Lambda { environment })?;
     let fmt_layer = tracing_subscriber::fmt::layer()
         .event_format(RedactingFormat)
         .with_writer(writer);

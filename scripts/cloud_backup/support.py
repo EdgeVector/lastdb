@@ -131,7 +131,6 @@ def child_environment(root):
         "RUST_MIN_STACK": "16777216",
         "LASTDB_SELF_METRICS_TO_DB": "false",
         "RUST_LOG": "warn",
-        "OBS_SENTRY_DSN": "",
         "POSTHOG_API_KEY": "",
         "FOLD_SCHEMA_SERVICE_URL": "http://127.0.0.1:9",
     }

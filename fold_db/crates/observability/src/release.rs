@@ -1,7 +1,10 @@
-//! Compile-time Sentry release identity.
+//! Compile-time Sentry release identity and user-device DSN.
 
 /// Git SHA (or deploy release string) baked by `build.rs`.
 pub const RELEASE_SHA: &str = env!("OBS_RELEASE_SHA");
 
-/// Optional user-device DSN baked into release builds (`LASTDB_SENTRY_DSN`).
-pub const EMBEDDED_DSN: Option<&str> = option_env!("LASTDB_SENTRY_DSN");
+/// User-device DSN baked by `build.rs` (`LASTDB_SENTRY_DSN`, or the lastdb-mini default).
+///
+/// A DSN is not a secret. Release builds of `lastdb_node` refuse to compile when
+/// `LASTDB_SENTRY_DSN` is unset, so shipped bottles always embed an explicit value.
+pub const USER_DEVICE_DSN: &str = env!("LASTDB_SENTRY_DSN");

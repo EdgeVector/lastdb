@@ -103,7 +103,7 @@ where
 }
 
 pub fn init_daemon_logging(
-) -> Result<Option<observability::layers::error::SentryGuard>, observability::ObsError> {
+) -> Result<observability::layers::error::SentryGuard, observability::ObsError> {
     let rot_on = !matches!(
         std::env::var("LASTDBD_STDIO_LOG_ROTATION").ok().as_deref(),
         Some("0" | "false" | "FALSE" | "off" | "OFF")
@@ -128,10 +128,8 @@ pub fn init_daemon_logging(
         .ok()
         .and_then(|v| tracing_subscriber::EnvFilter::try_new(v.trim()).ok())
         .unwrap_or_else(|| tracing_subscriber::EnvFilter::new("info"));
-    let (err_layer, guard) = match observability::layers::error::build_error_layer()? {
-        Some((layer, guard)) => (Some(layer), Some(guard)),
-        None => (None, None),
-    };
+    let (err_layer, guard) =
+        observability::layers::error::build_error_layer(observability::FaultSurface::User)?;
     let fmt = tracing_subscriber::fmt::layer()
         .with_writer(io::stderr)
         .with_ansi(false)

@@ -1,23 +1,43 @@
-//! Bake the Sentry release SHA and optional user-device DSN at compile time.
+//! Bake the Sentry release SHA and user-device DSN at compile time.
 
+use std::path::PathBuf;
 use std::process::Command;
+
+/// Public DSN for the `lastdb-mini` Sentry project (not a secret).
+const DEFAULT_USER_DEVICE_DSN: &str =
+    "https://2de2e2512878eedeef5359696ac37e70@o4511522196291584.ingest.us.sentry.io/4511737993101312";
 
 fn main() {
     for key in ["GITHUB_SHA", "OBS_SENTRY_RELEASE", "LASTDB_SENTRY_DSN"] {
         println!("cargo:rerun-if-env-changed={key}");
     }
     println!("cargo:rerun-if-changed=build.rs");
-    if let Some(git_dir) = git_path(&["rev-parse", "--git-dir"]) {
-        let head = git_dir.join("HEAD");
-        if head.exists() {
-            println!("cargo:rerun-if-changed={}", head.display());
-        }
-    }
+    track_git_refs();
     println!("cargo:rustc-env=OBS_RELEASE_SHA={}", resolve_release_sha());
-    if let Ok(dsn) = std::env::var("LASTDB_SENTRY_DSN") {
-        let dsn = dsn.trim();
-        if !dsn.is_empty() {
-            println!("cargo:rustc-env=LASTDB_SENTRY_DSN={dsn}");
+    let dsn = std::env::var("LASTDB_SENTRY_DSN")
+        .ok()
+        .map(|v| v.trim().to_owned())
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| DEFAULT_USER_DEVICE_DSN.to_owned());
+    println!("cargo:rustc-env=LASTDB_SENTRY_DSN={dsn}");
+}
+
+fn track_git_refs() {
+    let Some(git_dir) = git_path(&["rev-parse", "--git-dir"]) else {
+        return;
+    };
+    let common = git_path(&["rev-parse", "--git-common-dir"]).unwrap_or_else(|| git_dir.clone());
+    let sym = git_output(&["symbolic-ref", "-q", "HEAD"]).map(|r| common.join(r));
+    for p in [
+        Some(git_dir.join("HEAD")),
+        sym,
+        Some(common.join("packed-refs")),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        if p.exists() {
+            println!("cargo:rerun-if-changed={}", p.display());
         }
     }
 }
@@ -52,8 +72,8 @@ fn git_output(args: &[&str]) -> Option<String> {
     (!s.is_empty()).then(|| s.to_owned())
 }
 
-fn git_path(args: &[&str]) -> Option<std::path::PathBuf> {
-    let p = std::path::PathBuf::from(git_output(args)?);
+fn git_path(args: &[&str]) -> Option<PathBuf> {
+    let p = PathBuf::from(git_output(args)?);
     if p.is_absolute() {
         Some(p)
     } else {

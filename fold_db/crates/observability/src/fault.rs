@@ -14,6 +14,7 @@ use tracing::{Event as TracingEvent, Metadata};
 use crate::release::RELEASE_SHA;
 
 static SERVICE_NAME: OnceLock<&'static str> = OnceLock::new();
+static ENVIRONMENT: OnceLock<&'static str> = OnceLock::new();
 
 const CODE_PREFIXES: &[&str] = &[
     "lastdb",
@@ -29,6 +30,7 @@ const CODE_PREFIXES: &[&str] = &[
     "laststore",
     "database_policy",
     "app_identity",
+    "signed_history",
 ];
 
 /// Remember the Lambda / binary service name for the `service` tag.
@@ -36,8 +38,17 @@ pub fn remember_service(name: &'static str) {
     let _ = SERVICE_NAME.set(name);
 }
 
+/// Remember the derived Sentry environment (`user`, `prod`, or `dev`).
+pub fn remember_environment(name: &'static str) {
+    let _ = ENVIRONMENT.set(name);
+}
+
 pub fn service_name() -> Option<&'static str> {
     SERVICE_NAME.get().copied()
+}
+
+fn active_environment() -> &'static str {
+    ENVIRONMENT.get().copied().unwrap_or("user")
 }
 
 /// Build a private event from a `tracing` ERROR event.
@@ -79,7 +90,11 @@ pub fn capture_panic(info: &std::panic::PanicInfo<'_>) {
 }
 
 /// Final allowlist pass for every outbound event (tracing and panic).
-pub fn finalize(mut src: Event<'static>) -> Event<'static> {
+#[allow(
+    clippy::needless_pass_by_value,
+    reason = "sentry::ClientOptions::before_send owns Event<'static> by value"
+)]
+pub fn finalize(src: Event<'static>) -> Event<'static> {
     let fault_code = src
         .tags
         .get("fault_code")
@@ -114,16 +129,7 @@ pub fn finalize(mut src: Event<'static>) -> Event<'static> {
         out.message = Some(msg.to_owned());
     }
     out.release = Some(Cow::Borrowed(RELEASE_SHA));
-    out.environment = src
-        .environment
-        .take()
-        .filter(|e| is_allowed_env(e))
-        .or_else(|| resolved_environment().map(Cow::Owned))
-        .or(Some(Cow::Borrowed(if cfg!(debug_assertions) {
-            "dev"
-        } else {
-            "user"
-        })));
+    out.environment = Some(Cow::Borrowed(active_environment()));
     out
 }
 
@@ -147,7 +153,7 @@ fn private_event(
         message: Some(message),
         fingerprint: vec![fault_code.to_owned().into(), location.to_owned().into()].into(),
         release: Some(Cow::Borrowed(RELEASE_SHA)),
-        environment: resolved_environment().map(Cow::Owned),
+        environment: Some(Cow::Borrowed(active_environment())),
         tags,
         server_name: None,
         user: None,
@@ -181,21 +187,6 @@ fn base_tags() -> BTreeMap<String, String> {
         tags.insert("function_name".into(), v);
     }
     tags
-}
-
-pub fn resolved_environment() -> Option<String> {
-    non_empty("OBS_SENTRY_ENVIRONMENT").filter(|v| is_allowed_env(v))
-}
-
-pub fn is_prod_environment(env: &str) -> bool {
-    matches!(env, "prod" | "production")
-}
-
-pub fn is_allowed_env(v: &str) -> bool {
-    matches!(
-        v,
-        "prod" | "production" | "dev" | "development" | "staging" | "user"
-    )
 }
 
 fn derive_fault_code(meta: &Metadata<'_>) -> String {
@@ -249,9 +240,13 @@ fn frame_is_code(f: &Frame) -> bool {
 }
 
 fn function_has_prefix(func: &str, prefix: &str) -> bool {
-    func == prefix
-        || func.starts_with(&format!("{prefix}::"))
-        || func.starts_with(&format!("{prefix}."))
+    if func == prefix {
+        return true;
+    }
+    let Some(rest) = func.strip_prefix(prefix) else {
+        return false;
+    };
+    rest.starts_with("::") || rest.starts_with('.') || rest.starts_with('_')
 }
 
 fn scrub_frame(mut f: Frame) -> Frame {
@@ -274,16 +269,9 @@ fn file_name(path: &str) -> &str {
         .unwrap_or(path)
 }
 
-fn non_empty(key: &str) -> Option<String> {
-    env::var(key)
-        .ok()
-        .map(|v| v.trim().to_owned())
-        .filter(|v| !v.is_empty())
-}
-
 fn env_if(key: &str, ok: fn(&str) -> bool) -> Option<String> {
-    let v = non_empty(key)?;
-    ok(&v).then_some(v)
+    let v = env::var(key).ok().map(|v| v.trim().to_owned())?;
+    (!v.is_empty() && ok(&v)).then_some(v)
 }
 
 fn is_ident(s: &str, dash: bool) -> bool {

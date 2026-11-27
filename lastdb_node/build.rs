@@ -6,12 +6,17 @@ use std::process::Command;
 const ENVIRONMENTS_JSON: &str = "environments.json";
 
 fn main() {
-    for k in ["GITHUB_REF_NAME", "FOLDDB_BUILD_VERSION_OVERRIDE"] {
+    for k in [
+        "GITHUB_REF_NAME",
+        "FOLDDB_BUILD_VERSION_OVERRIDE",
+        "LASTDB_SENTRY_DSN",
+    ] {
         println!("cargo:rerun-if-env-changed={k}");
     }
     for f in ["build.rs", ENVIRONMENTS_JSON] {
         println!("cargo:rerun-if-changed={f}");
     }
+    require_release_user_dsn();
     if let Some(git_dir) = git_path(&["rev-parse", "--git-dir"]) {
         let common =
             git_path(&["rev-parse", "--git-common-dir"]).unwrap_or_else(|| git_dir.clone());
@@ -31,6 +36,19 @@ fn main() {
     }
     generate_environments_module();
     println!("cargo:rustc-env=FOLDDB_BUILD_VERSION={}", resolve_version());
+}
+
+fn require_release_user_dsn() {
+    if std::env::var("PROFILE").as_deref() != Ok("release") {
+        return;
+    }
+    match std::env::var("LASTDB_SENTRY_DSN") {
+        Ok(v) if !v.trim().is_empty() => {}
+        _ => panic!(
+            "LASTDB_SENTRY_DSN is required for lastdb_node release builds \
+             (embed the lastdb-mini Sentry DSN; a DSN is not a secret)"
+        ),
+    }
 }
 
 fn git_output(args: &[&str]) -> Option<String> {

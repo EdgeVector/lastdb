@@ -28,9 +28,9 @@ name = "log_sync_relay_timeout_probe"
 path = "src/bin/log_sync_relay_timeout_probe.rs"
 
 [features]
-# Sentry fault reporting is compiled in by default. Runtime DSN comes from
-# OBS_SENTRY_DSN or a release-build LASTDB_SENTRY_DSN bake-in. PROD refuses to
-# start without a DSN; user-device releases report with environment=user.
+# Sentry fault reporting is compiled in by default and always on. User-device
+# release builds require LASTDB_SENTRY_DSN at compile time and report with
+# environment=user. There is no runtime switch to disable reporting.
 default = ["sentry-telemetry"]
 sentry-telemetry = ["observability/sentry"]
 
