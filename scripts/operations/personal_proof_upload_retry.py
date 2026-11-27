@@ -72,7 +72,7 @@ def home_with_file_and_phrase(device, size):
 
 def prove_pull_preserves_blocked_upload(args, out, refusing, two, phrase):
     """A subsequent successful download from a sibling device never clears or masks a blocked upload."""
-    peer = Device("device-u", args, out, refusing)
+    peer = Device("device-t-peer", args, out, refusing)
     try:
         peer.restore(phrase)
         peer.start()
