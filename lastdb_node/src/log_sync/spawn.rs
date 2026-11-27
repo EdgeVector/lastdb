@@ -79,10 +79,14 @@ async fn run_turn_and_pause(host: &Arc<Host>, histories: &HistoryMap, base: &str
     // (grant_403_for_node reads the node-global field with no database_id).
     host.cloud_sync.clear_error();
     let shareable_ready = shareable_uploads_pending(host, report.received_upload_ok);
+    let post_accepted = host.db.db_ops().native_runtime().accepted_status();
     let personal_ready = report.personal_ok
         && super::personal::pending(host)
         && (!personal_was_pending
-            || host.db.db_ops().native_runtime().accepted_status().acked > pre_acked);
+            || post_accepted.acked > pre_acked
+            // A write can reach the spool after this turn observed its empty page. Its ack has
+            // not advanced, but the next turn must drain it before a requested fresh snapshot.
+            || post_accepted.head > post_accepted.acked);
     if shareable_ready || personal_ready {
         wake::wake_loop();
     } else if !report.personal_ok || !report.received_upload_ok {
