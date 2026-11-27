@@ -16,7 +16,7 @@ mod replay;
 mod retention;
 mod retention_sweep;
 
-pub(crate) use replay::SchemaDrop;
+pub(crate) use replay::{is_compatible_schema_update, SchemaDrop};
 pub use retention_sweep::RetentionFloors;
 
 pub(crate) fn require_compatible_schema_update(
@@ -182,7 +182,9 @@ impl SchemaStore {
                 }
                 let next = schema_field_key_profiles(schema)?;
                 let input = schema_input(schema_name, schema)?;
-                if let Some(existing) = self.get_schema(schema_name).await? {
+                let existing = self.get_schema(schema_name).await?;
+                let was_absent = existing.is_none();
+                if let Some(existing) = existing {
                     require_compatible_schema_update(&existing, schema)?;
                     let prev: HashMap<_, _> =
                         schema_field_key_profiles(&existing)?.into_iter().collect();
@@ -200,7 +202,8 @@ impl SchemaStore {
                     }
                 }
                 self.format.put_schema(input).await?;
-                self.capture_local_change(schema_name, Some(schema)).await
+                self.capture_local_change(schema_name, Some(schema), was_absent)
+                    .await
             }),
         )
         .await
@@ -244,6 +247,7 @@ impl SchemaStore {
         &self,
         schema: &str,
         definition: Option<&Schema>,
+        was_absent: bool,
     ) -> Result<(), SchemaError> {
         if !accepted::capture_enabled(&self.runtime) {
             return Ok(());
@@ -269,9 +273,16 @@ impl SchemaStore {
         let stamp = self
             .metadata
             .local_replay_stamp(&self.writer_id, head.seq, head.order)?;
+        let fences_prior = if definition.is_none() {
+            true
+        } else if was_absent {
+            self.metadata.replay_drop_winner(schema).await?.is_some()
+        } else {
+            false
+        };
         let target = ReplayTarget::Schema(schema);
         let mut rows = vec![(target, None, &stamp)];
-        if definition.is_none() {
+        if fences_prior {
             rows.push((target, Some(DROP_SLOT), &stamp));
         }
         self.metadata.stage_replay_stamps(rows).await?;
@@ -279,7 +290,7 @@ impl SchemaStore {
     }
 }
 
-fn schema_field_key_profiles(
+pub(super) fn schema_field_key_profiles(
     schema: &Schema,
 ) -> Result<Vec<(String, schema_types::field_range_profile::FieldRangeProfile)>, SchemaError> {
     let check = |id: String, msg: &'static str| {

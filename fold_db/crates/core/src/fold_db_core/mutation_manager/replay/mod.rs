@@ -175,6 +175,14 @@ impl MutationManager {
             .await
     }
 
+    /// Greatest applied schema drop or replacement floor in the current replay scope.
+    pub async fn replay_schema_drop_winner(
+        &self,
+        schema: &str,
+    ) -> Result<Option<ReplayStamp>, SchemaError> {
+        self.db_ops.metadata().replay_drop_winner(schema).await
+    }
+
     /// Stage a greater schema drop stamp in the current replay scope.
     pub async fn accept_replay_drop_schema(
         &self,

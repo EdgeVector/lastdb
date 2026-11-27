@@ -1,10 +1,11 @@
 //! Schema registry service, RCU catalog snapshots, lifecycle mutations, and core lookup behaviors.
 
+mod replay;
 pub mod types;
 
-use crate::db_operations::schema_store::{require_compatible_schema_update, SchemaDrop};
+use crate::db_operations::schema_store::require_compatible_schema_update;
 use crate::storage::disk_pack::transaction::{self, publication};
-use crate::storage::{format::metadata::SchemaReplayDrop, StorageError};
+use crate::storage::StorageError;
 use ::schema_types::IdentityRecompute;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
@@ -184,62 +185,6 @@ impl SchemaCore {
             .collect())
     }
 
-    pub async fn drop_schema(&self, schema_name: &str) -> Result<bool, SchemaError> {
-        self.drop_with_receipt(schema_name, None).await
-    }
-
-    /// Apply a signed schema removal once, using bounded native cleanup transactions.
-    pub async fn drop_replay_schema(
-        &self,
-        schema_name: &str,
-        receipt_id: &[u8; 32],
-        digest: &[u8; 32],
-        stamp: &crate::storage::format::metadata::ReplayStamp,
-    ) -> Result<(), SchemaError> {
-        let drop_op = SchemaReplayDrop {
-            id: receipt_id,
-            digest,
-            stamp,
-        };
-        let runtime = self.db_ops.native_runtime();
-        runtime
-            .replay_accepted(self.drop_with_receipt(schema_name, Some(&drop_op)))
-            .await
-            .map(|_| ())
-    }
-
-    async fn drop_with_receipt(
-        &self,
-        schema_name: &str,
-        replay: Option<&SchemaReplayDrop<'_>>,
-    ) -> Result<bool, SchemaError> {
-        let _drop = self.drops.lock().await;
-        let SchemaDrop::Ready(schema) = self
-            .db_ops
-            .schemas()
-            .block_for_drop(schema_name, replay, |s| {
-                self.publish_catalog(schema_name.to_owned(), s.cloned(), SchemaState::Blocked)
-            })
-            .await?
-        else {
-            return Ok(false);
-        };
-        if let Some(schema) = schema {
-            let r = self.db_ops.records().release_schema_rows(&schema).await?;
-            tracing::info!(
-                target: "fold_node::database",
-                schema = schema_name, records = r.records, alternates = r.alternates,
-                "schema drop released the stored rows of the schema"
-            );
-        }
-        self.db_ops
-            .schemas()
-            .drop_reserved_schema(schema_name, replay, || {
-                self.publish_catalog(schema_name.to_owned(), None, SchemaState::Available)
-            })
-            .await
-    }
-
     pub async fn resolve_schema(&self, schema_name: &str) -> Result<Option<Schema>, SchemaError> {
         if let Some(s) = self.get_schema_metadata(schema_name)? {
             return Ok(Some(s));
@@ -295,7 +240,7 @@ impl SchemaCore {
         self.publish_catalog(name, Some(schema), state)
     }
 
-    fn publish_catalog(
+    pub(super) fn publish_catalog(
         &self,
         key: String,
         schema: Option<Schema>,
@@ -335,7 +280,7 @@ impl CachedSchema {
     }
 }
 
-fn require_explicit_record_keys(schema: &Schema) -> Result<(), SchemaError> {
+pub(super) fn require_explicit_record_keys(schema: &Schema) -> Result<(), SchemaError> {
     if schema.record_keys.is_none() {
         return Err(SchemaError::InvalidData(
             "this home requires explicit record_keys; field-derived keys are unsupported".into(),
