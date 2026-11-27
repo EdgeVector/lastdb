@@ -84,4 +84,15 @@ impl MutationManager {
             }))
             .await
     }
+
+    /// Run `fut` in one native read scope, reusing an open batch when one exists.
+    ///
+    /// Personal replay classifies a schema put against winner rows and the
+    /// catalog before it commits. This is `transaction::scope` for that read.
+    pub async fn in_replay_read_scope<T>(
+        &self,
+        fut: impl Future<Output = Result<T, SchemaError>>,
+    ) -> Result<T, SchemaError> {
+        transaction::scope(self.db_ops.native_runtime(), fut).await
+    }
 }

@@ -9,9 +9,11 @@ pub use records::ReplayAttachmentSlots;
 use super::MutationManager;
 use crate::platform::clock;
 use crate::schema::types::author_clock::MAX_ORDERING_MS;
+use crate::schema::types::schema::DeclarativeSchemaType;
 use crate::schema::types::{KeyValue, Mutation, MutationType, Schema};
 use crate::schema::SchemaError;
 use crate::storage::disk_backup::accepted::LocalEntry;
+use crate::storage::disk_pack::transaction;
 use crate::storage::format::metadata::{ReplayStamp, ReplayTarget, FILE_SLOT, INLINE_SLOT};
 use crate::storage::format::records::RecordAddress;
 use lastdb_model::record_value::StoredRecord;
@@ -175,6 +177,14 @@ impl MutationManager {
             .await
     }
 
+    /// Greatest applied schema drop or replacement floor in the current replay scope.
+    pub async fn replay_schema_drop_winner(
+        &self,
+        schema: &str,
+    ) -> Result<Option<ReplayStamp>, SchemaError> {
+        self.db_ops.metadata().replay_drop_winner(schema).await
+    }
+
     /// Stage a greater schema drop stamp in the current replay scope.
     pub async fn accept_replay_drop_schema(
         &self,
@@ -185,6 +195,63 @@ impl MutationManager {
             .metadata()
             .accept_replay_drop_schema(schema, stamp)
             .await
+    }
+
+    /// Reconcile stored records of `schema_name` against a raised `drop-winner` floor
+    /// in bounded transactions, removing records and attachments at or below `floor`
+    /// while preserving writes strictly above `floor`.
+    pub async fn reconcile_replay_schema_floor(
+        &self,
+        schema_name: &str,
+        floor: &ReplayStamp,
+    ) -> Result<(), SchemaError> {
+        let runtime = self.db_ops.native_runtime();
+        let Some(schema) = transaction::scope(
+            Arc::clone(&runtime),
+            self.resolve_replay_schema(schema_name),
+        )
+        .await?
+        else {
+            return Ok(());
+        };
+        let records = self.db_ops.records();
+        let cmp = records.key_comparison_context(&schema)?;
+        let ranged = schema.schema_type == DeclarativeSchemaType::HashRange;
+        let mut cursor: Option<String> = None;
+        loop {
+            let (pairs, next, has_more) = self
+                .db_ops
+                .read_scope()
+                .await?
+                .run_result(records.list_record_keys(&schema, &cmp, 64, cursor.as_deref(), None))
+                .await?;
+            if !pairs.is_empty() {
+                runtime
+                    .replay_accepted(transaction::scope(Arc::clone(&runtime), async {
+                        let Some(live_schema) = self.resolve_replay_schema(schema_name).await?
+                        else {
+                            return Ok(());
+                        };
+                        for (hash, range) in &pairs {
+                            let key =
+                                KeyValue::new(Some(hash.clone()), ranged.then(|| range.clone()));
+                            let Ok(address) = self.replay_record_address(&live_schema, &key) else {
+                                continue;
+                            };
+                            let del = saved_fields::as_mutation(&live_schema.name, key, None);
+                            self.merge_validated_record(&live_schema, &address, del, floor)
+                                .await?;
+                        }
+                        Ok::<(), SchemaError>(())
+                    }))
+                    .await?;
+            }
+            if !has_more {
+                break;
+            }
+            cursor = next;
+        }
+        Ok(())
     }
 
     /// True when `schema` is absent because a schema drop is its current winning state.

@@ -10,9 +10,7 @@ use super::saved_fields::{
     saved_from_mutation,
 };
 use super::{slots_of, MutationManager};
-use crate::schema::types::{
-    cas::CasExpectation, FileWrite, KeyValue, Mutation, MutationType, Schema,
-};
+use crate::schema::types::{cas::CasExpectation, FileWrite, Mutation, MutationType, Schema};
 use crate::schema::{SchemaError, SchemaState};
 use crate::storage::disk_pack::transaction;
 use crate::storage::format::metadata::{ReplayStamp, ReplayTarget, FILE_SLOT, INLINE_SLOT};
@@ -28,14 +26,18 @@ impl MutationManager {
     /// True when a remote record entry cannot change the fields or the parts named in `slots`.
     pub async fn is_replay_record_superseded(
         &self,
-        schema: &str,
-        key: &KeyValue,
+        mutation: &Mutation,
         stamp: &ReplayStamp,
         slots: ReplayAttachmentSlots,
     ) -> Result<bool, SchemaError> {
+        self.schema_manager
+            .ensure_unblocked(&mutation.schema_name)
+            .await?;
         transaction::scope(self.db_ops.native_runtime(), async {
-            let Some(schema_def) = self.resolve_replay_schema(schema).await? else {
-                return self.replay_schema_dropped_after(schema, stamp).await;
+            let Some(schema_def) = self.resolve_replay_schema(&mutation.schema_name).await? else {
+                return self
+                    .replay_schema_dropped_after(&mutation.schema_name, stamp)
+                    .await;
             };
             let metadata = self.db_ops.metadata();
             if metadata
@@ -45,7 +47,9 @@ impl MutationManager {
             {
                 return Ok(true);
             }
-            let address = self.replay_record_address(&schema_def, key)?;
+            let Some(address) = self.replay_compatible_address(&schema_def, mutation) else {
+                return Ok(true);
+            };
             let target = ReplayTarget::Record(&address);
             if metadata
                 .replay_winner(target)
@@ -66,7 +70,7 @@ impl MutationManager {
         .await
     }
 
-    async fn resolve_replay_schema(
+    pub(super) async fn resolve_replay_schema(
         &self,
         schema_name: &str,
     ) -> Result<Option<Schema>, SchemaError> {
@@ -87,7 +91,7 @@ impl MutationManager {
     /// Apply the record write of an entry of another device, in the caller's replay scope.
     pub async fn merge_replay_record(
         &self,
-        mut mutation: Mutation,
+        mutation: Mutation,
         stamp: &ReplayStamp,
     ) -> Result<(), SchemaError> {
         let metadata = self.db_ops.metadata();
@@ -100,17 +104,35 @@ impl MutationManager {
             return Ok(());
         }
         let schema = self.load_schema_for_delta(&mutation.schema_name).await?;
-        let address = self.replay_record_address(&schema, &mutation.key_value)?;
+        let Some(address) = self.replay_compatible_address(&schema, &mutation) else {
+            tracing::warn!(
+                target: "fold_node::database",
+                schema = %schema.name,
+                "skipping remote record mutation incompatible with the winning schema"
+            );
+            return Ok(());
+        };
+        self.merge_validated_record(&schema, &address, mutation, stamp)
+            .await
+    }
+
+    pub(super) async fn merge_validated_record(
+        &self,
+        schema: &Schema,
+        address: &str,
+        mut mutation: Mutation,
+        stamp: &ReplayStamp,
+    ) -> Result<(), SchemaError> {
+        let metadata = self.db_ops.metadata();
         mutation.imported_written_at = Some(stamp.ordering_ms.saturating_mul(1_000_000));
-        let target = ReplayTarget::Record(&address);
+        let target = ReplayTarget::Record(address);
         let slots = slots_of(&mutation);
         let newest = metadata
             .replay_winner(target)
             .await?
             .is_none_or(|held| &held < stamp);
         let parts = if newest {
-            self.apply_newest(&schema, &address, mutation, stamp)
-                .await?;
+            self.apply_newest(schema, address, mutation, stamp).await?;
             metadata.accept_replay(target, stamp).await?;
             slots
         } else {
@@ -119,7 +141,7 @@ impl MutationManager {
                 inline: slots.inline && self.beats_slot(target, INLINE_SLOT, stamp).await?,
             };
             if parts.file || parts.inline {
-                self.apply_older_parts(&schema, &address, mutation, stamp, parts)
+                self.apply_older_parts(schema, address, mutation, stamp, parts)
                     .await?;
             }
             parts
@@ -245,6 +267,15 @@ impl MutationManager {
         mutation: Mutation,
     ) -> Result<(), SchemaError> {
         let metadata = self.db_ops.metadata();
+        if let Some(drop_stamp) = metadata.replay_drop_winner(&schema.name).await? {
+            if metadata
+                .replay_winner(ReplayTarget::Record(address))
+                .await?
+                .is_some_and(|winner| winner <= drop_stamp)
+            {
+                return metadata.stage_saved_replay_fields(address, None).await;
+            }
+        }
         let Some(saved) = metadata.saved_replay_fields(address).await? else {
             return Ok(());
         };
@@ -252,9 +283,50 @@ impl MutationManager {
         let mut restored = mutation_from_saved(&schema.name, key, &saved);
         restored.file = mutation.file;
         restored.file_write = mutation.file_write;
+        if self.replay_compatible_address(schema, &restored).is_none() {
+            return metadata.stage_saved_replay_fields(address, None).await;
+        }
         let writer = saved.writer.clone();
         self.apply_replay_record(schema, restored, &writer).await?;
         metadata.stage_saved_replay_fields(address, None).await
+    }
+
+    fn replay_compatible_address(&self, schema: &Schema, mutation: &Mutation) -> Option<String> {
+        let record_keys = schema.require_record_keys().ok()?;
+        let key = Self::canonical_primary_key(schema, &mutation.key_value).ok()?;
+        let address = self.db_ops.records().record_key(schema, &key).ok()?;
+        if matches!(
+            mutation.mutation_type,
+            MutationType::Delete | MutationType::Purge
+        ) {
+            return Some(address);
+        }
+        let mut alternates = mutation.alternates.clone();
+        Self::canonicalize_alternates(schema, &mut alternates).ok()?;
+        let target = lastdb_model::record_replacement::RecordTarget {
+            schema: schema.name.clone(),
+            key,
+            alternates,
+        };
+        target.validate(record_keys).ok()?;
+        for field in mutation.record_fields.keys() {
+            schema_types::DeclarativeSchemaDefinition::validate_field_name(field).ok()?;
+        }
+        crate::fold_db_core::mutation_manager::replace::validate_fields(
+            schema,
+            &mutation.record_fields,
+        )
+        .ok()?;
+        if matches!(
+            mutation.file_write,
+            Some(FileWrite::Put(_) | FileWrite::LocalPath(_))
+        ) && matches!(
+            mutation.inline_write,
+            Some(lastdb_model::record_value::InlineWrite::Put(_))
+        ) {
+            return None;
+        }
+        Some(address)
     }
 
     /// Write one whole-record change in the caller's replay scope.

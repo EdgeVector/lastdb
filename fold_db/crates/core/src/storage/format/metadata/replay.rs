@@ -14,7 +14,7 @@ use super::{read_err, Metadata};
 use crate::schema::types::{KeyValue, SchemaError};
 use crate::storage::disk_backup::accepted::LocalEntry;
 use crate::storage::disk_pack::{transaction, PackRuntime};
-use lastdb_model::hex::{hex_lower, sha256_hex};
+use lastdb_model::hex::{hex_decode_array, hex_lower, sha256_hex};
 use lastdb_model::record_value::RecordMeta;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -146,13 +146,32 @@ impl Metadata {
             .map(|()| true)
     }
 
+    pub(crate) async fn pending_schema_drop_intent(
+        &self,
+        name: &str,
+    ) -> Res<Option<([u8; 32], [u8; 32])>> {
+        self.require_scope().map_err(read_err)?;
+        let key = ReplayTarget::Schema(name).key("drop");
+        let Some(bytes) = self.store.get(key.as_bytes()).await.map_err(read_err)? else {
+            return Ok(None);
+        };
+        let bad = || SchemaError::InvalidData("corrupt schema drop intent".into());
+        let (id_hex, dig_hex) = std::str::from_utf8(&bytes)
+            .ok()
+            .and_then(|text| text.split_once(':'))
+            .ok_or_else(bad)?;
+        let id = hex_decode_array::<32>(id_hex).ok_or_else(bad)?;
+        let digest = hex_decode_array::<32>(dig_hex).ok_or_else(bad)?;
+        Ok(Some((id, digest)))
+    }
+
     pub(crate) async fn finish_schema_drop(
         &self,
         name: &str,
-        drop_op: &SchemaReplayDrop<'_>,
+        id: &[u8; 32],
+        digest: &[u8; 32],
     ) -> Res {
-        self.stage_replay_receipt(drop_op.id, drop_op.digest)
-            .await?;
+        self.stage_replay_receipt(id, digest).await?;
         self.stage(vec![(ReplayTarget::Schema(name).key("drop"), None)])
             .await
             .map_err(read_err)

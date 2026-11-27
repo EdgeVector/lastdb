@@ -60,12 +60,7 @@ pub(super) async fn superseded(
     ctx.host
         .db
         .mutation_manager()
-        .is_replay_record_superseded(
-            &record.mutation.schema_name,
-            &record.mutation.key_value,
-            &stamp,
-            slots,
-        )
+        .is_replay_record_superseded(&record.mutation, &stamp, slots)
         .await
         .map_err(|error| failed("a record of another device could not be checked", &error))
 }
@@ -109,15 +104,45 @@ pub(super) async fn remote(
             if let Some(reason) = prepare(ctx, &mut record, header, blob)? {
                 return Ok(ApplyOutcome::InvalidEntry(reason));
             }
-            manager
-                .write_replay_at_head(stream, next, apply_record(ctx, &stamp, record.mutation))
-                .await
-                .map(|_| ApplyOutcome::Applied)
-                .map_err(|error| failed("a record of another device could not be applied", &error))
+            for attempt in 0..2 {
+                ctx.host
+                    .db
+                    .schema_manager()
+                    .ensure_unblocked(&record.mutation.schema_name)
+                    .await
+                    .map_err(|error| {
+                        failed("a record of another device could not be applied", &error)
+                    })?;
+                match manager
+                    .write_replay_at_head(
+                        stream,
+                        next,
+                        apply_record(ctx, &stamp, record.mutation.clone()),
+                    )
+                    .await
+                {
+                    Ok(_) => return Ok(ApplyOutcome::Applied),
+                    Err(SchemaError::Blocked(_))
+                        if attempt == 0
+                            && ctx
+                                .host
+                                .db
+                                .schema_manager()
+                                .is_schema_blocked(&record.mutation.schema_name)
+                                .unwrap_or(false) => {}
+                    Err(error) => {
+                        return Err(failed(
+                            "a record of another device could not be applied",
+                            &error,
+                        ));
+                    }
+                }
+            }
+            Err("a record of another device remained blocked by an active schema drop".into())
         }
-        Change::Schema(schema) => apply_schema::remote_schema(ctx, stream, next, header, *schema)
-            .await
-            .map(|()| ApplyOutcome::Applied),
+        Change::Schema(schema) => {
+            apply_schema::remote_schema(ctx, stream, next, header, *schema).await
+        }
     }
 }
 

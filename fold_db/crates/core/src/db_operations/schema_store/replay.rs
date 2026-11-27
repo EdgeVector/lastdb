@@ -16,6 +16,24 @@ pub(crate) enum SchemaDrop {
     Ready(Option<Box<Schema>>),
 }
 
+pub(crate) fn is_compatible_schema_update(
+    existing: &Schema,
+    next: &Schema,
+) -> Result<bool, SchemaError> {
+    if super::require_compatible_schema_update(existing, next).is_err() {
+        return Ok(false);
+    }
+    let prev: std::collections::HashMap<_, _> = super::schema_field_key_profiles(existing)?
+        .into_iter()
+        .collect();
+    for (key, profile) in super::schema_field_key_profiles(next)? {
+        if prev.get(&key).is_some_and(|stored| stored != &profile) {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
 impl SchemaStore {
     pub(crate) async fn block_for_drop(
         &self,
@@ -114,12 +132,73 @@ impl SchemaStore {
                 ])
                 .await?;
             if let Some(replay) = replay {
-                self.metadata.finish_schema_drop(name, replay).await?;
+                self.metadata
+                    .finish_schema_drop(name, replay.id, replay.digest)
+                    .await?;
             } else if existed {
-                self.capture_local_change(name, None).await?;
+                self.capture_local_change(name, None, false).await?;
             }
             publish()?;
             Ok(existed)
+        })
+        .await
+    }
+
+    pub(crate) async fn pending_drop_intent(
+        &self,
+        name: &str,
+    ) -> Result<Option<([u8; 32], [u8; 32])>, SchemaError> {
+        transaction::scope(
+            Arc::clone(&self.runtime),
+            self.metadata.pending_schema_drop_intent(name),
+        )
+        .await
+    }
+
+    pub(crate) async fn replay_receipt_exists(
+        &self,
+        id: &[u8; 32],
+        digest: &[u8; 32],
+    ) -> Result<bool, SchemaError> {
+        transaction::scope(
+            Arc::clone(&self.runtime),
+            self.metadata.replay_receipt_exists(id, digest),
+        )
+        .await
+    }
+
+    pub(crate) async fn finish_interrupted_drop(
+        &self,
+        name: &str,
+        intent: Option<([u8; 32], [u8; 32])>,
+        publish: impl FnOnce() -> Result<(), SchemaError>,
+    ) -> Result<(), SchemaError> {
+        self.sweep_retention_tracking(name).await?;
+        transaction::scope(Arc::clone(&self.runtime), async {
+            if self.get_schema_state(name).await? != Some(SchemaState::Blocked) && intent.is_none()
+            {
+                return Ok(());
+            }
+            let existed = self.get_schema(name).await?.is_some();
+            self.format.delete_schema(name).await?;
+            self.format
+                .delete_states(vec![
+                    StateDelete::Key {
+                        schema: name,
+                        kind: StateKey::State,
+                    },
+                    StateDelete::Key {
+                        schema: name,
+                        kind: StateKey::Policy,
+                    },
+                ])
+                .await?;
+            if let Some((id, digest)) = intent {
+                self.metadata.finish_schema_drop(name, &id, &digest).await?;
+            } else if existed {
+                self.capture_local_change(name, None, false).await?;
+            }
+            publish()
         })
         .await
     }
