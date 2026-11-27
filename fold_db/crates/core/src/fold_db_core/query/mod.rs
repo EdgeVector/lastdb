@@ -1,7 +1,10 @@
 //! Query executor, record projection types, and primary keyed selection.
 
 mod alternate;
+mod point;
 mod range;
+
+pub use point::PointRecord;
 
 use crate::alternate_keys::AlternateEntry;
 use crate::db_operations::record_store::KeyedRecord;

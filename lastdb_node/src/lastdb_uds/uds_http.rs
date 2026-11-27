@@ -1,6 +1,6 @@
 //! Minimal HTTP/1.1 framing and connection deadlines for the Unix-domain socket.
 
-use std::io::{self, BufRead, Read, Write};
+use std::io::{self, BufRead, IoSlice, Read, Write};
 use std::os::unix::net::UnixStream;
 use std::time::{Duration, Instant};
 
@@ -273,6 +273,10 @@ impl Write for DeadlineStream<'_> {
         self.arm(|d| self.0.set_write_timeout(d))?;
         self.0.write(buf)
     }
+    fn write_vectored(&mut self, bufs: &[IoSlice<'_>]) -> io::Result<usize> {
+        self.arm(|d| self.0.set_write_timeout(d))?;
+        self.0.write_vectored(bufs)
+    }
     fn flush(&mut self) -> io::Result<()> {
         self.0.flush()
     }
@@ -283,9 +287,9 @@ fn write_with_budget(
     resp: &UdsResponse,
     budget: Duration,
 ) -> io::Result<()> {
-    let mut w = DeadlineStream(stream, Instant::now() + budget);
+    let mut head: Vec<u8> = Vec::with_capacity(256);
     write!(
-        w,
+        head,
         "HTTP/1.1 {} {}\r\nContent-Length: {}\r\nConnection: close\r\n",
         resp.status,
         resp.reason,
@@ -293,14 +297,36 @@ fn write_with_budget(
     )?;
     for (n, v) in &resp.headers {
         if !n.eq_ignore_ascii_case("content-length") && !n.eq_ignore_ascii_case("connection") {
-            write!(w, "{n}: {v}\r\n")?;
+            write!(head, "{n}: {v}\r\n")?;
         }
     }
-    write!(w, "\r\n")?;
-    w.write_all(&resp.body)?;
+    head.extend_from_slice(b"\r\n");
+    let mut w = DeadlineStream(stream, Instant::now() + budget);
+    write_head_and_body(&mut w, &head, &resp.body)?;
     w.flush()?;
     let _ = stream.shutdown(std::net::Shutdown::Write);
     Ok(())
+}
+
+/// The head and the body in one `writev` when the socket buffer takes them,
+/// rather than one write for each header line and then the body.
+fn write_head_and_body(w: &mut impl Write, head: &[u8], body: &[u8]) -> io::Result<()> {
+    let (mut head, mut body) = (head, body);
+    while !head.is_empty() {
+        let n = match w.write_vectored(&[IoSlice::new(head), IoSlice::new(body)]) {
+            Ok(0) => return Err(io::ErrorKind::WriteZero.into()),
+            Ok(n) => n,
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(e),
+        };
+        if n < head.len() {
+            head = &head[n..];
+        } else {
+            body = &body[n - head.len()..];
+            head = &[];
+        }
+    }
+    w.write_all(body)
 }
 
 pub enum Received {

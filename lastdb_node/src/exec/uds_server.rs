@@ -1,5 +1,6 @@
 //! Owner-socket and app-socket request framing, body-budget admission, and worker dispatch.
 
+use std::os::unix::io::AsRawFd;
 use std::os::unix::net::UnixStream;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -130,6 +131,7 @@ impl UdsServer {
     }
 
     fn serve_conn(&self, stream: UnixStream, comp: ConnectionWork) -> std::io::Result<()> {
+        set_send_buffer(&stream);
         if let Ok(lease) = Arc::clone(&self.body_budget).try_acquire_many_owned(self.parse_permits)
         {
             return self.serve_reserved(stream, comp, lease);
@@ -289,6 +291,33 @@ struct Deferred {
     call: ops::CallLabel,
     write: bool,
     started: Instant,
+}
+
+/// The send buffer of one accepted connection. The macOS default for a Unix
+/// stream socket is 8 KiB (`net.local.stream.sendspace`), so a 1 MiB `/v1/read`
+/// reply crossed it in more than a hundred blocking steps. The writer's send
+/// buffer is the one that bounds a Unix stream on macOS and on Linux; the
+/// reader's receive buffer does not, so only this side is set. macOS refuses a
+/// size over `kern.ipc.maxsockbuf` (8 MiB by default); Linux caps it at
+/// `net.core.wmem_max`. A refusal leaves the default and costs nothing else.
+const SEND_BUFFER_BYTES: libc::c_int = 1 << 20;
+
+fn set_send_buffer(stream: &UnixStream) {
+    let bytes = SEND_BUFFER_BYTES;
+    // SAFETY: the descriptor stays open while `stream` is borrowed, and the
+    // option value points at a live `c_int` of the length passed.
+    let rc = unsafe {
+        libc::setsockopt(
+            stream.as_raw_fd(),
+            libc::SOL_SOCKET,
+            libc::SO_SNDBUF,
+            (&raw const bytes).cast(),
+            std::mem::size_of::<libc::c_int>() as libc::socklen_t,
+        )
+    };
+    if rc != 0 {
+        tracing::debug!(error = %std::io::Error::last_os_error(), "socket send buffer left at its default");
+    }
 }
 
 fn log_io(res: &std::io::Result<()>) {

@@ -22,6 +22,8 @@ mod record_get_cmds;
 mod share_cmds;
 #[path = "lastdb/snapshot_line.rs"]
 mod snapshot_line;
+#[path = "lastdb/status_lines.rs"]
+mod status_lines;
 #[path = "lastdb/uds_client.rs"]
 mod uds_client;
 #[path = "lastdb/usage_line.rs"]

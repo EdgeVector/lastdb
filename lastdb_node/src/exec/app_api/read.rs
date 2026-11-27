@@ -8,13 +8,17 @@ use serde::Deserialize;
 use serde_json::{json, Map, Value};
 
 use super::super::calling_app::active_app;
-use super::{bad, database, error_value, fail, key_filter, ok, require_exact_name, require_read};
+use super::{bad, database, error_value, fail, key_filter, require_exact_name, require_read};
 use crate::exec::query::{execute_query, QueryResponseFormat};
 use crate::exec::reply::{map_host_err, HostError};
 use crate::exec::schema_routes::resolve_schema_name;
 use crate::exec::wire::{decode_cursor_token, encode_cursor_token, QueryRequest};
 use crate::host::Host;
 use crate::lastdb_uds::uds_http::{UdsRequest, UdsResponse};
+
+mod points;
+
+use points::Answer;
 
 const MAX_READS: usize = 64;
 const KEY_LIST_DEFAULT: usize = 100;
@@ -73,16 +77,27 @@ pub(in crate::exec) async fn read_route(
         Ok(items) => items,
         Err(error) => return fail(&error),
     };
-    let reads = items.into_iter().map(|item| async move {
-        read_one(host, item)
-            .await
-            .unwrap_or_else(|error| error_value(&error))
-    });
-    let results: Vec<Value> = futures::stream::iter(reads)
+    // Point reads share one lookup per schema. Every other read, and every
+    // point read that path does not answer, runs on its own as before.
+    let found = points::read(host, &items).await;
+    let reads = items
+        .into_iter()
+        .zip(found)
+        .map(|(item, found)| async move {
+            match found {
+                Some(point) => Answer::Point(point),
+                None => Answer::Built(
+                    read_one(host, item)
+                        .await
+                        .unwrap_or_else(|error| error_value(&error)),
+                ),
+            }
+        });
+    let answers: Vec<Answer> = futures::stream::iter(reads)
         .buffered(CONCURRENT_READS)
         .collect()
         .await;
-    ok(&json!({ "results": results }))
+    points::reply(&answers)
 }
 
 fn parse(body: &[u8]) -> Result<Vec<ReadItem>, HostError> {
@@ -191,8 +206,8 @@ async fn read_one(host: &Host, item: ReadItem) -> Result<Value, HostError> {
     let (keys_only, with_paths) = (item.keys_only, item.file);
     database::read_in(item.database.as_deref(), host, async {
         require_exact_name(host, &schema)?;
-        let page = execute_query(host, request).await?;
-        let mut out = shape(&page, keys_only)?;
+        let mut page = execute_query(host, request).await?;
+        let mut out = shape(&mut page, keys_only)?;
         if !keys_only {
             super::file_place::attach(
                 host,
@@ -249,9 +264,12 @@ fn copy_author(record: &mut Map<String, Value>, row: &Value, name: &str) {
     }
 }
 
-fn shape(page: &Value, keys_only: bool) -> Result<Value, HostError> {
-    let rows = page["results"]
-        .as_array()
+/// Moves each record's fields out of the page: they are the bulk of a reply.
+/// The page keeps its keys and metadata for `file_place`.
+fn shape(page: &mut Value, keys_only: bool) -> Result<Value, HostError> {
+    let rows = page
+        .get_mut("results")
+        .and_then(Value::as_array_mut)
         .ok_or_else(|| HostError::internal("read page is incomplete"))?;
     let mut out = Map::new();
     if keys_only {
@@ -259,7 +277,7 @@ fn shape(page: &Value, keys_only: bool) -> Result<Value, HostError> {
         out.insert("keys".into(), Value::Array(keys));
     } else {
         let records: Vec<Value> = rows
-            .iter()
+            .iter_mut()
             .map(|row| {
                 let mut record = Map::new();
                 record.insert("key".into(), row["key"].clone());
@@ -267,7 +285,8 @@ fn shape(page: &Value, keys_only: bool) -> Result<Value, HostError> {
                 // A missing key stays omitted. Indexing a missing key would yield null.
                 copy_author(&mut record, row, "created_by");
                 copy_author(&mut record, row, "updated_by");
-                record.insert("record".into(), row["fields"].clone());
+                let fields = row.get_mut("fields").map_or(Value::Null, Value::take);
+                record.insert("record".into(), fields);
                 record.insert("file".into(), file_info(&row["metadata"]["file"]));
                 Value::Object(record)
             })
