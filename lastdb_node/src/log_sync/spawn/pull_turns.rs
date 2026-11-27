@@ -7,19 +7,21 @@ use crate::host::owned::RegisteredDatabase;
 use crate::host::Host;
 use crate::registered_share::{self, RegisteredShare};
 
-use super::super::device;
+use super::super::birth;
 use super::super::history_store::HistoryMap;
 use super::super::materialize::{self, DatabaseCtx};
 use super::super::relay::RelayClient;
 
-/// Phase c: pull the member streams of owned shareable databases that have a
-/// birth, then decide the proposals they carry. This node is the publisher, so
-/// a database with no birth has no chain on the relay and a pull would only
-/// get log/read 403 has_publisher:false. The personal database is pulled by
-/// `personal`, which treats the 403 of an owner with no birth on the relay as
-/// an empty relay. A sibling personal database has no birth, and no pull. The
-/// history is rebuilt from the log when this process has not loaded it yet; a
-/// log that cannot be read is this turn's error.
+/// Phase c: pull the publisher and member streams of owned shareable databases,
+/// then decide the proposals they carry. On the device that minted the database
+/// (`birth.json` present), a history with no birth has no chain on the relay
+/// yet and is skipped. On a second device of the same publisher (`birth.json`
+/// absent), pulling discovers the birth and prior entries from the relay; an
+/// unborn 403 before the first device uploads its birth is treated as an empty
+/// relay. The personal database is pulled by `personal`. A sibling personal
+/// database has no birth, and no pull. The history is rebuilt from the log when
+/// this process has not loaded it yet; a log that cannot be read is this turn's
+/// error.
 pub(super) async fn pull_owned_shareables(
     host: &Host,
     histories: &HistoryMap,
@@ -48,14 +50,30 @@ pub(super) async fn pull_owned_shareables(
             }
         };
         if !has_birth {
-            continue;
+            match birth::load(&host.home, &database.id) {
+                Ok(Some(_)) => continue,
+                Ok(None) => {}
+                Err(err) => {
+                    tracing::warn!(
+                        target: "lastdbd::log_sync",
+                        id = %database.id,
+                        %err,
+                        "birth material could not be read"
+                    );
+                    host.cloud_sync
+                        .record_download(&database.id, None, Some(err.clone()), true);
+                    turn_error = Some(err);
+                    continue;
+                }
+            }
         }
-        match pull_owned(host, histories, client, &database.id).await {
-            Ok(()) => {
+        match pull_owned(host, histories, client, &database.id, has_birth).await {
+            Ok(true) => {
                 let through = remote_applied_through(host, histories, &database.id);
                 host.cloud_sync
                     .record_download(&database.id, through, None, true);
             }
+            Ok(false) => {}
             Err(err) => {
                 tracing::warn!(
                     target: "lastdbd::log_sync",
@@ -77,42 +95,49 @@ async fn pull_owned(
     histories: &HistoryMap,
     client: &RelayClient,
     database_id: &str,
-) -> Result<(), String> {
+    has_birth: bool,
+) -> Result<bool, String> {
     let Some(store) = materialize::store_for(host, database_id) else {
         tracing::warn!(
             target: "lastdbd::log_sync",
             id = %database_id,
             "skip pull: no FoldDB store is open for this database"
         );
-        return Ok(());
+        return Ok(false);
     };
     let db = DatabaseCtx {
         database_id,
         store: &store,
     };
     let caller = NodeKey::from_bytes(host.keypair.public_key_bytes());
-    let Some(publisher_hex) = histories
-        .peek_with(database_id, |history| {
-            history.owner().map(|owner| owner.to_hex())
-        })
+    if let Some(owner) = histories
+        .peek_with(database_id, mutation_log::VerifiedHistory::owner)
         .flatten()
-    else {
-        return Ok(());
-    };
-    let local_device = device::device_id(&host.home)?.to_hex();
+    {
+        if owner != caller {
+            return Err("this node is not the publisher of this database".into());
+        }
+    }
+    let publisher_hex = caller.to_hex();
     let pulled = super::super::pull::pull_share_writers(
         client,
         histories,
         &db,
         caller,
         &publisher_hex,
-        [local_device],
+        std::iter::empty(),
     )
     .await;
+    if let Err(err) = &pulled {
+        if !has_birth && super::super::personal::is_unborn_403(err) {
+            return Ok(false);
+        }
+    }
     let persisted = keep_received(host, histories, database_id);
     pulled?;
     persisted?;
-    super::super::incorporate::resolve_owned(host, histories, &store, database_id).await
+    super::super::incorporate::resolve_owned(host, histories, &store, database_id).await?;
+    Ok(true)
 }
 
 /// Store what a pull accepted from other streams, so a restart rebuilds the

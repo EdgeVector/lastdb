@@ -79,16 +79,18 @@ class Member:
         self.key = json.loads(result.stdout)["recipient_public_key"]
         require(len(self.key) == 64, f"{self.name}: the node key is not 64 hex characters")
 
-    def post(self, path, body):
-        status, raw, _, _, _ = send_unix_request(
-            self.sock, "POST", path, body, {"Content-Type": "application/json", "X-LastDB-App": APP})
+    def post(self, path, body, extra_headers=None):
+        headers = {"Content-Type": "application/json", "X-LastDB-App": APP}
+        if extra_headers:
+            headers.update(extra_headers)
+        status, raw, _, _, _ = send_unix_request(self.sock, "POST", path, body, headers)
         try:
             return status, (json.loads(raw) if raw else {})
         except json.JSONDecodeError:
             return status, {"raw": raw[:300].decode("utf-8", "replace")}
 
-    def act(self, expect=200, **body):
-        status, reply = self.post("/v1/x/databases", body)
+    def act(self, expect=200, headers=None, **body):
+        status, reply = self.post("/v1/x/databases", body, extra_headers=headers)
         require(status == expect, f"{self.name} {body.get('action')}: HTTP {status} {reply!r}")
         return reply
 
@@ -212,7 +214,8 @@ def iter_entries(data):
 def prove_sealed(members, relay_data):
     """Data and schema entries on disk and on the relay carry no plain content."""
     # Distinctive cleartext that must never appear once payloads are sealed.
-    secrets = [SCHEMA, '"note":"from-a"', '"note":"from-b"', '"note":"seed"']
+    secrets = [SCHEMA, '"note":"from-a"', '"note":"from-b"', '"note":"seed"',
+               '"note":"from-pub1"', '"note":"from-pub2"', '"note":"from-pub2-replace"']
     paths = [path for member in members for path in log_entry_files(member)]
     if relay_data is not None:
         paths += [path for path in Path(relay_data).rglob("*") if path.is_file()]
@@ -234,8 +237,17 @@ def prove_sealed(members, relay_data):
     return {"files": len(paths), "sealed_entries": sealed}
 
 
-def prove(pub, a, b, c, proposals, relay_data=None):
+def copy_identity_key(source, target):
+    """Share the publisher node seed with a second publisher device home before boot."""
+    raw = (source.node.home / "identity.key").read_bytes()
+    fd = os.open(target.node.home / "identity.key", os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "wb") as handle:
+        handle.write(raw)
+
+
+def prove(pub, pub2, a, b, c, proposals, relay_data=None):
     members = (pub, a, b, c)
+    all_nodes = (pub, pub2, a, b, c)
     pub.db = pub.act(action="create", name="circles", sharingMode="whole_database")["database"]["id"]
     schema = definition(SCHEMA, "Hash", ["id", "note"], description_prefix="Shared proof ")
     schema.pop("source", None)
@@ -296,8 +308,39 @@ def prove(pub, a, b, c, proposals, relay_data=None):
     settle({"a-replace-k1": proposals["a-replace-k1"]}, {"a-replace-k1": "published"})
     converge(members, "k1", "a2", a.key, a.key)
     print("5. at submit: B's replace of A's record not accepted; A's own replace published", flush=True)
-    sealed = prove_sealed(members, relay_data)
-    print(f"6. sealed on disk and relay: {sealed}", flush=True)
+
+    # 6. A second publisher device (same publisher key, distinct device stream, no local birth.json)
+    #    pulls the first device's chain, writes and replaces records, and neither publisher stalls.
+    require(pub2.key == pub.key, "second publisher device must share the publisher node key")
+    write_credentials(pub2)
+    pub2.db = pub.db
+    pub2.act(headers={"Idempotency-Key": pub.db}, action="create", name="circles", sharingMode="whole_database")
+    require(not (pub2.node.home / "log-sync" / pub.db / "birth.json").exists(),
+            "second publisher device must not mint a local birth.json")
+    converge((pub2,), "seed", "seed", pub.key, pub.key)
+    converge((pub2,), "k1", "a2", a.key, a.key)
+    converge((pub2,), "k2", note, winner.key, winner.key)
+    p1 = v1.create_item(SCHEMA, {"hash": "p1"}, {"id": "p1", "note": "from-pub1"}, database=pub.db)
+    status, reply = pub.post("/v1/write", {"mutations": [p1]})
+    require(status == 200, f"pub1 write: HTTP {status} {reply!r}")
+    converge((pub2,), "p1", "from-pub1", pub.key, pub.key)
+    p1_row = pub2.row("p1")
+    p1_rep = v1.replace_item(SCHEMA, {"hash": "p1"}, {"id": "p1", "note": "from-pub2-replace"},
+                             p1_row["revision"], database=pub.db)
+    p2_new = v1.create_item(SCHEMA, {"hash": "p2"}, {"id": "p2", "note": "from-pub2"}, database=pub.db)
+    status, reply = pub2.post("/v1/write", {"mutations": [p1_rep, p2_new]})
+    require(status == 200, f"pub2 write: HTTP {status} {reply!r}")
+    converge(all_nodes, "p2", "from-pub2", pub.key, pub.key)
+    converge(all_nodes, "p1", "from-pub2-replace", pub.key, pub.key)
+    dev1 = (pub.node.home / "log-sync" / "device-id").read_text().strip()
+    dev2 = (pub2.node.home / "log-sync" / "device-id").read_text().strip()
+    require(dev1 != dev2, "the two publisher devices must have distinct device ids")
+    proposals["a-create-k3"] = (a, a.propose("create", "k3", {"id": "k3", "note": "a3"}, {"type": "absent"}))
+    settle({"a-create-k3": proposals["a-create-k3"]}, {"a-create-k3": "published"})
+    converge(all_nodes, "k3", "a3", a.key, a.key)
+    print("6. second publisher device synced, wrote, replaced, and converged across all nodes", flush=True)
+    sealed = prove_sealed(all_nodes, relay_data)
+    print(f"7. sealed on disk and relay: {sealed}", flush=True)
     OUTCOMES["sealed"] = sealed
 
 
@@ -312,10 +355,13 @@ def main():
                         help="reference relay data dir; scanned so plaintext never reaches the relay")
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
-    members = [Member(name, args, args.output) for name in ("publisher", "member-a", "member-b", "member-c")]
+    names = ("publisher", "publisher-2", "member-a", "member-b", "member-c")
+    members = [Member(name, args, args.output) for name in names]
     proposals, failure = {}, None
     try:
-        for member in members:
+        members[0].start()
+        copy_identity_key(members[0], members[1])
+        for member in members[1:]:
             member.start()
         prove(*members, proposals, relay_data=args.relay_data)
     except Exception as error:  # noqa: BLE001 the failure is printed with its evidence, then raised

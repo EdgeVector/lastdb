@@ -89,7 +89,12 @@ pub(super) async fn create(req: &UdsRequest, ctx: &AccessContext, host: &Host) -
         )
         .await
     {
-        Ok(entry) => json_ok(&envelope(&json!({ "database": row(&entry) }), &ctx.user_id)),
+        Ok(entry) => {
+            if entry.kind == Kind::Shareable {
+                crate::log_sync::wake_loop();
+            }
+            json_ok(&envelope(&json!({ "database": row(&entry) }), &ctx.user_id))
+        }
         Err(error) => fail(error, ctx),
     }
 }

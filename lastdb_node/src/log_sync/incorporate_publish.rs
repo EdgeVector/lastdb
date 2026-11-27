@@ -40,6 +40,9 @@ pub(super) fn publish(
         if let Some((hash, lamport)) = history.birth_entry() {
             ctx.cite(hash, lamport);
         }
+        if let Some((hash, lamport)) = history.schema_entry(&ready.namespace) {
+            ctx.cite(hash, lamport);
+        }
         cite_proposal(&mut ctx, proposal).map_err(|_| ChainError::Unconfirmed)?;
         let key = (ready.namespace.clone(), ready.key.clone());
         if let Some(winner) = history.records().get(&key) {

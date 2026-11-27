@@ -43,13 +43,14 @@ pub(super) struct MirrorCtx<'a> {
     pub(super) database: DatabaseId,
     pub(super) identity: &'a AuthorIdentity,
     pub(super) store: &'a FoldDB,
-    material: &'a BirthMaterial,
+    material: Option<&'a BirthMaterial>,
     sealer: Sealer,
 }
 
 /// Author signed entries for an owned write and wake sync.
 ///
-/// No-op when this database has no birth material (not a signed-log share).
+/// No-op when `database_id` is not an owned shareable database or holds neither
+/// local birth material nor an accepted publisher birth (not a signed-log share).
 pub fn mirror_owned_write(
     host: &Host,
     database_id: &str,
@@ -58,10 +59,16 @@ pub fn mirror_owned_write(
     if mutations.is_empty() {
         return Ok(());
     }
-    let histories = super::histories_for(host);
-    let Some(material) = birth::load(&host.home, database_id)? else {
+    if crate::host::owned::find_shareable_database(&host.home, database_id).is_err() {
         return Ok(());
-    };
+    }
+    let histories = super::histories_for(host);
+    let material = birth::load(&host.home, database_id)?;
+    if material.is_none()
+        && !histories.with_mut(database_id, |history| history.owner().is_some())?
+    {
+        return Ok(());
+    }
     let store = materialize::store_for(host, database_id)
         .ok_or_else(|| "no FoldDB store is open for this database".to_owned())?;
     let identity = chain_author::identity_of(host).map_err(|e| e.reply().message.to_owned())?;
@@ -70,7 +77,7 @@ pub fn mirror_owned_write(
         database,
         identity: &identity,
         store: &store,
-        material: &material,
+        material: material.as_ref(),
         sealer: shared_key::sealer(host, database_id)?,
     };
     histories.with_mut(database_id, |history| {
@@ -88,26 +95,33 @@ pub fn mirror_owned_write(
     Ok(())
 }
 
-/// Sign the birth when the history has none.
+/// Sign the birth when the history has none, or confirm this node is the owner.
 fn ensure_birth(
     history: &mut VerifiedHistory,
     ctx: &MirrorCtx<'_>,
     batch: &mut Vec<SignedEntry>,
 ) -> Result<(), String> {
-    if history.owner().is_some() {
-        return Ok(());
+    if let Some(owner) = history.owner() {
+        return if owner == ctx.identity.node_key {
+            Ok(())
+        } else {
+            Err("this node is not the publisher of this database".into())
+        };
     }
+    let material = ctx
+        .material
+        .ok_or_else(|| "this database has no signed birth on this node; sync first".to_owned())?;
     let author = author_ctx(history, ctx, 0);
-    let entry = birth::entry(ctx.material, &author, ctx.identity)?;
+    let entry = birth::entry(material, &author, ctx.identity)?;
     stage(history, batch, entry)
 }
 
 /// Publish every schema this publisher's store declares and its history does
 /// not carry yet, or carries with an older definition.
 pub(super) fn publish_declared_schemas(host: &Host, database_id: &str) -> Result<(), String> {
-    let Some(material) = birth::load(&host.home, database_id)? else {
+    if crate::host::owned::find_shareable_database(&host.home, database_id).is_err() {
         return Ok(());
-    };
+    }
     let Some(store) = materialize::store_for(host, database_id) else {
         return Ok(());
     };
@@ -117,6 +131,9 @@ pub(super) fn publish_declared_schemas(host: &Host, database_id: &str) -> Result
         .map_err(|e| e.to_string())?
         .into_keys()
         .collect();
+    if names.is_empty() {
+        return Ok(());
+    }
     names.sort();
     let identity = chain_author::identity_of(host).map_err(|e| e.reply().message.to_owned())?;
     let database = DatabaseId::from_hex(database_id).map_err(|_| "database_id is not hex32")?;
@@ -124,11 +141,11 @@ pub(super) fn publish_declared_schemas(host: &Host, database_id: &str) -> Result
         database,
         identity: &identity,
         store: &store,
-        material: &material,
+        material: None,
         sealer: shared_key::sealer(host, database_id)?,
     };
     super::histories_for(host).with_mut(database_id, |history| {
-        if history.owner().is_none() {
+        if history.owner() != Some(identity.node_key) {
             return Ok(());
         }
         history_store::commit_authored_batch(&host.home, history, |next| {
@@ -210,6 +227,9 @@ fn author_one(
 ) -> Result<(), String> {
     let mut author = author_ctx(history, ctx, fold_db::clock::unix_millis());
     if let Some((hash, lamport)) = history.birth_entry() {
+        author.cite(hash, lamport);
+    }
+    if let Some((hash, lamport)) = history.schema_entry(&item.schema) {
         author.cite(hash, lamport);
     }
     let key = (item.schema.clone(), item.record_key.clone());
