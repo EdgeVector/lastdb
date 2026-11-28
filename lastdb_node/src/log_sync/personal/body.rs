@@ -238,8 +238,9 @@ fn record_inline(body: &AcceptedBody, _file: &RecordFile) -> Result<Option<Inlin
     };
     // Inline may ride with a file write (kind "file") or stand alone (kind
     // "inline"). A plain record write does not carry an inline section.
-    if body.kind == "record" {
-        return Err(BAD.into());
+    match body.kind.as_str() {
+        "file" | "inline" => {}
+        _ => return Err(BAD.into()),
     }
     if section.cleared {
         return if section.marker.is_none() && section.data.is_none() {
@@ -247,9 +248,6 @@ fn record_inline(body: &AcceptedBody, _file: &RecordFile) -> Result<Option<Inlin
         } else {
             Err(BAD.into())
         };
-    }
-    if body.kind != "inline" && body.kind != "file" {
-        return Err(BAD.into());
     }
     let marker = section.marker.clone().ok_or(BAD)?;
     let data = section.data.clone().ok_or(BAD)?;

@@ -85,6 +85,8 @@ pub(super) fn action_name(kind: MutationType) -> &'static str {
     }
 }
 
+/// Body kind for a record write. When both an external file and an inline file
+/// are present, the kind is still `"file"` so file transport dominates.
 pub(super) fn kind_name(file: bool, inline: bool) -> &'static str {
     if file {
         "file"

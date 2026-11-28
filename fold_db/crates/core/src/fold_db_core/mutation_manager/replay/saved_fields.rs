@@ -17,7 +17,7 @@ pub(super) fn has_file(mutation: &Mutation, live: Option<&StoredRecord>) -> bool
     match &mutation.file_write {
         Some(FileWrite::Put(_) | FileWrite::LocalPath(_)) => true,
         Some(FileWrite::Clear) => false,
-        None if mutation.inline_write.is_some() => false,
+        // An inline-only write leaves the external file slot alone.
         None => live.is_some_and(|record| record.file.is_some()),
     }
 }

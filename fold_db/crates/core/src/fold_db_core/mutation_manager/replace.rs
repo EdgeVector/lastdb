@@ -144,8 +144,9 @@ fn resolve_attachments(
 ) -> Result<(Option<FileMarker>, Option<FileMarker>, bool), SchemaError> {
     // External file and inline file are independent slots. A write that names
     // only one leaves the other as it was. A photo may keep a full file and a
-    // thumbnail together.
-    let keep_file = mutation.file_write.is_none() && mutation.inline_write.is_none();
+    // thumbnail together. `keep_file` preserves the on-disk file version when
+    // this write does not touch the external file slot.
+    let keep_file = mutation.file_write.is_none();
     let file = match &mutation.file_write {
         Some(FileWrite::Put(f)) => {
             Some(mutation.file.clone().unwrap_or_else(|| f.marker().clone()))

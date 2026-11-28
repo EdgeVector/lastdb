@@ -314,15 +314,6 @@ impl MutationManager {
             &mutation.record_fields,
         )
         .ok()?;
-        if matches!(
-            mutation.file_write,
-            Some(FileWrite::Put(_) | FileWrite::LocalPath(_))
-        ) && matches!(
-            mutation.inline_write,
-            Some(lastdb_model::record_value::InlineWrite::Put(_))
-        ) {
-            return None;
-        }
         Some(address)
     }
 

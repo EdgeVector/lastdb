@@ -151,7 +151,6 @@ fn file_marker<'a>(mutation: &'a Mutation, write: &'a FileWrite) -> StorageResul
 
 pub(super) fn inline_section(
     mutation: &Mutation,
-    _external: bool,
 ) -> StorageResult<Option<body::InlineSection<'_>>> {
     match mutation.inline_write.as_ref() {
         None => Ok(None),

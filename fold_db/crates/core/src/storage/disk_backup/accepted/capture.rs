@@ -201,8 +201,9 @@ async fn sign_mutation(
     let external = files::external_file(content_key, mutation, admit).await?;
     let has_file = external.plain.is_some() || external.marker.is_some();
     let sealed = external.sealed.clone();
-    let inline_file = files::inline_section(mutation, has_file)?;
+    let inline_file = files::inline_section(mutation)?;
     let parts = RecordParts {
+        // File transport dominates when both attachment slots are written.
         kind: body::kind_name(has_file, inline_file.is_some()),
         action: body::action_name(mutation.mutation_type),
         fields: mutation
