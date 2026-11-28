@@ -157,6 +157,14 @@ class Host:
         require(changed == 1, "config.toml has no soak_secs line")
         config.write_text(text)
 
+    def set_channel(self, channel):
+        """`service install` writes the default channel (stable); the proof follows the list under test."""
+        config = self.home / "upgrade" / "config.toml"
+        text = config.read_text()
+        text, changed = re.subn(r'^channel = "[a-z]+"', f'channel = "{channel}"', text, flags=re.M)
+        require(changed == 1, "config.toml has no channel line")
+        config.write_text(text)
+
     def diagnostics(self):
         print("---- diagnostics ----")
         for name in ("upgrade/history.jsonl", "logs/lastdbd.err.log", "logs/lastdbd.out.log"):

@@ -116,11 +116,13 @@ def can_install_service(folder):
 
 # ---------------------------------------------------------------- the proof
 
-def step_install(host, base, base_dir, bootstrap, results):
+def step_install(host, base, base_dir, bootstrap, channel, results):
     say(f"1. install {base['version']} as a service" + (" (bootstrap: the build under test)" if bootstrap else ""))
     done = host.lastdb(base_dir, "service", "install", "--json")
     require(done.returncode == 0, f"service install exited {done.returncode}")
     host.set_soak(10)
+    # Without this the upgrade in step 2 follows the default stable channel, not the list under test.
+    host.set_channel(channel)
     require(host.link("current") == f"programs/{base['version']}", f"current is {host.link('current')}")
     note = f"proof-{os.urandom(6).hex()}"
     seed_and_write(host.sock, note)
@@ -186,7 +188,7 @@ def cmd_run(args):
         require(can_install_service(under_dir), "the build under test has no `lastdb service install`")
         base, base_dir, bootstrap = choose_base(host, older, under, under_dir)
         host.prepare()
-        note = step_install(host, base, base_dir, bootstrap, results)
+        note = step_install(host, base, base_dir, bootstrap, args.channel, results)
         step_upgrade(host, under, under_dir, base, bootstrap, note, results)
         step_rollback(host, under, under_dir, note, results)
     except BaseException:
