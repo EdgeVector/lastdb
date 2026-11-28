@@ -1,4 +1,4 @@
-//! Deliver a batch of the database's signed entries and files to the relay.
+//! Send a batch of the database's signed entries and files to the relay.
 
 use super::record_files::sha256_hex;
 use super::relay::RelayClient;

@@ -28,7 +28,6 @@ mod apply_schema;
 mod body;
 mod database;
 use database::SyncDatabase;
-mod files;
 mod incoming;
 mod outgoing;
 mod reclaim;
@@ -55,6 +54,7 @@ pub(crate) use snapshot_state::{
 
 use std::sync::{Arc, LazyLock};
 
+use super::record_files as files;
 use super::relay::{RelayClient, StreamHead as RelayStream};
 pub(super) use crate::database_birth::personal as birth_of;
 use crate::host::cloud_sync::is_payment_refusal;
