@@ -12,7 +12,8 @@ show them gone, and prints one `cleanup:` line.
 
 Fails unless the bin printed a JSON object as its last line with ok=true,
 grant_revoke_ok=true, nongrantee_http_status=403, and upload_seconds /
-restore_seconds both under the limit. Prints a one-line verdict.
+restore_seconds both under the limit. The limit is the `limit_seconds` the bin reports
+(its LASTDB_RELAY_E2E_LIMIT_SECONDS), else 60. Prints a one-line verdict.
 """
 from __future__ import annotations
 
@@ -20,7 +21,7 @@ import json
 import sys
 from pathlib import Path
 
-LIMIT_SECONDS = 60.0
+DEFAULT_LIMIT_SECONDS = 60.0
 STREAMS_STEPS = [
     "streams_empty_writer",
     "streams_two_devices",
@@ -94,6 +95,24 @@ def cleanup_line(report: dict) -> str:
     return f"cleanup: deleted {total}. " + " | ".join(parts)
 
 
+def blob_lines(report: dict) -> list[str]:
+    """One `blob:` line per bundle put: begin, the presigned PUT with each try, commit."""
+    lines = []
+    if report.get("blobs_seconds") is not None:
+        lines.append(f"blob: all bundles in {report['blobs_seconds']:.3f}s")
+    for put in report.get("blob_puts") or []:
+        tries = "; ".join(
+            f"{a.get('outcome')} after {a.get('seconds', 0):.3f}s with {a.get('sent_bytes')} bytes sent"
+            for a in put.get("attempts") or []
+        )
+        lines.append(
+            f"blob: bundle {put.get('index')}: {put.get('bytes')} bytes, begin {put.get('begin_seconds', 0):.3f}s, "
+            f"put {put.get('put_seconds', 0):.3f}s [{tries or 'relay already held it'}], "
+            f"commit {put.get('commit_seconds', 0):.3f}s"
+        )
+    return lines
+
+
 def problems(report: dict, expect_streams: bool, blob_file_bytes: int | None) -> list[str]:
     found: list[str] = []
     if expect_streams and report.get("streams_steps") != STREAMS_STEPS:
@@ -116,12 +135,16 @@ def problems(report: dict, expect_streams: bool, blob_file_bytes: int | None) ->
         found.append(
             f"nongrantee_http_status is {report.get('nongrantee_http_status')!r}, expected 403"
         )
+    limit = report.get("limit_seconds", DEFAULT_LIMIT_SECONDS)
+    if not isinstance(limit, (int, float)) or isinstance(limit, bool) or limit <= 0:
+        found.append(f"limit_seconds is {limit!r}, expected a positive number")
+        limit = DEFAULT_LIMIT_SECONDS
     for key in ("upload_seconds", "restore_seconds"):
         value = report.get(key)
         if not isinstance(value, (int, float)) or isinstance(value, bool):
             found.append(f"{key} is missing or not a number")
-        elif value >= LIMIT_SECONDS:
-            found.append(f"{key}={value:.3f} is not under {LIMIT_SECONDS:.0f}s")
+        elif value >= limit:
+            found.append(f"{key}={value:.3f} is not under {limit:g}s")
     return found
 
 
@@ -145,13 +168,15 @@ def main() -> int:
     verdict = "FAIL" if found else "PASS"
     line = (
         f"{verdict} {label} upload={report.get('upload_seconds')} "
-        f"restore={report.get('restore_seconds')} bytes={report.get('bytes_uploaded')} "
+        f"restore={report.get('restore_seconds')} limit={report.get('limit_seconds')} bytes={report.get('bytes_uploaded')} "
         f"streams={report.get('streams_discovered')} grant_revoke_ok={report.get('grant_revoke_ok')} "
         f"nongrantee_http_status={report.get('nongrantee_http_status')} "
         f"streams_steps={len(report.get('streams_steps') or [])} "
         f"blob_file_stream={report.get('blob_file_stream')}"
     )
     print(line)
+    for blob in blob_lines(report):
+        print(blob)
     if expect_cleanup or report.get("cleanup") is not None:
         print(cleanup_line(report))
     for item in found:

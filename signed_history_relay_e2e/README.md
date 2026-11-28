@@ -57,6 +57,12 @@ the limit. Failures print `{"ok": false, "error": "..."}` and exit 1.
 and `log.append` of the chain. `restore_seconds` covers stream discovery, `log.read`, `blob.get`, decrypt,
 `AcceptEntry` and the FoldDB materialize. Checks run after the timer stops.
 
+`blobs_seconds` is the wall time of the bundle puts alone. `blob_puts` has one object per bundle: `index`,
+`bytes`, `begin_seconds`, `put_seconds` and `commit_seconds`, and `attempts`, each try of the presigned PUT with
+its `seconds`, `sent_bytes` and `outcome` (`HTTP 200`, `HTTP 503`, or the stall or transport error). The PUT goes
+through `relay_transfer`, the uploader the node uses: a fresh connection each time, a failure after 30 s without
+progress, and at most 3 tries. stderr prints the same per bundle, and each retried relay call.
+
 ## Cleanup
 
 On by default (`LASTDB_RELAY_E2E_CLEANUP=true`). After the steps end, also after one failed, the run deletes the
@@ -147,4 +153,4 @@ and 128 keyed reads match.
 > (artifact `target/release/signed_history_relay_e2e`). It signs requests per the relay OpenAPI `nodeSignature`
 > with Hex32 device ids, uploads ~300 MiB as 7 encrypted bundles of at most 64 MiB, restores them with stream
 > discovery from birth/grant/heads into FoldDB, and prints one JSON object last with `upload_seconds` and
-> `restore_seconds` (each must be under 60 s).
+> `restore_seconds` (each must be under `limit_seconds`, default 60 s).

@@ -8,11 +8,11 @@
 use std::sync::Arc;
 use std::time::Instant;
 
-use bytes::Bytes;
 use futures::stream::{self, StreamExt, TryStreamExt};
 use mutation_log::{
     BundleBody, DatabaseId, DeviceHead, DeviceId, Hex32, NodeKey, BUNDLE_BLOB_SIZE_MAX,
 };
+use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
 use crate::blob::{bundle_changes, encode_changes, BundleCipher, BUNDLE_RECORDS, VALUE_TEXT_BYTES};
@@ -22,7 +22,7 @@ use crate::identity::{new_device_id, now_ms, Actor};
 use crate::ledger::Ledger;
 
 const DAY_MS: u64 = 86_400_000;
-use crate::relay::RelayClient;
+use crate::relay::{BlobPutTiming, RelayClient};
 
 /// What a restoring node learns out of band (an invite): the database, the
 /// publisher node and its first device stream, and the key that opens bundle blobs.
@@ -54,6 +54,11 @@ pub struct UploadReport {
     pub member: NodeKey,
     /// HTTP status from a never-granted node's append and read (must be 403).
     pub nongrantee_http_status: u16,
+    /// Wall time of the bundle puts alone, all bundles, `concurrency` at once.
+    pub blobs_seconds: f64,
+    /// One object per bundle: its size and the time of begin, the presigned PUT and commit, with
+    /// every try of the PUT. It says which upload made a slow run slow.
+    pub blob_puts: Vec<Value>,
 }
 
 struct PutBundle {
@@ -62,6 +67,24 @@ struct PutBundle {
     size: u64,
     count: u32,
     cpu_seconds: f64,
+    timing: BlobPutTiming,
+}
+
+impl PutBundle {
+    fn report(&self) -> Value {
+        json!({
+            "index": self.index,
+            "bytes": self.size,
+            "begin_seconds": self.timing.begin_seconds,
+            "put_seconds": self.timing.put_seconds,
+            "commit_seconds": self.timing.commit_seconds,
+            "attempts": self.timing.attempts.iter().map(|attempt| json!({
+                "seconds": attempt.seconds,
+                "sent_bytes": attempt.sent_bytes,
+                "outcome": attempt.outcome,
+            })).collect::<Vec<_>>(),
+        })
+    }
 }
 
 pub async fn bootstrap(http: &reqwest::Client, plan: &UploadPlan) -> Result<UploadReport, String> {
@@ -109,12 +132,7 @@ pub async fn bootstrap(http: &reqwest::Client, plan: &UploadPlan) -> Result<Uplo
 
     let records = plan.total_bytes.div_ceil(VALUE_TEXT_BYTES).max(1);
     let bundles = records.div_ceil(BUNDLE_RECORDS);
-    let mut puts: Vec<PutBundle> = stream::iter(0..bundles)
-        .map(|index| put_bundle(&client_a, &cipher, &plan.ledger, index, records))
-        .buffer_unordered(plan.concurrency)
-        .try_collect()
-        .await?;
-    puts.sort_by_key(|put| put.index);
+    let (puts, blobs_seconds) = put_bundles(&client_a, &cipher, plan, bundles, records).await?;
 
     let mut entries_a = vec![
         publisher.incorporate(&mut chain_a, member.proposal()?)?,
@@ -162,7 +180,27 @@ pub async fn bootstrap(http: &reqwest::Client, plan: &UploadPlan) -> Result<Uplo
         cpu_seconds: puts.iter().map(|put| put.cpu_seconds).sum(),
         member: member.node_key(),
         nongrantee_http_status,
+        blobs_seconds,
+        blob_puts: puts.iter().map(PutBundle::report).collect(),
     })
+}
+
+/// Every bundle, `plan.concurrency` at once, sorted by index, and the wall time they took.
+async fn put_bundles(
+    client: &RelayClient,
+    cipher: &Arc<BundleCipher>,
+    plan: &UploadPlan,
+    bundles: u64,
+    records: u64,
+) -> Result<(Vec<PutBundle>, f64), String> {
+    let started = Instant::now();
+    let mut puts: Vec<PutBundle> = stream::iter(0..bundles)
+        .map(|index| put_bundle(client, cipher, &plan.ledger, index, records))
+        .buffer_unordered(plan.concurrency)
+        .try_collect()
+        .await?;
+    puts.sort_by_key(|put| put.index);
+    Ok((puts, started.elapsed().as_secs_f64()))
 }
 
 async fn put_bundle(
@@ -180,7 +218,7 @@ async fn put_bundle(
         let plain = encode_changes(&bundle_changes(first, count))?;
         let blob = cipher.seal(&plain)?;
         let digest: [u8; 32] = Sha256::digest(&blob).into();
-        Ok::<_, String>((Bytes::from(blob), digest))
+        Ok::<_, String>((Arc::<[u8]>::from(blob), digest))
     })
     .await
     .map_err(|e| format!("bundle worker: {e}"))??;
@@ -190,13 +228,21 @@ async fn put_bundle(
         return Err(format!("bundle {index} blob is {size} bytes, over the cap"));
     }
     let sha256 = Hex32::from_bytes(digest);
-    client.blob_put(&sha256.to_hex(), blob).await?;
+    let timing = client.blob_put_timed(&sha256.to_hex(), blob).await?;
     ledger.blob(&client.database_hex, &sha256.to_hex(), size);
+    eprintln!(
+        "bundle {index}: {size} bytes, begin {:.3}s, put {:.3}s in {} tries, commit {:.3}s",
+        timing.begin_seconds,
+        timing.put_seconds,
+        timing.attempts.len(),
+        timing.commit_seconds
+    );
     Ok(PutBundle {
         index,
         sha256,
         size,
         count: u32::try_from(count).map_err(|_| "bundle change count over u32")?,
         cpu_seconds,
+        timing,
     })
 }

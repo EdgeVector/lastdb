@@ -26,6 +26,7 @@ futures = { workspace = true }
 hkdf = "0.12"
 mutation_log = { path = "../mutation_log" }
 relay_protocol = { path = "../relay_protocol" }
+relay_transfer = { path = "../relay_transfer" }
 rand = "0.8"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "charset", "http2", "json", "stream"] }
 serde_json = { workspace = true }
