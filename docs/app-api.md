@@ -77,6 +77,7 @@ Every write carries a condition, so two writers cannot overwrite each other with
 - `index` is the zero-based position of the first mutation whose condition failed. `reason` is `exists` when a `create` finds a record at the key, `absent` when a `replace` or a `delete` finds no record, or `revision` when the record is at another revision.
 - `{ "error": { "code": "conflict", "message": "mutation 1: the record is at another revision", "index": 1, "reason": "revision" } }`
 - A schema that declares alternate keys takes their addresses in `alternates` on a `create` and a `replace`.
+- A schema without alternate keys can add them in a later declaration (Tom, 2026-11-28). The primary key stays the same. A schema that already has alternate keys cannot add, change, or remove one: declare a new schema and copy the records. LastDB does not fill an added key. A record gets an entry under it when the app next writes the record, and until then a `delete` of that record is refused, so rewrite every record first. Do not read through the new key until the app has rewritten every record and its keys match the primary keys.
 - The list is all or nothing. Every mutation in one list names the same database. Omit `database` to use the personal database.
 - A write that names a received database is refused for every member, whatever its role: the status is 403, the code is `permission_denied`, and the message is `a received database is read only`. The one exception is a member whose role is `write` while a write lease covers it: then the write applies at once and is signed as a direct entry. Otherwise only the publisher's signature changes a shared database. A member changes it by a proposal on the owner socket, or by the change call, and the publisher's node accepts it or signs that it is not accepted. See Sharing. An unknown identifier is `not_found` with the message `database is not registered on this node`.
 - The reply comes after the write is on disk. `revisions` holds the new revision of each record, in order.
@@ -314,9 +315,10 @@ in the access block. The node already holding that name at the manifest's
 definition id is left as it is. The node holding a different definition is
 posted that manifest declaration, which is what install already does for a
 named schema once the manifest entry is the definition. The node accepts a
-compatible change. It refuses a declaration that changes an existing field,
-the key, or the alternate keys. That refusal fails the install, and the
-previous version stays active.
+compatible change: new fields, and alternate keys added to a schema that had
+none. It refuses a declaration that changes or removes an existing field, the
+key, or an alternate key, or adds an alternate key beside existing ones. That
+refusal fails the install, and the previous version stays active.
 
 The declaration is recorded with the install. The installer registers it when
 that version is activated, and again when a failed activation or a rollback

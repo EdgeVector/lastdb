@@ -19,13 +19,20 @@ mod retention_sweep;
 pub(crate) use replay::{is_compatible_schema_update, SchemaDrop};
 pub use retention_sweep::RetentionFloors;
 
-pub(crate) fn require_compatible_schema_update(
+/// The one rule for an in-place update of an installed schema. Keys stay as
+/// declared, apart from alternate keys added to a schema that had none (see
+/// `RecordKeys::check_update`). Fields can be added, not removed or retyped.
+/// LastDB does not fill an added alternate key: each write supplies it.
+pub fn require_compatible_schema_update(
     existing: &Schema,
     next: &Schema,
 ) -> Result<(), SchemaError> {
-    if existing.record_keys != next.record_keys || existing.schema_type != next.schema_type {
+    existing
+        .check_record_keys_update(next)
+        .map_err(|e| SchemaError::InvalidData(e.into()))?;
+    if existing.schema_type != next.schema_type {
         return Err(SchemaError::InvalidData(
-            "explicit primary/alternate key declarations are immutable; declare a new schema and copy explicitly".into(),
+            schema_types::record_keys::KEYS_IMMUTABLE.into(),
         ));
     }
     if existing.file_required != next.file_required {

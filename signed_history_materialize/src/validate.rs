@@ -6,13 +6,13 @@
 //! and backend errors into `SchemaError::InvalidData`). Storage errors therefore
 //! always propagate so `materialize_retry` stays set.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 use std::ops::Deref;
 
 use fold_db::record_replacement::{RecordExpectation, RecordReplacement, RecordTarget};
 use fold_db::record_value::{RecordStamp, StoredRecord, MAX_RECORD_BYTES};
-use fold_db::schema::require_logical_layout;
 use fold_db::schema::types::{Schema, SchemaError};
+use fold_db::schema::{require_compatible_schema_update, require_logical_layout};
 use serde_json::Value;
 
 const AUTHOR_HEX_64: &str = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
@@ -29,26 +29,9 @@ pub(crate) fn validate_intrinsic_schema(schema: &Schema) -> Result<(), String> {
 }
 
 /// True when `next` can be applied as an in-place additive update over `existing`
-/// in FoldDB without dropping and recreating the schema first.
+/// without dropping and recreating the schema first. The core schema store owns the rule.
 pub(crate) fn is_compatible_schema_update(existing: &Schema, next: &Schema) -> bool {
-    if existing.record_keys != next.record_keys
-        || existing.schema_type != next.schema_type
-        || existing.file_required != next.file_required
-    {
-        return false;
-    }
-    let next_fields: HashSet<&str> = next.fields.iter().flatten().map(String::as_str).collect();
-    for field in existing.fields.iter().flatten() {
-        if !next_fields.contains(field.as_str())
-            || existing.get_field_type(field) != next.get_field_type(field)
-        {
-            return false;
-        }
-    }
-    existing.field_types.iter().all(|(field, existing_type)| {
-        (next_fields.contains(field.as_str()) || next.field_types.contains_key(field))
-            && next.get_field_type(field) == existing_type
-    })
+    require_compatible_schema_update(existing, next).is_ok()
 }
 
 /// Validate a live record winner's target keys, fields, field types, file
