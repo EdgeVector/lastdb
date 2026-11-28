@@ -57,7 +57,9 @@ pub(super) fn record(ctx: &Ctx<'_>, taken: &Taken<'_>) {
             taken
                 .through
                 .iter()
-                .find(|position| position.device_id == taken.device)
+                .find(|position| {
+                    position.writer_key.is_none() && position.device_id == taken.device
+                })
                 .map_or(0, |position| position.writer_seq),
         ),
         snapshot_seq: Some(taken.snapshot_seq),
