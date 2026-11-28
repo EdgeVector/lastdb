@@ -15,12 +15,12 @@ exclude = ["target/", ".git/"]
 [dependencies]
 crc32fast = "1.5"
 serde.workspace = true
-aes-gcm = "0.10"
-hkdf = "0.12"
+aes-gcm = "0.11"
+hkdf = "0.13"
 sha2 = { workspace = true }
 rustix = { version = "1", features = ["fs", "process"] }
 uuid = { workspace = true, features = ["v4"] }
-zstd = "0.13"
+zstd = "0.14"
 zeroize.workspace = true
 
 # The ordered write of a commit (`F_BARRIERFSYNC`) has no safe wrapper.
