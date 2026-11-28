@@ -136,6 +136,7 @@ relay are the ones named by content (the SHA-256 of the stored bytes).
 | `signed-replay-chain:<device id>` | `seq`, `hash`, `order` | The newest entry of this device's stream, written by the commit that signed it. The next commit signs the entry after it. It can be ahead of this device's `signed-replay-head` row by the entries the relay has not acknowledged. |
 | `signed-replay-head:<node key>:<device id>` | `seq`, `hash`, `order`, `frozen` | The last entry of one device stream that this node applied, and for its own stream the last entry the relay acknowledged. |
 | `signed-replay-receipt:<receipt id>` | The digest of a completed schema drop. | Makes the store's paged schema removal idempotent once finished. |
+| `signed-log:<key>` | Opaque bytes, at most 64 KiB. | Rows the node keeps for a signed log, such as grants, leases and proposal states. The node owns the key and the value; the store does not read them. A row is written in the transaction of the write or applied entry it belongs to, so it travels in a snapshot like the other rows here. |
 | `mutation_author_clock:<writer id>` | Physical nanosecond floor and logical counter. | Stamps local writes and rises past every remote entry applied here. |
 | `changes:<stream>:<seq>` | One changed key. The newest 250,000. | The local changes list for apps. It is not the cloud log. |
 | `portable-local-author` | The local author stream. | Numbers local writes. The changes list reuses its numbers. |

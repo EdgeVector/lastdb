@@ -37,12 +37,14 @@ pub trait CaptureAuthor: Send + Sync {
 
     /// Seal `body` and sign it as the entry after `previous` (the first entry
     /// when there is none), with the order value `order`. `file_sha256` is the
-    /// hash of the sealed file the entry names.
+    /// hash of the sealed file the entry names. `note` is the write's
+    /// `log_note`: bytes for the author that the store does not read.
     fn sign(
         &self,
         previous: Option<&LocalEntry>,
         order: u64,
         body: &[u8],
         file_sha256: Option<&str>,
+        note: Option<&[u8]>,
     ) -> Result<SignedLocal, String>;
 }

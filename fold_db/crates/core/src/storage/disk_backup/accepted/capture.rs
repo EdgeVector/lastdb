@@ -149,18 +149,21 @@ fn stage_schema_note(
         authored_at_ms,
         (mutation_id, body),
         None,
+        None,
     )?;
     transaction::stage_accepted(runtime, vec![note])?;
     Ok(Some(next))
 }
 
 /// Seal the file and the body of one write, and sign the entry after `previous`.
+/// `note` goes to the author as it is.
 fn signed_note(
     author: &dyn CaptureAuthor,
     previous: Option<&LocalEntry>,
     order: u64,
     (mutation_id, body): (&str, &body::Body<'_>),
     file: Option<&[u8]>,
+    note: Option<&[u8]>,
 ) -> StorageResult<(Note, LocalEntry)> {
     let refused = |detail: String| {
         StorageError::InvalidOperation(format!("the write cannot be signed: {detail}"))
@@ -175,7 +178,7 @@ fn signed_note(
         .map_err(refused)?;
     let file_sha256 = sealed.as_deref().map(sha256_hex);
     let signed = author
-        .sign(previous, order, &plain, file_sha256.as_deref())
+        .sign(previous, order, &plain, file_sha256.as_deref(), note)
         .map_err(refused)?;
     let note = Note {
         seq,
@@ -228,6 +231,7 @@ async fn sign_mutation(
         order,
         (mutation.uuid.as_str(), &canonical),
         external.plain.as_deref(),
+        mutation.log_note.as_deref(),
     )
 }
 

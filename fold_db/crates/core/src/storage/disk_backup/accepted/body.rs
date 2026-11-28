@@ -76,6 +76,19 @@ pub(super) fn schema_id(name: &str, tag: &str, authored_at_ms: u64) -> String {
     format!("s{}", &hex_lower(hasher.finalize())[..40])
 }
 
+/// The mutation id of an entry that is not a record or schema write: a hash of
+/// its kind and its order value. Every entry of the stream has a higher order
+/// value than the one before it, so the id is new.
+pub(super) fn entry_id(kind: &str, order: u64) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(b"entry");
+    hasher.update([0]);
+    hasher.update(kind.as_bytes());
+    hasher.update([0]);
+    hasher.update(order.to_be_bytes());
+    format!("e{}", &hex_lower(hasher.finalize())[..40])
+}
+
 pub(super) fn action_name(kind: MutationType) -> &'static str {
     match kind {
         MutationType::Create => "create",
