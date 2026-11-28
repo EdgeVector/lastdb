@@ -10,6 +10,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import time
 
 LABEL = "com.edgevector.lastdbd"
 SCHEMA = "updaterproof"
@@ -130,12 +131,17 @@ class Host:
                              *[f"{k}={v}" for k, v in daemon.items()]).returncode == 0, "systemctl set-environment failed")
 
     def lastdb(self, folder, *args, timeout=1500):
-        done = subprocess.run([str(folder / "lastdb"), *args], env=self.env, capture_output=True, text=True,
-                              timeout=timeout, check=False)
-        say(f"lastdb {' '.join(args)} -> exit {done.returncode}: {done.stdout.strip()[:300]}")
-        for line in done.stderr.strip().splitlines()[-12:]:
-            print(f"    {line}")
-        return done
+        # Exit 5 is "busy": another upgrade holds the lock, e.g. the update check that
+        # `service install` enables. It changes nothing, so the proof waits and asks again.
+        for attempt in range(19):
+            done = subprocess.run([str(folder / "lastdb"), *args], env=self.env, capture_output=True, text=True,
+                                  timeout=timeout, check=False)
+            say(f"lastdb {' '.join(args)} -> exit {done.returncode}: {done.stdout.strip()[:300]}")
+            for line in done.stderr.strip().splitlines()[-12:]:
+                print(f"    {line}")
+            if not (args and args[0] == "upgrade" and done.returncode == 5) or attempt == 18:
+                return done
+            time.sleep(10)
 
     def link(self, name):
         path = self.home / name

@@ -121,7 +121,7 @@ fn install_update_check(home: &Path) -> Result<(), String> {
     let unit = format!(
         "[Unit]\nDescription=LastDB update check\n\n[Service]\nType=oneshot\nEnvironment=LASTDB_HOME={h}\nExecStart={h}/current/lastdb upgrade --auto\n"
     );
-    let timer = "[Unit]\nDescription=LastDB update check, hourly\n\n[Timer]\nOnBootSec=10min\nOnUnitActiveSec=1h\n\n[Install]\nWantedBy=timers.target\n";
+    let timer = "[Unit]\nDescription=LastDB update check, hourly\n\n[Timer]\nOnActiveSec=10min\nOnUnitActiveSec=1h\n\n[Install]\nWantedBy=timers.target\n";
     state::atomic_write(&dir.join("lastdb-upgrade.service"), unit.as_bytes(), 0o644)?;
     state::atomic_write(&dir.join("lastdb-upgrade.timer"), timer.as_bytes(), 0o644)?;
     for args in [
