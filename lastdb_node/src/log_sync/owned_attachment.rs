@@ -90,6 +90,12 @@ impl OwnedFile {
             plain,
             marker.clone(),
         )?;
+        if staged.marker != *marker
+            || staged.bytes != marker.size_bytes + record_files::ENVELOPE_OVERHEAD
+            || !staged.path.is_file()
+        {
+            return Err("staged sealed blob does not match its marker".into());
+        }
         Ok(Some(MutationFileRef {
             file_handle: "file".to_owned(),
             sha256: Hex32::from_hex(&staged.sha256)

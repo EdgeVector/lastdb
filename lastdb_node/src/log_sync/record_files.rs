@@ -18,7 +18,6 @@ use crate::profile::private_fs as disk;
 pub(crate) const ENVELOPE_OVERHEAD: u64 = 29;
 
 /// A sealed file staged under `log-sync/<database_id>/blobs/<sha256>`.
-#[allow(dead_code)] // path/bytes/marker stay for callers that stage then upload by handle
 pub(crate) struct StagedBlob {
     pub sha256: String,
     pub path: PathBuf,
