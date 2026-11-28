@@ -100,6 +100,7 @@ pub(crate) async fn log_read(
     let caller = verified.node_key;
     let db = gate::parse_id(&req.database_id, "database_id")?;
     let position = read_position(&req)?;
+    let all_devices = matches!(&position, ReadPosition::Writer { .. });
     state.check_read(&db, &caller).await?;
     let limit = read_limit(req.limit)?;
     let (stored, cursor) = match position {
