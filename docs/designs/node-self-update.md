@@ -3,19 +3,24 @@
 Date: 2026-11-27. Author: Claude, for Tom. Status: approved by Tom on 2026-11-27
 (brain `decision-2026-11-27-lastdb-updates-itself-rev3-approved`). The full design and its
 reasons are brain `design-lastdb-upgrade-20261127` (revision 3). This file is milestone M0:
-the formats and interfaces that the later milestones build against. Nothing here is built
-yet. Each later PR updates the section it builds and marks it "built".
+the formats and interfaces that the later milestones build against.
+
+**Built through M7 (2026-11-28).** Every section below is built as written. Tom's primary
+runs on `lastdb upgrade` with `auto = "apply"` on nightly since 2026-11-28 (lastdb #1944,
+#1948, #1950, #1951, #1952 and #1953 fixed what the first real runs found). A change is
+proven by running it, not by waiting for the window: widen `window` for one run, start the
+update check, and read `lastdb upgrade --status` and `<home>/upgrade/history.jsonl`.
 
 ## 1. Parts and owners
 
 | Part | Owner | Milestone |
 |---|---|---|
-| `node-release` KMS key and signing-only release role | `EdgeVector/lastdb-app-registry` (`scripts/bootstrap_node_release.py`) | M1 |
-| Pinned public keys | `lastdb_node/environments.json` | M1 |
-| Developer ID signing, notarization, Linux archives | `scripts/release/nightly_package.py`, release workflows | M2 |
-| `lastdbd --accepted-home-format`, `POST /api/system/prepare-stop` | `lastdb_node` daemon | M3 |
-| List writer, rollout and withdraw workflows | `scripts/release/node_list.py`, `.github/workflows/node-*.yml` | M4 |
-| `lastdb upgrade`, `lastdb service` | `lastdb_node/src/bin/lastdb/` | M5 |
+| `node-release` KMS key and signing-only release role | `EdgeVector/lastdb-app-registry` (`scripts/bootstrap_node_release.py`) | M1, built |
+| Pinned public keys | `lastdb_node/environments.json` | M1, built |
+| Developer ID signing, notarization, Linux archives | `scripts/release/nightly_package.py`, `scripts/release/macos_sign.py`, release workflows | M2, built |
+| `lastdbd --accepted-home-format`, `POST /api/system/prepare-stop` | `lastdb_node` daemon | M3, built |
+| List writer, rollout and withdraw workflows | `scripts/release/node_list.py`, `.github/workflows/node-*.yml` | M4, built |
+| `lastdb upgrade`, `lastdb service` | `lastdb_node/src/bin/lastdb/upgrade/` | M5, built |
 | Updater proof in release CI (built: `scripts/release/node_updater_proof.py`, job `proof` of `node-list-publish.yml`; DEV is listed first, the proof reads that DEV list, PROD is listed only after it passes) | release workflows | M6 |
 
 ## 2. Where the lists live
