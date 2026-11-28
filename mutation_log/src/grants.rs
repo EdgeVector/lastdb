@@ -32,6 +32,16 @@ impl GrantState {
             .filter(|r| *r != Role::Revoked)
     }
 
+    /// Read permission for a non-owner. An explicit removal denies access
+    /// even when the database also grants public read.
+    #[must_use]
+    pub fn may_read(&self, node_key: &NodeKey) -> bool {
+        match self.members.get(node_key) {
+            Some(role) => *role != Role::Revoked,
+            None => self.any == Some(Role::Read),
+        }
+    }
+
     /// Members and their folded roles, ascending by node key.
     /// Includes `Role::Revoked` so owners can see who was removed; auth still
     /// uses [`Self::role_of`], which treats revoked as no grant.
