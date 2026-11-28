@@ -63,7 +63,7 @@ pub(super) async fn resolve_owned(
             Decision::Decline => decline(host, histories, database_id, &identity, &entry)?,
         }
     }
-    materialize::rematerialize(histories, database_id, store).await
+    materialize::rematerialize(histories, database_id, store, &host.home, None, None).await
 }
 
 enum Decision {

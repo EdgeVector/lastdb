@@ -69,7 +69,7 @@ pub(super) async fn pull_share_writers(
             }
         }
     }
-    rematerialize(histories, db, accepted).await
+    rematerialize(client, histories, db, accepted).await
 }
 
 async fn pull_publisher(
@@ -257,6 +257,7 @@ async fn pull_pages(
 }
 
 async fn rematerialize(
+    client: &RelayClient,
     histories: &HistoryMap,
     db: &DatabaseCtx<'_>,
     accepted: u64,
@@ -272,7 +273,17 @@ async fn rematerialize(
     if !has_work {
         return Ok(());
     }
-    match materialize::rematerialize(histories, db.database_id, db.store).await {
+    let sealer = histories.sealer(db.database_id).ok();
+    match materialize::rematerialize(
+        histories,
+        db.database_id,
+        db.store,
+        db.home,
+        Some(client),
+        sealer.as_deref(),
+    )
+    .await
+    {
         Ok(()) => histories.clear_materialize_retry(db.database_id),
         Err(error) => {
             histories.mark_materialize_retry(db.database_id);

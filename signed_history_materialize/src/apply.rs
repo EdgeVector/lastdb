@@ -13,9 +13,7 @@ use crate::attachments::FileSection;
 use crate::key::key_value_for_schema;
 use crate::read::read_at;
 use crate::validate::validate_record;
-use crate::value::{
-    decode_record_value, resolve_schema_alternates, Alternates, DecodedRecord, Stored,
-};
+use crate::value::{decode_record_value, resolve_schema_alternates, DecodedRecord, Stored};
 
 /// Make FoldDB hold the valid winners of `history`.
 ///
@@ -41,9 +39,19 @@ pub async fn apply_history(store: &FoldDB, history: &VerifiedHistory) -> Result<
         pos_b.cmp(&pos_a).then_with(|| key_a.cmp(key_b))
     });
     for ((namespace, record_key), winner) in winners {
-        apply_winner(store, namespace, record_key, winner).await?;
+        apply_record_winner(store, namespace, record_key, winner).await?;
     }
     Ok(())
+}
+
+/// Apply one winner when no external file Put needs a fetched blob.
+pub async fn apply_record_winner(
+    store: &FoldDB,
+    namespace: &str,
+    record_key: &str,
+    winner: &MaterializedRecord,
+) -> Result<(), String> {
+    apply_winner(store, namespace, record_key, winner).await
 }
 
 async fn apply_winner(
@@ -77,9 +85,49 @@ async fn apply_winner(
         }
     };
     let current = read_at(store, namespace, &key).await?;
-    let Some(mutation) = plan_winner(&schema, namespace, &key, current.as_ref(), winner) else {
+    let Some(mutation) = plan_winner(&schema, namespace, &key, current.as_ref(), winner, None)
+    else {
         return Ok(());
     };
+    write_one(store, namespace, record_key, mutation).await
+}
+
+/// Apply one winner when an external file Put has already been sealed locally.
+pub async fn apply_winner_with_file(
+    store: &FoldDB,
+    namespace: &str,
+    record_key: &str,
+    winner: &MaterializedRecord,
+    external: FileWrite,
+) -> Result<(), String> {
+    let Some(schema) = store
+        .schema_manager()
+        .get_schema_metadata(namespace)
+        .map_err(|e| e.to_string())?
+    else {
+        return Ok(());
+    };
+    let key = key_value_for_schema(&schema, namespace, record_key)?;
+    let current = read_at(store, namespace, &key).await?;
+    let Some(mutation) = plan_winner(
+        &schema,
+        namespace,
+        &key,
+        current.as_ref(),
+        winner,
+        Some(external),
+    ) else {
+        return Ok(());
+    };
+    write_one(store, namespace, record_key, mutation).await
+}
+
+async fn write_one(
+    store: &FoldDB,
+    namespace: &str,
+    record_key: &str,
+    mutation: Mutation,
+) -> Result<(), String> {
     store
         .mutation_manager()
         .write_mutations_receipt(vec![mutation])
@@ -94,6 +142,7 @@ fn plan_winner(
     key: &KeyValue,
     current: Option<&Stored>,
     winner: &MaterializedRecord,
+    external: Option<FileWrite>,
 ) -> Option<Mutation> {
     if winner.value.is_empty() {
         return current.map(|old| delete_mutation(namespace, key.clone(), old));
@@ -135,12 +184,16 @@ fn plan_winner(
     );
     mutation.writer = Some(author.clone());
     mutation.copied_authorship = Some((Some(creator), Some(author)));
-    // External Put needs a fetched blob; the node prepares it before calling
-    // apply. Until then this returns None and leaves the key for a later pass.
-    if matches!(decoded.file, FileSection::Put(_)) {
-        return None;
+    if let FileSection::Put(marker) = &decoded.file {
+        let Some(write) = external else {
+            // Needs a fetched blob; rematerialize calls [`apply_winner_with_file`].
+            return None;
+        };
+        prepare_external_file(&mut mutation, marker, write).ok()?;
+        mutation.inline_write = decoded.inline;
+        return Some(mutation);
     }
-    let _ = apply_decoded_attachments(&mut mutation, &decoded.file, decoded.inline);
+    apply_decoded_attachments(&mut mutation, &decoded.file, decoded.inline).ok()?;
     Some(mutation)
 }
 
@@ -214,7 +267,11 @@ fn decode_and_validate(
         FileSection::Put(marker) => Some(marker),
         FileSection::Keep | FileSection::Clear => None,
     };
-    validate_record(schema, &target, &rec.fields, file_marker)?;
+    let inline_marker = match &rec.inline {
+        Some(InlineWrite::Put(file)) => Some(&file.marker),
+        Some(InlineWrite::Clear) | None => None,
+    };
+    validate_record(schema, &target, &rec.fields, file_marker, inline_marker)?;
     Ok((target, rec.fields.clone(), rec))
 }
 

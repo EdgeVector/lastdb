@@ -58,6 +58,7 @@ pub(crate) fn validate_record(
     target: &RecordTarget,
     fields: &HashMap<String, Value>,
     file: Option<&fold_db::record_value::FileMarker>,
+    inline_file: Option<&fold_db::record_value::FileMarker>,
 ) -> Result<(), String> {
     require_logical_layout(&schema.schema_type).map_err(|e| e.to_string())?;
     if schema.file_required && file.is_none() {
@@ -80,7 +81,8 @@ pub(crate) fn validate_record(
             .map_err(|err| format!("type error in field '{field}': {err}"))?;
         ordered.insert(field.clone(), value.clone());
     }
-    check_ordered_record_size(target, ordered, file.cloned(), None).map_err(|err| err.to_string())
+    check_ordered_record_size(target, ordered, file.cloned(), inline_file.cloned())
+        .map_err(|err| err.to_string())
 }
 
 /// Enforce the deterministic shared-database 64 KiB `StoredRecord` cap using

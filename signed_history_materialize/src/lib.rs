@@ -17,7 +17,10 @@ mod store;
 mod validate;
 mod value;
 
-pub use apply::{apply_history, prepare_external_file, reconcile_keys};
+pub use apply::{
+    apply_history, apply_record_winner, apply_winner_with_file, prepare_external_file,
+    reconcile_keys,
+};
 pub use attachments::FileSection;
 pub use codec::{decode_string_field, encode_string_field, STRING_FIELD};
 pub use declare::declare_history_schemas;
