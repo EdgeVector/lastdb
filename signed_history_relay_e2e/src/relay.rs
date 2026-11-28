@@ -73,7 +73,7 @@ impl RelayClient {
             node_key_hex: actor.node_key_hex(),
             database_hex: database_id.to_hex(),
             device_hex: device_id.to_hex(),
-            revision: Default::default(),
+            revision: std::sync::Arc::default(),
         }
     }
 
