@@ -19,6 +19,7 @@ pub(in crate::log_sync) struct SyncDatabase {
     pub(super) database: DatabaseId,
     pub(super) identity: AuthorIdentity,
     pub(super) node_hex: String,
+    pub(super) publisher_hex: String,
     pub(super) device_hex: String,
     pub(super) birth_device_hex: String,
     /// The device id of the stream that holds the `snapshot` entries, and its hex.
@@ -74,6 +75,7 @@ impl SyncDatabase {
         Ok(Self {
             store: Arc::clone(&host.db),
             sealer: Sealer::for_node_seed(&seed)?,
+            publisher_hex: birth_entry.header().node_key.to_hex(),
             birth_device_hex: birth_device.to_hex(),
             snapshot_device,
             snapshot_device_hex: snapshot_device.to_hex(),

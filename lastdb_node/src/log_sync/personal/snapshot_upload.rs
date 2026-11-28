@@ -76,7 +76,7 @@ pub(super) async fn ensure_birth(
 ) -> Result<(), String> {
     if streams
         .iter()
-        .any(|stream| stream.device_id == ctx.birth_device_hex)
+        .any(|stream| stream.is(&ctx.publisher_hex, &ctx.birth_device_hex))
     {
         return Ok(());
     }

@@ -25,8 +25,24 @@ const HUNG_PEER_BUDGET: Duration = Duration::from_secs(45);
 /// Starts the error of a read of entries that the relay dropped after a snapshot.
 pub(super) const BEHIND_THE_TRIM: &str = "this device is behind history that the relay dropped after a snapshot; restore the database into a new home with `lastdb backup restore`";
 
-// One device stream of a writer as `log.streams` lists it.
-pub(super) use relay_protocol::StreamHead;
+/// A contiguous relay head bound to the writer whose streams were requested.
+#[derive(Clone, Debug)]
+pub(super) struct StreamHead {
+    pub(super) writer: String,
+    pub(super) device_id: String,
+    pub(super) head_seq: u64,
+    pub(super) head_hash: String,
+}
+
+impl StreamHead {
+    pub(super) fn is(&self, writer: &str, device: &str) -> bool {
+        self.writer == writer && self.device_id == device
+    }
+
+    pub(super) fn row(&self) -> String {
+        format!("{}:{}", self.writer, self.device_id)
+    }
+}
 
 pub(super) struct RelayClient {
     pub(super) base: String,
@@ -210,7 +226,23 @@ impl RelayClient {
             database_id: database_id.to_owned(),
             writer_key: writer_key.to_owned(),
         };
-        Ok(self.call::<LogStreams>(&request).await?.streams)
+        self.call::<LogStreams>(&request)
+            .await?
+            .streams
+            .into_iter()
+            .map(|head| {
+                mutation_log::DeviceId::from_hex(&head.device_id)
+                    .map_err(|_| "invalid stream device")?;
+                mutation_log::EntryHash::from_hex(&head.head_hash)
+                    .map_err(|_| "invalid stream head hash")?;
+                Ok(StreamHead {
+                    writer: writer_key.to_owned(),
+                    device_id: head.device_id,
+                    head_seq: head.head_seq,
+                    head_hash: head.head_hash,
+                })
+            })
+            .collect()
     }
 }
 

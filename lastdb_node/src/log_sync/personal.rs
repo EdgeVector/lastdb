@@ -86,11 +86,6 @@ impl<'a> Ctx<'a> {
         })
     }
 
-    /// The name of a device stream of this owner in the head rows.
-    pub(super) fn stream_name(&self, device_hex: &str) -> String {
-        format!("{}:{device_hex}", self.node_hex)
-    }
-
     /// The head row of this device's own stream: the last entry the relay
     /// acknowledged. `None` before the first one.
     pub(super) async fn own_head(&self) -> Result<Option<ReplayStreamHead>, String> {

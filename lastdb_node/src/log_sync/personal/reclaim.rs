@@ -248,7 +248,7 @@ async fn trim_before_sweep(
 fn other_heads(ctx: &Ctx<'_>, streams: &[RelayStream]) -> Vec<HeadAt> {
     streams
         .iter()
-        .filter(|stream| stream.device_id != ctx.snapshot_device_hex)
+        .filter(|stream| !stream.is(&ctx.publisher_hex, &ctx.snapshot_device_hex))
         .map(|stream| HeadAt {
             device_id: stream.device_id.clone(),
             writer_seq: stream.head_seq,

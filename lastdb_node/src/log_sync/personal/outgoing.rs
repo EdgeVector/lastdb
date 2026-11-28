@@ -164,10 +164,10 @@ async fn drain(
     }
     let mut birth_known = streams
         .iter()
-        .any(|stream| stream.device_id == ctx.birth_device_hex);
+        .any(|stream| stream.is(&ctx.publisher_hex, &ctx.birth_device_hex));
     let mut relay_head = streams
         .iter()
-        .find(|stream| stream.device_id == ctx.device_hex)
+        .find(|stream| stream.is(&ctx.node_hex, &ctx.device_hex))
         .map_or(0, |stream| stream.head_seq);
     while let Some(batch) = next_batch(ctx, streams).await? {
         let first = batch.entries.first().map(|entry| {
@@ -245,7 +245,7 @@ async fn next_batch(
     // never hold more than this device has made.
     let relay_head = streams
         .iter()
-        .find(|stream| stream.device_id == ctx.device_hex)
+        .find(|stream| stream.is(&ctx.node_hex, &ctx.device_hex))
         .map_or(0, |stream| stream.head_seq);
     if relay_head > status.head {
         return Err((

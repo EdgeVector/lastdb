@@ -9,7 +9,7 @@ const PAGE: u32 = 90;
 const EMPTY_PAGE_LIMIT: usize = 256;
 
 pub(super) struct StreamReader {
-    writer: String,
+    pub(super) writer: String,
     pub(super) device: String,
     next: Option<u64>,
     through: Option<u64>,

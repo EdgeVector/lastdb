@@ -332,7 +332,7 @@ async fn publish_cut(
     }
     let existing_snap_seq = streams
         .iter()
-        .find(|s| s.device_id == ctx.snapshot_device_hex)
+        .find(|s| s.is(&ctx.publisher_hex, &ctx.snapshot_device_hex))
         .map_or(0, |s| s.head_seq);
     if first {
         require_empty_for_first(ctx, client, &streams).await?;

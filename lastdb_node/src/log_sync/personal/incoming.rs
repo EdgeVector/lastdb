@@ -54,15 +54,12 @@ pub(super) async fn run(
     let others: Vec<&RelayStream> = streams
         .iter()
         .filter(|stream| {
-            stream.device_id != ctx.device_hex
-                && stream.device_id != ctx.birth_device_hex
-                && stream.device_id != ctx.snapshot_device_hex
+            !stream.is(&ctx.node_hex, &ctx.device_hex)
+                && !stream.is(&ctx.publisher_hex, &ctx.birth_device_hex)
+                && !stream.is(&ctx.publisher_hex, &ctx.snapshot_device_hex)
         })
         .collect();
-    let names: Vec<String> = others
-        .iter()
-        .map(|stream| ctx.stream_name(&stream.device_id))
-        .collect();
+    let names: Vec<String> = others.iter().map(|stream| stream.row()).collect();
     let heads = ctx
         .store
         .mutation_manager()
@@ -91,7 +88,7 @@ pub(super) async fn run(
         if stream.head_seq > held {
             cursors.push(Cursor {
                 reader: StreamReader::new(
-                    &ctx.node_hex,
+                    &stream.writer,
                     &stream.device_id,
                     held + 1,
                     Some(stream.head_seq),
@@ -141,7 +138,13 @@ async fn apply_entry(
     applied: &mut Applied,
 ) -> Result<(), String> {
     let head = cursor.head.as_ref().map(super::chain_head).transpose()?;
-    let hash = match verify::check(ctx, &cursor.reader.device, head, entry)? {
+    let hash = match verify::check(
+        ctx,
+        &cursor.reader.writer,
+        &cursor.reader.device,
+        head,
+        entry,
+    )? {
         Verdict::Next { hash } => hash,
         Verdict::Refused(reason) => return freeze(ctx, cursor, &reason).await,
     };
