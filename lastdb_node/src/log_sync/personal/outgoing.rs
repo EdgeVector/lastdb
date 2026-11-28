@@ -347,8 +347,7 @@ async fn commit_head(ctx: &Ctx<'_>, last: &SignedEntry) -> Result<(), String> {
         return Ok(());
     }
     let hash = entry_hash(last).map_err(|e| e.to_string())?;
-    ctx.host
-        .db
+    ctx.store
         .mutation_manager()
         .set_replay_stream_head(&ctx.own_stream, &apply::head_of(header, &hash))
         .await

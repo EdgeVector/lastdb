@@ -114,8 +114,7 @@ pub(super) async fn run(
         .map(|stream| ctx.stream_name(&stream.device_id))
         .collect();
     let heads = ctx
-        .host
-        .db
+        .store
         .mutation_manager()
         .replay_stream_heads(&names)
         .await
@@ -320,8 +319,7 @@ async fn freeze(ctx: &Ctx<'_>, cursor: &mut Cursor, reason: &str) -> Result<(), 
             frozen: false,
         })
     };
-    ctx.host
-        .db
+    ctx.store
         .mutation_manager()
         .set_replay_stream_head(&cursor.name, &frozen)
         .await
