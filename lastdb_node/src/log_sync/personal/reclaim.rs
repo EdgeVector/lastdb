@@ -248,8 +248,9 @@ async fn trim_before_sweep(
 fn other_heads(ctx: &Ctx<'_>, streams: &[RelayStream]) -> Vec<HeadAt> {
     streams
         .iter()
-        .filter(|stream| stream.device_id != ctx.snapshot_device_hex)
+        .filter(|stream| !stream.is(&ctx.publisher_hex, &ctx.snapshot_device_hex))
         .map(|stream| HeadAt {
+            writer_key: (stream.writer != ctx.publisher_hex).then(|| stream.writer.clone()),
             device_id: stream.device_id.clone(),
             writer_seq: stream.head_seq,
         })
@@ -262,7 +263,9 @@ async fn pass(
     turn: &mut SweepTurn<'_>,
 ) -> Result<Pass, String> {
     let client = counter.client;
-    let streams = client.streams(&ctx.database_id, &ctx.node_hex).await?;
+    let streams = client
+        .reclaim_streams(&ctx.database_id, &ctx.publisher_hex)
+        .await?;
     let Some((head, snapshot)) = snapshot_head(ctx, client, &streams).await? else {
         if turn.asked {
             return Err("the relay holds no snapshot of this database, so a sweep has nothing to keep; take one with `lastdb backup snapshot`".into());
@@ -350,6 +353,7 @@ async fn drop_batches(
     dead: &[String],
 ) -> Result<Pass, String> {
     let at = HeadAt {
+        writer_key: None,
         device_id: ctx.snapshot_device_hex.clone(),
         writer_seq: snapshot_seq,
     };

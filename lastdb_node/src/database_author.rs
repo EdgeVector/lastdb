@@ -21,8 +21,8 @@ use mutation_log::{
 use crate::author_identity::AuthorIdentity;
 use crate::personal_seal::Sealer;
 
-/// Seals and signs the entries of this device's stream of the personal database.
-pub(crate) struct PersonalAuthor {
+/// Seals and signs captured writes for a specific database and device.
+pub(crate) struct DatabaseAuthor {
     database: DatabaseId,
     identity: AuthorIdentity,
     device_hex: String,
@@ -32,7 +32,7 @@ pub(crate) struct PersonalAuthor {
     birth_order: u64,
 }
 
-impl PersonalAuthor {
+impl DatabaseAuthor {
     /// The author for the home with this node seed. The first call makes the device id.
     pub(crate) fn of_home(home: &Path, node_seed: &[u8; 32]) -> Result<Self, String> {
         let identity = AuthorIdentity::of_home(home, node_seed)?;
@@ -50,7 +50,7 @@ impl PersonalAuthor {
     }
 }
 
-impl CaptureAuthor for PersonalAuthor {
+impl CaptureAuthor for DatabaseAuthor {
     fn device(&self) -> &str {
         &self.device_hex
     }
@@ -66,7 +66,11 @@ impl CaptureAuthor for PersonalAuthor {
         order: u64,
         body: &[u8],
         file_sha256: Option<&str>,
+        note: Option<&[u8]>,
     ) -> Result<SignedLocal, String> {
+        if note.is_some() {
+            return Err("the personal database takes no note".into());
+        }
         if order >= LAMPORT_LIMIT {
             return Err("the order value of a write is at or past the lamport limit".into());
         }
@@ -79,9 +83,6 @@ impl CaptureAuthor for PersonalAuthor {
             }),
             None => None,
         };
-        let seq = previous
-            .map_or(Some(1), |held| held.seq.checked_add(1))
-            .ok_or_else(|| "the device stream sequence is exhausted".to_owned())?;
         let file = match file_sha256 {
             Some(sha256) => Some(MutationFileRef {
                 file_handle: "file".to_owned(),
@@ -99,22 +100,7 @@ impl CaptureAuthor for PersonalAuthor {
             seen_lamports: vec![self.birth_order],
             authored_at_ms: order,
         };
-        let data = DataBody {
-            stream: StreamKind::Direct,
-            namespace: SEALED_NAMESPACE.to_owned(),
-            payload: self.sealer.seal(
-                self.identity.node_key,
-                self.identity.device_id,
-                seq,
-                body,
-            )?,
-            file,
-            incorporated_from: None,
-            grant_at_device: None,
-            grant_at_seq: None,
-        };
-        let entry = author_data(&author, &self.identity.signing_key, data)
-            .map_err(|error| error.to_string())?;
+        let entry = sign_direct(&author, &self.identity, &self.sealer, body, file, None)?;
         // The store stamped the write with this order value. An entry that could
         // only be signed under a higher one would disagree with its own record.
         if entry.header().lamport != order {
@@ -126,4 +112,30 @@ impl CaptureAuthor for PersonalAuthor {
             hash: hash.to_hex(),
         })
     }
+}
+
+/// Seal an accepted write at its exact stream position and sign the database envelope.
+/// A publisher decision may identify the proposal it incorporates.
+pub(crate) fn sign_direct(
+    ctx: &AuthorCtx,
+    identity: &AuthorIdentity,
+    sealer: &Sealer,
+    plain: &[u8],
+    file: Option<MutationFileRef>,
+    incorporated_from: Option<mutation_log::IncorporatedFrom>,
+) -> Result<mutation_log::SignedEntry, String> {
+    let seq = ctx
+        .stream_head
+        .map_or(Some(1), |head| head.writer_seq.checked_add(1))
+        .ok_or("the device stream sequence is exhausted")?;
+    let body = DataBody {
+        stream: StreamKind::Direct,
+        namespace: SEALED_NAMESPACE.to_owned(),
+        payload: sealer.seal(ctx.node_key, ctx.device_id, seq, plain)?,
+        file,
+        incorporated_from,
+        grant_at_device: None,
+        grant_at_seq: None,
+    };
+    author_data(ctx, &identity.signing_key, body).map_err(|error| error.to_string())
 }

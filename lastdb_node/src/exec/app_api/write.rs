@@ -155,20 +155,7 @@ async fn run_timed(
         let located = located_keys(&items);
         let mut mutations = prepare(host, items).await?;
         let mut signed = if shared {
-            super::write_signed::plan(
-                &store,
-                mutations.iter().map(|mutation| {
-                    let record = (mutation.mutation_type != MutationType::Delete)
-                        .then_some(&mutation.record_fields);
-                    super::write_signed::SignedInput {
-                        schema: mutation.schema_name.as_str(),
-                        key: &mutation.key_value,
-                        op: mutation.mutation_type,
-                        record,
-                        alternates: &mutation.alternates,
-                    }
-                }),
-            )
+            super::write_signed::plan(&store, &mutations)?
         } else {
             Vec::new()
         };

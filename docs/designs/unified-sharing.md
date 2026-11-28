@@ -57,6 +57,12 @@ These are the personal database's mechanisms as built. Every database would use 
 5. **Snapshot and reclaim.** Each database freezes a snapshot of its store, names it in a signed
    entry, and asks the relay to drop what the snapshot covers.
 
+Each signed snapshot identifies covered streams by writer key and device ID. Its publisher's key
+is the default. Two different writers can use the same device ID and retain independent sequence
+numbers, hashes and replay positions. An owner-only snapshot keeps its original signing bytes.
+Restore binds each stored head to its signed writer, device, sequence, hash and order. A cleanup
+request must account for all writers' streams before the relay can release any files.
+
 A personal database is this path with no grants: `AcceptEntry` counts only the owner's key.
 
 ## 4. What changes for shared databases
@@ -71,12 +77,22 @@ A personal database is this path with no grants: `AcceptEntry` counts only the o
 | No snapshot, and the relay keeps every entry | Snapshot and reclaim, so the relay holds about what the store holds |
 | Files refused | Files, through the spool as in personal |
 
-What stays the same: the entry format, `AcceptEntry`, grants, leases, proposals and their
-statuses, the relay API, and the app API.
+What stays the same: the wire format of an entry, `AcceptEntry`, grants, leases, proposals and
+their statuses, the relay API, and the app API. What an entry holds changes: a shared write
+carries the personal payload, cites only the entries the store keeps (birth, the grant or lease
+it relies on, the proposal it decides), and a proposal names the stamp of the record it expects,
+not an entry hash. No shared database is in use, so there is no migration (Tom, 2026-11-28).
 
-The full history goes away. A revoke still works, because a revoked member's later entries do not
-count. What is lost is rebuilding a shared database from every entry it ever had. Nothing needs
-that except the shared code it replaces.
+The full history goes away. The node keeps, as signed-log rows in the store: the birth, every
+grant, every lease, each undecided proposal, each decision, the direct entries under a lease that
+is not closed, and the latest `relays` and `heads`. A revoke still works, because a revoked
+member's later entries do not count.
+
+A closed lease takes nothing back. A member's node signs a direct entry only while its lease is
+live, and a node that delivers its entries before the lease closes has every one of them count.
+An entry the publisher had not received when it closed the lease counts nowhere it arrives
+later; its writer's node proposes it again. Until the owner decides, only that node shows the
+value (Tom, 2026-11-28).
 
 ## 5. Moderation
 
@@ -97,6 +113,19 @@ Hiding a proposal stream from other members entirely was tried in #1955 and drop
 entry that cites a proposal they cannot hold, on the owner's signature alone. That is a change to
 `AcceptEntry`, and is not planned.
 
+### Who checks a member's direct write
+
+| Layer | Checked by | What it holds |
+|---|---|---|
+| Who may write | The owner's signed grant (`write`) | Only members the owner granted |
+| Until when | The lease, on every node | A revoke or role change takes effect when the lease ends, with no emergency revoke |
+| Shape | The node that writes and every node that applies | The schema, its keys, the record size limit |
+| What it may say | The app on the member's node | The owner's rules, when the member runs the same app |
+| Changes the owner approves | Proposals | `submit`, and `write` with no live lease |
+
+A direct write is trusted to the member's app (Tom, 2026-11-28). A member who should not carry that
+trust gets `submit`.
+
 ## 6. What org needs beyond share
 
 1. **Many members.** This already works. A grant is one entry per member, and one lease covers
@@ -109,10 +138,9 @@ entry that cites a proposal they cannot hold, on the owner's signature alone. Th
    the owner and to each moderator (one content key, wrapped for each), and `AcceptEntry`
    counting a decision signed by a current moderator. That changes the entry format and `AcceptEntry`, so it would be a stage of
    its own.
-3. **Removing a member.** A removed member still holds the read key. The relay already refuses
-   it new entries, but a relay that routed wrongly would hand it content it can open. Rotating
-   the read key when a member leaves closes that. It matters more in an org, where members come
-   and go, and it is an open question here.
+3. **Removing a member.** ExeMem applies the publisher-signed revoke to every new read and write by
+   that identity, including publisher-stream reads and blob requests. LastDB retains the database
+   read key. A former member keeps the data it already downloaded (Tom, 2026-11-28).
 4. **Groups.** Not needed. People's preset sets a role on each member's grant, and the node and
    relay see only the grants.
 
@@ -124,15 +152,17 @@ changes the home copies records into a fresh home and updates `../home-format.md
 
 1. Proposals sealed to the owner. In #1955.
 2. Shared writes through the spool and head rows. Removes `authored.json`, `uploaded.json`,
-   `received.json` and the in-memory history.
-3. One apply rule for every database: stamps for each part of a record, and `created_by` in the
-   store for the `submit` rule.
+   `received.json` and the in-memory history. Four PRs:
+   1. Store support: signed-log rows, entries that are not record writes, a note on a signed
+      write, and a read of a record's winning stamp. No change in behaviour.
+   2. `mutation_log`: the lease and grant counting rules as functions the node and the history
+      both call.
+   3. The personal sync engine over any store. No change in behaviour.
+   4. The switch: shared stores capture into their own spool and sync through that engine; the
+      old shared path is deleted. The shared store uses the personal code, its spool limit
+      included.
+3. `created_by` the same on every node. The per-part apply rule comes with 2.4.
 4. Snapshot and reclaim for shared databases.
-5. Files in shared databases.
-6. Read key rotation on member removal, if Tom chooses it.
+5. Files in shared databases. Done in #1956.
 
 Moderators other than the owner are not a stage now (6.2).
-
-## 8. Open questions
-
-1. Rotate the read key when a member is removed?

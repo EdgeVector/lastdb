@@ -1,36 +1,11 @@
-//! Seal `data` and `schema` entry bodies in a shared database.
-//!
-//! Shared databases reuse [`crate::personal_seal::Sealer`] (`Sealer::for_read_key`)
-//! for position-bound AES-256-GCM encryption under the shared database read key,
-//! and pack the real schema namespace (`1..=128` UTF-8 bytes) in front of the
-//! record or schema bytes via [`mutation_log::pack_hiding_namespace`]. Every
-//! sealed entry carries the fixed wire namespace `sealed`
-//! ([`mutation_log::SEALED_NAMESPACE`]), hiding both schema names and payloads
-//! from relays and non-holders of the read key.
-
-use mutation_log::{pack_hiding_namespace, DataBody, DatabaseId, SchemaBody, SEALED_NAMESPACE};
+//! Build the personal database's canonical accepted payload for a validated shared write.
+use fold_db::storage::disk_backup::accepted;
+use mutation_log::{DatabaseId, SchemaBody, SEALED_NAMESPACE};
 use zeroize::Zeroizing;
 
 use crate::personal_seal::Sealer;
 
-/// Seal a data body so the relay sees only the fixed sealed namespace.
-pub(crate) fn seal_data(
-    sealer: &Sealer,
-    node_key: mutation_log::NodeKey,
-    device_id: mutation_log::DeviceId,
-    writer_seq: u64,
-    body: DataBody,
-) -> Result<DataBody, String> {
-    let plain = pack_hiding_namespace(&body.namespace, &body.payload)
-        .map_err(std::borrow::ToOwned::to_owned)?;
-    Ok(DataBody {
-        namespace: SEALED_NAMESPACE.to_owned(),
-        payload: sealer.seal(node_key, device_id, writer_seq, &plain)?,
-        ..body
-    })
-}
-
-/// Seal a schema body so the relay sees only the fixed sealed namespace.
+/// Use the same schema declaration bytes as a captured personal schema.
 pub(crate) fn seal_schema(
     sealer: &Sealer,
     node_key: mutation_log::NodeKey,
@@ -38,8 +13,14 @@ pub(crate) fn seal_schema(
     writer_seq: u64,
     body: &SchemaBody,
 ) -> Result<SchemaBody, String> {
-    let plain = pack_hiding_namespace(&body.namespace, &body.definition)
-        .map_err(std::borrow::ToOwned::to_owned)?;
+    let definition = serde_json::from_slice(&body.definition)
+        .map_err(|error| format!("invalid schema: {error}"))?;
+    let plain = accepted::schema_plain(
+        &uuid::Uuid::new_v4().to_string(),
+        &body.namespace,
+        &definition,
+    )
+    .map_err(|error| error.to_string())?;
     Ok(SchemaBody {
         namespace: SEALED_NAMESPACE.to_owned(),
         definition: sealer.seal(node_key, device_id, writer_seq, &plain)?,

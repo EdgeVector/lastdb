@@ -1,6 +1,5 @@
 //! Per-stream verification, planning, and deletion helpers for `log/trim`.
 
-use std::collections::BTreeMap;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
@@ -33,6 +32,7 @@ impl TrimScope<'_> {
 }
 
 pub(crate) struct Plan {
+    writer: String,
     device: String,
     dir: PathBuf,
     floor: Option<(u64, String)>,
@@ -53,52 +53,6 @@ pub(crate) fn permits_entry(is_snapshot: bool, entry: &Value) -> bool {
     }
 }
 
-pub(crate) async fn ensure_personal_logs(
-    scope: &TrimScope<'_>,
-    snapshot_device: &str,
-    snap_covered: u64,
-    through_map: &BTreeMap<String, u64>,
-) -> ApiResult<()> {
-    let db_dir = scope.store.root.join("logs").join(scope.database_id);
-    for (writer_name, writer_path) in subdirs(&db_dir).await {
-        if writer_name != scope.writer {
-            return Err(ApiError::forbidden("grant"));
-        }
-        for (dev, dev_path) in subdirs(&writer_path).await {
-            let skip = if dev == snapshot_device {
-                snap_covered
-            } else {
-                through_map.get(&dev).copied().unwrap_or(0)
-            };
-            check_stream_tail(&dev_path, &dev, snapshot_device, skip, through_map).await?;
-        }
-    }
-    Ok(())
-}
-
-async fn check_stream_tail(
-    dir: &Path,
-    dev: &str,
-    snapshot_device: &str,
-    skip: u64,
-    through_map: &BTreeMap<String, u64>,
-) -> ApiResult<()> {
-    let is_snap = dev == snapshot_device;
-    for seq in stored_seqs(dir, skip + 1, u64::MAX).await {
-        let entry = read_json(&dir.join(format!("{seq}.json"))).await?;
-        let kind = entry.get("kind").and_then(Value::as_str);
-        if matches!(kind, Some("grant" | "lease" | "bundle")) {
-            return Err(ApiError::forbidden("grant"));
-        }
-        let is_valid_birth =
-            kind == Some("birth") && seq == 1 && !is_snap && !through_map.contains_key(dev);
-        if !is_valid_birth && !permits_entry(is_snap, &entry) {
-            return Err(ApiError::forbidden("namespace"));
-        }
-    }
-    Ok(())
-}
-
 pub(crate) async fn plan(
     scope: &TrimScope<'_>,
     device: &str,
@@ -113,6 +67,7 @@ pub(crate) async fn plan(
     }
     if through == 0 {
         return Ok(Plan {
+            writer: scope.writer.to_owned(),
             device: device.to_owned(),
             dir,
             floor: None,
@@ -156,7 +111,7 @@ pub(crate) async fn plan(
         None
     };
     let dropped_through = floor.as_ref().map_or(current_floor, |(seq, _)| *seq);
-    let covered = stored_seqs(&dir, 1, dropped_through).await;
+    let covered = stored_seqs(&dir, 1, dropped_through).await?;
     for seq in &covered {
         if !permits_entry(
             is_snapshot,
@@ -166,6 +121,7 @@ pub(crate) async fn plan(
         }
     }
     Ok(Plan {
+        writer: scope.writer.to_owned(),
         device: device.to_owned(),
         dir,
         floor,
@@ -181,7 +137,7 @@ async fn inside_segment(
     current_floor: u64,
     through: u64,
 ) -> ApiResult<Option<(u64, String)>> {
-    let holder = stored_seqs(dir, through + 1, u64::MAX).await;
+    let holder = stored_seqs(dir, through + 1, u64::MAX).await?;
     let Some(key) = holder.first() else {
         return Err(ApiError::invalid("through"));
     };
@@ -190,7 +146,7 @@ async fn inside_segment(
     if first > through {
         return Err(ApiError::invalid("through"));
     }
-    let below = stored_seqs(dir, current_floor + 1, through).await;
+    let below = stored_seqs(dir, current_floor + 1, through).await?;
     let Some(last) = below.last() else {
         return Ok(None);
     };
@@ -216,14 +172,14 @@ pub(crate) async fn apply(
         let heads = &scope.store.heads;
         heads.set_floor(
             scope.database_id,
-            scope.writer,
+            &plan.writer,
             &plan.device,
             *seq,
             hash.clone(),
         );
     }
     let covered = if let Some((through, _)) = &plan.floor {
-        stored_seqs(&plan.dir, 1, *through).await
+        stored_seqs(&plan.dir, 1, *through).await?
     } else {
         plan.covered.clone()
     };
@@ -251,34 +207,25 @@ pub(crate) async fn apply(
     Ok(())
 }
 
-async fn subdirs(dir: &Path) -> Vec<(String, PathBuf)> {
-    let mut out = Vec::new();
-    if let Ok(mut rd) = fs::read_dir(dir).await {
-        while let Ok(Some(ent)) = rd.next_entry().await {
-            if ent.file_type().await.is_ok_and(|t| t.is_dir()) {
-                if let Some(name) = ent.file_name().to_str() {
-                    out.push((name.to_owned(), ent.path()));
-                }
-            }
-        }
-    }
-    out
-}
-
-async fn stored_seqs(dir: &Path, min: u64, max: u64) -> Vec<u64> {
+async fn stored_seqs(dir: &Path, min: u64, max: u64) -> ApiResult<Vec<u64>> {
     let mut found = Vec::new();
-    if let Ok(mut files) = fs::read_dir(dir).await {
-        while let Ok(Some(file)) = files.next_entry().await {
-            let seq = file
-                .file_name()
-                .to_str()
-                .and_then(|name| name.strip_suffix(".json"))
-                .and_then(|name| name.parse::<u64>().ok());
-            if let Some(seq) = seq.filter(|s| *s >= min && *s <= max) {
-                found.push(seq);
-            }
+    let mut files = fs::read_dir(dir)
+        .await
+        .map_err(|_| ApiError::invalid("data_dir"))?;
+    while let Some(file) = files
+        .next_entry()
+        .await
+        .map_err(|_| ApiError::invalid("data_dir"))?
+    {
+        let seq = file
+            .file_name()
+            .to_str()
+            .and_then(|name| name.strip_suffix(".json"))
+            .and_then(|name| name.parse::<u64>().ok());
+        if let Some(seq) = seq.filter(|s| *s >= min && *s <= max) {
+            found.push(seq);
         }
     }
     found.sort_unstable();
-    found
+    Ok(found)
 }

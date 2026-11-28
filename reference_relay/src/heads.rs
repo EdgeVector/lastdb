@@ -23,6 +23,8 @@
 //! `log/streams` and the gapless append go on as before. A read that starts at or
 //! below the floor is refused, because the entries are gone.
 
+mod listing;
+
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -226,41 +228,6 @@ impl Heads {
                 beyond_rev: head.beyond_rev,
                 beyond: !head.pending.is_empty(),
             })
-    }
-
-    /// Every device stream of one writer that holds an entry, with or without seq 1.
-    pub(crate) fn devices(&self, database_id: &str, writer_key: &str) -> Vec<String> {
-        let streams = self.streams.lock().expect("heads lock");
-        let key = (database_id.to_owned(), writer_key.to_owned());
-        streams.get(&key).map_or_else(Vec::new, |devices| {
-            devices
-                .iter()
-                .filter(|(_, head)| head.seq >= 1 || !head.pending.is_empty())
-                .map(|(device_id, _)| device_id.clone())
-                .collect()
-        })
-    }
-
-    /// The streams of one writer that hold seq 1, sorted by device id, as `log/streams` lists
-    /// them.
-    pub(crate) fn list(
-        &self,
-        database_id: &str,
-        writer_key: &str,
-    ) -> Vec<relay_protocol::StreamHead> {
-        let streams = self.streams.lock().expect("heads lock");
-        let key = (database_id.to_owned(), writer_key.to_owned());
-        streams.get(&key).map_or_else(Vec::new, |devices| {
-            devices
-                .iter()
-                .filter(|(_, head)| head.seq >= 1)
-                .map(|(device_id, head)| relay_protocol::StreamHead {
-                    device_id: device_id.clone(),
-                    head_seq: head.seq,
-                    head_hash: head.hash.clone(),
-                })
-                .collect()
-        })
     }
 
     /// Build the map from every entry file under `<root>/logs`.

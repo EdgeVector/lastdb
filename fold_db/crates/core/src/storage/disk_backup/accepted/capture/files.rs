@@ -13,7 +13,6 @@ use std::path::{Path, PathBuf};
 
 /// The external file of a write: what its body says, and the bytes to seal.
 pub(super) struct External<'a> {
-    pub(super) present: bool,
     pub(super) cleared: bool,
     pub(super) marker: Option<&'a FileMarker>,
     /// Hash of the sealed row in this store, for a file the write brought as a row.
@@ -24,7 +23,6 @@ pub(super) struct External<'a> {
 impl<'a> External<'a> {
     fn absent() -> Self {
         Self {
-            present: false,
             cleared: false,
             marker: None,
             sealed: None,
@@ -34,7 +32,6 @@ impl<'a> External<'a> {
 
     fn clear() -> Self {
         Self {
-            present: true,
             cleared: true,
             marker: None,
             sealed: None,
@@ -44,7 +41,6 @@ impl<'a> External<'a> {
 
     fn put(marker: &'a FileMarker, sealed: Option<String>, plain: Vec<u8>) -> Self {
         Self {
-            present: true,
             cleared: false,
             marker: Some(marker),
             sealed,
@@ -149,7 +145,7 @@ fn file_marker<'a>(mutation: &'a Mutation, write: &'a FileWrite) -> StorageResul
     Ok(from_write)
 }
 
-pub(super) fn inline_section(
+pub(in crate::storage::disk_backup::accepted) fn inline_section(
     mutation: &Mutation,
 ) -> StorageResult<Option<body::InlineSection<'_>>> {
     match mutation.inline_write.as_ref() {

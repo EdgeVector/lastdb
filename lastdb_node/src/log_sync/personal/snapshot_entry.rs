@@ -26,8 +26,8 @@ impl<'a> SnapshotStream<'a> {
         Self {
             database_id: &ctx.database_id,
             database: ctx.database,
-            node_hex: &ctx.node_hex,
-            node_key: ctx.identity.node_key,
+            node_hex: &ctx.publisher_hex,
+            node_key: ctx.birth_entry.header().node_key,
             device: ctx.snapshot_device,
             device_hex: &ctx.snapshot_device_hex,
             birth_hash: ctx.birth_hash,
@@ -42,7 +42,7 @@ pub(super) struct VerifiedSnapshot {
     pub(super) authored_at_ms: u64,
 }
 
-/// The stream positions of a cut, ascending by device id.
+/// The signed stream positions represented in the frozen store.
 pub(super) fn through_of(
     ctx: &Ctx<'_>,
     heads: &[(
@@ -50,25 +50,26 @@ pub(super) fn through_of(
         fold_db::fold_db_core::mutation_manager::ReplayStreamHead,
     )],
 ) -> Result<Vec<SnapshotThrough>, String> {
-    let prefix = format!("{}:", ctx.node_hex);
+    let publisher = ctx.birth_entry.header().node_key;
     let mut through = Vec::new();
     for (stream, head) in heads {
-        let device = stream
-            .strip_prefix(&prefix)
-            .ok_or("a stream head row names another writer")?;
+        let (writer, device) = stream.split_once(':').ok_or("invalid stream head key")?;
+        let writer = NodeKey::from_hex(writer).map_err(|_| "a stream head row has a bad signer")?;
         if head.seq == 0 {
             continue;
         }
-        through.push(SnapshotThrough {
+        let stream = mutation_log::StreamId {
+            node_key: writer,
             device_id: DeviceId::from_hex(device)
                 .map_err(|_| "a stream head row has a bad device")?,
-            writer_seq: head.seq,
-            entry_hash: EntryHash::from_hex(&head.hash)
-                .map_err(|_| "a stream head row has a bad hash")?,
-            order: head.order,
-        });
+        };
+        let hash =
+            EntryHash::from_hex(&head.hash).map_err(|_| "a stream head row has a bad hash")?;
+        through.push(SnapshotThrough::new(
+            publisher, stream, head.seq, hash, head.order,
+        ));
     }
-    through.sort_by_key(|position| position.device_id.to_bytes());
+    through.sort_by_key(|position| position.stream_id(publisher));
     Ok(through)
 }
 
@@ -82,8 +83,8 @@ pub(super) async fn require_empty_for_first(
 ) -> Result<(), String> {
     let has_data_stream = streams.iter().any(|stream| {
         stream.head_seq > 0
-            && stream.device_id != ctx.birth_device_hex
-            && stream.device_id != ctx.snapshot_device_hex
+            && !stream.is(&ctx.publisher_hex, &ctx.birth_device_hex)
+            && !stream.is(&ctx.publisher_hex, &ctx.snapshot_device_hex)
     });
     if has_data_stream {
         return Err(
@@ -108,7 +109,7 @@ pub(super) async fn read_verified_head(
 ) -> Result<Option<VerifiedSnapshot>, String> {
     let Some(listed) = streams
         .iter()
-        .find(|item| item.device_id == stream.device_hex && item.head_seq > 0)
+        .find(|item| item.is(stream.node_hex, stream.device_hex) && item.head_seq > 0)
     else {
         return Ok(None);
     };
@@ -184,8 +185,7 @@ pub(super) async fn require_covers_latest(
     for prev in &previous.through {
         let covered = through
             .iter()
-            .find(|pos| pos.device_id == prev.device_id)
-            .is_some_and(|pos| pos.writer_seq >= prev.writer_seq);
+            .any(|pos| pos.covers(prev, ctx.birth_entry.header().node_key));
         if !covered {
             return Err(
                 "another device published a newer snapshot; catch up before taking a snapshot"

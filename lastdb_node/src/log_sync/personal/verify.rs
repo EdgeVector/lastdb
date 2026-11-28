@@ -29,13 +29,14 @@ pub(super) enum Verdict {
 /// unverified bytes, another stream, or another sequence fails transiently with `Err`.
 pub(super) fn check(
     ctx: &Ctx<'_>,
+    writer: &str,
     device: &str,
     head: Option<StreamHead>,
     entry: &SignedEntry,
 ) -> Result<Verdict, String> {
     let header = entry.header();
     if header.database_id != ctx.database
-        || header.node_key != ctx.identity.node_key
+        || header.node_key.to_hex() != writer
         || header.device_id.to_hex() != device
     {
         return Err("the relay returned an entry for another database or stream".into());
@@ -46,7 +47,7 @@ pub(super) fn check(
     let grants = GrantState::empty();
     let accept = AcceptContext {
         database_id: ctx.database,
-        owner: Some(ctx.identity.node_key),
+        owner: Some(ctx.birth_entry.header().node_key),
         stream_head: head,
         stream_frozen: false,
         hash_at_seq: None,

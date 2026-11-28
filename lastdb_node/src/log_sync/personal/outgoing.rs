@@ -3,7 +3,7 @@
 //! Every commit lands in the spool before the caller is told, and it lands
 //! there finished: the store made the write the next entry of this device's
 //! stream in the transaction that committed it, sealed with the database read
-//! key and signed with the node key (`crate::personal_author`). A file that an
+//! key and signed with the node key (`crate::database_author`). A file that an
 //! entry names is in the spool beside it, sealed. The sender changes nothing in
 //! the store and signs nothing. It reads the entries past the acknowledged
 //! position, sends their files and then the entries as one log segment (`send`), asks the relay for each
@@ -29,11 +29,12 @@ use fold_db::storage::disk_backup::accepted::{
     Entry, EntryFile, Error as SpoolError, UploadIdentity, UploadPosition,
 };
 use fold_db::storage::disk_pack::PackRuntime;
-use mutation_log::{entry_hash, DataBody, SignedEntry};
+use mutation_log::{entry_hash, SignedEntry};
 
-use super::{apply, normalize_error, send, Ctx};
+use super::{apply, normalize_error, Ctx};
 use crate::host::cloud_sync::BlockedUploadStatus;
 use crate::log_sync::relay::{RelayClient, StreamHead as RelayStream};
+use crate::log_sync::send::{self, Transport};
 
 /// The spool is read this many entries at a time.
 const PAGE: u32 = 90;
@@ -163,10 +164,10 @@ async fn drain(
     }
     let mut birth_known = streams
         .iter()
-        .any(|stream| stream.device_id == ctx.birth_device_hex);
+        .any(|stream| stream.is(&ctx.publisher_hex, &ctx.birth_device_hex));
     let mut relay_head = streams
         .iter()
-        .find(|stream| stream.device_id == ctx.device_hex)
+        .find(|stream| stream.is(&ctx.node_hex, &ctx.device_hex))
         .map_or(0, |stream| stream.head_seq);
     while let Some(batch) = next_batch(ctx, streams).await? {
         let first = batch.entries.first().map(|entry| {
@@ -244,7 +245,7 @@ async fn next_batch(
     // never hold more than this device has made.
     let relay_head = streams
         .iter()
-        .find(|stream| stream.device_id == ctx.device_hex)
+        .find(|stream| stream.is(&ctx.node_hex, &ctx.device_hex))
         .map_or(0, |stream| stream.head_seq);
     if relay_head > status.head {
         return Err((
@@ -298,20 +299,17 @@ fn signed_entry(ctx: &Ctx<'_>, item: Entry) -> Result<(SignedEntry, Option<Entry
     const BAD: &str = "a spool entry is not a signed entry of this device";
     let entry: SignedEntry = serde_json::from_slice(&item.signed).map_err(|_| BAD.to_owned())?;
     let header = entry.header();
-    if header.writer_seq != item.sequence
+    if header.database_id != ctx.database
+        || header.writer_seq != item.sequence
         || header.node_key != ctx.identity.node_key
         || header.device_id != ctx.identity.device_id
     {
         return Err(BAD.into());
     }
-    let SignedEntry::Data {
-        body: DataBody { file: named, .. },
-        ..
-    } = &entry
-    else {
-        return Err(BAD.into());
+    let named = match &entry {
+        SignedEntry::Data { body, .. } => body.file.as_ref().map(|file| file.sha256.to_hex()),
+        _ => None,
     };
-    let named = named.as_ref().map(|file| file.sha256.to_hex());
     if named != item.file.as_ref().map(|file| file.sha256.clone()) {
         return Err("a spool entry names another file than the spool holds".into());
     }
@@ -326,8 +324,35 @@ async fn finish(
     birth_known: &mut bool,
     relay_head: &mut u64,
 ) -> Result<(), String> {
-    send::send(ctx, client, batch, birth_known, relay_head).await?;
+    if !*birth_known {
+        if ctx.node_hex != ctx.publisher_hex {
+            return Err("the relay has no verified publisher birth".into());
+        }
+        let stored = client
+            .append(&ctx.database_id, std::slice::from_ref(&ctx.birth_entry))
+            .await?;
+        send::expect_all(stored, 1)?;
+        *birth_known = true;
+    }
+    let files: Vec<_> = batch
+        .files
+        .iter()
+        .map(|f| (f.sha256.as_str(), f.path.as_path()))
+        .collect();
+    send::send_batch(
+        client,
+        &ctx.database_id,
+        &batch.entries,
+        &files,
+        if ctx.node_hex == ctx.publisher_hex {
+            Transport::SegmentAfter(*relay_head)
+        } else {
+            Transport::Inline
+        },
+    )
+    .await?;
     let last = batch.entries.last().ok_or("a batch holds no entry")?;
+    *relay_head = (*relay_head).max(last.header().writer_seq);
     commit_head(ctx, last).await?;
     let position = UploadPosition {
         writer_seq: last.header().writer_seq,
@@ -347,8 +372,7 @@ async fn commit_head(ctx: &Ctx<'_>, last: &SignedEntry) -> Result<(), String> {
         return Ok(());
     }
     let hash = entry_hash(last).map_err(|e| e.to_string())?;
-    ctx.host
-        .db
+    ctx.store
         .mutation_manager()
         .set_replay_stream_head(&ctx.own_stream, &apply::head_of(header, &hash))
         .await

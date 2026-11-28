@@ -6,10 +6,10 @@ use mutation_log::{AcceptOutcome, DeviceId, NodeKey, Role, SignedEntry, Verified
 
 use super::history_store::HistoryMap;
 use super::materialize::{self, DatabaseCtx};
-use super::relay::RelayClient;
+use super::relay::{RelayClient, StreamHead};
+use super::stream_reader::{next_ordered, StreamReader};
 
-/// Pull one device stream (`device_id` set). Used for the publisher's known
-/// devices so a revoked member can still read through the signed revoke.
+/// Pull one known publisher device stream starting after the local head.
 async fn pull_stream(
     client: &RelayClient,
     histories: &HistoryMap,
@@ -91,16 +91,7 @@ async fn pull_publisher(
         accepted += pull_stream(client, histories, db, publisher_hex, device).await?;
     }
     match client.streams(db.database_id, publisher_hex).await {
-        Ok(heads) => {
-            for head in heads {
-                let from = next_seq(histories, db.database_id, publisher_hex, &head.device_id);
-                if from <= head.head_seq {
-                    accepted +=
-                        pull_pages(client, histories, db, publisher_hex, &head.device_id, from)
-                            .await?;
-                }
-            }
-        }
+        Ok(heads) => accepted += pull_listed(client, histories, db, heads).await?,
         Err(err) if relay_forbidden(&err) && caller_revoked(histories, db.database_id, caller) => {
             tracing::warn!(
                 target: "lastdbd::log_sync",
@@ -122,17 +113,7 @@ async fn pull_member_writer(
     writer: &str,
 ) -> Result<u64, String> {
     match client.streams(db.database_id, writer).await {
-        Ok(heads) => {
-            let mut accepted = 0u64;
-            for head in heads {
-                let from = next_seq(histories, db.database_id, writer, &head.device_id);
-                if from <= head.head_seq {
-                    accepted +=
-                        pull_pages(client, histories, db, writer, &head.device_id, from).await?;
-                }
-            }
-            Ok(accepted)
-        }
+        Ok(heads) => pull_listed(client, histories, db, heads).await,
         Err(err) if relay_forbidden(&err) && caller_revoked(histories, db.database_id, caller) => {
             tracing::warn!(
                 target: "lastdbd::log_sync",
@@ -145,6 +126,39 @@ async fn pull_member_writer(
         }
         Err(err) => Err(err),
     }
+}
+
+/// Check acknowledged heads before merging the missing ranges, just as for another personal device.
+async fn pull_listed(
+    client: &RelayClient,
+    histories: &HistoryMap,
+    db: &DatabaseCtx<'_>,
+    heads: Vec<StreamHead>,
+) -> Result<u64, String> {
+    let mut readers = Vec::new();
+    for head in heads {
+        let writer = NodeKey::from_hex(&head.writer).map_err(|_| "invalid stream writer")?;
+        let device = DeviceId::from_hex(&head.device_id).map_err(|_| "invalid stream device")?;
+        let stream = VerifiedHistory::stream(writer, device);
+        let held = histories
+            .peek_with(db.database_id, |history| history.stream_head(&stream))
+            .flatten();
+        if held.is_some_and(|held| {
+            held.writer_seq == head.head_seq && held.entry_hash.to_hex() != head.head_hash
+        }) {
+            return Err("the relay's stream head differs from the accepted entry".into());
+        }
+        let seq = held.map_or(0, |held| held.writer_seq);
+        if seq < head.head_seq {
+            readers.push(StreamReader::new(
+                &head.writer,
+                &head.device_id,
+                seq + 1,
+                Some(head.head_seq),
+            ));
+        }
+    }
+    receive(client, histories, db, &mut readers).await
 }
 
 /// Hex writer keys: publisher plus write/submit (and historical) members.
@@ -220,38 +234,23 @@ async fn pull_pages(
     device_id: &str,
     from_seq: u64,
 ) -> Result<u64, String> {
-    let mut cursor: Option<String> = None;
-    let mut accepted = 0u64;
-    let mut empty_pages = 0u32;
-    loop {
-        let (entries, next) = client
-            .read(
-                db.database_id,
-                writer_key,
-                Some(device_id),
-                from_seq,
-                cursor.as_deref(),
-                90,
-            )
-            .await?;
-        let empty = entries.is_empty();
-        for entry in entries {
-            if accept_one(histories, db, entry)? {
-                accepted += 1;
-            }
+    let mut readers = [StreamReader::new(writer_key, device_id, from_seq, None)];
+    receive(client, histories, db, &mut readers).await
+}
+
+async fn receive(
+    client: &RelayClient,
+    histories: &HistoryMap,
+    db: &DatabaseCtx<'_>,
+    readers: &mut [StreamReader],
+) -> Result<u64, String> {
+    let mut accepted = 0;
+    while let Some((_, entry)) =
+        next_ordered(db.database_id, client, readers, |reader| reader).await?
+    {
+        if accept_one(histories, db, entry)? {
+            accepted += 1;
         }
-        let Some(next) = next else {
-            break;
-        };
-        if empty {
-            empty_pages += 1;
-            if cursor.as_deref() == Some(next.as_str()) || empty_pages > 256 {
-                return Err("relay log.read cursor did not advance".into());
-            }
-        } else {
-            empty_pages = 0;
-        }
-        cursor = Some(next);
     }
     Ok(accepted)
 }

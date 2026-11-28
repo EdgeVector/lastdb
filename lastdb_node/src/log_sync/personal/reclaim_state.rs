@@ -107,7 +107,7 @@ pub(super) fn refresh_due(
     }
     let relay_seq = streams
         .iter()
-        .find(|stream| stream.device_id == ctx.snapshot_device_hex)
+        .find(|stream| stream.is(&ctx.publisher_hex, &ctx.snapshot_device_hex))
         .map_or(0, |stream| stream.head_seq);
     let known_seq = known::known(&ctx.host.home)
         .filter(|status| status.relay.as_deref() == Some(origin.as_str()))

@@ -298,7 +298,7 @@ pub(super) fn record_published(
     let own_seq = published
         .through
         .iter()
-        .find(|position| position.device_id == ctx.identity.device_id)
+        .find(|position| position.publisher_device() == Some(ctx.identity.device_id))
         .map_or(0, |position| position.writer_seq);
     let report = Report {
         snapshot_seq: published.entry.header().writer_seq,

@@ -121,8 +121,8 @@ pub struct BlobListed {
     pub bytes: u64,
 }
 
-/// `blob.drop`: drop named blobs while the publisher's streams are exactly as named. Publisher of
-/// a personal database only.
+/// `blob.drop`: drop named blobs while all stream heads are exactly as named. Only
+/// the database publisher can drop blobs.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
@@ -131,7 +131,7 @@ pub struct BlobDropRequest {
     pub database_id: String,
     /// The head of the publisher's snapshot stream. Its manifest may not be dropped.
     pub snapshot: StreamPosition,
-    /// The head of every other stream of the publisher, as `log.streams` listed them. At most 32.
+    /// The head of every other stream in the database, as `log.streams` listed them. At most 32.
     pub heads: Vec<StreamPosition>,
     /// The blobs to drop: 1 to 25 digests, each once, 64 lowercase hex.
     pub sha256: Vec<String>,
@@ -142,10 +142,20 @@ pub struct BlobDropRequest {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct StreamPosition {
+    /// Stream signer when different from the snapshot publisher.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub writer_key: Option<String>,
     /// The stream, 64 lowercase hex.
     pub device_id: String,
     /// The sequence number.
     pub writer_seq: u64,
+}
+
+impl StreamPosition {
+    /// Resolve this position against the authenticated snapshot publisher.
+    pub fn writer_or<'a>(&'a self, publisher: &'a str) -> &'a str {
+        self.writer_key.as_deref().unwrap_or(publisher)
+    }
 }
 
 /// The answer to a `blob.drop`.

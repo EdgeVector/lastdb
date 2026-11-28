@@ -1,8 +1,10 @@
 //! Library surface of the minimal `lastdbd` daemon.
 
+pub(crate) mod accepted_body;
 pub(crate) mod author_identity;
 pub mod cloud;
 pub mod cloud_backup_client;
+pub(crate) mod database_author;
 pub(crate) mod database_birth;
 pub(crate) mod device_identity;
 pub mod exec;
@@ -12,7 +14,6 @@ pub mod lastdb_uds;
 pub mod log_sync;
 pub mod offline_home;
 pub(crate) mod owner_seal;
-pub(crate) mod personal_author;
 pub(crate) mod personal_identity;
 pub(crate) mod personal_seal;
 pub mod prepare_stop;

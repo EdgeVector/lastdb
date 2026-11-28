@@ -148,6 +148,14 @@ pub enum MutationType {
     Purge,
 }
 
+/// One row of the signed-log family that a write stages in its own commit.
+/// The store does not read the value. `None` deletes the row.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LogRow {
+    pub key: String,
+    pub value: Option<Vec<u8>>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Mutation {
     pub uuid: String,
@@ -170,6 +178,11 @@ pub struct Mutation {
     pub file_write: Option<FileWrite>,
     pub inline_write: Option<crate::record_value::InlineWrite>,
     pub definition_id: Option<String>,
+    /// Opaque bytes for the signer of the entry this write becomes. The store
+    /// passes them to the author and does not read them.
+    pub log_note: Option<Vec<u8>>,
+    /// Signed-log rows staged in the commit of this write.
+    pub log_rows: Vec<LogRow>,
 }
 
 impl Mutation {
@@ -200,6 +213,8 @@ impl Mutation {
             file_write: None,
             inline_write: None,
             definition_id: None,
+            log_note: None,
+            log_rows: Vec::new(),
         }
     }
 

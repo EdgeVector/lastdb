@@ -13,7 +13,7 @@
 //! is replayed: the head rows say where each stream stands. A file that a record
 //! names is fetched and checked before the record commits.
 
-use std::collections::VecDeque;
+use crate::log_sync::stream_reader::StreamReader;
 
 use fold_db::fold_db_core::mutation_manager::ReplayStreamHead;
 use mutation_log::{DataBody, SealOpener, SignedEntry};
@@ -23,9 +23,6 @@ use super::verify::{self, Verdict};
 use super::{apply, files, Ctx};
 use crate::log_sync::relay::{RelayClient, StreamHead as RelayStream};
 use crate::profile::private_fs as disk;
-
-/// The relay returns at most this many entries in one page.
-const PAGE: u32 = 90;
 
 /// What one run applied.
 #[derive(Default)]
@@ -42,56 +39,9 @@ pub(super) struct Applied {
 
 /// One stream being read.
 struct Cursor {
-    device: String,
+    reader: StreamReader,
     name: String,
-    /// The next sequence number to read.
-    next: u64,
-    /// The relay head when the run began. Nothing above it is read.
-    limit: u64,
     head: Option<ReplayStreamHead>,
-    page: VecDeque<SignedEntry>,
-}
-
-impl Cursor {
-    /// Read a page when the buffer is empty and the relay holds more.
-    async fn fill(&mut self, ctx: &Ctx<'_>, client: &RelayClient) -> Result<(), String> {
-        if !self.page.is_empty() || self.next > self.limit {
-            return Ok(());
-        }
-        let (entries, _) = client
-            .read(
-                &ctx.database_id,
-                &ctx.node_hex,
-                Some(self.device.as_str()),
-                self.next,
-                None,
-                PAGE,
-            )
-            .await?;
-        for entry in entries {
-            let seq = entry.header().writer_seq;
-            if seq != self.next || seq > self.limit {
-                break;
-            }
-            self.next += 1;
-            self.page.push_back(entry);
-        }
-        if self.page.is_empty() {
-            return Err("the relay holds fewer entries of a stream than it reports".into());
-        }
-        Ok(())
-    }
-
-    /// The merge order of the entry in front.
-    fn front(&self) -> Option<(u64, mutation_log::NodeKey, mutation_log::DeviceId, u64)> {
-        let header = self.page.front()?.header();
-        Some((
-            header.lamport,
-            header.node_key,
-            header.device_id,
-            header.writer_seq,
-        ))
-    }
 }
 
 /// Apply what the relay holds of the other devices that this node does not.
@@ -104,18 +54,14 @@ pub(super) async fn run(
     let others: Vec<&RelayStream> = streams
         .iter()
         .filter(|stream| {
-            stream.device_id != ctx.device_hex
-                && stream.device_id != ctx.birth_device_hex
-                && stream.device_id != ctx.snapshot_device_hex
+            !stream.is(&ctx.node_hex, &ctx.device_hex)
+                && !stream.is(&ctx.publisher_hex, &ctx.birth_device_hex)
+                && !stream.is(&ctx.publisher_hex, &ctx.snapshot_device_hex)
         })
         .collect();
-    let names: Vec<String> = others
-        .iter()
-        .map(|stream| ctx.stream_name(&stream.device_id))
-        .collect();
+    let names: Vec<String> = others.iter().map(|stream| stream.row()).collect();
     let heads = ctx
-        .host
-        .db
+        .store
         .mutation_manager()
         .replay_stream_heads(&names)
         .await
@@ -141,12 +87,14 @@ pub(super) async fn run(
         let held = head.as_ref().map_or(0, |held| held.seq);
         if stream.head_seq > held {
             cursors.push(Cursor {
-                device: stream.device_id.clone(),
+                reader: StreamReader::new(
+                    &stream.writer,
+                    &stream.device_id,
+                    held + 1,
+                    Some(stream.head_seq),
+                ),
                 name,
-                next: held + 1,
-                limit: stream.head_seq,
                 head,
-                page: VecDeque::new(),
             });
         }
     }
@@ -161,25 +109,15 @@ async fn merge(
     cursors: &mut [Cursor],
     applied: &mut Applied,
 ) -> Result<(), String> {
-    loop {
-        for cursor in &mut *cursors {
-            cursor.fill(ctx, client).await?;
-        }
-        let Some(at) = cursors
-            .iter()
-            .enumerate()
-            .filter_map(|(at, cursor)| cursor.front().map(|key| (key, at)))
-            .min()
-            .map(|(_, at)| at)
-        else {
-            return Ok(());
-        };
-        let cursor = &mut cursors[at];
-        let Some(entry) = cursor.page.pop_front() else {
-            return Ok(());
-        };
-        apply_entry(ctx, client, cursor, &entry, applied).await?;
+    while let Some((index, entry)) =
+        crate::log_sync::stream_reader::next_ordered(&ctx.database_id, client, cursors, |cursor| {
+            &mut cursor.reader
+        })
+        .await?
+    {
+        apply_entry(ctx, client, &mut cursors[index], &entry, applied).await?;
     }
+    Ok(())
 }
 
 async fn apply_entry(
@@ -190,7 +128,13 @@ async fn apply_entry(
     applied: &mut Applied,
 ) -> Result<(), String> {
     let head = cursor.head.as_ref().map(super::chain_head).transpose()?;
-    let hash = match verify::check(ctx, &cursor.device, head, entry)? {
+    let hash = match verify::check(
+        ctx,
+        &cursor.reader.writer,
+        &cursor.reader.device,
+        head,
+        entry,
+    )? {
         Verdict::Next { hash } => hash,
         Verdict::Refused(reason) => return freeze(ctx, cursor, &reason).await,
     };
@@ -320,14 +264,12 @@ async fn freeze(ctx: &Ctx<'_>, cursor: &mut Cursor, reason: &str) -> Result<(), 
             frozen: false,
         })
     };
-    ctx.host
-        .db
+    ctx.store
         .mutation_manager()
         .set_replay_stream_head(&cursor.name, &frozen)
         .await
         .map_err(|error| format!("a frozen stream could not be recorded: {error}"))?;
     cursor.head = Some(frozen);
-    cursor.page.clear();
-    cursor.next = cursor.limit + 1;
+    cursor.reader.stop();
     Ok(())
 }

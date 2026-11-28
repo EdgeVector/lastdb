@@ -40,8 +40,8 @@ pub const PROTOCOL: &str = "1";
 /// revision it serves on every answer in [`answer_headers::REVISION`] as [`revision`]; a node
 /// uses an addition only where [`supports`] says the relay serves it.
 ///
-/// Revision 2 adds [`Feature::ContractProbe`] and nothing on the wire.
-pub const REVISION: u32 = 2;
+/// Revision 3 adds publisher-wide stream listings and writer-qualified snapshot positions.
+pub const REVISION: u32 = 3;
 
 /// The revision as a relay announces it and the OpenAPI document names it:
 /// `<PROTOCOL>.<REVISION>`, for example `1.1`.
@@ -76,22 +76,19 @@ pub mod answer_headers {
 /// fallback path.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Feature {
-    /// A placeholder that changes nothing on the wire. A relay of revision 2 or later serves it.
-    /// It exists so that the node reads each relay's revision and asks [`supports`] against real
-    /// relays before the first real addition depends on it. When the first real feature arrives,
-    /// it takes the next revision and this variant goes; revision 2 stays taken.
-    ContractProbe,
+    /// The publisher can list and fence stream positions by writer and device.
+    WriterQualifiedStreams,
 }
 
 impl Feature {
     /// Every feature, oldest first. A node reports each one for its relay.
-    pub const ALL: [Self; 1] = [Self::ContractProbe];
+    pub const ALL: [Self; 1] = [Self::WriterQualifiedStreams];
 
     /// The revision that first serves the feature.
     #[must_use]
     pub const fn since(self) -> u32 {
         match self {
-            Self::ContractProbe => 2,
+            Self::WriterQualifiedStreams => 3,
         }
     }
 
@@ -99,7 +96,7 @@ impl Feature {
     #[must_use]
     pub const fn name(self) -> &'static str {
         match self {
-            Self::ContractProbe => "contract_probe",
+            Self::WriterQualifiedStreams => "writer_qualified_streams",
         }
     }
 }

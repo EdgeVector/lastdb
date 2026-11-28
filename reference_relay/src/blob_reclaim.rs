@@ -24,7 +24,7 @@ use crate::error::{ApiError, ApiResult};
 use crate::gate;
 use crate::handlers::{authenticate, AppState};
 use crate::store::{is_hex64, require_hex64, Store};
-use crate::trim::{personal_owner, snapshot_entry, SnapshotName};
+use crate::trim::{require_publisher, snapshot_entry, SnapshotName};
 
 /// Blobs in one page of `blob/list`.
 const LIST_PAGE: usize = 1_000;
@@ -66,19 +66,23 @@ pub(crate) async fn blob_list(
 
 /// The shape of a drop: at most [`MAX_HEADS`] heads, each stream once, none of them the snapshot
 /// stream, each at an entry; 1 to [`MAX_DROPS`] digests, each once.
-fn check_drop_body(req: &BlobDropRequest) -> ApiResult<()> {
+fn check_drop_body(req: &BlobDropRequest, publisher: &str) -> ApiResult<()> {
     require_hex64(&req.database_id, "database_id")?;
     require_hex64(&req.snapshot.device_id, "snapshot")?;
-    if req.snapshot.writer_seq == 0 {
+    if req.snapshot.writer_key.is_some() || req.snapshot.writer_seq == 0 {
         return Err(ApiError::invalid("snapshot"));
     }
-    let mut devices = BTreeSet::new();
+    let mut streams = BTreeSet::new();
     let heads_fit = req.heads.len() <= MAX_HEADS
         && req.heads.iter().all(|head| {
             is_hex64(&head.device_id)
                 && head.writer_seq > 0
-                && head.device_id != req.snapshot.device_id
-                && devices.insert(head.device_id.as_str())
+                && head
+                    .writer_key
+                    .as_deref()
+                    .is_none_or(|key| is_hex64(key) && key != publisher)
+                && (head.writer_key.is_some() || head.device_id != req.snapshot.device_id)
+                && streams.insert((head.writer_or(publisher), head.device_id.as_str()))
         });
     if !heads_fit {
         return Err(ApiError::invalid("heads"));
@@ -115,19 +119,19 @@ pub(crate) async fn blob_drop(
     body: Bytes,
 ) -> ApiResult<Json<BlobDropAnswer>> {
     let (verified, req) = authenticate::<BlobDrop>(&headers, &body)?;
-    check_drop_body(&req)?;
     let db = gate::parse_id(&req.database_id, "database_id")?;
     let writer = verified.node_key.to_hex();
+    check_drop_body(&req, &writer)?;
     // Not beside a trim, and not beside a commit of a blob.
     let _trim_guard = state.trim_lock.lock().await;
     let _blob_guard = state.blob_lock.lock().await;
     let grants = state.grants.lock().await;
-    personal_owner(&grants, &db, &verified.node_key)?;
+    require_publisher(&grants, &db, &verified.node_key)?;
     let read = |at: &StreamPosition| {
         state
             .store
             .heads
-            .token(&req.database_id, &writer, &at.device_id)
+            .token(&req.database_id, at.writer_or(&writer), &at.device_id)
     };
     let named = std::iter::once((&req.snapshot, "snapshot"))
         .chain(req.heads.iter().map(|at| (at, "heads")));
@@ -143,9 +147,13 @@ pub(crate) async fn blob_drop(
     let unnamed = state
         .store
         .heads
-        .devices(&req.database_id, &writer)
+        .stored_streams(&req.database_id)
         .iter()
-        .any(|device| tokens.iter().all(|(at, _, _)| at.device_id != *device));
+        .any(|(key, device)| {
+            tokens
+                .iter()
+                .all(|(at, _, _)| at.writer_or(&writer) != key || at.device_id != *device)
+        });
     if unnamed {
         return Err(ApiError::heads_moved("heads"));
     }

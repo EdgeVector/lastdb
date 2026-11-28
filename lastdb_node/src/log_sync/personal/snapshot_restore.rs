@@ -41,6 +41,7 @@ pub struct SnapshotBase {
     pub bytes: u64,
     /// Milliseconds spent fetching and installing the files.
     pub download_ms: u64,
+    publisher: NodeKey,
     through: Vec<SnapshotThrough>,
     /// When the snapshot entry was signed, the digest of its manifest, and the relay it came from.
     taken_at_ms: u64,
@@ -123,6 +124,7 @@ pub async fn install_newest_snapshot(
         files: list.files.len(),
         bytes: list.bytes(),
         download_ms: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+        publisher: node_key,
         through: verified.body.through,
         taken_at_ms: verified.authored_at_ms,
         manifest_sha256,
@@ -179,11 +181,13 @@ pub(super) async fn adopt(ctx: &Ctx<'_>, base: &SnapshotBase) -> Result<(), Stri
     let names: Vec<String> = base
         .through
         .iter()
-        .map(|position| ctx.stream_name(&position.device_id.to_hex()))
+        .map(|position| {
+            let stream = position.stream_id(base.publisher);
+            format!("{}:{}", stream.node_key.to_hex(), stream.device_id.to_hex())
+        })
         .collect();
     let heads = ctx
-        .host
-        .db
+        .store
         .mutation_manager()
         .replay_stream_heads(&names)
         .await

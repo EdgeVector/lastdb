@@ -192,22 +192,23 @@ pub struct SegmentRef {
     pub expires_at_ms: u64,
 }
 
-/// `log.streams`: one writer's device streams.
+/// `log.streams`: contiguous stream heads for a writer, or for the whole database when the publisher requests it.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct LogStreamsRequest {
     /// The database, 64 lowercase hex.
     pub database_id: String,
-    /// The writer's node key, 64 lowercase hex.
-    pub writer_key: String,
+    /// Select one writer. Only the publisher can omit this to list all writers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub writer_key: Option<String>,
 }
 
 /// The answer to a `log.streams`. A writer with no stream gets an empty list.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct LogStreamsAnswer {
-    /// The streams, ascending by `device_id`. A stream whose entry 1 is not stored is not listed.
+    /// Streams sorted by writer and device. A stream whose entry 1 is not stored is not listed.
     pub streams: Vec<StreamHead>,
 }
 
@@ -215,6 +216,9 @@ pub struct LogStreamsAnswer {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct StreamHead {
+    /// Stream signer when listing the entire database. Implicit in a single-writer request.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub writer_key: Option<String>,
     /// The stream, 64 lowercase hex.
     pub device_id: String,
     /// The highest sequence number such that every one from 1 up to it is stored.
@@ -224,7 +228,7 @@ pub struct StreamHead {
 }
 
 /// `log.trim`: drop what the `snapshot` entry at `writer_seq` of stream `device_id` covers.
-/// Publisher of a personal database only.
+/// Only the database publisher can trim.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]

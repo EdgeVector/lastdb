@@ -82,6 +82,14 @@ impl std::fmt::Debug for Sealer {
 }
 
 impl SealOpener for Sealer {
+    fn open_record(&self, header: &EntryHeader, sealed: &[u8]) -> Option<(String, Vec<u8>)> {
+        crate::accepted_body::history_record(&self.open(header, sealed)?)
+    }
+
+    fn open_schema(&self, header: &EntryHeader, sealed: &[u8]) -> Option<(String, Vec<u8>)> {
+        crate::accepted_body::history_schema(&self.open(header, sealed)?)
+    }
+
     fn open(&self, header: &EntryHeader, sealed: &[u8]) -> Option<Vec<u8>> {
         let aad = self.bound_data(&header.node_key, &header.device_id, header.writer_seq);
         decrypt_envelope_with_aad(&self.key, &aad, sealed).ok()

@@ -52,17 +52,6 @@ impl AppState {
         gate::authorize_read(&grants, db, caller)
     }
 
-    async fn check_log_read(
-        &self,
-        db: &DatabaseId,
-        caller: &NodeKey,
-        writer_key: &str,
-        all_devices: bool,
-    ) -> ApiResult<()> {
-        let grants = self.grants.lock().await;
-        gate::authorize_log_read(&grants, db, caller, writer_key, all_devices)
-    }
-
     pub(crate) async fn check_blob_put(&self, db: &DatabaseId, caller: &NodeKey) -> ApiResult<()> {
         let grants = self.grants.lock().await;
         gate::authorize_blob_put(&grants, db, caller)
@@ -111,13 +100,8 @@ pub(crate) async fn log_read(
     let caller = verified.node_key;
     let db = gate::parse_id(&req.database_id, "database_id")?;
     let position = read_position(&req)?;
-    let (writer_key, all_devices) = match &position {
-        ReadPosition::Device { writer_key, .. } => (writer_key.as_str(), false),
-        ReadPosition::Writer { writer_key, .. } => (writer_key.as_str(), true),
-    };
-    state
-        .check_log_read(&db, &caller, writer_key, all_devices)
-        .await?;
+    let all_devices = matches!(&position, ReadPosition::Writer { .. });
+    state.check_read(&db, &caller).await?;
     let limit = read_limit(req.limit)?;
     let (stored, cursor) = match position {
         ReadPosition::Device {
@@ -175,11 +159,17 @@ pub(crate) async fn log_streams(
     require_hex64(&req.database_id, "database_id")?;
     let caller = verified.node_key;
     let db = gate::parse_id(&req.database_id, "database_id")?;
-    require_hex64(&req.writer_key, "writer_key")?;
-    state
-        .check_log_read(&db, &caller, &req.writer_key, true)
-        .await?;
-    let streams = state.store.list_streams(&req.database_id, &req.writer_key);
+    let streams = if let Some(writer) = req.writer_key.as_deref() {
+        require_hex64(writer, "writer_key")?;
+        state.check_read(&db, &caller).await?;
+        state.store.list_streams(&req.database_id, writer)
+    } else {
+        let grants = state.grants.lock().await;
+        if grants.birth(&db).is_none_or(|birth| birth.owner != caller) {
+            return Err(ApiError::forbidden("publisher"));
+        }
+        state.store.heads.list(&req.database_id, None)
+    };
     Ok(Json(LogStreamsAnswer { streams }))
 }
 

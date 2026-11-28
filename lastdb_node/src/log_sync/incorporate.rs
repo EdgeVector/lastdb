@@ -164,6 +164,8 @@ async fn decide(
     mutation.writer = Some(proposer.to_hex());
     // The store validates the change (schema, field types, key shape) and
     // writes it, so the next proposal in this turn sees it.
+    let plain = fold_db::storage::disk_backup::accepted::record_plain(&mutation, None, None, false)
+        .map_err(|error| error.to_string())?;
     match store
         .mutation_manager()
         .write_mutations_receipt(vec![mutation])
@@ -172,7 +174,7 @@ async fn decide(
         Ok(_) => Ok(Decision::Accept(Ready {
             namespace: key.0,
             key: key.1,
-            value: prepared.wire_value,
+            plain,
         })),
         Err(error) if about_the_proposal(&error) => Ok(Decision::Decline),
         Err(error) => Err(error.to_string()),
@@ -181,7 +183,6 @@ async fn decide(
 
 struct TargetPayload {
     alternates: signed_history_materialize::Alternates,
-    wire_value: Vec<u8>,
 }
 
 async fn prepare_target_payload(
@@ -194,35 +195,14 @@ async fn prepare_target_payload(
         let alternates = signed_history_materialize::read_alternates(store, namespace, record_key)
             .await?
             .unwrap_or_default();
-        return Ok(Some(TargetPayload {
-            alternates,
-            wire_value: Vec::new(),
-        }));
+        return Ok(Some(TargetPayload { alternates }));
     }
     let Ok(alternates) =
         signed_history_materialize::resolve_alternates(store, namespace, intent.alternates.clone())
     else {
         return Ok(None);
     };
-    let fields_json = Value::Object(
-        intent
-            .fields
-            .iter()
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .collect(),
-    );
-    let Ok(wire_value) = signed_history_materialize::encode_record_value(
-        &fields_json,
-        &alternates,
-        &signed_history_materialize::FileSection::Keep,
-        None,
-    ) else {
-        return Ok(None);
-    };
-    Ok(Some(TargetPayload {
-        alternates,
-        wire_value,
-    }))
+    Ok(Some(TargetPayload { alternates }))
 }
 
 /// What the publisher's history says about a proposer and the record it names.
