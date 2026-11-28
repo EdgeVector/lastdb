@@ -103,6 +103,19 @@ impl DeclarativeSchemaDefinition {
         Ok(())
     }
 
+    /// Check that `next` keeps this installed schema's key declarations. The
+    /// one permitted difference is the alternate keys that
+    /// [`crate::record_keys::RecordKeys::check_update`] lets it add.
+    pub fn check_record_keys_update(&self, next: &Self) -> Result<(), &'static str> {
+        match (&self.record_keys, &next.record_keys) {
+            (Some(keys), Some(next_keys)) => keys.check_update(next_keys),
+            (None, None) => Ok(()),
+            _ => Err(crate::record_keys::KEYS_IMMUTABLE),
+        }
+    }
+
+    /// Part of every alternate entry address. It hashes the whole key
+    /// declaration, so a schema with alternate keys cannot add another one.
     #[must_use]
     pub fn alternate_key_revision(&self) -> String {
         let bytes = self.record_keys.as_ref().map_or_else(

@@ -236,6 +236,9 @@ pub mod record_keys {
 
     const MAX_ALTERNATE_KEYS: usize = 16;
 
+    /// The refusal for a schema update that changes or removes a declared key.
+    pub const KEYS_IMMUTABLE: &str = "explicit primary/alternate key declarations are immutable; declare a new schema and copy explicitly";
+
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
     #[serde(rename_all = "snake_case")]
     pub enum RecordKeyKind {
@@ -319,6 +322,27 @@ pub mod record_keys {
                     return Err("primary is reserved as an alternate key name".into());
                 }
                 key.range_profile()?;
+            }
+            Ok(())
+        }
+
+        /// Check that `next` may replace these declarations on an installed
+        /// schema. The primary key and every existing alternate key stay
+        /// identical. A schema without alternate keys may add them. The
+        /// address of an alternate entry hashes the whole declaration (see
+        /// `alternate_key_revision`), so an addition beside existing alternate
+        /// keys would move their stored entries; that stays refused.
+        pub fn check_update(&self, next: &Self) -> Result<(), &'static str> {
+            if self.primary != next.primary
+                || self
+                    .alternates
+                    .iter()
+                    .any(|(name, key)| next.alternates.get(name) != Some(key))
+            {
+                return Err(KEYS_IMMUTABLE);
+            }
+            if !self.alternates.is_empty() && next.alternates.len() != self.alternates.len() {
+                return Err("only a schema without alternate keys may add alternate keys; existing alternate entries are addressed by the whole key declaration; declare a new schema and copy explicitly");
             }
             Ok(())
         }

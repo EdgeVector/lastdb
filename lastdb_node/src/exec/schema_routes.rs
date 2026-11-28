@@ -13,7 +13,7 @@ use super::wire::{query_flag, schema_name_from_target};
 use crate::host::Host;
 use crate::lastdb_uds::uds_http::{UdsRequest, UdsResponse};
 
-const BREAKING_CHANGE: &str = "this declaration changes an existing field, the key, or the alternate keys of an installed schema; declare a new schema name and copy the records explicitly";
+const BREAKING_CHANGE: &str = "this declaration changes an existing field, the key, or an existing alternate key of an installed schema, or adds alternate keys without every installed field; declare a new schema name and copy the records explicitly";
 
 fn annotate<T: Serialize>(schemas: impl IntoIterator<Item = T>) -> Option<Vec<Value>> {
     schemas
@@ -348,11 +348,12 @@ pub(super) fn check_owned_local(
         if s.owner_app_id != p.owner_app_id
             || s.descriptive_name != p.descriptive_name
             || s.schema_type != p.schema_type
-            || s.record_keys != p.record_keys
             || inst.is_some()
         {
             return Err(BREAKING_CHANGE.into());
         }
+        s.check_record_keys_update(p)?;
+        let keys_added = s.record_keys != p.record_keys;
         let (sf, pf) = (fset(s), fset(p));
         let ok = sf.intersection(&pf).all(|f| {
             let (st, pt) = (s.field_types.get(*f), p.field_types.get(*f));
@@ -363,11 +364,11 @@ pub(super) fn check_owned_local(
         let changed = ok
             .then(|| {
                 if sf == pf {
-                    (s.identity_hash == p.identity_hash).then_some(true)
+                    (keys_added || s.identity_hash == p.identity_hash).then_some(true)
                 } else {
                     sf.is_subset(&pf)
                         .then_some(true)
-                        .or_else(|| pf.is_subset(&sf).then_some(false))
+                        .or_else(|| (pf.is_subset(&sf) && !keys_added).then_some(false))
                 }
             })
             .flatten()

@@ -3,7 +3,6 @@
 mod replay;
 pub mod types;
 
-use crate::db_operations::schema_store::require_compatible_schema_update;
 use crate::storage::disk_pack::transaction::{self, publication};
 use crate::storage::StorageError;
 use ::schema_types::IdentityRecompute;
@@ -13,6 +12,7 @@ use std::sync::{Arc, RwLock};
 pub use crate::access::manifest_retention::{
     self, ManifestRetention, ManifestRetentionPlan, ManifestRetentionStatus,
 };
+pub use crate::db_operations::schema_store::require_compatible_schema_update;
 pub use crate::schema::types::catalog_types::{
     RetentionSource, SchemaListEntry, SchemaRetentionPolicy, SchemaState, SchemaWithState,
 };
