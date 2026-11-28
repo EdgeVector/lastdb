@@ -10,6 +10,7 @@ import {
   APP_API_ERROR_REASONS,
 } from './appApi.generated.js';
 import type * as Api from './appApi.generated.js';
+import { fileLinkBody, parseFile, parseInlineFile } from './appApiFile.js';
 import type { ClientContext } from './databases.js';
 import { UnexpectedResponseError } from './errors.js';
 import { isObject } from './responseParsers.js';
@@ -91,13 +92,6 @@ function readItemBody(item: Api.ReadItem): Record<string, unknown> {
   return body;
 }
 
-function fileLinkBody(link: Api.FileLink): Record<string, unknown> {
-  const body: Record<string, unknown> = { path: link.path };
-  if (link.name !== undefined) body.name = link.name;
-  if (link.media_type !== undefined) body.media_type = link.media_type;
-  return body;
-}
-
 function alternatesBody(alternates: Api.Alternates): Record<string, unknown> {
   const body: Record<string, unknown> = {};
   for (const [name, value] of Object.entries(alternates)) {
@@ -122,6 +116,10 @@ function mutationBody(mutation: Api.WriteItem): Record<string, unknown> {
   if (mutation.alternates !== undefined) body.alternates = alternatesBody(mutation.alternates);
   if (mutation.file !== undefined) {
     body.file = mutation.file === null ? null : fileLinkBody(mutation.file);
+  }
+  if (mutation.inline_file !== undefined) {
+    body.inline_file =
+      mutation.inline_file === null ? null : fileLinkBody(mutation.inline_file);
   }
   if (mutation.op === 'replace') body.revision = mutation.revision;
   return body;
@@ -157,46 +155,6 @@ function parseCursor(value: JsonValue | undefined, body: unknown): string | null
   throw invalid('app API returned an invalid cursor', body);
 }
 
-function textOrNull(value: JsonValue | undefined, body: unknown): string | null {
-  if (value === null) return null;
-  if (typeof value === 'string') return value;
-  throw invalid('app API returned an invalid file', body);
-}
-
-function parseFile(value: JsonValue | undefined, body: unknown): Api.FileInfo | null {
-  if (value === undefined) throw invalid('app API returned a record with no file', body);
-  if (value === null) return null;
-  if (
-    !isObject(value) ||
-    !('name' in value) ||
-    !('media_type' in value) ||
-    !('size' in value) ||
-    !('local' in value)
-  ) {
-    throw invalid('app API returned an invalid file', body);
-  }
-  const size = value['size'];
-  const local = value['local'];
-  if (typeof size !== 'number' || !Number.isSafeInteger(size) || size < 0) {
-    throw invalid('app API returned an invalid file', body);
-  }
-  if (local !== null && typeof local !== 'string') {
-    throw invalid('app API returned an invalid file', body);
-  }
-  const file: Api.FileInfo = {
-    name: textOrNull(value['name'], body),
-    media_type: textOrNull(value['media_type'], body),
-    size,
-    local: typeof local === 'string' ? local : null,
-  };
-  if ('path' in value) {
-    const path = value['path'];
-    if (path !== null && typeof path !== 'string') throw invalid('app API returned an invalid file', body);
-    file.path = path === null ? null : path;
-  }
-  return file;
-}
-
 /** A missing key is absent. Null is not the contract: the node omits the key. */
 function parseAuthor(value: JsonValue | undefined, body: unknown): string | undefined {
   if (value === undefined) return undefined;
@@ -214,6 +172,7 @@ function parseRecord(value: JsonValue, body: unknown): Api.Record {
     revision: value['revision'],
     record: value['record'],
     file: parseFile(value['file'], body),
+    inline_file: parseInlineFile(value['inline_file'], body),
   };
   const createdBy = parseAuthor(value['created_by'], body);
   const updatedBy = parseAuthor(value['updated_by'], body);

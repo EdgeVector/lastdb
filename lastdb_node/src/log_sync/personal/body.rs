@@ -1,8 +1,9 @@
 //! The accepted body inside a sealed entry, and the change it describes.
 //!
 //! Each commit is recorded in its sealed entry as one canonical JSON body: a
-//! record write with its alternate keys, its file or inline file, or a schema
-//! put or drop. A receiving device opens the envelope and reads that body here.
+//! record write with its alternate keys, its file and/or inline file, or a
+//! schema put or drop. A receiving device opens the envelope and reads that
+//! body here.
 
 use std::collections::BTreeMap;
 
@@ -227,7 +228,7 @@ fn record_file(body: &AcceptedBody) -> Result<RecordFile, String> {
     }
 }
 
-fn record_inline(body: &AcceptedBody, file: &RecordFile) -> Result<Option<InlineWrite>, String> {
+fn record_inline(body: &AcceptedBody, _file: &RecordFile) -> Result<Option<InlineWrite>, String> {
     let Some(section) = &body.inline_file else {
         return if body.kind == "inline" {
             Err(BAD.into())
@@ -235,8 +236,11 @@ fn record_inline(body: &AcceptedBody, file: &RecordFile) -> Result<Option<Inline
             Ok(None)
         };
     };
-    if body.kind == "record" {
-        return Err(BAD.into());
+    // Inline may ride with a file write (kind "file") or stand alone (kind
+    // "inline"). A plain record write does not carry an inline section.
+    match body.kind.as_str() {
+        "file" | "inline" => {}
+        _ => return Err(BAD.into()),
     }
     if section.cleared {
         return if section.marker.is_none() && section.data.is_none() {
@@ -244,9 +248,6 @@ fn record_inline(body: &AcceptedBody, file: &RecordFile) -> Result<Option<Inline
         } else {
             Err(BAD.into())
         };
-    }
-    if matches!(file, RecordFile::Put(_)) {
-        return Err(BAD.into());
     }
     let marker = section.marker.clone().ok_or(BAD)?;
     let data = section.data.clone().ok_or(BAD)?;

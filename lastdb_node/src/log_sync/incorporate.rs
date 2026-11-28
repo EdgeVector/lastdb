@@ -68,7 +68,7 @@ pub(super) async fn resolve_owned(
             Decision::Decline => decline(host, histories, database_id, &identity, &entry)?,
         }
     }
-    materialize::rematerialize(histories, database_id, store).await
+    materialize::rematerialize(histories, database_id, store, &host.home, None, None).await
 }
 
 enum Decision {
@@ -211,8 +211,12 @@ async fn prepare_target_payload(
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect(),
     );
-    let Ok(wire_value) = signed_history_materialize::encode_record_value(&fields_json, &alternates)
-    else {
+    let Ok(wire_value) = signed_history_materialize::encode_record_value(
+        &fields_json,
+        &alternates,
+        &signed_history_materialize::FileSection::Keep,
+        None,
+    ) else {
         return Ok(None);
     };
     Ok(Some(TargetPayload {

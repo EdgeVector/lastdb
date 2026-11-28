@@ -45,12 +45,14 @@ pub(super) fn parse(body: &[u8]) -> Result<Proposed, ContributionError> {
     let record_key =
         mutation_log::join_record_key(&hash, range.as_deref()).ok_or(ContributionError::Invalid)?;
     let carries_file = doc.get("file").is_some_and(|file| !file.is_null());
+    let carries_inline = doc.get("inline_file").is_some_and(|file| !file.is_null());
     let mutation_type = text(doc.get("mutation_type")).ok_or(ContributionError::Invalid)?;
     if namespace.is_empty()
         || namespace.len() > NAMESPACE_MAX
         || record_key.is_empty()
         || record_key.len() > usize::from(u16::MAX)
         || carries_file
+        || carries_inline
         || !matches!(mutation_type.as_str(), "create" | "replace" | "delete")
     {
         return Err(ContributionError::Invalid);

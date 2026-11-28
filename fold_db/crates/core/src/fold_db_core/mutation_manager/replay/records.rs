@@ -1,9 +1,9 @@
 //! The last-writer rule for one record entry of another device.
 //!
 //! A record has a winner row for its fields and attachment winner rows for its
-//! single live attachment (file or inline file). Each part takes the value of
-//! its newest write, independent of arrival order, and pre-drop entries at or
-//! below a schema's `drop-winner` are ignored.
+//! external file and its inline file. Each part takes the value of its newest
+//! write, independent of arrival order, and pre-drop entries at or below a
+//! schema's `drop-winner` are ignored.
 
 use super::saved_fields::{
     apply_attachment_patch, as_mutation, has_file, mutation_from_saved, saved_from_live,
@@ -56,11 +56,10 @@ impl MutationManager {
             {
                 return Ok(false);
             }
-            let touches = slots.file || slots.inline;
-            if touches && self.beats_slot(target, FILE_SLOT, stamp).await? {
+            if slots.file && self.beats_slot(target, FILE_SLOT, stamp).await? {
                 return Ok(false);
             }
-            if touches && self.beats_slot(target, INLINE_SLOT, stamp).await? {
+            if slots.inline && self.beats_slot(target, INLINE_SLOT, stamp).await? {
                 return Ok(false);
             }
             Ok(true)
@@ -244,7 +243,7 @@ impl MutationManager {
         }
         let mut patched = as_mutation(&schema.name, live.key.clone(), Some(live.clone()));
         patched.imported_written_at = live.written_at();
-        apply_attachment_patch(&mut patched, mutation, deletes, parts);
+        apply_attachment_patch(&mut patched, &mutation, deletes, parts);
         let writer = live.updated_by.as_deref().unwrap_or(&stamp.writer_key);
         if schema.file_required && !has_file(&patched, Some(live)) {
             let saved = saved_from_live(live, writer);
@@ -315,15 +314,6 @@ impl MutationManager {
             &mutation.record_fields,
         )
         .ok()?;
-        if matches!(
-            mutation.file_write,
-            Some(FileWrite::Put(_) | FileWrite::LocalPath(_))
-        ) && matches!(
-            mutation.inline_write,
-            Some(lastdb_model::record_value::InlineWrite::Put(_))
-        ) {
-            return None;
-        }
         Some(address)
     }
 

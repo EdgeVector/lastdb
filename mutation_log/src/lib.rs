@@ -73,8 +73,8 @@ pub use accept::{
 };
 pub use author::{
     author_birth, author_bundle, author_data, author_grant, author_heads, author_lease,
-    author_schema, author_snapshot, data_record, grant_raise, grant_reduce, hash_of, sign_entry,
-    AuthorCtx, MAX_AUTHOR_SEEN_HEADS,
+    author_schema, author_snapshot, data_record, data_record_with_file, grant_raise, grant_reduce,
+    hash_of, sign_entry, AuthorCtx, MAX_AUTHOR_SEEN_HEADS,
 };
 pub use bootstrap::{
     bootstrap_from_records, BootstrapError, BootstrapGrant, BootstrapParams, BootstrapRecord,

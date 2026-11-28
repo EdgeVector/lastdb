@@ -108,6 +108,7 @@ async fn pull_owned(
     let db = DatabaseCtx {
         database_id,
         store: &store,
+        home: &host.home,
     };
     let caller = NodeKey::from_bytes(host.keypair.public_key_bytes());
     if let Some(owner) = histories
@@ -253,6 +254,7 @@ async fn pull_one_received(
     let db = DatabaseCtx {
         database_id: share.id.as_str(),
         store: &store,
+        home: &host.home,
     };
     let caller = NodeKey::from_bytes(host.keypair.public_key_bytes());
     let known = share.publisher_device_id.iter().cloned();

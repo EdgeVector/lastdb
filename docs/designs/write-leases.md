@@ -297,8 +297,9 @@ node answers `applied` or `pending`.
 4. **Pending.** Otherwise the node appends a proposal through `submit_share_write`: `202
    {"ok": true, "status": "pending", "mutation_id": "<id>", "submission_sequence": N}`. A member
    that may neither write nor propose gets the existing `403`.
-5. **A file** in the document is refused `400` on both paths. The proposal path never took one,
-   and the direct path does not read the document's marker.
+5. **A file or inline file** in the change/proposal document is refused `400` on both paths.
+   The proposal path never took one. The direct path for this call still does not read the
+   document's marker; attach files with `/v1/write` under a covering lease instead.
 6. **Repeats.** The proposal path keeps a ledger of ids (`proposals.json`): the same id and body
    answer `pending` with the same sequence, and a different body is `409`. The change call looks
    in that ledger first, so an id the node already queued stays a proposal even if a lease

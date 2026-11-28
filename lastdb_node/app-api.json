@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "LastDB app API",
-    "version": "47",
+    "version": "48",
     "description": "The app API lastdbd serves today: POST /v1/read, POST /v1/write, and POST /v1/x/<name>. info.version is the node api_version. Extensions carry no version: adding one does not change api_version, and removing one is refused. The app socket accepts a request body of at most 8388608 bytes. The owner socket does not use that cap. On the app socket a whole-request refusal uses the error object. A read that fails one item returns HTTP 200 and puts the same error object in that item."
   },
   "x-lastdb-extensions-carry-version": false,
@@ -430,11 +430,23 @@
           "path": {"type": ["string", "null"]}
         }
       },
+      "InlineFileInfo": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "media_type", "size", "sha256"],
+        "description": "Present when the record has an inline file. name and media_type are null when the marker has none. size is the byte length. sha256 is the lowercase hex content hash of the inline bytes. Inline bytes are not placed as a path.",
+        "properties": {
+          "name": {"type": ["string", "null"]},
+          "media_type": {"type": ["string", "null"]},
+          "size": {"type": "integer", "minimum": 0, "maximum": 65536},
+          "sha256": {"type": "string", "description": "Lowercase hex SHA-256 of the inline bytes."}
+        }
+      },
       "Record": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["key", "revision", "record", "file"],
-        "description": "One record. created_by and updated_by are lowercase hex node keys set by the database. The node omits each key when the record has no value for it. It does not send null. file is null when the record has no file.",
+        "required": ["key", "revision", "record", "file", "inline_file"],
+        "description": "One record. created_by and updated_by are lowercase hex node keys set by the database. The node omits each key when the record has no value for it. It does not send null. file is null when the record has no file. inline_file is null when the record has no inline file.",
         "properties": {
           "key": {"$ref": "#/components/schemas/Key"},
           "revision": {"type": "string"},
@@ -451,6 +463,12 @@
             "oneOf": [
               {"type": "null"},
               {"$ref": "#/components/schemas/FileInfo"}
+            ]
+          },
+          "inline_file": {
+            "oneOf": [
+              {"type": "null"},
+              {"$ref": "#/components/schemas/InlineFileInfo"}
             ]
           }
         }
@@ -583,7 +601,7 @@
         "type": "object",
         "additionalProperties": false,
         "required": ["schema", "op", "key", "record"],
-        "description": "A create. It carries a record and no revision. A revision on a create is HTTP 400.",
+        "description": "A create. It carries a record and no revision. A revision on a create is HTTP 400. A create may also link a file and an inline file by path.",
         "properties": {
           "database": {"$ref": "#/components/schemas/DatabaseName"},
           "schema": {"$ref": "#/components/schemas/SchemaName"},
@@ -591,14 +609,15 @@
           "key": {"$ref": "#/components/schemas/KeyInput"},
           "record": {"$ref": "#/components/schemas/FieldValues"},
           "alternates": {"$ref": "#/components/schemas/Alternates"},
-          "file": {"$ref": "#/components/schemas/FileLink"}
+          "file": {"$ref": "#/components/schemas/FileLink"},
+          "inline_file": {"$ref": "#/components/schemas/FileLink"}
         }
       },
       "WriteReplace": {
         "type": "object",
         "additionalProperties": false,
         "required": ["schema", "op", "key", "record", "revision"],
-        "description": "A replace. It carries a record and the revision it replaces. A replace without a revision or without a record is HTTP 400. A file path links that file. JSON null clears the record's file, and the node frees the bytes when no record names them. Omitting file keeps the record's file.",
+        "description": "A replace. It carries a record and the revision it replaces. A replace without a revision or without a record is HTTP 400. A file path links that file. JSON null clears the record's file, and the node frees the bytes when no record names them. Omitting file keeps the record's file. inline_file follows the same Absent/Clear/Link rules and holds at most 64 KiB.",
         "properties": {
           "database": {"$ref": "#/components/schemas/DatabaseName"},
           "schema": {"$ref": "#/components/schemas/SchemaName"},
@@ -613,6 +632,13 @@
               {"type": "null"},
               {"$ref": "#/components/schemas/FileLink"}
             ]
+          },
+          "inline_file": {
+            "description": "A path links that inline file (at most 64 KiB). JSON null clears it. Omitting the field keeps the record's inline file.",
+            "oneOf": [
+              {"type": "null"},
+              {"$ref": "#/components/schemas/FileLink"}
+            ]
           }
         }
       },
@@ -620,7 +646,7 @@
         "type": "object",
         "additionalProperties": false,
         "required": ["schema", "op", "key", "revision"],
-        "description": "A delete. It carries the revision it deletes, no record, and no file. alternates is omitted or empty. The node loads the stored alternates. A record, a file, or a non-empty alternates object is HTTP 400.",
+        "description": "A delete. It carries the revision it deletes, no record, no file, and no inline_file. alternates is omitted or empty. The node loads the stored alternates. A record, a file, an inline_file, or a non-empty alternates object is HTTP 400.",
         "properties": {
           "database": {"$ref": "#/components/schemas/DatabaseName"},
           "schema": {"$ref": "#/components/schemas/SchemaName"},

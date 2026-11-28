@@ -1,6 +1,9 @@
-//! Link a local file into an owned `/v1/write` mutation.
+//! Link a local file or inline file into an owned `/v1/write` mutation.
 
+use base64::{engine::general_purpose::STANDARD, Engine as _};
+use fold_db::record_value::{FileMarker, InlineFile, InlineWrite, MAX_INLINE_FILE_BYTES};
 use fold_db::schema::types::{FileWrite, Mutation};
+use sha2::{Digest, Sha256};
 
 use super::bad;
 use crate::exec::reply::HostError;
@@ -17,13 +20,7 @@ pub(super) async fn link_file(
     name: Option<String>,
     media_type: Option<String>,
 ) -> Result<(), HostError> {
-    // The whole LastDB home is refused, through any symlink: its key file and
-    // every database in it, not only the data folder of the selected one.
-    let real = std::fs::canonicalize(&path).map_err(|_| bad(UNUSABLE_FILE))?;
-    let home = std::fs::canonicalize(&host.home).unwrap_or_else(|_| host.home.clone());
-    if real.starts_with(&home) {
-        return Err(bad(UNUSABLE_FILE));
-    }
+    let real = outside_home(host, &path)?;
     // The size limit gets its own answer: the refusal below hides every reason.
     // `reference_local_file` enforces the same limit; this states it.
     let length = std::fs::metadata(&real)
@@ -50,4 +47,71 @@ pub(super) async fn link_file(
     mutation.file = Some(reference.marker().clone());
     mutation.file_write = Some(write);
     Ok(())
+}
+
+/// Read a small file into an inline attachment. Paths follow the same home
+/// rule as [`link_file`]; a file over [`MAX_INLINE_FILE_BYTES`] is refused.
+pub(super) fn link_inline(
+    host: &Host,
+    mutation: &mut Mutation,
+    path: &str,
+    name: Option<String>,
+    media_type: Option<String>,
+) -> Result<(), HostError> {
+    let real = outside_home(host, path)?;
+    let meta = std::fs::metadata(&real).map_err(|_| bad(UNUSABLE_FILE))?;
+    if !meta.is_file() {
+        return Err(bad(UNUSABLE_FILE));
+    }
+    if meta.len() > MAX_INLINE_FILE_BYTES as u64 {
+        return Err(bad(format!(
+            "the inline file is {} bytes; an inline file holds at most {MAX_INLINE_FILE_BYTES} bytes",
+            meta.len()
+        )));
+    }
+    let plain = read_at_most(&real, MAX_INLINE_FILE_BYTES)?;
+    if plain.len() > MAX_INLINE_FILE_BYTES {
+        return Err(bad(format!(
+            "the inline file is more than {MAX_INLINE_FILE_BYTES} bytes; an inline file holds at most {MAX_INLINE_FILE_BYTES} bytes"
+        )));
+    }
+    let marker = FileMarker {
+        name,
+        media_type,
+        size_bytes: plain.len() as u64,
+        sha256: app_identity_crypto::hex_lower(&Sha256::digest(&plain)),
+    };
+    let file = InlineFile {
+        marker,
+        data: STANDARD.encode(&plain),
+    };
+    if !file.is_well_formed() {
+        return Err(bad(UNUSABLE_FILE));
+    }
+    mutation.inline_write = Some(InlineWrite::Put(file));
+    Ok(())
+}
+
+/// Read at most `limit` bytes, plus one more to detect overflow, without
+/// loading an unbounded file into memory.
+fn read_at_most(path: &std::path::Path, limit: usize) -> Result<Vec<u8>, HostError> {
+    use std::io::Read;
+    let mut file = std::fs::File::open(path).map_err(|_| bad(UNUSABLE_FILE))?;
+    let mut buf = Vec::new();
+    file.by_ref()
+        .take((limit as u64).saturating_add(1))
+        .read_to_end(&mut buf)
+        .map_err(|_| bad(UNUSABLE_FILE))?;
+    Ok(buf)
+}
+
+fn outside_home(host: &Host, path: &str) -> Result<std::path::PathBuf, HostError> {
+    // The whole LastDB home is refused, through any symlink: its key file and
+    // every database in it, not only the data folder of the selected one.
+    let real = std::fs::canonicalize(path).map_err(|_| bad(UNUSABLE_FILE))?;
+    let home = std::fs::canonicalize(&host.home).unwrap_or_else(|_| host.home.clone());
+    if real.starts_with(&home) {
+        return Err(bad(UNUSABLE_FILE));
+    }
+    Ok(real)
 }

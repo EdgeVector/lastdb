@@ -72,6 +72,7 @@ export type {
   FieldValues,
   FileInfo,
   FileLink,
+  InlineFileInfo,
   Key,
   KeyInput,
   ListingAccess,

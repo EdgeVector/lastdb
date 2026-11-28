@@ -151,14 +151,10 @@ fn file_marker<'a>(mutation: &'a Mutation, write: &'a FileWrite) -> StorageResul
 
 pub(super) fn inline_section(
     mutation: &Mutation,
-    external: bool,
 ) -> StorageResult<Option<body::InlineSection<'_>>> {
     match mutation.inline_write.as_ref() {
         None => Ok(None),
         Some(InlineWrite::Clear) => Ok(Some(body::inline_clear())),
-        Some(InlineWrite::Put(_)) if external => Err(invalid(
-            "accepted record carries both an inline file and an external file",
-        )),
         Some(InlineWrite::Put(file)) => Ok(Some(body::inline_put(file)?)),
     }
 }

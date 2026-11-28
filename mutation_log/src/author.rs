@@ -253,11 +253,23 @@ pub fn data_record(
     record_key: &str,
     value: &[u8],
 ) -> DataBody {
+    data_record_with_file(stream, namespace, record_key, value, None)
+}
+
+/// Build a data body that may name a sealed file blob on the relay.
+#[must_use]
+pub fn data_record_with_file(
+    stream: StreamKind,
+    namespace: impl Into<String>,
+    record_key: &str,
+    value: &[u8],
+    file: Option<crate::entry::MutationFileRef>,
+) -> DataBody {
     DataBody {
         stream,
         namespace: namespace.into(),
         payload: crate::payload::encode_record_payload(record_key, value),
-        file: None,
+        file,
         incorporated_from: None,
         grant_at_device: None,
         grant_at_seq: None,
