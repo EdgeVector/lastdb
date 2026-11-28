@@ -30,7 +30,7 @@ Environment (flags exist for each):
 | `RELAY_URL` | required | Relay origin, set by the proof script |
 | `LASTDB_RELAY_E2E_TOTAL_BYTES` | 300 MiB | Synthetic record text to upload |
 | `LASTDB_RELAY_E2E_CONCURRENCY` | 4 | Blobs in flight, clamped to 1..=8 |
-| `LASTDB_RELAY_E2E_LIMIT_SECONDS` | 60 | Each phase must finish under this |
+| `LASTDB_RELAY_E2E_LIMIT_SECONDS` | 60 | Each phase must finish under this. The CI run against the Exemem DEV relay sets 180 (DEV upload throughput varies); the reference_relay run keeps 60 |
 | `LASTDB_RELAY_E2E_WORK_DIR` | temp dir | Scratch FoldDB for the restore; removed on exit |
 | `LASTDB_RELAY_E2E_STREAMS` | off | `true` also proves `log.streams` (see "Opt-in steps") |
 | `LASTDB_RELAY_E2E_BLOB_FILE_BYTES` | 0 (off) | Also puts and gets one generated file of this size through the blob routes, from and to disk |
@@ -147,4 +147,4 @@ and 128 keyed reads match.
 > (artifact `target/release/signed_history_relay_e2e`). It signs requests per the relay OpenAPI `nodeSignature`
 > with Hex32 device ids, uploads ~300 MiB as 7 encrypted bundles of at most 64 MiB, restores them with stream
 > discovery from birth/grant/heads into FoldDB, and prints one JSON object last with `upload_seconds` and
-> `restore_seconds` (each must be under 60 s).
+> `restore_seconds` (each must be under `limit_seconds`, default 60 s).

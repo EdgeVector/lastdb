@@ -7,7 +7,9 @@ name: Signed history DEV proofs
 # a spawned reference_relay: signed append/read, grant + revoke (403), never-granted
 # append/read (403), ~300 MiB of
 # signed bundles, and a discovering restore into FoldDB. Both phases must finish
-# under 60 s. Job `log_sync_relay_timeout` proves the node RelayClient's ~30s
+# under 60 s against the reference_relay, and under 180 s against the Exemem DEV relay (DEV upload
+# throughput varies, about 15 s to 125 s; the reference run holds the 60 s limit for our own code).
+# Job `log_sync_relay_timeout` proves the node RelayClient's ~30s
 # request timeout against a hung TCP peer. Job `relay_e2e` then runs the same binary against the Exemem DEV relay,
 # with the same scope and the same relay URL as job `deployed_relay` (below): output `deployed` of job `scope`, and
 # the `exemem_relay_url` input, else the variable EXEMEM_RELAY_URL, else environments.dev.exemem_api. No credentials.
@@ -246,6 +248,10 @@ jobs:
           export LASTDB_RELAY_E2E_BIN="$PWD/target/release/signed_history_relay_e2e"
           export RELAY_URL="${url%/}"
           export LASTDB_RELAY_E2E_STREAMS=true
+          # DEV upload throughput varies (about 15 s to 125 s for the same commit), so this leg allows
+          # 180 s per phase. It proves the deployed relay's behaviour (grants, 403s, restore, log/streams,
+          # cleanup); the reference_relay step above keeps the 60 s default and catches slowdowns in our code.
+          export LASTDB_RELAY_E2E_LIMIT_SECONDS=180
           "$LASTDB_RELAY_E2E_BIN" | tee "$OUT/exemem.stdout"
           python3 scripts/signed_history/check_relay_e2e.py "$OUT/exemem.stdout" exemem --expect-streams \
             --expect-cleanup
