@@ -219,38 +219,14 @@ async fn pull_pages(
     device_id: &str,
     from_seq: u64,
 ) -> Result<u64, String> {
-    let mut cursor: Option<String> = None;
+    let mut pages = super::stream_reader::StreamReader::new(writer_key, device_id, from_seq, None);
     let mut accepted = 0u64;
-    let mut empty_pages = 0u32;
     loop {
-        let (entries, next) = client
-            .read(
-                db.database_id,
-                writer_key,
-                Some(device_id),
-                from_seq,
-                cursor.as_deref(),
-                90,
-            )
-            .await?;
-        let empty = entries.is_empty();
-        for entry in entries {
-            if accept_one(histories, db, entry)? {
-                accepted += 1;
-            }
+        pages.fill(db.database_id, client).await?;
+        let Some(entry) = pages.pop() else { break };
+        if accept_one(histories, db, entry)? {
+            accepted += 1;
         }
-        let Some(next) = next else {
-            break;
-        };
-        if empty {
-            empty_pages += 1;
-            if cursor.as_deref() == Some(next.as_str()) || empty_pages > 256 {
-                return Err("relay log.read cursor did not advance".into());
-            }
-        } else {
-            empty_pages = 0;
-        }
-        cursor = Some(next);
     }
     Ok(accepted)
 }

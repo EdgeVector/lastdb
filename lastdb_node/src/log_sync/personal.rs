@@ -35,7 +35,6 @@ mod reclaim;
 mod reclaim_count;
 mod reclaim_state;
 mod reclaim_view;
-mod send;
 mod snapshot;
 mod snapshot_entry;
 mod snapshot_known;

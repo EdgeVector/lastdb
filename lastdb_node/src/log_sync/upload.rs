@@ -311,17 +311,23 @@ async fn drain_log(client: &RelayClient, home: &Path, database_id: &str) -> Resu
         let take = chunk_len(database_id, &found.batch)?;
         let chunk = &found.batch[..take];
         let files = entry_files(chunk);
-        // A file is on the relay before the entry that names it.
-        put_files(client, database_id, home, &files).await?;
-        let expected = chunk.len() as u64;
-        let (stored, duplicate) = client.append(database_id, chunk).await?;
-        if stored + duplicate < expected {
-            return Err(format!(
-                "relay log.append stored {stored} (duplicate {duplicate}) of {expected} log entries"
-            ));
-        }
-        // Ask again after append: a sweep between put and append can drop a blob.
-        put_files(client, database_id, home, &files).await?;
+        let paths: Vec<_> = files
+            .iter()
+            .map(|sha| record_files::staged_path(home, database_id, sha))
+            .collect();
+        let uploads: Vec<_> = files
+            .iter()
+            .zip(&paths)
+            .map(|(sha, path)| (sha.as_str(), path.as_path()))
+            .collect();
+        super::send::send_batch(
+            client,
+            database_id,
+            chunk,
+            &uploads,
+            super::send::Transport::Inline,
+        )
+        .await?;
         history_store::store_uploaded(home, database_id, found.uploaded + chunk.len())?;
         record_files::gc_staged(home, database_id, &files);
         uploaded = true;
@@ -338,24 +344,6 @@ fn entry_files(chunk: &[SignedEntry]) -> Vec<String> {
         }
     }
     out
-}
-
-async fn put_files(
-    client: &RelayClient,
-    database_id: &str,
-    home: &Path,
-    files: &[String],
-) -> Result<(), String> {
-    for sha256 in files {
-        let path = record_files::staged_path(home, database_id, sha256);
-        if !path.is_file() {
-            return Err(format!(
-                "staged file blob {sha256} is missing before upload"
-            ));
-        }
-        client.blob_put(database_id, sha256, &path).await?;
-    }
-    Ok(())
 }
 
 fn chunk_len(database_id: &str, batch: &[SignedEntry]) -> Result<usize, String> {

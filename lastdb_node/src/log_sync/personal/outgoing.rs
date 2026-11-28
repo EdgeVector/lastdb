@@ -31,9 +31,10 @@ use fold_db::storage::disk_backup::accepted::{
 use fold_db::storage::disk_pack::PackRuntime;
 use mutation_log::{entry_hash, DataBody, SignedEntry};
 
-use super::{apply, normalize_error, send, Ctx};
+use super::{apply, normalize_error, Ctx};
 use crate::host::cloud_sync::BlockedUploadStatus;
 use crate::log_sync::relay::{RelayClient, StreamHead as RelayStream};
+use crate::log_sync::send::{self, Transport};
 
 /// The spool is read this many entries at a time.
 const PAGE: u32 = 90;
@@ -326,8 +327,28 @@ async fn finish(
     birth_known: &mut bool,
     relay_head: &mut u64,
 ) -> Result<(), String> {
-    send::send(ctx, client, batch, birth_known, relay_head).await?;
+    if !*birth_known {
+        let stored = client
+            .append(&ctx.database_id, std::slice::from_ref(&ctx.birth_entry))
+            .await?;
+        send::expect_all(stored, 1)?;
+        *birth_known = true;
+    }
+    let files: Vec<_> = batch
+        .files
+        .iter()
+        .map(|f| (f.sha256.as_str(), f.path.as_path()))
+        .collect();
+    send::send_batch(
+        client,
+        &ctx.database_id,
+        &batch.entries,
+        &files,
+        Transport::SegmentAfter(*relay_head),
+    )
+    .await?;
     let last = batch.entries.last().ok_or("a batch holds no entry")?;
+    *relay_head = (*relay_head).max(last.header().writer_seq);
     commit_head(ctx, last).await?;
     let position = UploadPosition {
         writer_seq: last.header().writer_seq,
