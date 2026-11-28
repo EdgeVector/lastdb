@@ -2,7 +2,8 @@
 
 use std::cmp::Ordering;
 
-use fold_db::fold_db_core::query::{AlternatePage, Record};
+use fold_db::alternate_keys::AlternateEntry;
+use fold_db::fold_db_core::query::{AlternateKeyPage, AlternatePage, Record};
 use fold_db::schema::types::key_comparison::RangeKeyComparison;
 use fold_db::schema::types::{KeyValue, QueryCursor, SchemaError};
 use serde_json::{json, Value};
@@ -51,6 +52,11 @@ pub(super) fn format_rows(
         .collect()
 }
 
+/// Rows that hold only their key, as `format_row` writes it.
+pub(super) fn key_rows(keys: Vec<KeyValue>) -> Vec<Value> {
+    keys.into_iter().map(|key| json!({ "key": key })).collect()
+}
+
 fn format_row(key: &KeyValue, record: Record, compact: bool) -> Value {
     let mut row = serde_json::Map::from_iter([
         ("key".into(), json!(key)),
@@ -95,16 +101,35 @@ pub(super) fn format_alternate_page(
             .map_err(|_| HostError::internal("invalid matched alternate key"))?;
         results.push(row);
     }
-    let next = page
-        .has_more
-        .then(|| page.entries.last())
-        .flatten()
-        .map(|e| {
-            let mut c = QueryCursor::new(e.matched.clone(), Some(page.comparison));
-            c.alternate_primary = Some(e.primary.clone());
-            c
-        });
+    let next = alternate_cursor(&page.entries, page.has_more, page.comparison);
     Ok(page_payload(results, limit, page.has_more, next))
+}
+
+/// The rows of `format_alternate_page`, holding only `key` and `matched_key`.
+pub(super) fn format_alternate_keys(
+    page: AlternateKeyPage,
+    limit: usize,
+) -> Result<Value, HostError> {
+    let mut results = Vec::with_capacity(page.entries.len());
+    for entry in &page.entries {
+        let matched = serde_json::to_value(&entry.matched)
+            .map_err(|_| HostError::internal("invalid matched alternate key"))?;
+        results.push(json!({ "key": entry.primary, "matched_key": matched }));
+    }
+    let next = alternate_cursor(&page.entries, page.has_more, page.comparison);
+    Ok(page_payload(results, limit, page.has_more, next))
+}
+
+fn alternate_cursor(
+    entries: &[AlternateEntry],
+    has_more: bool,
+    comparison: String,
+) -> Option<QueryCursor> {
+    has_more.then(|| entries.last()).flatten().map(|e| {
+        let mut c = QueryCursor::new(e.matched.clone(), Some(comparison));
+        c.alternate_primary = Some(e.primary.clone());
+        c
+    })
 }
 
 pub(super) fn sort_rows(

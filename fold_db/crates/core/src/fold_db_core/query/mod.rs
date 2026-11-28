@@ -54,6 +54,14 @@ pub struct Record {
 
 pub type QueryRecords = HashMap<KeyValue, Record>;
 
+/// An alternate page without its records: the entries were checked against
+/// their primary records, but the records were not copied out.
+pub struct AlternateKeyPage {
+    pub entries: Vec<AlternateEntry>,
+    pub has_more: bool,
+    pub comparison: String,
+}
+
 fn exposed_metadata(meta: &StoredMeta) -> Option<HashMap<String, String>> {
     let entries: HashMap<_, _> = meta
         .metadata
@@ -123,6 +131,19 @@ impl QueryExecutor {
             .await
     }
 
+    /// The keys `query_window` reads, without a copy of each record's fields.
+    pub async fn query_window_keys(
+        &self,
+        query: Query,
+        window: KeyWindow,
+    ) -> Result<Vec<KeyValue>, SchemaError> {
+        self.in_read_scope(async {
+            let rows = self.query_current_stored(query, Some(window)).await?;
+            Ok(rows.into_iter().map(|(key, _)| key).collect())
+        })
+        .await
+    }
+
     pub async fn count_query_rows(&self, query: &Query) -> Result<Option<usize>, SchemaError> {
         if query.key_name.is_some() {
             return self.count_alternate_rows(query).await.map(Some);
@@ -142,9 +163,23 @@ impl QueryExecutor {
 
     pub(super) async fn query_current(
         &self,
-        mut query: Query,
+        query: Query,
         window: Option<KeyWindow>,
     ) -> Result<QueryRecords, SchemaError> {
+        Ok(self
+            .query_current_stored(query, window)
+            .await?
+            .into_iter()
+            .map(|(k, r)| (k, Record::from_stored(&r)))
+            .collect())
+    }
+
+    /// The live stored records of a primary-key query, as storage returns them.
+    pub(super) async fn query_current_stored(
+        &self,
+        mut query: Query,
+        window: Option<KeyWindow>,
+    ) -> Result<Vec<KeyedRecord>, SchemaError> {
         if query.key_name.is_some() {
             return Err(SchemaError::InvalidData(
                 "use the named alternate page reader".into(),
@@ -153,12 +188,8 @@ impl QueryExecutor {
         let schema = self.prepare_query_schema(&query).await?.ok_or_else(|| {
             SchemaError::InvalidData(format!("Schema '{}' not found", query.schema_name))
         })?;
-        Ok(self
-            .select_filtered(&schema, query.filter.take(), window)
-            .await?
-            .into_iter()
-            .map(|(k, r)| (k, Record::from_stored(&r)))
-            .collect())
+        self.select_filtered(&schema, query.filter.take(), window)
+            .await
     }
 
     pub(super) async fn prepare_query_schema(
