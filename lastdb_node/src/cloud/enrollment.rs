@@ -97,12 +97,13 @@ pub fn account_from_phrase(phrase: &str) -> Result<AccountId, String> {
     AccountId::try_from(hash).map_err(|_| "invalid recovery account".into())
 }
 
-pub fn pin_schema_service_environment_from_home(home: &Path) {
+/// Pin the process environment from the home's saved Exemem cloud credentials.
+pub fn pin_environment_from_home(home: &Path) {
     let creds = match load_saved_credentials(home) {
         Ok(Some(c)) => c,
         Ok(None) => return,
         Err(error) => {
-            tracing::warn!(target: "lastdb_node::cloud", %error, "saved cloud credentials failed the private owner-file check; the schema service environment does not follow the home");
+            tracing::warn!(target: "lastdb_node::cloud", %error, "saved cloud credentials failed the private owner-file check; the process environment does not follow the home");
             return;
         }
     };
@@ -110,21 +111,7 @@ pub fn pin_schema_service_environment_from_home(home: &Path) {
         return;
     };
     endpoints::set_home_environment(cloud_env);
-    let (eff, url, exp) = (
-        Environment::from_env(),
-        endpoints::schema_service_url(),
-        endpoints::schema_service_url_for(cloud_env),
-    );
-    if (eff, url.as_str()) == (cloud_env, exp) {
-        tracing::info!(target: "lastdb_node::cloud", %cloud_env, schema_service_url = %url, "schema service environment follows the home cloud environment");
-    } else {
-        tracing::warn!(
-            target: "lastdb_node::cloud", %cloud_env, schema_service_env = %eff,
-            schema_service_url = %url, expected_schema_service_url = %exp,
-            "ENVIRONMENT MISMATCH: home is connected to {cloud_env} Exemem cloud, \
-             but schema service resolves to {url}; unset overriding env vars or reconnect."
-        );
-    }
+    tracing::info!(target: "lastdb_node::cloud", %cloud_env, "process environment follows the home cloud environment");
 }
 
 pub async fn register_native_device(

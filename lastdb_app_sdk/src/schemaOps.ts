@@ -90,10 +90,9 @@ function parseAutoIdentityResponse(body: unknown): AutoIdentityResult {
 
 function parseLoadedSchema(schema: Record<string, JsonValue>): LoadedSchema {
   const name = stringOrNull(schema['name']) ?? '';
-  const identityHash = stringOrNull(schema['identity_hash']) ?? name;
   return {
     name,
-    identityHash,
+    identityHash: stringOrNull(schema['identity_hash']),
     descriptiveName: stringOrNull(schema['descriptive_name']),
     ownerAppId: stringOrNull(schema['owner_app_id']),
     fields: stringArray(schema['fields']),
@@ -140,7 +139,6 @@ function resolveLoadedSchema(
   return matches[0] ?? null;
 }
 
-/** Record a declared schema's 64-hex `definition_id` for subsequent mutations. */
 /** `GET /api/version` — client↔node compatibility handshake. */
 export async function executeVersion(ctx: ClientContext): Promise<NodeVersion> {
   const body = await sendJsonObject(

@@ -53,7 +53,7 @@ pub(crate) struct PublishArgs {
     pub channel: Option<String>,
     #[arg(long, conflicts_with_all = ["key_file", "api_key", "registry_url"])]
     pub prepare: Option<PathBuf>,
-    /// Machine-readable output. The Schema Service outcome is a `schema_service` member.
+    /// Machine-readable output.
     #[arg(long)]
     pub json: bool,
 }

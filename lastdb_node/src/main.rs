@@ -240,7 +240,7 @@ fn run() -> Result<(), String> {
         .thread_stack_size(stack)
         .build()
         .map_err(|e| format!("tokio runtime construction failed: {e}"))?;
-    cloud::pin_schema_service_environment_from_home(&home);
+    cloud::pin_environment_from_home(&home);
     serve_node(rt, &home, cli.socket_path)
 }
 

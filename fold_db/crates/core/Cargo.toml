@@ -37,7 +37,7 @@ thiserror = { workspace = true }
 # No HTTP client: the cloud backup transport is the `cloud_backup_client`
 # crate, and the core does no network I/O.
 
-# Pure wire schema types (shared with schema_service; no storage).
+# Pure wire schema types (shared schema_types crate; no storage).
 schema_types = { workspace = true }
 # Pure LastDB models: records, field keys, schemas, keys, mutations (no behavior).
 lastdb_model = { workspace = true }

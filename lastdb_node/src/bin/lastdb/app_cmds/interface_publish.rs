@@ -13,9 +13,6 @@ use serde_json::{json, Value};
 use std::process::Command;
 use std::time::Duration;
 
-#[path = "schema_push.rs"]
-mod schema_push;
-
 type SchemaIdentity = (String, Option<String>, Option<String>);
 
 fn listed_schemas(manifest: &Value, app_id: &str) -> Result<Vec<SchemaIdentity>, String> {
@@ -337,7 +334,7 @@ pub(super) fn publish_interface(home: &Path, input: &PublishArgs) -> Result<(), 
     );
     payload["publisher_key"] = json!(BASE64.encode(key.verifying_key().as_bytes()));
     payload["publisher_sig"] = json!(BASE64.encode(sig));
-    let (mut response, private_note) =
+    let (response, private_note) =
         publish_credentials::with_registry_credential(home, &auth, &target, |api_key, source| {
             let mut resp = crate::block_on(
                 "app publish",
@@ -350,20 +347,9 @@ pub(super) fn publish_interface(home: &Path, input: &PublishArgs) -> Result<(), 
             };
             Ok((resp, note))
         })?;
-    let note = schema_push::register(&mut schema_push::Request {
-        home,
-        env: target.target_env,
-        input,
-        key: &key,
-        payload: &payload,
-        response: &mut response,
-    });
     print_pretty_json(&response);
     if !input.json {
         if let Some(line) = private_note {
-            println!("{line}");
-        }
-        if let Some(line) = note {
             println!("{line}");
         }
     }

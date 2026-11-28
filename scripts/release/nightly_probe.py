@@ -52,7 +52,7 @@ class OwnedNode:
             "HOME": str(self.root / "os-home"), "TMPDIR": str(self.root / "tmp"),
             "LASTDB_HOME": str(self.home), "LASTDB_ISOLATED_COPY": "1",
             "LASTDB_SUPPRESS_RECOVERY_PHRASE": "1", "ENVIRONMENT": "dev", "EXEMEM_ENV": "dev",
-            "RUST_MIN_STACK": "16777216", "FOLD_SCHEMA_SERVICE_URL": "http://127.0.0.1:9",
+            "RUST_MIN_STACK": "16777216",
             "EXEMEM_API_URL": "http://127.0.0.1:9",
         }
 

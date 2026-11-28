@@ -178,10 +178,11 @@ jobs:
         if: matrix.app == 'lastseek' && env.SKIP_APP != 'true'
         run: |
           set -euo pipefail
-          # LastSeek reads signed Brain schemas and does not declare them.
-          # Schema Service does not serve them. The Brain listing on LastSeek's
-          # own channel carries the same signed definition ids. An older stable
-          # Brain does not, so activation still reports the schema as absent.
+          # LastSeek reads signed Brain schemas and does not declare them in
+          # its own manifest. Install places access-block schemas only from the
+          # app's manifest, so Brain must already be on the node (matching
+          # definition ids) before LastSeek install can succeed. The Brain
+          # listing on LastSeek's own channel carries the same signed ids.
           lastdb app list brain --catalog-entry --channel "$REGISTRY_CHANNEL" \
             > "$PROOF_DIR/brain-for-lastseek.json" 2>"$PROOF_DIR/brain-for-lastseek.err"
           lastdb app install brain --channel "$REGISTRY_CHANNEL" --accept-install \

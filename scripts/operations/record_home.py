@@ -337,7 +337,7 @@ def main():
     require(output.is_relative_to(root) and not output.exists(), "output must be fresh under RUNNER_TEMP")
     output.mkdir(mode=0o700)
     env = {"LASTDB_TTL_SWEEP": "1", "LASTDB_TTL_SWEEP_INTERVAL_SECS": "1",
-           "EXEMEM_API_URL": "http://127.0.0.1:9", "FOLD_SCHEMA_SERVICE_URL": "http://127.0.0.1:9"}
+           "EXEMEM_API_URL": "http://127.0.0.1:9"}
     node = Node(args.daemon.resolve(), args.revision, output, temporary_directory=root, environment=env)
     try:
         node.start()

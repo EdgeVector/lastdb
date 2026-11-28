@@ -8,10 +8,9 @@ members = [
     "fold_db/crates/model",
     "fold_db/crates/observability",
 
-    # schema_service crates
+    # Shared schema types + offline advice vocabulary (schema-advisor).
     "schema_service/crates/schema_types",
     "schema_service/crates/core",
-    "schema_service/crates/server_lambda",
 
     # shared Ed25519 + JCS + signed registry-list helpers
     "app_identity_crypto",
@@ -57,7 +56,6 @@ default-members = [
     "fold_db/crates/observability",
     "schema_service/crates/schema_types",
     "schema_service/crates/core",
-    "schema_service/crates/server_lambda",
     "app_identity_crypto",
     "cloud_backup_protocol",
     "relay_protocol",

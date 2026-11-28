@@ -1,5 +1,5 @@
-//! Advisory Schema Service core: curated canonical vocabulary and deterministic
-//! draft schema advice (`GET /v1/fields/vocabulary`, `POST /v1/advice/schema`).
+//! Offline advice core: curated canonical vocabulary and deterministic draft
+//! schema advice for LastDB apps (consumed by EdgeVector/schema-advisor).
 
 pub mod advice;
 
