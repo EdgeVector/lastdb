@@ -203,8 +203,12 @@ async fn prepare_target_payload(
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect(),
     );
-    let Ok(wire_value) = signed_history_materialize::encode_record_value(&fields_json, &alternates)
-    else {
+    let Ok(wire_value) = signed_history_materialize::encode_record_value(
+        &fields_json,
+        &alternates,
+        &signed_history_materialize::FileSection::Keep,
+        None,
+    ) else {
         return Ok(None);
     };
     Ok(Some(TargetPayload {

@@ -216,7 +216,12 @@ pub(super) fn encode_value(item: &OwnedMutation) -> Result<Vec<u8>, String> {
         .fields
         .as_ref()
         .ok_or_else(|| "owned write is missing record fields".to_owned())?;
-    signed_history_materialize::encode_record_value(fields, &item.alternates)
+    signed_history_materialize::encode_record_value(
+        fields,
+        &item.alternates,
+        &signed_history_materialize::FileSection::Keep,
+        None,
+    )
 }
 
 fn author_one(

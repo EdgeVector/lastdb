@@ -1,122 +1,21 @@
 //! Upsert or delete each LWW winner of a `VerifiedHistory`.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 
 use fold_db::fold_db_core::FoldDB;
 use fold_db::record_replacement::RecordTarget;
-use fold_db::schema::types::{CasExpectation, KeyValue, Mutation, MutationType, Schema};
+use fold_db::record_value::InlineWrite;
+use fold_db::schema::types::{CasExpectation, FileWrite, KeyValue, Mutation, MutationType, Schema};
 use mutation_log::{MaterializedRecord, VerifiedHistory};
 use serde_json::Value;
 
+use crate::attachments::FileSection;
 use crate::key::key_value_for_schema;
 use crate::read::read_at;
 use crate::validate::validate_record;
-
-/// Named alternate key map carried by a record target.
-pub type Alternates = BTreeMap<String, Option<KeyValue>>;
-
-const RECORD_WRAP_FIELDS: &str = "lastdb:record";
-const RECORD_WRAP_ALTS: &str = "lastdb:alternates";
-
-pub(crate) struct Stored {
-    pub(crate) revision: String,
-    pub(crate) created_by: Option<String>,
-    pub(crate) updated_by: Option<String>,
-    pub(crate) fields: HashMap<String, Value>,
-    pub(crate) alternates: Alternates,
-}
-
-/// Encode record fields (and non-empty alternates, when present) as UTF-8 JSON bytes.
-///
-/// When `alternates` is empty, encodes plain `fields` JSON so schemas without
-/// alternate keys produce identical bytes. Field names in LastDB cannot contain
-/// `:`, so `lastdb:record` and `lastdb:alternates` never collide with user fields.
-pub fn encode_record_value(fields: &Value, alternates: &Alternates) -> Result<Vec<u8>, String> {
-    if alternates.is_empty() {
-        return serde_json::to_vec(fields).map_err(|e| format!("cannot encode record fields: {e}"));
-    }
-    let mut map = serde_json::Map::with_capacity(2);
-    map.insert(RECORD_WRAP_FIELDS.to_owned(), fields.clone());
-    let alts = serde_json::to_value(alternates)
-        .map_err(|e| format!("cannot encode record alternates: {e}"))?;
-    map.insert(RECORD_WRAP_ALTS.to_owned(), alts);
-    serde_json::to_vec(&Value::Object(map))
-        .map_err(|e| format!("cannot encode record envelope: {e}"))
-}
-
-/// Decoded record fields and alternate keys from a history value payload.
-pub struct DecodedRecord {
-    pub fields: HashMap<String, Value>,
-    pub alternates: Alternates,
-}
-
-/// Decode non-empty record value JSON into fields and alternate keys.
-pub fn decode_record_value(value: &[u8]) -> Result<Option<DecodedRecord>, String> {
-    if value.is_empty() {
-        return Ok(None);
-    }
-    let Value::Object(mut map) = serde_json::from_slice::<Value>(value)
-        .map_err(|e| format!("record value is not JSON: {e}"))?
-    else {
-        return Err("record value is not a JSON object".into());
-    };
-    if map.len() == 2 && map.contains_key(RECORD_WRAP_FIELDS) && map.contains_key(RECORD_WRAP_ALTS)
-    {
-        let Some(Value::Object(fields_map)) = map.remove(RECORD_WRAP_FIELDS) else {
-            return Err("wrapped record fields is not a JSON object".into());
-        };
-        let alts_val = map.remove(RECORD_WRAP_ALTS).unwrap_or(Value::Null);
-        let alternates: Alternates = serde_json::from_value(alts_val)
-            .map_err(|e| format!("wrapped record alternates is invalid: {e}"))?;
-        return Ok(Some(DecodedRecord {
-            fields: fields_map.into_iter().collect(),
-            alternates,
-        }));
-    }
-    Ok(Some(DecodedRecord {
-        fields: map.into_iter().collect(),
-        alternates: BTreeMap::new(),
-    }))
-}
-
-/// Normalize `supplied` alternates against `namespace`'s declared alternate keys,
-/// filling `None` for omitted `allow_absent` keys and canonicalizing range coordinates.
-pub fn resolve_alternates(
-    store: &FoldDB,
-    namespace: &str,
-    supplied: Alternates,
-) -> Result<Alternates, String> {
-    let Some(schema) = store
-        .schema_manager()
-        .get_schema_metadata(namespace)
-        .map_err(|e| e.to_string())?
-    else {
-        return Ok(supplied);
-    };
-    resolve_schema_alternates(&schema, supplied)
-}
-
-fn resolve_schema_alternates(
-    schema: &Schema,
-    mut supplied: Alternates,
-) -> Result<Alternates, String> {
-    let keys = schema.require_record_keys().map_err(|e| e.to_string())?;
-    for (name, def) in &keys.alternates {
-        match supplied.get_mut(name) {
-            Some(Some(kv)) if kv.range.is_some() => {
-                let raw_range = kv.range.as_deref().unwrap_or_default();
-                let profile = def.range_profile()?;
-                let encoded = profile.encode_value(raw_range)?;
-                kv.range = Some(profile.decode_value(&encoded)?);
-            }
-            None if def.allow_absent => {
-                supplied.insert(name.clone(), None);
-            }
-            Some(_) | None => {}
-        }
-    }
-    Ok(supplied)
-}
+use crate::value::{
+    decode_record_value, resolve_schema_alternates, Alternates, DecodedRecord, Stored,
+};
 
 /// Make FoldDB hold the valid winners of `history`.
 ///
@@ -201,7 +100,8 @@ fn plan_winner(
     }
     let creator = winner.creator.to_hex();
     let author = winner.author.to_hex();
-    let (target, fields) = match decode_and_validate(schema, namespace, key, &winner.value) {
+    let (target, fields, decoded) = match decode_and_validate(schema, namespace, key, &winner.value)
+    {
         Ok(valid) => valid,
         Err(reason) => {
             tracing::warn!(
@@ -219,6 +119,7 @@ fn plan_winner(
                 && old.alternates == target.alternates
                 && old.created_by.as_deref() == Some(creator.as_str())
                 && old.updated_by.as_deref() == Some(author.as_str())
+                && attachment_matches(old, &decoded.file, decoded.inline.as_ref())
             {
                 return None;
             }
@@ -234,7 +135,65 @@ fn plan_winner(
     );
     mutation.writer = Some(author.clone());
     mutation.copied_authorship = Some((Some(creator), Some(author)));
+    // External Put needs a fetched blob; the node prepares it before calling
+    // apply. Until then this returns None and leaves the key for a later pass.
+    if matches!(decoded.file, FileSection::Put(_)) {
+        return None;
+    }
+    let _ = apply_decoded_attachments(&mut mutation, &decoded.file, decoded.inline);
     Some(mutation)
+}
+
+fn attachment_matches(old: &Stored, file: &FileSection, inline: Option<&InlineWrite>) -> bool {
+    let file_ok = match file {
+        FileSection::Keep => true,
+        FileSection::Clear => old.file.is_none(),
+        FileSection::Put(marker) => old.file.as_ref() == Some(marker),
+    };
+    let inline_ok = match inline {
+        None => true,
+        Some(InlineWrite::Clear) => old.inline_file.is_none(),
+        Some(InlineWrite::Put(file)) => old.inline_file.as_ref() == Some(&file.marker),
+    };
+    file_ok && inline_ok
+}
+
+/// Apply attachment sections that need no blob fetch. An external Put is left
+/// for [`prepare_external_file`] after the sealed blob is opened.
+fn apply_decoded_attachments(
+    mutation: &mut Mutation,
+    file: &FileSection,
+    inline: Option<InlineWrite>,
+) -> Result<(), String> {
+    match file {
+        FileSection::Keep => {}
+        FileSection::Clear => mutation.file_write = Some(fold_db::schema::types::FileWrite::Clear),
+        FileSection::Put(marker) => {
+            mutation.file = Some(marker.clone());
+            return Err("record file blob has not been prepared".into());
+        }
+    }
+    mutation.inline_write = inline;
+    Ok(())
+}
+
+/// Attach a sealed store file write prepared from a fetched relay blob.
+pub fn prepare_external_file(
+    mutation: &mut Mutation,
+    marker: &fold_db::record_value::FileMarker,
+    write: fold_db::schema::types::FileWrite,
+) -> Result<(), String> {
+    let matches = match &write {
+        fold_db::schema::types::FileWrite::Put(sealed) => sealed.marker() == marker,
+        fold_db::schema::types::FileWrite::LocalPath(local) => local.marker() == marker,
+        fold_db::schema::types::FileWrite::Clear => false,
+    };
+    if !matches {
+        return Err("prepared file write does not match the history marker".into());
+    }
+    mutation.file = Some(marker.clone());
+    mutation.file_write = Some(write);
+    Ok(())
 }
 
 fn decode_and_validate(
@@ -242,17 +201,21 @@ fn decode_and_validate(
     namespace: &str,
     key: &KeyValue,
     raw_value: &[u8],
-) -> Result<(RecordTarget, HashMap<String, Value>), String> {
+) -> Result<(RecordTarget, HashMap<String, Value>, DecodedRecord), String> {
     let rec = decode_record_value(raw_value)?
         .ok_or_else(|| "live record winner unexpectedly decoded as empty".to_owned())?;
-    let alternates = resolve_schema_alternates(schema, rec.alternates)?;
+    let alternates = resolve_schema_alternates(schema, rec.alternates.clone())?;
     let target = RecordTarget {
         schema: namespace.to_owned(),
         key: key.clone(),
         alternates,
     };
-    validate_record(schema, &target, &rec.fields)?;
-    Ok((target, rec.fields))
+    let file_marker = match &rec.file {
+        FileSection::Put(marker) => Some(marker),
+        FileSection::Keep | FileSection::Clear => None,
+    };
+    validate_record(schema, &target, &rec.fields, file_marker)?;
+    Ok((target, rec.fields.clone(), rec))
 }
 
 fn delete_mutation(namespace: &str, key: KeyValue, stored: &Stored) -> Mutation {
