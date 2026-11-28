@@ -55,7 +55,7 @@ pub(super) async fn pull_share_writers(
     .await?;
     let mut seen = BTreeSet::new();
     seen.insert(publisher_hex.to_owned());
-    let mut pending: Vec<String> = writer_keys(histories, db.database_id, caller)
+    let mut pending: Vec<String> = writer_keys(histories, db.database_id)
         .into_iter()
         .filter(|key| key != publisher_hex && seen.insert(key.clone()))
         .collect();
@@ -63,7 +63,7 @@ pub(super) async fn pull_share_writers(
         for writer in pending.drain(..) {
             accepted += pull_member_writer(client, histories, db, caller, &writer).await?;
         }
-        for writer in writer_keys(histories, db.database_id, caller) {
+        for writer in writer_keys(histories, db.database_id) {
             if writer != publisher_hex && seen.insert(writer.clone()) {
                 pending.push(writer);
             }
@@ -147,10 +147,10 @@ async fn pull_member_writer(
     }
 }
 
-/// Hex writer keys this node may read: see [`writer_keys_of`].
-fn writer_keys(histories: &HistoryMap, database_id: &str, caller: NodeKey) -> Vec<String> {
+/// Hex writer keys: publisher plus write/submit (and historical) members.
+fn writer_keys(histories: &HistoryMap, database_id: &str) -> Vec<String> {
     histories
-        .peek_with(database_id, |history| writer_keys_of(history, caller))
+        .peek_with(database_id, writer_keys_of)
         .unwrap_or_default()
 }
 
@@ -185,40 +185,16 @@ fn relay_forbidden(err: &str) -> bool {
     err.contains("HTTP 403")
 }
 
-/// The writers whose streams `caller` reads, the same rule as the relay's read gate
-/// (`docs/designs/relay-protocol.md`, "Who reads a member stream").
-///
-/// The publisher reads every member that holds or held `submit` or `write`. A member
-/// reads the publisher, itself, and every member that ever held `write`, whose direct
-/// entries count under a lease. A member that only ever held `submit` writes nothing
-/// but proposals, which are for the owner alone, so no other member reads its stream.
-fn writer_keys_of(history: &VerifiedHistory, caller: NodeKey) -> Vec<String> {
+fn writer_keys_of(history: &VerifiedHistory) -> Vec<String> {
     let mut keys = BTreeSet::new();
-    let Some(owner) = history.owner() else {
-        return Vec::new();
-    };
-    keys.insert(owner.to_hex());
-    if caller != owner {
-        keys.insert(caller.to_hex());
-        for key in granted(history, &[Role::Write]) {
-            keys.insert(key.to_hex());
-        }
-        return keys.into_iter().collect();
+    if let Some(owner) = history.owner() {
+        keys.insert(owner.to_hex());
     }
     for (key, role) in history.grants().members() {
         if matches!(role, Role::Write | Role::Submit | Role::Revoked) {
             keys.insert(key.to_hex());
         }
     }
-    for key in granted(history, &[Role::Write, Role::Submit]) {
-        keys.insert(key.to_hex());
-    }
-    keys.into_iter().collect()
-}
-
-/// Members that a publisher grant ever gave one of `roles`.
-fn granted(history: &VerifiedHistory, roles: &[Role]) -> Vec<NodeKey> {
-    let mut keys = Vec::new();
     for (hash, _) in history.publisher_grants() {
         let Some(meta) = history.get_accepted(&hash) else {
             continue;
@@ -226,14 +202,14 @@ fn granted(history: &VerifiedHistory, roles: &[Role]) -> Vec<NodeKey> {
         let Some(body) = meta.grant_body.as_ref() else {
             continue;
         };
-        if !roles.contains(&body.role) {
+        if !matches!(body.role, Role::Write | Role::Submit) {
             continue;
         }
         if let mutation_log::Grantee::Member(key) = body.grantee {
-            keys.push(key);
+            keys.insert(key.to_hex());
         }
     }
-    keys
+    keys.into_iter().collect()
 }
 
 async fn pull_pages(

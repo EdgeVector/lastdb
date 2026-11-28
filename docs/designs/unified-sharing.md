@@ -11,7 +11,8 @@ Every database is the same thing: a store, one signed stream for each device tha
 and grants signed by the owner. Personal, share and org differ only in their grants. Each is a
 set of database writes, and permissions decide two things:
 
-- **Who reads which streams.** The relay routes reads by the grants.
+- **Who reads the database.** The relay serves its streams to the readers the grants name, and
+  the read key opens what counts.
 - **Whose entries count.** Every node decides that for itself from the signed grants and leases.
 
 | Kind | Grants | Who writes directly | Who proposes |
@@ -27,9 +28,9 @@ does need beyond a share is in section 6.
 
 | Party | Trusted with | Not trusted with |
 |---|---|---|
-| Relay | Routing: who may deposit on a stream, and who may read it (`relay-protocol.md`, "Who reads a member stream") | What counts. It cannot forge, change or count an entry. At worst it withholds |
+| Relay | Routing: who may deposit on a stream, and who may read the database | What counts. It cannot forge, change or count an entry. At worst it withholds |
 | Node | Deciding what counts, by `AcceptEntry` over the signed grants and leases | — |
-| Encryption | Keeping content from anyone who should not read it, even when the relay routes wrongly | — |
+| Encryption | Keeping content from anyone who should not read it, including proposals from other members | — |
 
 Two keys seal content:
 
@@ -87,8 +88,14 @@ Members do not all write directly. Moderation is a role, not a second path:
 | `submit` | Proposals | Only the owner's accepting entry |
 | `write` | Direct entries under a live lease, proposals otherwise | Its direct entries under the lease, and the owner's accepting entries |
 
-A stream that holds only proposals is for the owner and its author. The relay refuses it to
-everyone else, and its proposals are sealed to the owner anyway.
+Every reader receives every stream, because the owner's decision on a proposal cites the
+proposal, and a node holds an entry until it has every entry it cites. A proposal is sealed to
+the owner, so other members learn only that it exists, when, and its size.
+
+Hiding a proposal stream from other members entirely was tried in #1955 and dropped (Tom,
+2026-11-28): members then stall on the owner's decision. It would need nodes to accept an owner
+entry that cites a proposal they cannot hold, on the owner's signature alone. That is a change to
+`AcceptEntry`, and is not planned.
 
 ## 6. What org needs beyond share
 
@@ -99,9 +106,8 @@ everyone else, and its proposals are sealed to the owner anyway.
    proposal, as in a share. Proposals wait while every owner device is offline, so an org's
    owner should keep one device that is usually on. Permissions can widen later. One way, if
    it is needed: a `moderate` role the owner grants to a few members, with a proposal sealed to
-   the owner and to each moderator (one content key, wrapped for each), `AcceptEntry` counting
-   a decision signed by a current moderator, and the relay letting moderators read the streams
-   the owner reads. That changes the entry format and `AcceptEntry`, so it would be a stage of
+   the owner and to each moderator (one content key, wrapped for each), and `AcceptEntry`
+   counting a decision signed by a current moderator. That changes the entry format and `AcceptEntry`, so it would be a stage of
    its own.
 3. **Removing a member.** A removed member still holds the read key. The relay already refuses
    it new entries, but a relay that routed wrongly would hand it content it can open. Rotating
@@ -116,7 +122,7 @@ Each stage is one PR, built and proved in CI (`shared_database_proof.py`,
 `personal_database_proof.py`, the lease proofs and the signed-history DEV proofs). A stage that
 changes the home copies records into a fresh home and updates `../home-format.md` in the same PR.
 
-1. Proposals sealed to the owner, and the relay routing member streams by role. In #1955.
+1. Proposals sealed to the owner. In #1955.
 2. Shared writes through the spool and head rows. Removes `authored.json`, `uploaded.json`,
    `received.json` and the in-memory history.
 3. One apply rule for every database: stamps for each part of a record, and `created_by` in the
@@ -130,4 +136,3 @@ Moderators other than the owner are not a stage now (6.2).
 ## 8. Open questions
 
 1. Rotate the read key when a member is removed?
-2. The Exemem relay needs the read rule of stage 1. Who changes it, and when?

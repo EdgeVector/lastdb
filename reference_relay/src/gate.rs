@@ -101,10 +101,9 @@ pub(crate) fn authorize_read(
     }
 }
 
-/// Gate `log.read` and `log.streams`. Active grants match [`authorize_read`],
-/// narrowed by [`member_stream_visible`]. A revoked caller may only read a single
-/// publisher device stream (AllDevices → 403), matching exemem #960 so the signed
-/// revoke entry stays reachable.
+/// Gate `log.read`. Active grants match [`authorize_read`]. A revoked caller
+/// may only read a single publisher device stream (AllDevices → 403), matching
+/// exemem #960 so the signed revoke entry stays reachable.
 pub(crate) fn authorize_log_read(
     index: &GrantIndex,
     db: &DatabaseId,
@@ -115,15 +114,8 @@ pub(crate) fn authorize_log_read(
     let birth = index
         .birth(db)
         .ok_or_else(|| ApiError::forbidden("publisher"))?;
-    if birth.owner == *caller {
+    if birth.owner == *caller || index.role_of(db, caller).is_some() || index.any_read(db) {
         return Ok(());
-    }
-    if index.role_of(db, caller).is_some() || index.any_read(db) {
-        return if member_stream_visible(index, db, &birth, caller, writer_key) {
-            Ok(())
-        } else {
-            Err(ApiError::forbidden("writer_key"))
-        };
     }
     if index.is_revoked(db, caller) {
         if all_devices {
@@ -134,26 +126,6 @@ pub(crate) fn authorize_log_read(
         }
     }
     Err(ApiError::forbidden("role"))
-}
-
-/// Whether a reader other than the publisher may read the streams of `writer_key`.
-///
-/// The publisher's streams are for every reader, and a member's own streams are
-/// for that member. Another member's streams are for the publisher alone, unless
-/// that member ever held `write`: its direct entries count under a lease, so
-/// every reader needs them. A member that only held `submit` signs nothing but
-/// proposals, and a proposal is the owner's to decide before anyone else reads it.
-fn member_stream_visible(
-    index: &GrantIndex,
-    db: &DatabaseId,
-    birth: &Birth,
-    caller: &NodeKey,
-    writer_key: &str,
-) -> bool {
-    let Ok(writer) = NodeKey::from_hex(&writer_key.to_ascii_lowercase()) else {
-        return false;
-    };
-    writer == birth.owner || writer == *caller || index.ever_held_write(db, &writer)
 }
 
 fn authorize_member_entry(
