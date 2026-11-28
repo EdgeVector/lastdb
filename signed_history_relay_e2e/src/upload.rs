@@ -132,14 +132,7 @@ pub async fn bootstrap(http: &reqwest::Client, plan: &UploadPlan) -> Result<Uplo
 
     let records = plan.total_bytes.div_ceil(VALUE_TEXT_BYTES).max(1);
     let bundles = records.div_ceil(BUNDLE_RECORDS);
-    let blobs_started = Instant::now();
-    let mut puts: Vec<PutBundle> = stream::iter(0..bundles)
-        .map(|index| put_bundle(&client_a, &cipher, &plan.ledger, index, records))
-        .buffer_unordered(plan.concurrency)
-        .try_collect()
-        .await?;
-    let blobs_seconds = blobs_started.elapsed().as_secs_f64();
-    puts.sort_by_key(|put| put.index);
+    let (puts, blobs_seconds) = put_bundles(&client_a, &cipher, plan, bundles, records).await?;
 
     let mut entries_a = vec![
         publisher.incorporate(&mut chain_a, member.proposal()?)?,
@@ -190,6 +183,24 @@ pub async fn bootstrap(http: &reqwest::Client, plan: &UploadPlan) -> Result<Uplo
         blobs_seconds,
         blob_puts: puts.iter().map(PutBundle::report).collect(),
     })
+}
+
+/// Every bundle, `plan.concurrency` at once, sorted by index, and the wall time they took.
+async fn put_bundles(
+    client: &RelayClient,
+    cipher: &Arc<BundleCipher>,
+    plan: &UploadPlan,
+    bundles: u64,
+    records: u64,
+) -> Result<(Vec<PutBundle>, f64), String> {
+    let started = Instant::now();
+    let mut puts: Vec<PutBundle> = stream::iter(0..bundles)
+        .map(|index| put_bundle(client, cipher, &plan.ledger, index, records))
+        .buffer_unordered(plan.concurrency)
+        .try_collect()
+        .await?;
+    puts.sort_by_key(|put| put.index);
+    Ok((puts, started.elapsed().as_secs_f64()))
 }
 
 async fn put_bundle(

@@ -27,6 +27,7 @@ mod materialize;
 mod relay;
 mod restore;
 mod streams;
+mod transfer;
 mod upload;
 
 use std::path::{Path, PathBuf};
