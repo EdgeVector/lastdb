@@ -1,0 +1,32 @@
+name: People #57 Photo DEV dispatch
+
+# One-shot: use lastdb secrets.GH_PAT to start EdgeVector/people DEV sharing
+# on the people #57 branch against the #1956 squash on LastDB main. Close this
+# workflow (and its PR) after the People run is green; do not merge as product.
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/people-photo-dev-dispatch.yml"
+      - "scripts/ci/people_dev_sharing_gate.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dispatch-people-photo:
+    name: Dispatch people #57 DEV share (Photo file+inline)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+      - name: Dispatch People DEV sharing and wait
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/people_dev_sharing_gate.py \
+            --sha b6e7233138b8b5c7afa5c719ed409f259969de92 \
+            --people-ref cursor/shared-photo-file-inline-proof-7075 \
+            --mode all

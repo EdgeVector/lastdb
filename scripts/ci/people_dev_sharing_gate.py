@@ -3,14 +3,14 @@
 
 People owns the recipes and the DEV publisher secrets
 (EdgeVector/people `.github/workflows/dev-sharing.yml`). This gate starts
-that workflow on people main with `lastdb_source_sha` and fails when any
-sharing leg fails. It uses `secrets.GH_PAT` for the cross-repo workflow
-dispatch.
+that workflow on a People ref (default `main`) with `lastdb_source_sha` and
+fails when any sharing leg fails. It uses `secrets.GH_PAT` for the cross-repo
+workflow dispatch.
 
 Correlation is the People `run-name` only: exact
-`DEV sharing (<40-hex SHA>)` on `head_branch=main` (case-insensitive on the
-title/`name` fields). There is no “newest dispatch” fallback and no adoption
-of a concurrent run for a different LastDB SHA or ref.
+`DEV sharing (<40-hex SHA>)` on the requested `head_branch` (case-insensitive
+on the title/`name` fields). There is no “newest dispatch” fallback and no
+adoption of a concurrent run for a different LastDB SHA or ref.
 """
 
 from __future__ import annotations
@@ -66,14 +66,14 @@ def require_token() -> None:
     sys.exit(2)
 
 
-def dispatch(sha: str, mode: str) -> None:
+def dispatch(sha: str, mode: str, people_ref: str) -> None:
     # workflow_dispatch returns 204 with an empty body.
     # Only mode + lastdb_source_sha: leave lastdb_release and relay_url unset.
     result = gh_api(
         f"repos/{PEOPLE}/actions/workflows/{WORKFLOW}/dispatches",
         method="POST",
         body={
-            "ref": "main",
+            "ref": people_ref,
             "inputs": {
                 "lastdb_source_sha": sha,
                 "mode": mode,
@@ -81,7 +81,11 @@ def dispatch(sha: str, mode: str) -> None:
         },
     )
     if result.returncode == 0:
-        print(f"people-dev-sharing-gate: dispatched {WORKFLOW} for {sha}", flush=True)
+        print(
+            f"people-dev-sharing-gate: dispatched {WORKFLOW} for {sha} "
+            f"on people ref {people_ref!r}",
+            flush=True,
+        )
         return
     detail = (result.stderr or result.stdout or "").strip()[:500]
     print(
@@ -131,24 +135,24 @@ def run_title(run: dict) -> str:
     return ""
 
 
-def run_identity_matches(run: dict, sha: str) -> bool:
-    """True only for people main workflow_dispatch of this exact LastDB SHA."""
-    if (run.get("head_branch") or "") != "main":
+def run_identity_matches(run: dict, sha: str, people_ref: str) -> bool:
+    """True only for the requested People ref + this exact LastDB SHA."""
+    if (run.get("head_branch") or "") != people_ref:
         return False
     # Compare case-insensitively: GitHub may normalize display casing.
     title = run_title(run).lower()
     return title == expected_run_name(sha).lower()
 
 
-def find_run(sha: str, not_before: datetime) -> dict | None:
-    """Return the run whose run-name is exactly DEV sharing (<sha>) on main."""
+def find_run(sha: str, people_ref: str, not_before: datetime) -> dict | None:
+    """Return the run whose run-name is exactly DEV sharing (<sha>) on ref."""
     floor = not_before - timedelta(seconds=5)
     matches = []
     for run in list_runs():
         created_at = parse_created(run)
         if created_at is None or created_at < floor:
             continue
-        if not run_identity_matches(run, sha):
+        if not run_identity_matches(run, sha, people_ref):
             continue
         matches.append(run)
     if not matches:
@@ -177,12 +181,12 @@ def print_legs(run_id: int, html_url: str) -> None:
         )
 
 
-def print_recent_dispatch_titles(sha: str) -> None:
-    """Diagnostics when find misses: show recent main dispatch titles."""
+def print_recent_dispatch_titles(sha: str, people_ref: str) -> None:
+    """Diagnostics when find misses: show recent dispatch titles."""
     want = expected_run_name(sha).lower()
     print(
         "people-dev-sharing-gate: recent workflow_dispatch on people "
-        f"(looking for {want!r} on main):",
+        f"(looking for {want!r} on {people_ref!r}):",
         flush=True,
     )
     shown = 0
@@ -201,6 +205,7 @@ def print_recent_dispatch_titles(sha: str) -> None:
 
 def wait_for_run(
     sha: str,
+    people_ref: str,
     not_before: datetime,
     find_seconds: int,
     wait_seconds: int,
@@ -209,22 +214,22 @@ def wait_for_run(
     total_deadline = time.monotonic() + wait_seconds
     run = None
     while time.monotonic() < find_deadline:
-        run = find_run(sha, not_before)
+        run = find_run(sha, people_ref, not_before)
         if run is not None:
             break
         print(
             "people-dev-sharing-gate: waiting for a workflow_dispatch whose "
-            f"run-name is exactly {expected_run_name(sha)!r} on main",
+            f"run-name is exactly {expected_run_name(sha)!r} on {people_ref!r}",
             flush=True,
         )
         time.sleep(15)
     if run is None:
-        print_recent_dispatch_titles(sha)
+        print_recent_dispatch_titles(sha, people_ref)
         print(
             f"people-dev-sharing-gate: FAIL no People DEV sharing run named "
-            f"{expected_run_name(sha)!r} on main appeared within {find_seconds}s. "
-            "People main must embed lastdb_source_sha in run-name (people #37). "
-            "There is no newest-dispatch fallback.",
+            f"{expected_run_name(sha)!r} on {people_ref!r} appeared within "
+            f"{find_seconds}s. People must embed lastdb_source_sha in run-name "
+            "(people #37). There is no newest-dispatch fallback.",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -247,11 +252,11 @@ def wait_for_run(
             continue
         run = json.loads(result.stdout)
         # Re-check identity so a watched id can never authorize another SHA/ref.
-        if not run_identity_matches(run, sha):
+        if not run_identity_matches(run, sha, people_ref):
             print(
                 f"people-dev-sharing-gate: FAIL watched run {run_id} identity "
                 f"title={run_title(run)!r} head_branch={run.get('head_branch')!r} "
-                f"does not match {expected_run_name(sha)!r} on main",
+                f"does not match {expected_run_name(sha)!r} on {people_ref!r}",
                 file=sys.stderr,
             )
             sys.exit(1)
@@ -274,6 +279,11 @@ def main() -> int:
     parser.add_argument("--sha", required=True, help="40-hex LastDB commit to prove")
     parser.add_argument("--mode", default="all", help="People sharing mode (default all)")
     parser.add_argument(
+        "--people-ref",
+        default="main",
+        help="People branch or tag to dispatch (default main)",
+    )
+    parser.add_argument(
         "--find-seconds",
         type=int,
         default=DEFAULT_FIND_SECONDS,
@@ -287,9 +297,17 @@ def main() -> int:
     )
     args = parser.parse_args()
     sha = args.sha.strip().lower()
+    people_ref = args.people_ref.strip()
     if not SHA_RE.match(sha):
         print(
             f"people-dev-sharing-gate: FAIL sha must be 40 hex, got {args.sha!r}",
+            file=sys.stderr,
+        )
+        return 2
+    if not people_ref or any(ch.isspace() for ch in people_ref):
+        print(
+            f"people-dev-sharing-gate: FAIL people-ref must be a non-empty "
+            f"branch/tag without spaces, got {args.people_ref!r}",
             file=sys.stderr,
         )
         return 2
@@ -302,13 +320,15 @@ def main() -> int:
         return 2
     require_token()
     not_before = datetime.now(timezone.utc)
-    dispatch(sha, args.mode)
-    run = wait_for_run(sha, not_before, args.find_seconds, args.wait_seconds)
-    if not run_identity_matches(run, sha):
+    dispatch(sha, args.mode, people_ref)
+    run = wait_for_run(
+        sha, people_ref, not_before, args.find_seconds, args.wait_seconds
+    )
+    if not run_identity_matches(run, sha, people_ref):
         print(
             f"people-dev-sharing-gate: FAIL completed run {run.get('id')} identity "
             f"title={run_title(run)!r} head_branch={run.get('head_branch')!r} "
-            f"does not match {expected_run_name(sha)!r} on main",
+            f"does not match {expected_run_name(sha)!r} on {people_ref!r}",
             file=sys.stderr,
         )
         return 1
