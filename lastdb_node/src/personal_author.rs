@@ -66,7 +66,11 @@ impl CaptureAuthor for PersonalAuthor {
         order: u64,
         body: &[u8],
         file_sha256: Option<&str>,
+        note: Option<&[u8]>,
     ) -> Result<SignedLocal, String> {
+        if note.is_some() {
+            return Err("the personal database takes no note".into());
+        }
         if order >= LAMPORT_LIMIT {
             return Err("the order value of a write is at or past the lamport limit".into());
         }

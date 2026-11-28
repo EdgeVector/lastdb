@@ -95,7 +95,8 @@ pub(super) async fn run(
     host: &Arc<Host>,
 ) -> Result<(), String> {
     let home = &ctx.host.home;
-    if lane::busy_for(home) {
+    let lane_key = home.join("log-sync").join(&ctx.database_id);
+    if lane::busy_for(&lane_key) {
         return Ok(());
     }
     let request = SNAPSHOT.waiting(home, &ctx.database_id);
@@ -116,11 +117,16 @@ pub(super) async fn run(
         .cloud_sync
         .mark_snapshot(SnapshotState::InProgress, Some("hashing the files".into()));
     let (host, base) = (Arc::clone(host), client.base.clone());
-    lane::start_for(home, move |lane_id| {
+    let target = Arc::clone(&ctx.target);
+    let done_key = lane_key.clone();
+    lane::start_for(&lane_key, move |lane_id| {
         Box::pin(async move {
-            let home = host.home.clone();
-            upload(host, base, frozen, request).await;
-            lane::finish_for(&home, lane_id);
+            let ctx = Ctx {
+                host: &host,
+                target,
+            };
+            upload(&ctx, base, frozen, request).await;
+            lane::finish_for(&done_key, lane_id);
             crate::log_sync::wake::wake_loop();
         })
     });
@@ -129,22 +135,21 @@ pub(super) async fn run(
 
 /// The lane hashes, uploads, names and verifies one frozen snapshot, then persists the work that
 /// remains for later sync turns. It returns nothing, because no turn waits for it.
-async fn upload(host: Arc<Host>, base: String, frozen: Frozen, request: Option<String>) {
+async fn upload(ctx: &Ctx<'_>, base: String, frozen: Frozen, request: Option<String>) {
     let prior = frozen.prior.clone();
-    let opened =
-        Ctx::open(&host).and_then(|ctx| RelayClient::for_host(&host, &base).map(|c| (ctx, c)));
-    let (ctx, client) = match opened {
-        Ok(opened) => opened,
+    let host = ctx.host;
+    let client = match RelayClient::for_host(host, &base) {
+        Ok(client) => client,
         Err(error) => {
             host.cloud_sync.mark_snapshot(prior.0, prior.1);
-            if let (Ok(owner), Some(nonce)) = (host.owned.owner(), request.as_deref()) {
-                SNAPSHOT.fail(&host.home, &owner.id, nonce, &error);
+            if let Some(nonce) = request.as_deref() {
+                SNAPSHOT.fail(&host.home, &ctx.database_id, nonce, &error);
             }
             tracing::warn!(target: "lastdbd::log_sync", %error, "snapshot upload could not start");
             return;
         }
     };
-    match publish_cut(&ctx, &client, frozen, false).await {
+    match publish_cut(ctx, &client, frozen, false).await {
         Ok((report, fresh)) => {
             tracing::info!(target: "lastdbd::log_sync", seq = report.snapshot_seq, files = report.files, uploaded = report.uploaded_files, "snapshot published");
             if !fresh {
@@ -160,7 +165,7 @@ async fn upload(host: Arc<Host>, base: String, frozen: Frozen, request: Option<S
         }
         Err(error) => {
             host.cloud_sync.mark_snapshot(prior.0, prior.1);
-            let _ = failed(&ctx, request.as_deref(), error.clone());
+            let _ = failed(ctx, request.as_deref(), error.clone());
             if !error.starts_with(TOO_LARGE) {
                 tracing::warn!(target: "lastdbd::log_sync", %error, "snapshot failed");
             }
@@ -259,7 +264,7 @@ async fn freeze(ctx: &Ctx<'_>, first: bool) -> Result<Option<Frozen>, String> {
     let work = NativeCloudWorkGuard::acquire().map_err(|error| error.to_string())?;
     let started = Instant::now();
     let held = ctx.host.cloud_sync.snapshot().snapshot;
-    let db = ctx.host.db.db_ops();
+    let db = ctx.store.db_ops();
     let captured = if first {
         db.capture_initial_snapshot().await
     } else {

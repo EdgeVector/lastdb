@@ -31,8 +31,7 @@ pub(super) async fn remote_schema(
     header: &EntryHeader,
     schema: SchemaChange,
 ) -> Result<ApplyOutcome, String> {
-    ctx.host
-        .db
+    ctx.store
         .schema_manager()
         .ensure_unblocked(&schema.name)
         .await
@@ -63,8 +62,7 @@ async fn put_schema(
     let (replace_id, replace_digest) =
         schema_receipt(b"lastdb-personal-schema-replace-v1", header, next);
     for attempt in 0..2 {
-        ctx.host
-            .db
+        ctx.store
             .schema_manager()
             .ensure_unblocked(&name)
             .await
@@ -81,8 +79,7 @@ async fn put_schema(
         let mut reconciled_floor = None;
         match &plan {
             SchemaPlan::ReplaceIncompatible => {
-                ctx.host
-                    .db
+                ctx.store
                     .schema_manager()
                     .drop_replay_schema(&name, &replace_id, &replace_digest, &stamp)
                     .await
@@ -91,8 +88,7 @@ async fn put_schema(
                     })?;
             }
             SchemaPlan::FenceLoser(winner) => {
-                ctx.host
-                    .db
+                ctx.store
                     .mutation_manager()
                     .reconcile_replay_schema_floor(&name, winner)
                     .await
@@ -104,8 +100,7 @@ async fn put_schema(
             SchemaPlan::NoOp | SchemaPlan::Load { .. } => {}
         }
         let outcome = ctx
-            .host
-            .db
+            .store
             .mutation_manager()
             .write_replay_at_head(
                 stream,
@@ -141,13 +136,12 @@ async fn plan_put(
     stamp: &ReplayStamp,
     replace_receipt: (&[u8; 32], &[u8; 32]),
 ) -> Result<SchemaPlan, SchemaError> {
-    let schema_manager = ctx.host.db.schema_manager();
+    let schema_manager = ctx.store.schema_manager();
     let _ = schema_manager.resolve_schema(name).await?;
     let replaced_here = schema_manager
         .replay_receipt_exists(replace_receipt.0, replace_receipt.1)
         .await?;
-    ctx.host
-        .db
+    ctx.store
         .mutation_manager()
         .in_replay_read_scope(async {
             classify_in_scope(ctx, name, definition, stamp, replaced_here).await
@@ -162,7 +156,7 @@ async fn classify_in_scope(
     stamp: &ReplayStamp,
     replaced_here: bool,
 ) -> Result<SchemaPlan, SchemaError> {
-    let manager = ctx.host.db.mutation_manager();
+    let manager = ctx.store.mutation_manager();
     let held = manager.replay_schema_winner(name).await?;
     let drop_held = manager.replay_schema_drop_winner(name).await?;
     let beats_entry = |bound: &ReplayStamp| {
@@ -175,7 +169,7 @@ async fn classify_in_scope(
     if drop_held.as_ref().is_some_and(beats_entry) {
         return Ok(SchemaPlan::NoOp);
     }
-    let existing = ctx.host.db.schema_manager().get_schema_metadata(name)?;
+    let existing = ctx.store.schema_manager().get_schema_metadata(name)?;
     if let Some(stored) = existing {
         if let Some(winner) = held.filter(beats_entry) {
             let compatible = SchemaCore::is_compatible_update(definition, &stored)?;
@@ -208,11 +202,10 @@ async fn commit_put(
     replace_receipt: (&[u8; 32], &[u8; 32]),
     reconciled_floor: Option<&ReplayStamp>,
 ) -> Result<(), SchemaError> {
-    let manager = ctx.host.db.mutation_manager();
+    let manager = ctx.store.mutation_manager();
     manager.observe_replay_time(stamp.ordering_ms).await?;
     let replaced_here = ctx
-        .host
-        .db
+        .store
         .schema_manager()
         .replay_receipt_exists(replace_receipt.0, replace_receipt.1)
         .await?;
@@ -228,8 +221,7 @@ async fn commit_put(
             Ok(())
         }
         SchemaPlan::Load { fence_drop } => {
-            ctx.host
-                .db
+            ctx.store
                 .schema_manager()
                 .load_schema_internal(definition)
                 .await?;
@@ -255,12 +247,11 @@ async fn drop_schema(
     header: &EntryHeader,
     name: &str,
 ) -> Result<(), String> {
-    let manager = ctx.host.db.mutation_manager();
+    let manager = ctx.store.mutation_manager();
     let stamp = stamp_of(header);
     let (id, digest) = schema_receipt(b"lastdb-personal-schema-drop-v1", header, next);
     let done = async {
-        ctx.host
-            .db
+        ctx.store
             .schema_manager()
             .drop_replay_schema(name, &id, &digest, &stamp)
             .await?;

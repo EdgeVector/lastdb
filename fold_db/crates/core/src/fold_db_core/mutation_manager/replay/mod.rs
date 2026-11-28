@@ -3,6 +3,7 @@
 mod records;
 mod saved_fields;
 mod stream;
+mod winner;
 
 pub use records::ReplayAttachmentSlots;
 

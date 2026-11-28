@@ -108,6 +108,9 @@ async fn snapshot_requested(ctx: &Ctx<'_>) {
 }
 
 fn check_stream_coverage(streams: &[RelayStream], snapshot: &SnapshotBody) -> Result<(), String> {
+    if snapshot.through.iter().any(|at| at.writer_key.is_some()) {
+        return Err("reclaim needs the stream listing of every snapshot writer".into());
+    }
     let mut seen_devices = BTreeSet::new();
     for stream in streams {
         if !seen_devices.insert(stream.device_id.as_str()) {

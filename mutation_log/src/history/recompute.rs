@@ -5,8 +5,8 @@ use std::collections::BTreeSet;
 use crate::ids::{EntryHash, NodeKey};
 use crate::payload::{MaterializedRecord, RecordPosition};
 
-use super::lease::pos_key;
 use super::VerifiedHistory;
+use crate::lease_book::pos_key;
 
 /// Lightweight metadata of one write to a record key (no value bytes).
 #[derive(Clone, Copy, Debug)]

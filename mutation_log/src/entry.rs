@@ -6,6 +6,7 @@ use crate::ids::{DatabaseId, DeviceId, EntryHash, Hex32, NodeKey};
 use crate::kinds::{EntryKind, Grantee, Role, StreamKind};
 
 pub use crate::lease_body::{ClosedStream, LeaseBody};
+pub use crate::snapshot_body::{SnapshotBody, SnapshotThrough};
 
 /// Common header fields shared by every signed entry (OpenAPI).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -193,31 +194,6 @@ pub struct RelaysBody {
 pub struct RelayUrl {
     /// Relay base URL.
     pub url: String,
-}
-
-/// One stream position a snapshot covers.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SnapshotThrough {
-    /// Device id of the stream.
-    pub device_id: DeviceId,
-    /// Last `writer_seq` of that stream that the snapshot holds.
-    pub writer_seq: u64,
-    /// Hash of that entry.
-    pub entry_hash: EntryHash,
-    /// Order value (`lamport`) of that entry.
-    pub order: u64,
-}
-
-/// Snapshot body. The manifest and every file it lists are blobs on the relay.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SnapshotBody {
-    /// SHA-256 of the manifest blob.
-    pub manifest_sha256: Hex32,
-    /// Length of the manifest blob in bytes.
-    pub manifest_bytes: u64,
-    /// The stream positions the snapshot covers, ascending by device id. A
-    /// reader of the snapshot reads each stream after its position.
-    pub through: Vec<SnapshotThrough>,
 }
 
 /// Full signed entry (OpenAPI `SignedEntry` oneOf).

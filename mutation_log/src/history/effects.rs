@@ -65,7 +65,7 @@ impl VerifiedHistory {
         }
         let decls = self.schema_decls.entry(namespace.clone()).or_default();
         decls.insert(
-            super::lease::pos_key(position),
+            crate::lease_book::pos_key(position),
             super::SchemaDecl {
                 pos: position,
                 entry: hash,

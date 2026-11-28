@@ -5,6 +5,7 @@ mod files;
 mod replay;
 pub(in crate::storage) use replay::chain_key;
 mod replay_stream;
+mod signed_log;
 
 pub(crate) use changes::ChangedKey;
 pub use changes::{Change, ChangePage, CHANGES_PAGE};
@@ -15,6 +16,7 @@ pub(crate) use replay::{
     ReplayTarget, SavedReplayFields, SchemaReplayDrop, DROP_SLOT, FILE_SLOT, INLINE_SLOT,
 };
 pub use replay_stream::ReplayStreamHead;
+pub use signed_log::SIGNED_LOG_PAGE_MAX;
 
 use super::METADATA_NAMESPACE;
 use crate::schema::types::{MutationAuthorClockState, SchemaError};

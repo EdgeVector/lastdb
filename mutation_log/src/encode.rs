@@ -20,7 +20,9 @@
 //! - **blob_delete:** `sha256`(32)
 //! - **heads:** tips (`u16` + `device_id`(32)·`writer_seq`(u64)·`entry_hash`(32)×)
 //! - **snapshot:** `manifest_sha256`(32) · `manifest_bytes`(u64) · through (`u16` count ≤ 1024,
-//!   strictly ascending by `device_id`, each `device_id`(32)·`writer_seq`(u64)·`entry_hash`(32)·`order`(u64))
+//!   ascending by (writer, device), each `device_id`(32)·`writer_seq`(u64)·`entry_hash`(32)·`order`(u64)).
+//!   If any writer differs from the publisher, bit 15 of the count is set and each position
+//!   starts with its 32-byte writer key. Publisher-only cuts retain their original signed bytes.
 //! - **lease:** `expires_at_ms`(u64) · `closes_at_ms`(u64) · closed (`u16` count,
 //!   strictly ascending by `node_key` then `device_id`, each
 //!   `node_key`(32)·`device_id`(32)·`writer_seq`(u64))
@@ -62,7 +64,7 @@ pub fn signed_bytes(entry: &SignedEntry) -> Result<Vec<u8>, EncodeError> {
         }
         SignedEntry::Heads { body, .. } => encode_heads(&mut buf, body)?,
         SignedEntry::Relays { body, .. } => encode_relays(&mut buf, body)?,
-        SignedEntry::Snapshot { body, .. } => encode_snapshot(&mut buf, body)?,
+        SignedEntry::Snapshot { body, .. } => encode_snapshot(&mut buf, h.node_key, body)?,
         SignedEntry::Lease { body, .. } => encode_lease(&mut buf, body)?,
     }
     Ok(buf)
@@ -197,18 +199,28 @@ fn encode_device_head(buf: &mut Vec<u8>, tip: &DeviceHead) {
     buf.extend_from_slice(tip.entry_hash.as_bytes());
 }
 
-fn encode_snapshot(buf: &mut Vec<u8>, body: &SnapshotBody) -> Result<(), EncodeError> {
+fn encode_snapshot(
+    buf: &mut Vec<u8>,
+    publisher: Hex32,
+    body: &SnapshotBody,
+) -> Result<(), EncodeError> {
     let through = &body.through;
     let ascending = through
         .windows(2)
-        .all(|pair| pair[0].device_id.to_bytes() < pair[1].device_id.to_bytes());
-    if through.len() > 1024 || !ascending {
+        .all(|pair| pair[0].stream_id(publisher) < pair[1].stream_id(publisher));
+    if through.len() > 1024 || !ascending || through.iter().any(|p| p.writer_key == Some(publisher))
+    {
         return Err(EncodeError::BadSnapshotThrough);
     }
     buf.extend_from_slice(body.manifest_sha256.as_bytes());
     put_u64(buf, body.manifest_bytes);
-    put_u16(buf, through.len() as u16);
+    let qualified = through.iter().any(|p| p.writer_key.is_some());
+    let count = through.len() as u16;
+    put_u16(buf, if qualified { count | 0x8000 } else { count });
     for position in through {
+        if qualified {
+            buf.extend_from_slice(position.stream_id(publisher).node_key.as_bytes());
+        }
         buf.extend_from_slice(&position.device_id.to_bytes());
         put_u64(buf, position.writer_seq);
         buf.extend_from_slice(position.entry_hash.as_bytes());

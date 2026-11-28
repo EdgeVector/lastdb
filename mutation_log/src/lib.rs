@@ -60,11 +60,13 @@ mod ids;
 mod json_val;
 mod kinds;
 mod lease_body;
+mod lease_book;
 mod named_blobs;
 mod payload;
 mod record_key;
 mod schema_merge;
 mod sealed;
+mod snapshot_body;
 mod wire;
 
 pub use accept::{
@@ -91,7 +93,7 @@ pub use entry::{
     RevocationCutoff, SchemaBody, SignedEntry, SnapshotBody, SnapshotThrough,
 };
 pub use grants::{AcceptedMeta, GrantState};
-pub use history::{GrantTip, LeaseView, RejectEvidence, VerifiedHistory};
+pub use history::{GrantTip, RejectEvidence, VerifiedHistory};
 pub use history_util::next_lamport;
 pub use ids::{DatabaseId, DeviceId, EntryHash, Hex32, IdError, NodeKey, StreamId};
 pub use kinds::{domain, EntryKind, Grantee, Role, StreamKind};
@@ -109,3 +111,5 @@ pub use wire::{
     decode_signature_b64url, encode_signature_b64url, entry_hash, verify_entry_signature,
     EncodeError, VerifyError,
 };
+
+pub use lease_book::{LeaseBook, LeaseView};

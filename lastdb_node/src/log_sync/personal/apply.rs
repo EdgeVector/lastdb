@@ -57,8 +57,7 @@ pub(super) async fn superseded(
         file: !matches!(record.file, RecordFile::Keep),
         inline: record.inline.is_some(),
     };
-    ctx.host
-        .db
+    ctx.store
         .mutation_manager()
         .is_replay_record_superseded(&record.mutation, &stamp, slots)
         .await
@@ -72,7 +71,7 @@ pub(super) async fn skip_remote(
     next: &ReplayStreamHead,
     header: &EntryHeader,
 ) -> Result<(), String> {
-    let manager = ctx.host.db.mutation_manager();
+    let manager = ctx.store.mutation_manager();
     let stamp = stamp_of(header);
     manager
         .write_replay_at_head(stream, next, manager.observe_replay_time(stamp.ordering_ms))
@@ -97,7 +96,7 @@ pub(super) async fn remote(
     change: Change,
     blob: Option<&Path>,
 ) -> Result<ApplyOutcome, String> {
-    let manager = ctx.host.db.mutation_manager();
+    let manager = ctx.store.mutation_manager();
     let stamp = stamp_of(header);
     match change {
         Change::Record(mut record) => {
@@ -105,8 +104,7 @@ pub(super) async fn remote(
                 return Ok(ApplyOutcome::InvalidEntry(reason));
             }
             for attempt in 0..2 {
-                ctx.host
-                    .db
+                ctx.store
                     .schema_manager()
                     .ensure_unblocked(&record.mutation.schema_name)
                     .await
@@ -125,8 +123,7 @@ pub(super) async fn remote(
                     Err(SchemaError::Blocked(_))
                         if attempt == 0
                             && ctx
-                                .host
-                                .db
+                                .store
                                 .schema_manager()
                                 .is_schema_blocked(&record.mutation.schema_name)
                                 .unwrap_or(false) => {}
@@ -169,8 +166,7 @@ fn prepare(
                 return Ok(Some("the file of a record does not match its entry"));
             }
             let write = ctx
-                .host
-                .db
+                .store
                 .db_ops()
                 .records()
                 .seal_record_file(&plain, marker.name.clone(), marker.media_type.clone())
@@ -192,7 +188,7 @@ async fn apply_record(
     stamp: &ReplayStamp,
     mutation: Mutation,
 ) -> Result<(), SchemaError> {
-    let manager = ctx.host.db.mutation_manager();
+    let manager = ctx.store.mutation_manager();
     // Raise the author clock past this entry, so a write made here after it is
     // above it.
     manager.observe_replay_time(stamp.ordering_ms).await?;
@@ -206,8 +202,7 @@ async fn apply_record(
 /// schema drop removed it, so the entry changes nothing.
 async fn schema_holds(ctx: &Ctx<'_>, mutation: &Mutation) -> Result<bool, SchemaError> {
     if ctx
-        .host
-        .db
+        .store
         .schema_manager()
         .resolve_schema(&mutation.schema_name)
         .await?
@@ -216,8 +211,7 @@ async fn schema_holds(ctx: &Ctx<'_>, mutation: &Mutation) -> Result<bool, Schema
         return Ok(true);
     }
     let dropped = ctx
-        .host
-        .db
+        .store
         .mutation_manager()
         .is_replay_schema_dropped(&mutation.schema_name)
         .await?;

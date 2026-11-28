@@ -117,7 +117,7 @@ pub(crate) fn personal_owner(
     if birth.owner != *caller {
         return Err(ApiError::forbidden("publisher"));
     }
-    if grants.any_read(db) || grants.has_grants(db) {
+    if grants.has_grants(db) {
         return Err(ApiError::forbidden("grant"));
     }
     Ok(())
@@ -196,8 +196,15 @@ pub(crate) async fn snapshot_entry(
     let SignedEntry::Snapshot { header, body, .. } = entry else {
         return Err(ApiError::invalid("kind"));
     };
-    if header.writer_seq != req.writer_seq || header.node_key.to_hex() != writer {
+    if header.writer_seq != req.writer_seq
+        || header.node_key.to_hex() != writer
+        || header.database_id.to_hex() != req.database_id
+        || header.device_id.to_hex() != req.device_id
+    {
         return Err(ApiError::invalid("kind"));
+    }
+    if body.through.iter().any(|pos| pos.writer_key.is_some()) {
+        return Err(ApiError::invalid("through"));
     }
     Ok(body)
 }
