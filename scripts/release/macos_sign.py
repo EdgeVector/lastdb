@@ -177,9 +177,12 @@ def developer_id_sign(paths, credentials):
                 raise RuntimeError(f"{path.name} lacks the hardened runtime, a timestamp, or the team identity")
     notarize(paths, credentials)
     # Gatekeeper reads the notarization ticket online for a bare executable, which may lag a few seconds.
+    # `--type execute` only assesses app bundles and always rejects a bare Mach-O ("does not seem to
+    # be an app"); `--type open` with the primary-signature context assesses the binary itself.
     for path in paths:
         for attempt in range(6):
-            check = subprocess.run(["spctl", "--assess", "--type", "execute", "-vv", str(path)],
+            check = subprocess.run(["spctl", "--assess", "--type", "open", "--context",
+                                    "context:primary-signature", "-vv", str(path)],
                                    capture_output=True, text=True, timeout=120)
             print((check.stdout + check.stderr).strip())
             if check.returncode == 0 and "Notarized Developer ID" in check.stdout + check.stderr:
