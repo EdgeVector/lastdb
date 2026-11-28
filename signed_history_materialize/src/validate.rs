@@ -57,9 +57,11 @@ pub(crate) fn validate_record(
     schema: &Schema,
     target: &RecordTarget,
     fields: &HashMap<String, Value>,
+    file: Option<&fold_db::record_value::FileMarker>,
+    inline_file: Option<&fold_db::record_value::FileMarker>,
 ) -> Result<(), String> {
     require_logical_layout(&schema.schema_type).map_err(|e| e.to_string())?;
-    if schema.file_required {
+    if schema.file_required && file.is_none() {
         return Err("this record requires a file".into());
     }
     let record_keys = schema.require_record_keys().map_err(|e| e.to_string())?;
@@ -79,7 +81,8 @@ pub(crate) fn validate_record(
             .map_err(|err| format!("type error in field '{field}': {err}"))?;
         ordered.insert(field.clone(), value.clone());
     }
-    check_ordered_record_size(target, ordered).map_err(|err| err.to_string())
+    check_ordered_record_size(target, ordered, file.cloned(), inline_file.cloned())
+        .map_err(|err| err.to_string())
 }
 
 /// Enforce the deterministic shared-database 64 KiB `StoredRecord` cap using
@@ -92,14 +95,26 @@ pub fn check_shared_record_size(
     target: &RecordTarget,
     fields: &HashMap<String, Value>,
 ) -> Result<(), SchemaError> {
+    check_shared_record_size_with_attachments(target, fields, None, None)
+}
+
+/// Like [`check_shared_record_size`], including attachment markers in the bound.
+pub fn check_shared_record_size_with_attachments(
+    target: &RecordTarget,
+    fields: &HashMap<String, Value>,
+    file: Option<fold_db::record_value::FileMarker>,
+    inline_file: Option<fold_db::record_value::FileMarker>,
+) -> Result<(), SchemaError> {
     let ordered: BTreeMap<String, Value> =
         fields.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
-    check_ordered_record_size(target, ordered)
+    check_ordered_record_size(target, ordered, file, inline_file)
 }
 
 fn check_ordered_record_size(
     target: &RecordTarget,
     fields: BTreeMap<String, Value>,
+    file: Option<fold_db::record_value::FileMarker>,
+    inline_file: Option<fold_db::record_value::FileMarker>,
 ) -> Result<(), SchemaError> {
     let stamp: RecordStamp = serde_json::from_str(
         r#"{"authored_at_ms":18446744073709551615,"position":{"source_stream":"ffffffff-ffff-4fff-8fff-ffffffffffff","sequence":18446744073709551615}}"#,
@@ -110,8 +125,8 @@ fn check_ordered_record_size(
         expected: RecordExpectation::Absent,
         fields,
         metadata: None,
-        file: None,
-        inline_file: None,
+        file,
+        inline_file,
     };
     let mut stored = StoredRecord::replacement(replacement, stamp, None, true);
     stored.created_by = Some(AUTHOR_HEX_64.to_owned());

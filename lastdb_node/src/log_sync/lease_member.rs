@@ -7,10 +7,11 @@
 //! `lease_covers`).
 
 use std::cell::Cell;
+use std::path::Path;
 
 use mutation_log::{
-    author_data, data_record, AcceptOutcome, AuthorCtx, DatabaseId, EntryHash, LeaseView, NodeKey,
-    RejectReason, Role, StreamKind, VerifiedHistory,
+    author_data, data_record_with_file, AcceptOutcome, AuthorCtx, DatabaseId, EntryHash, LeaseView,
+    NodeKey, RejectReason, Role, StreamKind, VerifiedHistory,
 };
 
 use super::chain_author;
@@ -111,8 +112,15 @@ pub(crate) async fn mirror_received(
     match sign_all(host, &store, database_id, signed) {
         Ok(()) => {
             let histories = super::histories_for(host);
-            if let Err(error) =
-                super::materialize::rematerialize(&histories, database_id, &store).await
+            if let Err(error) = super::materialize::rematerialize(
+                &histories,
+                database_id,
+                &store,
+                &host.home,
+                None,
+                None,
+            )
+            .await
             {
                 tracing::warn!(
                     target: "lastdbd::log_sync",
@@ -197,6 +205,8 @@ fn sign_all(
                 identity: &identity,
                 cover: &cover,
                 sealer: &sealer,
+                home: &host.home,
+                database_id,
                 now_ms,
             };
             history_store::commit_authored_batch(&host.home, history, |next| {
@@ -214,6 +224,8 @@ struct BatchCtx<'a> {
     identity: &'a chain_author::AuthorIdentity,
     cover: &'a Cover,
     sealer: &'a Sealer,
+    home: &'a Path,
+    database_id: &'a str,
     now_ms: u64,
 }
 
@@ -240,16 +252,26 @@ fn stage_direct_batch(
         if let Some(winner) = next.records().get(&key) {
             ctx.cite(winner.entry, winner.position.lamport);
         }
+        let writer_seq = ctx.next_writer_seq();
+        let file_ref = item.file.stage(
+            bctx.home,
+            bctx.database_id,
+            bctx.sealer,
+            ctx.node_key,
+            ctx.device_id,
+            writer_seq,
+        )?;
         let body = shared_seal::seal_data(
             bctx.sealer,
             ctx.node_key,
             ctx.device_id,
-            ctx.next_writer_seq(),
-            data_record(
+            writer_seq,
+            data_record_with_file(
                 StreamKind::Direct,
                 item.schema.clone(),
                 &item.record_key,
                 value,
+                file_ref,
             ),
         )?;
         let entry =

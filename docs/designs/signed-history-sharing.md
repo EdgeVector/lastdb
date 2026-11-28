@@ -82,6 +82,22 @@ These files belong to shared databases. The personal database uses none of them:
 ## What is not built
 
 - Member direct writes and leases in the node (the `lease` entry kind and its counting rule are in `mutation_log`; see `write-leases.md`). A grant entry still carries a `cutoffs` field because the signed bytes include it; nothing reads it.
-- Files in shared databases. A proposal that carries a file is refused.
 
-Shared `data` and `schema` entry payloads are sealed at write time with the shared database read key (the same key an open read link delivers). Only that sealed form is stored and uploaded. Bundles keep their own encrypted blobs.
+## Files (built)
+
+There is no difference between a shared database and a personal multi-device
+database for file blobs. When you share a database, the receiver has the same
+database. The file is sealed by that same database's read key, the same way.
+The only distinction in the log is that an entry shows it was written by a
+different user node and device id (one log per `(node_key, device_id)`).
+
+Direct writes (the publisher's `/v1/write`, and a lease member's direct write)
+may attach an external `file` and an `inline_file`. Authoring, sealing, staging,
+relay `blob_put` / `blob_get`, and apply all go through one path:
+`Sealer` + `record_files` + `seal_record_file`. There is no share-specific
+branch, key choice, or file code path. A proposal that carries a file or
+inline file is still refused (`blob.put` is publisher or write-grant only).
+
+Shared `data` and `schema` entry payloads are sealed at write time with the
+database read key (the same key an open read link delivers). Only that sealed
+form is stored and uploaded. Bundles keep their own encrypted blobs.

@@ -7,8 +7,8 @@ use fold_db::schema::types::field::HashRangeFilter;
 use fold_db::schema::types::{KeyValue, Query};
 use serde_json::Value;
 
-use crate::apply::Stored;
 use crate::key::key_value;
+use crate::value::Stored;
 
 /// Field map of the record at `record_key`, or `None` when absent.
 pub async fn read_field_map(
@@ -37,7 +37,7 @@ pub async fn read_alternates(
     store: &FoldDB,
     namespace: &str,
     record_key: &str,
-) -> Result<Option<crate::apply::Alternates>, String> {
+) -> Result<Option<crate::value::Alternates>, String> {
     Ok(read_stored(store, namespace, record_key)
         .await?
         .map(|stored| stored.alternates))
@@ -72,12 +72,20 @@ pub(crate) async fn read_at(
         .await
         .map_err(|e| format!("read {namespace}/{}: {e}", key.to_storage_key()))?;
     let mut rows = records.into_values();
-    let found = rows.next().map(|record| Stored {
-        revision: record.revision,
-        created_by: record.created_by,
-        updated_by: record.updated_by,
-        fields: record.fields,
-        alternates: record.alternates,
+    let found = rows.next().map(|record| {
+        let (file, inline_file) = match &record.metadata {
+            Some(meta) => (meta.file.clone(), meta.inline_file.clone()),
+            None => (None, None),
+        };
+        Stored {
+            revision: record.revision,
+            created_by: record.created_by,
+            updated_by: record.updated_by,
+            fields: record.fields,
+            alternates: record.alternates,
+            file,
+            inline_file,
+        }
     });
     if rows.next().is_some() {
         return Err(format!(

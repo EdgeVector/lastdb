@@ -14,16 +14,18 @@
 use fold_db::fold_db_core::FoldDB;
 use fold_db::schema::types::MutationType;
 use mutation_log::{
-    author_data, author_schema, data_record, stream_id_of, AcceptOutcome, AuthorCtx, DatabaseId,
-    SchemaBody, SignedEntry, StreamKind, VerifiedHistory,
+    author_data, author_schema, data_record_with_file, stream_id_of, AcceptOutcome, AuthorCtx,
+    DatabaseId, SchemaBody, SignedEntry, StreamKind, VerifiedHistory,
 };
 use serde_json::Value;
+use std::path::Path;
 
 use super::birth::{self, BirthMaterial};
 use super::chain_author;
 use super::chain_author::AuthorIdentity;
 use super::history_store;
 use super::materialize;
+use super::owned_attachment::{OwnedFile, OwnedInline};
 use super::shared_key;
 use super::wake;
 use crate::host::Host;
@@ -37,12 +39,15 @@ pub struct OwnedMutation {
     pub op: MutationType,
     pub fields: Option<Value>,
     pub alternates: signed_history_materialize::Alternates,
+    pub file: OwnedFile,
+    pub inline: OwnedInline,
 }
 
 pub(super) struct MirrorCtx<'a> {
     pub(super) database: DatabaseId,
     pub(super) identity: &'a AuthorIdentity,
     pub(super) store: &'a FoldDB,
+    pub(super) home: &'a Path,
     material: Option<&'a BirthMaterial>,
     sealer: Sealer,
 }
@@ -77,6 +82,7 @@ pub fn mirror_owned_write(
         database,
         identity: &identity,
         store: &store,
+        home: &host.home,
         material: material.as_ref(),
         sealer: shared_key::sealer(host, database_id)?,
     };
@@ -141,6 +147,7 @@ pub(super) fn publish_declared_schemas(host: &Host, database_id: &str) -> Result
         database,
         identity: &identity,
         store: &store,
+        home: &host.home,
         material: None,
         sealer: shared_key::sealer(host, database_id)?,
     };
@@ -206,8 +213,8 @@ fn schema_definition_matches(prior: &[u8], current: &fold_db::schema::types::Sch
     }
 }
 
-/// The value of a record in an entry: its fields (and alternates, when present)
-/// as JSON, or nothing for a delete.
+/// The value of a record in an entry: its fields, alternates, and attachment
+/// sections as JSON, or nothing for a delete.
 pub(super) fn encode_value(item: &OwnedMutation) -> Result<Vec<u8>, String> {
     if item.op == MutationType::Delete {
         return Ok(Vec::new());
@@ -216,7 +223,13 @@ pub(super) fn encode_value(item: &OwnedMutation) -> Result<Vec<u8>, String> {
         .fields
         .as_ref()
         .ok_or_else(|| "owned write is missing record fields".to_owned())?;
-    signed_history_materialize::encode_record_value(fields, &item.alternates)
+    let inline = item.inline.as_write();
+    signed_history_materialize::encode_record_value(
+        fields,
+        &item.alternates,
+        &item.file.section(),
+        inline.as_ref(),
+    )
 }
 
 fn author_one(
@@ -237,16 +250,26 @@ fn author_one(
         author.cite(winner.entry, winner.position.lamport);
     }
     let value = encode_value(item)?;
+    let writer_seq = author.next_writer_seq();
+    let file_ref = item.file.stage(
+        ctx.home,
+        &ctx.database.to_hex(),
+        &ctx.sealer,
+        ctx.identity.node_key,
+        ctx.identity.device_id,
+        writer_seq,
+    )?;
     let body = shared_seal::seal_data(
         &ctx.sealer,
         author.node_key,
         author.device_id,
-        author.next_writer_seq(),
-        data_record(
+        writer_seq,
+        data_record_with_file(
             StreamKind::Direct,
             item.schema.clone(),
             &item.record_key,
             &value,
+            file_ref,
         ),
     )?;
     let entry = author_data(&author, &ctx.identity.signing_key, body).map_err(|e| e.to_string())?;

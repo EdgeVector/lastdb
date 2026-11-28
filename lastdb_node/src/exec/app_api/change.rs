@@ -31,6 +31,8 @@ struct ChangeDoc {
     #[serde(default)]
     file: Option<Value>,
     #[serde(default)]
+    inline_file: Option<Value>,
+    #[serde(default)]
     definition_id: Option<String>,
     #[serde(default)]
     convergence: Option<String>,
@@ -50,14 +52,15 @@ struct ExpectedDoc {
 /// Read the proposal document of `POST /api/databases/{id}/change` as one
 /// `/v1/write` item of `database`. This is the direct path's reading of the
 /// document: `expected` becomes the revision a replace or delete names, and a
-/// create expects the key absent. A file is refused, as the proposal path does.
+/// create expects the key absent. A file or inline file is refused, as the
+/// proposal path does.
 pub(in crate::exec) fn parse_change(body: &[u8], database: &str) -> Result<Change, HostError> {
     let doc: ChangeDoc = serde_json::from_slice(body)
         .map_err(|error| bad(format!("invalid change document: {error}")))?;
     if doc.kind != "mutation" {
         return Err(bad("type must be mutation"));
     }
-    if doc.file.is_some() {
+    if doc.file.is_some() || doc.inline_file.is_some() {
         return Err(bad("the change call does not take a file"));
     }
     if doc.definition_id.as_deref().is_some_and(str::is_empty) {
@@ -117,6 +120,7 @@ pub(in crate::exec) fn parse_change(body: &[u8], database: &str) -> Result<Chang
         alternates,
         revision,
         file: FileInput::Absent,
+        inline_file: FileInput::Absent,
     }))
 }
 

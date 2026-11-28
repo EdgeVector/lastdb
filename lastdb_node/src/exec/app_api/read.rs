@@ -258,6 +258,19 @@ fn file_info(marker: &Value) -> Value {
     })
 }
 
+/// The name, media type, size and content hash of a record's inline file, or null without one.
+fn inline_info(marker: &Value) -> Value {
+    if marker.is_null() {
+        return Value::Null;
+    }
+    json!({
+        "name": marker["name"],
+        "media_type": marker["media_type"],
+        "size": marker["size_bytes"],
+        "sha256": marker["sha256"],
+    })
+}
+
 /// Copy one author key when the row has a string. Omit it otherwise. Never send null.
 fn copy_author(record: &mut Map<String, Value>, row: &Value, name: &str) {
     if let Some(value) = row.get(name).filter(|value| value.is_string()) {
@@ -289,6 +302,10 @@ fn shape(page: &mut Value, keys_only: bool) -> Result<Value, HostError> {
                 let fields = row.get_mut("fields").map_or(Value::Null, Value::take);
                 record.insert("record".into(), fields);
                 record.insert("file".into(), file_info(&row["metadata"]["file"]));
+                record.insert(
+                    "inline_file".into(),
+                    inline_info(&row["metadata"]["inline_file"]),
+                );
                 Value::Object(record)
             })
             .collect();
