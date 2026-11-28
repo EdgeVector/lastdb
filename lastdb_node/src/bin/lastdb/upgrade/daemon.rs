@@ -1,6 +1,7 @@
 //! What `lastdb upgrade` asks of a running daemon: the preflight snapshot, the drain
 //! before a stop, and the checks after a start. All calls go over the owner socket.
 
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::time::Duration;
 
@@ -128,7 +129,11 @@ fn target(socket: &Path) -> DatabaseTarget {
     }
 }
 
-/// Read one record and hash what the node returns for it.
+/// Read one record and hash its canonical JSON response.
+///
+/// Query records use hash maps for fields and metadata. A daemon restart can therefore
+/// change their JSON member order without changing the record. Sort every object before
+/// hashing so the updater compares the record value rather than that incidental order.
 pub(super) fn record_hash(
     socket: &Path,
     schema: &str,
@@ -137,8 +142,23 @@ pub(super) fn record_hash(
 ) -> Result<String, String> {
     let item = crate::v1_records::record_item(schema, hash, range, None);
     let page = crate::v1_records::read_page(&target(socket), &item, SOCKET_TIMEOUT)?;
-    let bytes = serde_json::to_vec(&page["records"]).map_err(|e| e.to_string())?;
+    let records = canonical_json(&page["records"]);
+    let bytes = serde_json::to_vec(&records).map_err(|e| e.to_string())?;
     Ok(fold_db::hex::hex_lower(Sha256::digest(&bytes)))
+}
+
+fn canonical_json(value: &Value) -> Value {
+    match value {
+        Value::Array(values) => Value::Array(values.iter().map(canonical_json).collect()),
+        Value::Object(fields) => {
+            let ordered: BTreeMap<_, _> = fields
+                .iter()
+                .map(|(key, value)| (key.clone(), canonical_json(value)))
+                .collect();
+            Value::Object(ordered.into_iter().collect())
+        }
+        _ => value.clone(),
+    }
 }
 
 /// The first key of a `keys_only` listing of the schema with the most records, and
