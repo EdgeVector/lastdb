@@ -10,7 +10,7 @@ use crate::accept::{
 use crate::entry::SignedEntry;
 use crate::grants::{AcceptedMeta, GrantState};
 use crate::ids::{DatabaseId, DeviceId, EntryHash, NodeKey, StreamId};
-use crate::kinds::{EntryKind, Role};
+use crate::kinds::EntryKind;
 use crate::payload::MaterializedRecord;
 use crate::sealed::SealOpener;
 use crate::wire::entry_hash;
@@ -21,10 +21,10 @@ mod open;
 mod recompute;
 mod view;
 
-pub use lease::LeaseView;
 pub use view::GrantTip;
 
-use lease::{LeaseMeta, PosKey, RoleKey, Under};
+use crate::lease_book::{LeaseBook, PosKey};
+use lease::Under;
 use recompute::WriteMeta;
 
 /// Rejected entry retained as evidence.
@@ -82,12 +82,7 @@ pub struct VerifiedHistory {
     pending: VecDeque<SignedEntry>,
     /// Reject evidence.
     rejects: Vec<RejectEvidence>,
-    /// Each member's role in publisher grant order, by `(lamport, tie_rank, node_key, device_id)`.
-    member_roles: BTreeMap<NodeKey, BTreeMap<RoleKey, Role>>,
-    /// Accepted lease entries by position.
-    leases: BTreeMap<PosKey, LeaseMeta>,
-    /// Position of each accepted lease entry.
-    lease_by_hash: BTreeMap<EntryHash, PosKey>,
+    lease_book: LeaseBook,
     /// Accepted direct entries of members, by the lease they name.
     under_lease: BTreeMap<EntryHash, Vec<Under>>,
     /// Entries that name a lease and do not count.
@@ -126,9 +121,7 @@ impl VerifiedHistory {
             publisher_heads_position: None,
             pending: VecDeque::new(),
             rejects: Vec::new(),
-            member_roles: BTreeMap::new(),
-            leases: BTreeMap::new(),
-            lease_by_hash: BTreeMap::new(),
+            lease_book: LeaseBook::default(),
             under_lease: BTreeMap::new(),
             excluded: BTreeSet::new(),
             bundle_floor: BTreeMap::new(),

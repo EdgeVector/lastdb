@@ -59,8 +59,9 @@ pub(crate) fn cover(history: &VerifiedHistory, node: NodeKey, now_ms: u64) -> Op
     if owner == node || history.grants().role_of(&node) != Some(Role::Write) {
         return None;
     }
-    let lease = history.latest_lease()?;
-    if !history.lease_covers(&lease.entry_hash, &node) {
+    let book = history.lease_book();
+    let lease = book.latest_lease()?;
+    if !book.lease_covers(&lease.entry_hash, &node) {
         return None;
     }
     let until_ms = lease.expires_at_ms.saturating_sub(margin_ms(&lease));
