@@ -35,8 +35,17 @@ pub(super) async fn apply_with_file(
         )
         .await;
     }
-    let decoded = signed_history_materialize::decode_record_value(&winner.value)?
-        .ok_or_else(|| "live record winner unexpectedly decoded as empty".to_owned())?;
+    // Invalid JSON falls through to apply_record_winner, which drops the
+    // winner the same way plan_winner does, instead of stalling materialize.
+    let decoded = match signed_history_materialize::decode_record_value(&winner.value) {
+        Ok(Some(decoded)) => decoded,
+        Ok(None) | Err(_) => {
+            return signed_history_materialize::apply_record_winner(
+                ctx.store, namespace, record_key, winner,
+            )
+            .await;
+        }
+    };
     match &decoded.file {
         FileSection::Put(marker) => {
             let write = fetch_and_seal(ctx, winner, marker).await?;

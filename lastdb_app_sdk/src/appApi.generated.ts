@@ -199,12 +199,14 @@ export interface FileInfo {
   [key: string]: unknown;
 }
 
-/** Present when the record has an inline file. name and media_type are null when the marker has none. size is the byte length. Inline bytes are not placed as a path. */
+/** Present when the record has an inline file. name and media_type are null when the marker has none. size is the byte length. sha256 is the lowercase hex content hash of the inline bytes. Inline bytes are not placed as a path. */
 export interface InlineFileInfo {
   name: string | null;
   media_type: string | null;
   /** Integer. Minimum 0. Maximum 65536. */
   size: number;
+  /** Lowercase hex SHA-256 of the inline bytes. */
+  sha256: string;
 }
 
 /** One record. created_by and updated_by are lowercase hex node keys set by the database. The node omits each key when the record has no value for it. It does not send null. file is null when the record has no file. inline_file is null when the record has no inline file. */

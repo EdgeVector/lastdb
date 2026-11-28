@@ -179,7 +179,10 @@ async fn run_timed(
                 super::write_signed::check_shared_mutation(&store, index, mutation)?;
                 mutation.writer = Some(writer.clone());
             }
-            super::write_signed::attach_files(&mut signed, &mutations)?;
+            let database_id = super::write_signed::shared_database_id(host, database.as_deref())
+                .ok_or_else(|| HostError::internal("shared write is missing its database id"))?;
+            super::write_signed::attach_files(host, &database_id, &store, &mut signed, &mutations)
+                .await?;
         }
         let (receipt, phases) = measure_write_phases(commit_mutations(host, mutations)).await;
         core = phases;

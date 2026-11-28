@@ -185,6 +185,7 @@ fn inline_reply(marker: Option<&FileMarker>) -> Value {
             "name": marker.name,
             "media_type": marker.media_type,
             "size": marker.size_bytes,
+            "sha256": marker.sha256,
         }),
     }
 }

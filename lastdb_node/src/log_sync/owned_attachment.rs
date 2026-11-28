@@ -2,11 +2,13 @@
 
 use std::path::Path;
 
+use fold_db::fold_db_core::FoldDB;
 use fold_db::record_value::{FileMarker, InlineFile, InlineWrite};
 use fold_db::schema::types::FileWrite;
 use mutation_log::{DeviceId, Hex32, MutationFileRef, NodeKey};
 use signed_history_materialize::FileSection;
 
+use super::history_store::HistoryMap;
 use super::record_files;
 use crate::personal_seal::Sealer;
 
@@ -65,6 +67,50 @@ impl OwnedFile {
         }
     }
 
+    /// When a write omits the file, history still needs the retained attachment
+    /// so a late joiner materializes the same record. Take the prior history
+    /// Put's marker and the live store's plaintext.
+    pub async fn resolve_keep(
+        self,
+        histories: &HistoryMap,
+        database_id: &str,
+        store: &FoldDB,
+        schema: &str,
+        record_key: &str,
+    ) -> Result<Self, String> {
+        if !matches!(self, Self::Keep) {
+            return Ok(self);
+        }
+        let Some(marker) = prior_file_put(histories, database_id, schema, record_key)? else {
+            return Ok(Self::Keep);
+        };
+        let key = signed_history_materialize::key_value(store, schema, record_key)?;
+        if let Some(local) = store
+            .record_file_local_path(schema, &key)
+            .await
+            .map_err(|e| e.to_string())?
+        {
+            if local.intact {
+                let plain = std::fs::read(&local.path).map_err(|error| {
+                    format!("cannot read retained local file for signed history: {error}")
+                })?;
+                if record_files::is_file_of(&plain, &marker) {
+                    return Ok(Self::Put { marker, plain });
+                }
+            }
+        }
+        if let Some((owned_marker, plain)) = store
+            .record_file_owned_bytes(schema, &key)
+            .await
+            .map_err(|e| e.to_string())?
+        {
+            if owned_marker == marker {
+                return Ok(Self::Put { marker, plain });
+            }
+        }
+        Err("retained file bytes are not available to seal into signed history".into())
+    }
+
     /// Seal and stage a Put for relay upload; Keep/Clear name no blob.
     pub(super) fn stage(
         &self,
@@ -120,4 +166,74 @@ impl OwnedInline {
             Self::Put(file) => Some(InlineWrite::Put(file.clone())),
         }
     }
+
+    /// Resolve Keep to the prior history winner's inline Put so the winning
+    /// value carries the retained thumbnail for late joiners.
+    pub fn resolve_keep(
+        self,
+        histories: &HistoryMap,
+        database_id: &str,
+        schema: &str,
+        record_key: &str,
+    ) -> Result<Self, String> {
+        if !matches!(self, Self::Keep) {
+            return Ok(self);
+        }
+        Ok(
+            match prior_inline_put(histories, database_id, schema, record_key)? {
+                Some(file) => Self::Put(file),
+                None => Self::Keep,
+            },
+        )
+    }
+}
+
+fn prior_decoded(
+    histories: &HistoryMap,
+    database_id: &str,
+    schema: &str,
+    record_key: &str,
+) -> Result<Option<signed_history_materialize::DecodedRecord>, String> {
+    let history = histories.snapshot(database_id)?;
+    let Some(winner) = history
+        .records()
+        .get(&(schema.to_owned(), record_key.to_owned()))
+    else {
+        return Ok(None);
+    };
+    signed_history_materialize::decode_record_value(&winner.value)
+}
+
+fn prior_file_put(
+    histories: &HistoryMap,
+    database_id: &str,
+    schema: &str,
+    record_key: &str,
+) -> Result<Option<FileMarker>, String> {
+    Ok(
+        match prior_decoded(histories, database_id, schema, record_key)? {
+            Some(decoded) => match decoded.file {
+                FileSection::Put(marker) => Some(marker),
+                FileSection::Keep | FileSection::Clear => None,
+            },
+            None => None,
+        },
+    )
+}
+
+fn prior_inline_put(
+    histories: &HistoryMap,
+    database_id: &str,
+    schema: &str,
+    record_key: &str,
+) -> Result<Option<InlineFile>, String> {
+    Ok(
+        match prior_decoded(histories, database_id, schema, record_key)? {
+            Some(decoded) => match decoded.inline {
+                Some(InlineWrite::Put(file)) => Some(file),
+                Some(InlineWrite::Clear) | None => None,
+            },
+            None => None,
+        },
+    )
 }

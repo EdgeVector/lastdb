@@ -258,7 +258,7 @@ fn file_info(marker: &Value) -> Value {
     })
 }
 
-/// The name, media type and size of a record's inline file, or null without one.
+/// The name, media type, size and content hash of a record's inline file, or null without one.
 fn inline_info(marker: &Value) -> Value {
     if marker.is_null() {
         return Value::Null;
@@ -267,6 +267,7 @@ fn inline_info(marker: &Value) -> Value {
         "name": marker["name"],
         "media_type": marker["media_type"],
         "size": marker["size_bytes"],
+        "sha256": marker["sha256"],
     })
 }
 

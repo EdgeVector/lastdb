@@ -24,7 +24,7 @@ pub(super) struct SignedInput<'a> {
 
 /// The 64-hex database id when `selector` names an owned shareable database or
 /// a received signed-log share.
-fn shared_database_id(host: &Host, selector: Option<&str>) -> Option<String> {
+pub(super) fn shared_database_id(host: &Host, selector: Option<&str>) -> Option<String> {
     let selector = selector?;
     if let Ok(entry) = crate::host::owned::find_shareable_database(&host.home, selector) {
         return Some(entry.id);
@@ -161,8 +161,13 @@ pub(super) fn plan<'a>(
         .collect()
 }
 
-/// Attach file and inline intents from committed mutations onto planned entries.
-pub(super) fn attach_files(
+/// Attach file and inline intents from mutations onto planned entries.
+/// A Keep is resolved to the retained attachment so history winners stay
+/// self-contained for late joiners.
+pub(super) async fn attach_files(
+    host: &Host,
+    database_id: &str,
+    store: &fold_db::fold_db_core::FoldDB,
     signed: &mut [OwnedMutation],
     mutations: &[Mutation],
 ) -> Result<(), HostError> {
@@ -171,10 +176,28 @@ pub(super) fn attach_files(
             "signed history plan length differs from the write list",
         ));
     }
+    let histories = crate::log_sync::histories_for(host);
     for (item, mutation) in signed.iter_mut().zip(mutations.iter()) {
         item.file = OwnedFile::from_mutation(mutation.file_write.as_ref(), mutation.file.as_ref())
             .map_err(super::bad)?;
         item.inline = OwnedInline::from_mutation(mutation.inline_write.as_ref());
+        item.file = item
+            .file
+            .clone()
+            .resolve_keep(
+                &histories,
+                database_id,
+                store,
+                &item.schema,
+                &item.record_key,
+            )
+            .await
+            .map_err(super::bad)?;
+        item.inline = item
+            .inline
+            .clone()
+            .resolve_keep(&histories, database_id, &item.schema, &item.record_key)
+            .map_err(super::bad)?;
     }
     Ok(())
 }

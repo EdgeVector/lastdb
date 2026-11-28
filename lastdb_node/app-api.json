@@ -433,12 +433,13 @@
       "InlineFileInfo": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["name", "media_type", "size"],
-        "description": "Present when the record has an inline file. name and media_type are null when the marker has none. size is the byte length. Inline bytes are not placed as a path.",
+        "required": ["name", "media_type", "size", "sha256"],
+        "description": "Present when the record has an inline file. name and media_type are null when the marker has none. size is the byte length. sha256 is the lowercase hex content hash of the inline bytes. Inline bytes are not placed as a path.",
         "properties": {
           "name": {"type": ["string", "null"]},
           "media_type": {"type": ["string", "null"]},
-          "size": {"type": "integer", "minimum": 0, "maximum": 65536}
+          "size": {"type": "integer", "minimum": 0, "maximum": 65536},
+          "sha256": {"type": "string", "description": "Lowercase hex SHA-256 of the inline bytes."}
         }
       },
       "Record": {

@@ -59,11 +59,20 @@ pub(super) fn link_inline(
     media_type: Option<String>,
 ) -> Result<(), HostError> {
     let real = outside_home(host, &path)?;
-    let plain = std::fs::read(&real).map_err(|_| bad(UNUSABLE_FILE))?;
-    if plain.len() > MAX_INLINE_FILE_BYTES {
+    let meta = std::fs::metadata(&real).map_err(|_| bad(UNUSABLE_FILE))?;
+    if !meta.is_file() {
+        return Err(bad(UNUSABLE_FILE));
+    }
+    if meta.len() > MAX_INLINE_FILE_BYTES as u64 {
         return Err(bad(format!(
             "the inline file is {} bytes; an inline file holds at most {MAX_INLINE_FILE_BYTES} bytes",
-            plain.len()
+            meta.len()
+        )));
+    }
+    let plain = read_at_most(&real, MAX_INLINE_FILE_BYTES)?;
+    if plain.len() > MAX_INLINE_FILE_BYTES {
+        return Err(bad(format!(
+            "the inline file is more than {MAX_INLINE_FILE_BYTES} bytes; an inline file holds at most {MAX_INLINE_FILE_BYTES} bytes"
         )));
     }
     let marker = FileMarker {
@@ -81,6 +90,19 @@ pub(super) fn link_inline(
     }
     mutation.inline_write = Some(InlineWrite::Put(file));
     Ok(())
+}
+
+/// Read at most `limit` bytes, plus one more to detect overflow, without
+/// loading an unbounded file into memory.
+fn read_at_most(path: &std::path::Path, limit: usize) -> Result<Vec<u8>, HostError> {
+    use std::io::Read;
+    let mut file = std::fs::File::open(path).map_err(|_| bad(UNUSABLE_FILE))?;
+    let mut buf = Vec::new();
+    file.by_ref()
+        .take((limit as u64).saturating_add(1))
+        .read_to_end(&mut buf)
+        .map_err(|_| bad(UNUSABLE_FILE))?;
+    Ok(buf)
 }
 
 fn outside_home(host: &Host, path: &str) -> Result<std::path::PathBuf, HostError> {

@@ -72,11 +72,13 @@ export function parseInlineFile(
     !isObject(value) ||
     !('name' in value) ||
     !('media_type' in value) ||
-    !('size' in value)
+    !('size' in value) ||
+    !('sha256' in value)
   ) {
     throw invalid('app API returned an invalid inline_file', body);
   }
   const size = value['size'];
+  const sha256 = value['sha256'];
   if (
     typeof size !== 'number' ||
     !Number.isSafeInteger(size) ||
@@ -85,9 +87,13 @@ export function parseInlineFile(
   ) {
     throw invalid('app API returned an invalid inline_file', body);
   }
+  if (typeof sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(sha256)) {
+    throw invalid('app API returned an invalid inline_file', body);
+  }
   return {
     name: textOrNull(value['name'], body),
     media_type: textOrNull(value['media_type'], body),
     size,
+    sha256,
   };
 }

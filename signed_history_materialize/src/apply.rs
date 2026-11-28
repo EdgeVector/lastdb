@@ -85,11 +85,10 @@ async fn apply_winner(
         }
     };
     let current = read_at(store, namespace, &key).await?;
-    let Some(mutation) = plan_winner(&schema, namespace, &key, current.as_ref(), winner, None)
-    else {
-        return Ok(());
-    };
-    write_one(store, namespace, record_key, mutation).await
+    match plan_winner(&schema, namespace, &key, current.as_ref(), winner, None)? {
+        None => Ok(()),
+        Some(mutation) => write_one(store, namespace, record_key, mutation).await,
+    }
 }
 
 /// Apply one winner when an external file Put has already been sealed locally.
@@ -109,17 +108,17 @@ pub async fn apply_winner_with_file(
     };
     let key = key_value_for_schema(&schema, namespace, record_key)?;
     let current = read_at(store, namespace, &key).await?;
-    let Some(mutation) = plan_winner(
+    match plan_winner(
         &schema,
         namespace,
         &key,
         current.as_ref(),
         winner,
         Some(external),
-    ) else {
-        return Ok(());
-    };
-    write_one(store, namespace, record_key, mutation).await
+    )? {
+        None => Ok(()),
+        Some(mutation) => write_one(store, namespace, record_key, mutation).await,
+    }
 }
 
 async fn write_one(
@@ -143,9 +142,9 @@ fn plan_winner(
     current: Option<&Stored>,
     winner: &MaterializedRecord,
     external: Option<FileWrite>,
-) -> Option<Mutation> {
+) -> Result<Option<Mutation>, String> {
     if winner.value.is_empty() {
-        return current.map(|old| delete_mutation(namespace, key.clone(), old));
+        return Ok(current.map(|old| delete_mutation(namespace, key.clone(), old)));
     }
     let creator = winner.creator.to_hex();
     let author = winner.author.to_hex();
@@ -158,7 +157,7 @@ fn plan_winner(
                 %reason,
                 "dropping invalid record winner in signed history"
             );
-            return current.map(|old| delete_mutation(namespace, key.clone(), old));
+            return Ok(current.map(|old| delete_mutation(namespace, key.clone(), old)));
         }
     };
     let (kind, expected) = match current {
@@ -170,7 +169,7 @@ fn plan_winner(
                 && old.updated_by.as_deref() == Some(author.as_str())
                 && attachment_matches(old, &decoded.file, decoded.inline.as_ref())
             {
-                return None;
+                return Ok(None);
             }
             (MutationType::Replace, revision_of(old))
         }
@@ -186,15 +185,16 @@ fn plan_winner(
     mutation.copied_authorship = Some((Some(creator), Some(author)));
     if let FileSection::Put(marker) = &decoded.file {
         let Some(write) = external else {
-            // Needs a fetched blob; rematerialize calls [`apply_winner_with_file`].
-            return None;
+            // Rematerialize must call [`apply_winner_with_file`]. Returning an
+            // error schedules dirty-key retry instead of a silent no-op.
+            return Err("record file blob has not been prepared".into());
         };
-        prepare_external_file(&mut mutation, marker, write).ok()?;
+        prepare_external_file(&mut mutation, marker, write)?;
         mutation.inline_write = decoded.inline;
-        return Some(mutation);
+        return Ok(Some(mutation));
     }
-    apply_decoded_attachments(&mut mutation, &decoded.file, decoded.inline).ok()?;
-    Some(mutation)
+    apply_decoded_attachments(&mut mutation, &decoded.file, decoded.inline)?;
+    Ok(Some(mutation))
 }
 
 fn attachment_matches(old: &Stored, file: &FileSection, inline: Option<&InlineWrite>) -> bool {

@@ -103,7 +103,7 @@ A file is a path in and a path out. No file bytes pass through the app API.
   A larger file is refused with a 400 that states the file's size and the limit.
   The limit is the largest value a snapshot and a receiving device can hold.
 - A `replace` that omits `file` keeps the record's file. A `replace` whose `file` is JSON null clears it. The node frees the bytes when no record names them. A `create` names a file by path or omits `file`. A `delete` carries no `file` and no `inline_file`.
-- Every record in a read reply has `file`: null, or `name`, `media_type`, `size` and `local`, and `inline_file`: null, or `name`, `media_type` and `size`.
+- Every record in a read reply has `file`: null, or `name`, `media_type`, `size` and `local`, and `inline_file`: null, or `name`, `media_type`, `size` and `sha256`.
 - In a read reply, `file: null` means the record has no file. That is the reply. On a `replace`, sending `file: null` is the request that clears the file. The same holds for `inline_file`.
 - `local` is the path on this device when this device holds the file as a reference and a regular file of the recorded size is still there. It is null when that original is gone or has another size, and when the file is not on this device.
 - A read item with `"file": true` also gets `path`. For a reference, `path` is that same local path. When the original is gone or has another size, that read item answers `not_found`.
