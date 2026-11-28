@@ -65,6 +65,7 @@ mod payload;
 mod record_key;
 mod schema_merge;
 mod sealed;
+mod snapshot_body;
 mod wire;
 
 pub use accept::{
