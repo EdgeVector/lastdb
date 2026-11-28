@@ -51,6 +51,9 @@ pub(super) struct WriteItem {
     /// Absent keeps a replace's file. JSON null clears it. An object links a path.
     #[serde(default, deserialize_with = "file_input")]
     pub(super) file: FileInput,
+    /// Absent keeps a replace's inline file. JSON null clears it. An object links a path.
+    #[serde(default, deserialize_with = "file_input")]
+    pub(super) inline_file: FileInput,
 }
 
 #[derive(Default)]
@@ -145,27 +148,30 @@ async fn run_timed(
                 item.schema = canonical;
             }
             if shared {
-                let has_file = !matches!(item.file, FileInput::Absent);
-                super::write_signed::check_shared_item(index, has_file, &item.key)?;
+                super::write_signed::check_shared_item(index, &item.key)?;
             }
         }
         let store = host.records();
-        let signed = if shared {
+        let located = located_keys(&items);
+        let mut mutations = prepare(host, items).await?;
+        let mut signed = if shared {
             super::write_signed::plan(
                 &store,
-                items.iter().map(|item| super::write_signed::SignedInput {
-                    schema: item.schema.as_str(),
-                    key: &item.key,
-                    op: mutation_type(item.op),
-                    record: item.record.as_ref(),
-                    alternates: &item.alternates,
+                mutations.iter().map(|mutation| {
+                    let record = (mutation.mutation_type != MutationType::Delete)
+                        .then_some(&mutation.record_fields);
+                    super::write_signed::SignedInput {
+                        schema: mutation.schema_name.as_str(),
+                        key: &mutation.key_value,
+                        op: mutation.mutation_type,
+                        record,
+                        alternates: &mutation.alternates,
+                    }
                 }),
             )
         } else {
             Vec::new()
         };
-        let located = located_keys(&items);
-        let mut mutations = prepare(host, items).await?;
         if shared {
             let writer =
                 mutation_log::NodeKey::from_bytes(host.keypair.public_key_bytes()).to_hex();
@@ -173,6 +179,7 @@ async fn run_timed(
                 super::write_signed::check_shared_mutation(&store, index, mutation)?;
                 mutation.writer = Some(writer.clone());
             }
+            super::write_signed::attach_files(&mut signed, &mutations)?;
         }
         let (receipt, phases) = measure_write_phases(commit_mutations(host, mutations)).await;
         core = phases;
@@ -218,6 +225,7 @@ async fn prepare(host: &Host, items: Vec<WriteItem>) -> Result<Vec<Mutation>, Ho
             std::mem::take(&mut item.alternates)
         };
         let file = std::mem::replace(&mut item.file, FileInput::Absent);
+        let inline = std::mem::replace(&mut item.inline_file, FileInput::Absent);
         let mut mutation = build(item, alternates);
         match file {
             FileInput::Link(link) => super::write_file::link_file(
@@ -230,6 +238,20 @@ async fn prepare(host: &Host, items: Vec<WriteItem>) -> Result<Vec<Mutation>, Ho
             .await
             .map_err(|error| error.at(index))?,
             FileInput::Clear => mutation.file_write = Some(FileWrite::Clear),
+            FileInput::Absent => {}
+        }
+        match inline {
+            FileInput::Link(link) => super::write_file::link_inline(
+                host,
+                &mut mutation,
+                link.path,
+                link.name,
+                link.media_type,
+            )
+            .map_err(|error| error.at(index))?,
+            FileInput::Clear => {
+                mutation.inline_write = Some(fold_db::record_value::InlineWrite::Clear)
+            }
             FileInput::Absent => {}
         }
         mutations.push(mutation);
@@ -263,11 +285,17 @@ fn parse(req: &UdsRequest) -> Result<Vec<WriteItem>, HostError> {
             Op::Create if matches!(item.file, FileInput::Clear) => {
                 Err("a create names a file by path or omits it")
             }
+            Op::Create if matches!(item.inline_file, FileInput::Clear) => {
+                Err("a create names an inline file by path or omits it")
+            }
             Op::Create if record && !revision => Ok(()),
             Op::Create => Err("a create carries a record and no revision"),
             Op::Replace if record && revision => Ok(()),
             Op::Replace => Err("a replace carries a record and the revision it replaces"),
-            Op::Delete if !matches!(item.file, FileInput::Absent) => {
+            Op::Delete
+                if !matches!(item.file, FileInput::Absent)
+                    || !matches!(item.inline_file, FileInput::Absent) =>
+            {
                 Err("a delete carries no file")
             }
             Op::Delete if !record && revision && item.alternates.is_empty() => Ok(()),

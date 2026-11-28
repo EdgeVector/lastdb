@@ -199,7 +199,15 @@ export interface FileInfo {
   [key: string]: unknown;
 }
 
-/** One record. created_by and updated_by are lowercase hex node keys set by the database. The node omits each key when the record has no value for it. It does not send null. file is null when the record has no file. */
+/** Present when the record has an inline file. name and media_type are null when the marker has none. size is the byte length. Inline bytes are not placed as a path. */
+export interface InlineFileInfo {
+  name: string | null;
+  media_type: string | null;
+  /** Integer. Minimum 0. Maximum 65536. */
+  size: number;
+}
+
+/** One record. created_by and updated_by are lowercase hex node keys set by the database. The node omits each key when the record has no value for it. It does not send null. file is null when the record has no file. inline_file is null when the record has no inline file. */
 export interface Record {
   key: Key;
   revision: string;
@@ -209,6 +217,7 @@ export interface Record {
   updated_by?: string;
   record: FieldValues;
   file: null | FileInfo;
+  inline_file: null | InlineFileInfo;
 }
 
 export interface ReadRecordsPage {
@@ -261,7 +270,7 @@ export interface Alternates {
   [key: string]: AlternateValue;
 }
 
-/** A create. It carries a record and no revision. A revision on a create is HTTP 400. */
+/** A create. It carries a record and no revision. A revision on a create is HTTP 400. A create may also link a file and an inline file by path. */
 export interface WriteCreate {
   database?: DatabaseName;
   schema: SchemaName;
@@ -270,10 +279,11 @@ export interface WriteCreate {
   record: FieldValues;
   alternates?: Alternates;
   file?: FileLink;
+  inline_file?: FileLink;
   revision?: never;
 }
 
-/** A replace. It carries a record and the revision it replaces. A replace without a revision or without a record is HTTP 400. A file path links that file. JSON null clears the record's file, and the node frees the bytes when no record names them. Omitting file keeps the record's file. */
+/** A replace. It carries a record and the revision it replaces. A replace without a revision or without a record is HTTP 400. A file path links that file. JSON null clears the record's file, and the node frees the bytes when no record names them. Omitting file keeps the record's file. inline_file follows the same Absent/Clear/Link rules and holds at most 64 KiB. */
 export interface WriteReplace {
   database?: DatabaseName;
   schema: SchemaName;
@@ -284,9 +294,11 @@ export interface WriteReplace {
   revision: string;
   /** A path links that file. JSON null clears the record's file. Omitting the field keeps the record's file. */
   file?: null | FileLink;
+  /** A path links that inline file (at most 64 KiB). JSON null clears it. Omitting the field keeps the record's inline file. */
+  inline_file?: null | FileLink;
 }
 
-/** A delete. It carries the revision it deletes, no record, and no file. alternates is omitted or empty. The node loads the stored alternates. A record, a file, or a non-empty alternates object is HTTP 400. */
+/** A delete. It carries the revision it deletes, no record, no file, and no inline_file. alternates is omitted or empty. The node loads the stored alternates. A record, a file, an inline_file, or a non-empty alternates object is HTTP 400. */
 export interface WriteDelete {
   database?: DatabaseName;
   schema: SchemaName;
@@ -297,6 +309,7 @@ export interface WriteDelete {
   alternates?: { [key: string]: never };
   record?: never;
   file?: never;
+  inline_file?: never;
 }
 
 /** One mutation: a create, a replace, or a delete. The node refuses a list that breaks those shapes with HTTP 400 and sets error.index. A condition that does not hold is HTTP 409. reason is exists, absent, or revision. */

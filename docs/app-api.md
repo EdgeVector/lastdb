@@ -25,7 +25,7 @@ POST /v1/read
 
 200
 { "results": [
-    { "records": [ { "key": { "hash": "n1", "range": null }, "revision": "9c2e…", "created_by": "ab12…", "updated_by": "ab12…", "record": { … }, "file": null } ], "next_cursor": null },
+    { "records": [ { "key": { "hash": "n1", "range": null }, "revision": "9c2e…", "created_by": "ab12…", "updated_by": "ab12…", "record": { … }, "file": null, "inline_file": null } ], "next_cursor": null },
     { "keys": [ … ], "next_cursor": "b3f1…" },
     { "records": [ … ], "next_cursor": null },
     { "error": { "code": "not_found", "message": "…" } },
@@ -93,17 +93,18 @@ A file is a path in and a path out. No file bytes pass through the app API.
 ```
 
 - A `create` or a `replace` can carry a `file` with the path of a file the caller can read. `name` and `media_type` are optional.
-- LastDB keeps a reference to the file where it is and makes no local copy. The bytes go up at cloud upload.
-- `lastdb mutate` names that file by path and does not copy it. The file must stay where it is. On a replace, `"file": null` clears the record's file. A request with no `file` key sends no file.
+- The same shape accepts `inline_file` for a second, independent attachment of at most 64 KiB. The node reads those bytes into the record; they do not travel as a relay blob.
+- LastDB keeps a reference to the external file where it is and makes no local copy. The bytes go up at cloud upload.
+- `lastdb mutate` names that file by path and does not copy it. The file must stay where it is. On a replace, `"file": null` clears the record's file. A request with no `file` key sends no file. `inline_file` follows the same Absent / Clear / Link rules.
 - A path inside the LastDB home is refused, through any symlink. That covers the
   key file and every database in the home. Every file that cannot be linked gets
   the same answer.
 - A record file holds at most 33,554,403 bytes (32 MiB less 29 bytes of sealing).
   A larger file is refused with a 400 that states the file's size and the limit.
   The limit is the largest value a snapshot and a receiving device can hold.
-- A `replace` that omits `file` keeps the record's file. A `replace` whose `file` is JSON null clears it. The node frees the bytes when no record names them. A `create` names a file by path or omits `file`. A `delete` carries no `file`.
-- Every record in a read reply has `file`: null, or `name`, `media_type`, `size` and `local`.
-- In a read reply, `file: null` means the record has no file. That is the reply. On a `replace`, sending `file: null` is the request that clears the file.
+- A `replace` that omits `file` keeps the record's file. A `replace` whose `file` is JSON null clears it. The node frees the bytes when no record names them. A `create` names a file by path or omits `file`. A `delete` carries no `file` and no `inline_file`.
+- Every record in a read reply has `file`: null, or `name`, `media_type`, `size` and `local`, and `inline_file`: null, or `name`, `media_type` and `size`.
+- In a read reply, `file: null` means the record has no file. That is the reply. On a `replace`, sending `file: null` is the request that clears the file. The same holds for `inline_file`.
 - `local` is the path on this device when this device holds the file as a reference and a regular file of the recorded size is still there. It is null when that original is gone or has another size, and when the file is not on this device.
 - A read item with `"file": true` also gets `path`. For a reference, `path` is that same local path. When the original is gone or has another size, that read item answers `not_found`.
 - For a file LastDB holds as its own bytes, `local` is null until a copy sits in a folder this read may use. On the app socket that folder is `<data>/files` when the grant names `data`. The node creates `files` as mode 0700 if it is missing, and the file name is the content hash. `path` is null when the grant has no `data`. On the owner socket `path` is null unless the read names `file_dir`.
@@ -642,7 +643,7 @@ Idempotency-Key: <uuid>
   "file": null }
 ```
 
-- The body is one proposal document (`"type": "mutation"`). It is not a `/v1/write` item, and it carries no file (`"file": null` or omitted; any other value is `400`). The database sets `created_by` from the earliest accepted write to the key and `updated_by` from the winning write's author (the proposer when the publisher incorporates a proposal).
+- The body is one proposal document (`"type": "mutation"`). It is not a `/v1/write` item, and it carries no file and no inline file (`"file"` / `"inline_file"` null or omitted; any other value is `400`). Direct writes (publisher `/v1/write` and a lease member's direct write) may attach `file` and `inline_file`; proposals still refuse them. The database sets `created_by` from the earliest accepted write to the key and `updated_by` from the winning write's author (the proposer when the publisher incorporates a proposal).
 - The proposal id is the `Idempotency-Key` header: one non-nil lowercase UUID. The body has no separate id field. Repeating the same id and the same body returns the same `submission_sequence`; repeating the same id with a different body is `409`.
 - The route answers only for a received whole-database share. It never writes a record on this node. It signs a `data` entry with `stream = proposal` on this member's device stream, citing the publisher grants held in `seen_heads`, accepts it locally, and appends it to `authored.json`.
 - `202` means the local signed log accepted the proposal: `{ "ok": true, "status": "submitted", "mutation_id": "<uuid>", "submission_sequence": 1 }`, where `submission_sequence` is the entry's `writer_seq` on this device stream. The publisher still decides the proposal.
@@ -667,7 +668,7 @@ Idempotency-Key: <non-nil lowercase uuid>
 <the same proposal document as the submissions route>
 ```
 
-- The body and the `Idempotency-Key` are the submissions route's. A file in the document is `400`.
+- The body and the `Idempotency-Key` are the submissions route's. A file or inline file in the document is `400`.
 - The node asks the one question `/v1/write` asks: may this node sign a direct entry now. It may for the personal database, an owned database, and a received whole-database share where this node's role is `write` and the newest lease it holds covers it, less the margin. Then it applies the change at once and answers `200 {"ok": true, "status": "applied", "mutation_id": "<id>"}`. `expected` becomes the revision a replace or delete names, and a create expects the key absent. A condition that does not hold is `409`, as on `/v1/write`. `purge` is not served.
 - Otherwise it appends a proposal, as the submissions route does, and answers `202 {"ok": true, "status": "pending", "mutation_id": "<id>", "submission_sequence": N}`. The record changes after the publisher accepts it.
 - If the lease ends between the node's decision and the write, the node queues the change once and answers `202` `pending`. A member that may neither write nor propose is `403` with `this member cannot submit this shared mutation`. A share that is not a whole database is `403` with `this share is read-only`. Other errors are those of the path that ran.

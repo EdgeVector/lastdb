@@ -7,11 +7,11 @@
 //! here lists its keys in that order.
 
 use fold_db::fold_db_core::query::PointRecord;
-use fold_db::record_value::StoredRecord;
+use fold_db::record_value::{FileMarker, StoredRecord};
 use fold_db::schema::types::KeyValue;
 use serde::ser::SerializeMap;
 use serde::{Serialize, Serializer};
-use serde_json::Value;
+use serde_json::{json, Value};
 
 use super::{database, key_filter, require_exact_name, require_read, ReadItem};
 use crate::exec::reply::content_free;
@@ -160,13 +160,14 @@ impl Serialize for Row<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let r = self.record;
         let authors = usize::from(r.created_by.is_some()) + usize::from(r.updated_by.is_some());
-        let mut map = serializer.serialize_map(Some(4 + authors))?;
+        let mut map = serializer.serialize_map(Some(5 + authors))?;
         // An author key is omitted when the record has none, never null.
         if let Some(created_by) = &r.created_by {
             map.serialize_entry("created_by", created_by)?;
         }
         // `read` answers only a record without a file. `file_place` handles the others.
         map.serialize_entry("file", &Value::Null)?;
+        map.serialize_entry("inline_file", &inline_reply(r.inline_file.as_ref()))?;
         map.serialize_entry("key", self.key)?;
         map.serialize_entry("record", &r.fields)?;
         map.serialize_entry("revision", &r.stamp.revision())?;
@@ -174,5 +175,16 @@ impl Serialize for Row<'_> {
             map.serialize_entry("updated_by", updated_by)?;
         }
         map.end()
+    }
+}
+
+fn inline_reply(marker: Option<&FileMarker>) -> Value {
+    match marker {
+        None => Value::Null,
+        Some(marker) => json!({
+            "name": marker.name,
+            "media_type": marker.media_type,
+            "size": marker.size_bytes,
+        }),
     }
 }
