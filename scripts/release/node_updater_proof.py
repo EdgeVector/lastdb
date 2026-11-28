@@ -38,7 +38,7 @@ from node_updater_host import (Fail, Host, broken_pair, read_record, require, ru
 TARGETS = {
     "x86_64-unknown-linux-gnu": "ubuntu-24.04",
     "aarch64-unknown-linux-gnu": "ubuntu-24.04-arm",
-    "aarch64-apple-darwin": "macos-14",
+    "aarch64-apple-darwin": "macos-15",
 }
 
 
