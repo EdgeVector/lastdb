@@ -46,8 +46,9 @@ reads the entry only when a `log.trim` names it.
 
 **What the relay can read.** In a personal database and in a shared database
 every `data` and `schema` payload is sealed with the database read key before
-it is signed. The relay sees the count, sizes and times of entries, and the
-fixed namespace `sealed`. Grant, birth, lease, heads and relays metadata stay
+it is signed, and a member's proposal is sealed to the owner's node key
+instead (`cloud-api.md`, "Proposals are sealed to the owner"). The relay sees
+the count, sizes and times of entries, and the fixed namespace `sealed`. Grant, birth, lease, heads and relays metadata stay
 signed plaintext so the relay can gate without opening content.
 
 File blobs may be dropped after a publisher
@@ -143,6 +144,24 @@ grant is **`write`**.
 for the signing `node_key`, or an active **`grant#any` / `read`**. Meaning of
 `grant#any`: **any caller with a valid request signature** may read — not
 unsigned/anonymous access. There is no unsigned public path.
+
+**Who reads a member stream.** The relay routes reads; that is the extent of
+its trust for confidentiality. For `log.read` and `log.streams` of `writer_key`,
+a caller other than the publisher is also limited by the writer:
+
+| `writer_key` | Who may read it |
+|---|---|
+| The publisher | The publisher and every reader |
+| A member that ever held `write` | The publisher and every reader: its direct entries count under a lease |
+| Any other member | The publisher and that member only (403 `forbidden`, field `writer_key`) |
+
+"Ever held `write`" is any publisher grant the relay has recorded that gave the
+member `write`, so a later reduction to `submit` does not hide the direct
+entries it already signed. A member that only held `submit` signs proposals,
+and those are the owner's to decide before anyone else reads them. Proposals
+are also sealed to the owner, so a relay that routes wrongly leaks ciphertext
+that no member can open. Nodes ask only for the streams this rule allows
+(`lastdb_node/src/log_sync/pull.rs`).
 
 **What the relay verifies.** Two things, and no more:
 

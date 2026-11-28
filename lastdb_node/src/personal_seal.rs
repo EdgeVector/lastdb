@@ -54,13 +54,25 @@ impl Sealer {
     }
 
     fn bound_data(&self, node_key: &NodeKey, device_id: &DeviceId, writer_seq: u64) -> Vec<u8> {
-        let mut aad = Vec::with_capacity(104);
-        aad.extend_from_slice(self.database.as_bytes());
-        aad.extend_from_slice(node_key.as_bytes());
-        aad.extend_from_slice(device_id.as_bytes());
-        aad.extend_from_slice(&writer_seq.to_be_bytes());
-        aad
+        position_aad(&self.database, node_key, device_id, writer_seq)
     }
+}
+
+/// The additional data that binds a sealed payload to its entry:
+/// `database_id ‖ node_key ‖ device_id ‖ writer_seq`. Proposals sealed to the
+/// owner (`crate::owner_seal`) use the same binding.
+pub(crate) fn position_aad(
+    database: &DatabaseId,
+    node_key: &NodeKey,
+    device_id: &DeviceId,
+    writer_seq: u64,
+) -> Vec<u8> {
+    let mut aad = Vec::with_capacity(104);
+    aad.extend_from_slice(database.as_bytes());
+    aad.extend_from_slice(node_key.as_bytes());
+    aad.extend_from_slice(device_id.as_bytes());
+    aad.extend_from_slice(&writer_seq.to_be_bytes());
+    aad
 }
 
 impl std::fmt::Debug for Sealer {

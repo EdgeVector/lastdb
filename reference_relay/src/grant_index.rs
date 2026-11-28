@@ -3,8 +3,8 @@
 use std::collections::{BTreeMap, HashMap};
 
 use mutation_log::{
-    position_of, DatabaseId, DeviceId, GrantBody, GrantState, Hex32, NodeKey, RecordPosition, Role,
-    SignedEntry,
+    position_of, DatabaseId, DeviceId, GrantBody, GrantState, Grantee, Hex32, NodeKey,
+    RecordPosition, Role, SignedEntry,
 };
 
 /// Publisher identity proven by a verified `birth` entry.
@@ -42,6 +42,15 @@ impl GrantIndex {
             d.state
                 .members()
                 .any(|(member, role)| member == *key && role == Role::Revoked)
+        })
+    }
+
+    /// True when any recorded publisher grant gave `key` the `write` role, now or before.
+    pub(crate) fn ever_held_write(&self, db: &DatabaseId, key: &NodeKey) -> bool {
+        self.dbs.get(db).is_some_and(|d| {
+            d.grants
+                .values()
+                .any(|(_, body)| body.role == Role::Write && body.grantee == Grantee::Member(*key))
         })
     }
 

@@ -15,6 +15,7 @@ Related: `signed-history-single-log.md` (the log and cursor), `relay-protocol.md
 | Fact | Owner | Rule |
 |---|---|---|
 | Does an entry count? | `AcceptEntry` in `mutation_log` | A function of the entry and the publisher's grants. Only the publisher's direct entries, bundles and publisher kinds change records. |
+| May a node read a stream? | Relay | The publisher reads every stream. A member reads the publisher, itself, and members that ever held `write`. |
 | May a node deposit an entry? | Relay | The publisher, or a member holding `submit` or `write` that appends `data` (proposals, and direct entries that the nodes count only under a lease) to its own stream. |
 | Order and continuity | The device stream | Consecutive `writer_seq`, each naming the previous hash. |
 | A record's value, author and revision | History | The winner by Lamport position. The revision is the winning entry's hash. |
@@ -43,8 +44,8 @@ One window remains: a crash between step 1 and step 2 leaves a record with no en
 
 ## Proposal path
 
-1. A member calls `POST /api/databases/{id}/submissions` with an idempotency key. The node signs a `data` entry with `stream = proposal` on its own device stream, names the publisher grants it holds in `seen_heads`, and records the entry in `proposals.json` under the idempotency key. The same key with the same body returns the same entry; with a different body it is a conflict. A proposal carries the change (`create`, `replace` or `delete`) and the history entry it expects to find.
-2. The sync loop uploads the entry. The relay stores it when the member still holds `submit` or `write`.
+1. A member calls `POST /api/databases/{id}/submissions` with an idempotency key. The node seals the change to the owner's node key, not with the read key, so no other member can read it (`cloud-api.md`, "Proposals are sealed to the owner"). It signs a `data` entry with `stream = proposal` on its own device stream, names the publisher grants it holds in `seen_heads`, and records the entry in `proposals.json` under the idempotency key. The same key with the same body returns the same entry; with a different body it is a conflict. A proposal carries the change (`create`, `replace` or `delete`) and the history entry it expects to find.
+2. The sync loop uploads the entry. The relay stores it when the member still holds `submit` or `write`. The relay lets only the publisher and the member read the stream of a member that never held `write` (`relay-protocol.md`, "Who reads a member stream").
 3. The publisher pulls member streams and decides each undecided proposal once, in the order the members signed them (Lamport order):
    - Accepted: the store validates and commits the change, and the publisher signs a direct entry with `incorporated_from` naming the proposal. The proposing member is the record's writer.
    - Not accepted: the publisher signs a `heads` entry that cites the proposal. This happens when the grant does not allow it, or when the record is no longer the one the proposal expected.
@@ -84,4 +85,4 @@ These files belong to shared databases. The personal database uses none of them:
 - Member direct writes and leases in the node (the `lease` entry kind and its counting rule are in `mutation_log`; see `write-leases.md`). A grant entry still carries a `cutoffs` field because the signed bytes include it; nothing reads it.
 - Files in shared databases. A proposal that carries a file is refused.
 
-Shared `data` and `schema` entry payloads are sealed at write time with the shared database read key (the same key an open read link delivers). Only that sealed form is stored and uploaded. Bundles keep their own encrypted blobs.
+Shared `data` and `schema` entry payloads are sealed at write time with the shared database read key (the same key an open read link delivers). Only that sealed form is stored and uploaded. Proposals are the exception: they are sealed to the owner's node key, so only the owner's devices open them. Bundles keep their own encrypted blobs.
