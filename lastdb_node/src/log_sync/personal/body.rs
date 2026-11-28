@@ -5,69 +5,11 @@
 //! schema put or drop. A receiving device opens the envelope and reads that
 //! body here.
 
-use std::collections::BTreeMap;
-
 use fold_db::record_replacement::RecordTarget;
 use fold_db::record_value::{FileMarker, InlineFile, InlineWrite};
-use fold_db::schema::types::{CasExpectation, KeyValue, Mutation, MutationType, Schema};
-use serde::Deserialize;
-use serde_json::Value;
+use fold_db::schema::types::{CasExpectation, Mutation, MutationType, Schema};
 
-/// One accepted write after the envelope is open.
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(super) struct AcceptedBody {
-    version: u16,
-    pub(super) mutation_id: String,
-    kind: String,
-    schema: String,
-    action: String,
-    #[serde(default)]
-    key: Option<KeyValue>,
-    #[serde(default)]
-    fields: Option<BTreeMap<String, Value>>,
-    #[serde(default)]
-    alternates: Option<BTreeMap<String, Option<KeyValue>>>,
-    #[serde(default)]
-    pub(super) file: Option<FileSection>,
-    #[serde(default)]
-    inline_file: Option<InlineSection>,
-    #[serde(default)]
-    definition_id: Option<String>,
-    #[serde(default)]
-    definition: Option<Value>,
-    #[serde(default)]
-    contribution: Option<Value>,
-}
-
-/// The external file of a record: its marker, or a clear.
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(super) struct FileSection {
-    #[serde(default)]
-    content_sha256: Option<String>,
-    /// Hash of the sealed row in the sending device's store. It names nothing on
-    /// another device, so it is read and dropped.
-    #[serde(default)]
-    sealed_sha256: Option<String>,
-    #[serde(default)]
-    size: Option<u64>,
-    #[serde(default)]
-    name: Option<String>,
-    #[serde(default)]
-    media_type: Option<String>,
-    pub(super) cleared: bool,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct InlineSection {
-    cleared: bool,
-    #[serde(default)]
-    marker: Option<FileMarker>,
-    #[serde(default)]
-    data: Option<String>,
-}
+type AcceptedBody = fold_db::storage::disk_backup::accepted::AcceptedBody<'static>;
 
 /// What one body changes.
 pub(super) enum Change {
@@ -113,7 +55,7 @@ pub(super) fn classify(body: &AcceptedBody) -> Result<Change, String> {
     if body.schema.is_empty() || body.contribution.is_some() {
         return Err(BAD.into());
     }
-    match body.kind.as_str() {
+    match body.kind.as_ref() {
         "schema" => schema_change(body).map(|change| Change::Schema(Box::new(change))),
         "record" | "file" | "inline" => {
             record_change(body).map(|change| Change::Record(Box::new(change)))
@@ -132,7 +74,7 @@ fn schema_change(body: &AcceptedBody) -> Result<SchemaChange, String> {
     {
         return Err(BAD.into());
     }
-    let definition = match (body.action.as_str(), &body.definition) {
+    let definition = match (body.action.as_ref(), &body.definition) {
         ("put", Some(definition)) => {
             let schema: Schema =
                 serde_json::from_value(definition.clone()).map_err(|_| BAD.to_owned())?;
@@ -145,7 +87,7 @@ fn schema_change(body: &AcceptedBody) -> Result<SchemaChange, String> {
         _ => return Err(BAD.into()),
     };
     Ok(SchemaChange {
-        name: body.schema.clone(),
+        name: body.schema.to_string(),
         definition,
     })
 }
@@ -154,10 +96,10 @@ fn record_change(body: &AcceptedBody) -> Result<RecordChange, String> {
     if body.definition.is_some() {
         return Err(BAD.into());
     }
-    let key = body.key.clone().ok_or(BAD)?;
-    let fields = body.fields.clone().ok_or(BAD)?;
-    let alternates = body.alternates.clone().ok_or(BAD)?;
-    let action = match body.action.as_str() {
+    let key = body.key.as_deref().ok_or(BAD)?.clone();
+    let fields = body.fields.as_deref().ok_or(BAD)?.clone();
+    let alternates = body.alternates.as_deref().ok_or(BAD)?.clone();
+    let action = match body.action.as_ref() {
         "create" => MutationType::Create,
         "replace" => MutationType::Replace,
         "delete" => MutationType::Delete,
@@ -171,18 +113,18 @@ fn record_change(body: &AcceptedBody) -> Result<RecordChange, String> {
         return Err(BAD.into());
     }
     let target = RecordTarget {
-        schema: body.schema.clone(),
+        schema: body.schema.to_string(),
         key,
         alternates,
     };
     let mut mutation = Mutation::with_uuid(
-        body.mutation_id.clone(),
+        body.mutation_id.to_string(),
         target,
         fields.into_iter().collect(),
         action,
         CasExpectation::Absent,
     );
-    mutation.definition_id.clone_from(&body.definition_id);
+    mutation.definition_id = body.definition_id.as_deref().map(str::to_owned);
     Ok(RecordChange {
         mutation,
         file,
@@ -214,10 +156,10 @@ fn record_file(body: &AcceptedBody) -> Result<RecordFile, String> {
         return Err(BAD.into());
     }
     let marker = FileMarker {
-        name: section.name.clone(),
-        media_type: section.media_type.clone(),
+        name: section.name.as_deref().map(str::to_owned),
+        media_type: section.media_type.as_deref().map(str::to_owned),
         size_bytes: section.size.ok_or(BAD)?,
-        sha256: section.content_sha256.clone().ok_or(BAD)?,
+        sha256: section.content_sha256.as_deref().ok_or(BAD)?.to_owned(),
     };
     if marker.has_valid_hash()
         && marker.size_bytes <= fold_db::storage_policy::native_write::LOCAL_FILE_INPUT_MEMORY_BYTES
@@ -238,7 +180,7 @@ fn record_inline(body: &AcceptedBody, _file: &RecordFile) -> Result<Option<Inlin
     };
     // Inline may ride with a file write (kind "file") or stand alone (kind
     // "inline"). A plain record write does not carry an inline section.
-    match body.kind.as_str() {
+    match body.kind.as_ref() {
         "file" | "inline" => {}
         _ => return Err(BAD.into()),
     }
@@ -249,8 +191,8 @@ fn record_inline(body: &AcceptedBody, _file: &RecordFile) -> Result<Option<Inlin
             Err(BAD.into())
         };
     }
-    let marker = section.marker.clone().ok_or(BAD)?;
-    let data = section.data.clone().ok_or(BAD)?;
+    let marker = section.marker.as_deref().ok_or(BAD)?.clone();
+    let data = section.data.as_deref().ok_or(BAD)?.to_owned();
     let inline = InlineFile { marker, data };
     inline.bytes().map_err(|_| BAD.to_owned())?;
     Ok(Some(InlineWrite::Put(inline)))

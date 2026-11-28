@@ -10,6 +10,8 @@
 
 mod author;
 mod body;
+mod payload;
+pub use payload::AcceptedBody;
 mod capture;
 mod disk;
 mod entry;

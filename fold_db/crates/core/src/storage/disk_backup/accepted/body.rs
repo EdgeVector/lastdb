@@ -1,62 +1,16 @@
 //! Canonical plaintext for one accepted logical write.
 
-use crate::schema::types::{KeyValue, Mutation, MutationType};
+pub(super) use super::payload::{AcceptedBody as Body, FileSection, InlineSection};
+use crate::schema::types::{Mutation, MutationType};
 use crate::storage::error::{StorageError, StorageResult};
 use lastdb_model::hex::hex_lower;
 use lastdb_model::record_value::{FileMarker, InlineFile};
-use serde::Serialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 
 const BODY_MAX: usize = 1024 * 1024;
-
-#[derive(Serialize)]
-pub(super) struct Body<'a> {
-    version: u16,
-    mutation_id: &'a str,
-    kind: &'a str,
-    schema: &'a str,
-    action: &'a str,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    key: Option<&'a KeyValue>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    fields: Option<&'a BTreeMap<String, Value>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    alternates: Option<&'a BTreeMap<String, Option<KeyValue>>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    file: Option<FileSection<'a>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    inline_file: Option<InlineSection<'a>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    definition_id: Option<&'a str>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    definition: Option<Value>,
-}
-
-#[derive(Clone, Copy, Serialize)]
-pub(super) struct FileSection<'a> {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    content_sha256: Option<&'a str>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    sealed_sha256: Option<&'a str>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    size: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    name: Option<&'a str>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    media_type: Option<&'a str>,
-    cleared: bool,
-}
-
-#[derive(Clone, Copy, Serialize)]
-pub(super) struct InlineSection<'a> {
-    cleared: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    marker: Option<&'a FileMarker>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    data: Option<&'a str>,
-}
 
 pub(super) fn mutation_id_ok(id: &str) -> bool {
     !id.is_empty()
@@ -128,7 +82,7 @@ pub(super) fn plain(body: &Body<'_>) -> StorageResult<Vec<u8>> {
             detail: "accepted body exceeds 1 MiB".into(),
         });
     }
-    if !mutation_id_ok(body.mutation_id) {
+    if !mutation_id_ok(body.mutation_id.as_ref()) {
         return Err(StorageError::InvalidOperation(
             "accepted mutation id is not a durable name".into(),
         ));
@@ -142,11 +96,15 @@ pub(super) fn file_section<'a>(
     cleared: bool,
 ) -> FileSection<'a> {
     FileSection {
-        content_sha256: marker.map(|marker| marker.sha256.as_str()),
-        sealed_sha256: sealed,
+        content_sha256: marker.map(|marker| Cow::Borrowed(marker.sha256.as_str())),
+        sealed_sha256: sealed.map(Cow::Borrowed),
         size: marker.map(|marker| marker.size_bytes),
-        name: marker.and_then(|marker| marker.name.as_deref()),
-        media_type: marker.and_then(|marker| marker.media_type.as_deref()),
+        name: marker
+            .and_then(|marker| marker.name.as_deref())
+            .map(Cow::Borrowed),
+        media_type: marker
+            .and_then(|marker| marker.media_type.as_deref())
+            .map(Cow::Borrowed),
         cleared,
     }
 }
@@ -162,8 +120,8 @@ pub(super) fn inline_put(file: &InlineFile) -> StorageResult<InlineSection<'_>> 
     })?;
     Ok(InlineSection {
         cleared: false,
-        marker: Some(&file.marker),
-        data: Some(file.data.as_str()),
+        marker: Some(Cow::Borrowed(&file.marker)),
+        data: Some(Cow::Borrowed(file.data.as_str())),
     })
 }
 
@@ -178,17 +136,18 @@ pub(super) fn inline_clear() -> InlineSection<'static> {
 pub(super) fn record_body<'a>(mutation: &'a Mutation, parts: &'a RecordParts<'a>) -> Body<'a> {
     Body {
         version: 1,
-        mutation_id: mutation.uuid.as_str(),
-        kind: parts.kind,
-        schema: mutation.schema_name.as_str(),
-        action: parts.action,
-        key: Some(&mutation.key_value),
-        fields: Some(&parts.fields),
-        alternates: Some(&mutation.alternates),
-        file: parts.file,
-        inline_file: parts.inline_file,
-        definition_id: parts.definition_id,
+        mutation_id: Cow::Borrowed(mutation.uuid.as_str()),
+        kind: Cow::Borrowed(parts.kind),
+        schema: Cow::Borrowed(mutation.schema_name.as_str()),
+        action: Cow::Borrowed(parts.action),
+        key: Some(Cow::Borrowed(&mutation.key_value)),
+        fields: Some(Cow::Borrowed(&parts.fields)),
+        alternates: Some(Cow::Borrowed(&mutation.alternates)),
+        file: parts.file.clone(),
+        inline_file: parts.inline_file.clone(),
+        definition_id: parts.definition_id.map(Cow::Borrowed),
         definition: None,
+        contribution: None,
     }
 }
 
@@ -200,10 +159,10 @@ pub(super) fn schema_body<'a>(
 ) -> Body<'a> {
     Body {
         version: 1,
-        mutation_id,
-        kind: "schema",
-        schema: name,
-        action,
+        mutation_id: Cow::Borrowed(mutation_id),
+        kind: Cow::Borrowed("schema"),
+        schema: Cow::Borrowed(name),
+        action: Cow::Borrowed(action),
         key: None,
         fields: None,
         alternates: None,
@@ -211,5 +170,6 @@ pub(super) fn schema_body<'a>(
         inline_file: None,
         definition_id: None,
         definition: definition.cloned(),
+        contribution: None,
     }
 }
