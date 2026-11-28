@@ -190,9 +190,10 @@ async fn read_one(host: &Host, item: ReadItem) -> Result<Value, HostError> {
     let schema = item.schema.clone();
     let mut query = Query::new_with_filter(item.schema, Some(filter));
     query.key_name = item.via;
-    // Only the full row form carries the file marker of a record.
+    // Only the full row form carries the file marker of a record. A key read
+    // still reads and checks each record, but copies none of its fields.
     let response_format = if item.keys_only {
-        QueryResponseFormat::Values
+        QueryResponseFormat::Keys
     } else {
         QueryResponseFormat::Full
     };

@@ -14,13 +14,18 @@ use crate::host::Host;
 
 mod format;
 
-use format::{cursor_payload, format_alternate_page, format_rows, sort_rows};
+use format::{
+    cursor_payload, format_alternate_keys, format_alternate_page, format_rows, key_rows, sort_rows,
+};
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub(in crate::exec) enum QueryResponseFormat {
     #[default]
     Full,
     Values,
+    /// Each row holds only its `key` (and `matched_key` through an alternate).
+    /// The records are still read and checked; their fields are not copied.
+    Keys,
 }
 
 fn clamp_request_limit(limit: Option<usize>) -> usize {
@@ -91,6 +96,12 @@ async fn alternate_execute(host: &Host, req: QueryRequest) -> Result<Value, Host
     let records = host.records();
     let exec = records.query_executor();
     let limit = clamp_request_limit(req.limit);
+    if req.response_format == QueryResponseFormat::Keys {
+        let page = exec
+            .query_alternate_key_page(req.query, limit, req.cursor)
+            .await?;
+        return format_alternate_keys(page, limit);
+    }
     format_alternate_page(
         exec.query_alternate_page(req.query, limit, req.cursor)
             .await?,
@@ -114,9 +125,19 @@ async fn execute_primary_query(
     };
     let records = host.records();
     let exec = records.query_executor();
-    let (result, end) =
-        fold_db::db_operations::with_query_page_tally(exec.query_window(query, window)).await;
-    let mut results = format_rows(result?, fmt == QueryResponseFormat::Values);
+    let (mut results, end) = if fmt == QueryResponseFormat::Keys {
+        let (keys, end) =
+            fold_db::db_operations::with_query_page_tally(exec.query_window_keys(query, window))
+                .await;
+        (key_rows(keys?), end)
+    } else {
+        let (result, end) =
+            fold_db::db_operations::with_query_page_tally(exec.query_window(query, window)).await;
+        (
+            format_rows(result?, fmt == QueryResponseFormat::Values),
+            end,
+        )
+    };
     sort_rows(
         &mut results,
         KeyComparisonContext::capture_current_range_comparison().as_ref(),

@@ -1,11 +1,14 @@
 //! Named alternate-key count and paged query execution on [`QueryExecutor`].
 
-use super::{AlternatePage, QueryExecutor, QueryRecords};
+use super::{AlternateKeyPage, AlternatePage, QueryExecutor, Record};
 use crate::alternate_keys::{self, AlternateEntry};
 use crate::schema::types::field::HashRangeFilter;
 use crate::schema::types::operations::SortOrder;
-use crate::schema::types::{Query, QueryCursor, Schema, SchemaError};
+use crate::schema::types::{KeyValue, Query, QueryCursor, Schema, SchemaError};
 use lastdb_model::hex::sha256_hex;
+use lastdb_model::record_value::StoredRecord;
+use std::collections::HashMap;
+use std::sync::Arc;
 
 impl QueryExecutor {
     pub async fn count_alternate_rows(&self, query: &Query) -> Result<usize, SchemaError> {
@@ -53,16 +56,49 @@ impl QueryExecutor {
         limit: usize,
         cursor: Option<QueryCursor>,
     ) -> Result<AlternatePage, SchemaError> {
-        self.in_read_scope(self.read_alternate_page(query, limit, cursor))
-            .await
+        self.in_read_scope(async {
+            let checked = self.read_alternate_entries(query, limit, cursor).await?;
+            Ok(AlternatePage {
+                values: checked
+                    .records
+                    .into_iter()
+                    .map(|(k, r)| (k, Record::from_stored(&r)))
+                    .collect(),
+                entries: checked.entries,
+                has_more: checked.has_more,
+                comparison: checked.comparison,
+            })
+        })
+        .await
     }
 
-    async fn read_alternate_page(
+    /// The same page as `query_alternate_page`, with the same checks of each
+    /// entry against its primary record, without a copy of the records.
+    pub async fn query_alternate_key_page(
+        &self,
+        query: Query,
+        limit: usize,
+        cursor: Option<QueryCursor>,
+    ) -> Result<AlternateKeyPage, SchemaError> {
+        self.in_read_scope(async {
+            let checked = self.read_alternate_entries(query, limit, cursor).await?;
+            Ok(AlternateKeyPage {
+                entries: checked.entries,
+                has_more: checked.has_more,
+                comparison: checked.comparison,
+            })
+        })
+        .await
+    }
+
+    /// One page of alternate entries and their primary records. Each entry must
+    /// name a live primary record whose stored alternate address is the entry.
+    async fn read_alternate_entries(
         &self,
         mut query: Query,
         limit: usize,
         cursor: Option<QueryCursor>,
-    ) -> Result<AlternatePage, SchemaError> {
+    ) -> Result<CheckedEntries, SchemaError> {
         let (schema, name) = self.require_declared_alternate(&query).await?;
         let name = name.to_owned();
         query.key_name = None;
@@ -93,42 +129,40 @@ impl QueryExecutor {
             .await?;
         let has_more = entries.len() > limit;
         entries.truncate(limit);
-        let values = if entries.is_empty() {
-            QueryRecords::new()
-        } else {
-            query.filter = Some(HashRangeFilter::HashRangeKeys(
-                entries
-                    .iter()
-                    .map(|e| {
-                        (
-                            e.primary.hash.clone().unwrap_or_default(),
-                            e.primary.range.clone().unwrap_or_default(),
-                        )
-                    })
-                    .collect(),
-            ));
-            self.query_current(query, None).await?
-        };
-        for e in &entries {
-            let rec = values.get(&e.primary).ok_or_else(|| {
-                SchemaError::InvalidData(format!(
-                    "alternate page is missing a primary record ({} entries, {} records)",
-                    entries.len(),
-                    values.len()
-                ))
-            })?;
-            if rec.alternates.get(&name).and_then(Option::as_ref) != Some(&e.matched) {
-                return Err(alternate_keys::invalid(
-                    "alternate entry does not match its primary record",
-                ));
-            }
-        }
-        Ok(AlternatePage {
-            values,
+        let records = self.primary_records(query, &entries).await?;
+        check_entries(&entries, &records, &name)?;
+        Ok(CheckedEntries {
             entries,
+            records,
             has_more,
             comparison,
         })
+    }
+
+    async fn primary_records(
+        &self,
+        mut query: Query,
+        entries: &[AlternateEntry],
+    ) -> Result<HashMap<KeyValue, Arc<StoredRecord>>, SchemaError> {
+        if entries.is_empty() {
+            return Ok(HashMap::new());
+        }
+        query.filter = Some(HashRangeFilter::HashRangeKeys(
+            entries
+                .iter()
+                .map(|e| {
+                    (
+                        e.primary.hash.clone().unwrap_or_default(),
+                        e.primary.range.clone().unwrap_or_default(),
+                    )
+                })
+                .collect(),
+        ));
+        Ok(self
+            .query_current_stored(query, None)
+            .await?
+            .into_iter()
+            .collect())
     }
 
     async fn require_declared_alternate<'a>(
@@ -160,6 +194,36 @@ impl QueryExecutor {
             .then_some((schema, name))
             .ok_or_else(|| alternate_keys::invalid("alternate key is not declared"))
     }
+}
+
+struct CheckedEntries {
+    entries: Vec<AlternateEntry>,
+    records: HashMap<KeyValue, Arc<StoredRecord>>,
+    has_more: bool,
+    comparison: String,
+}
+
+/// An alternate entry is a link; the primary record is the truth.
+fn check_entries(
+    entries: &[AlternateEntry],
+    records: &HashMap<KeyValue, Arc<StoredRecord>>,
+    name: &str,
+) -> Result<(), SchemaError> {
+    for e in entries {
+        let rec = records.get(&e.primary).ok_or_else(|| {
+            SchemaError::InvalidData(format!(
+                "alternate page is missing a primary record ({} entries, {} records)",
+                entries.len(),
+                records.len()
+            ))
+        })?;
+        if rec.alternates.get(name).and_then(Option::as_ref) != Some(&e.matched) {
+            return Err(alternate_keys::invalid(
+                "alternate entry does not match its primary record",
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn parse_alternate_cursor(
