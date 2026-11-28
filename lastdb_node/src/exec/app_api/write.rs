@@ -247,13 +247,13 @@ async fn prepare(host: &Host, items: Vec<WriteItem>) -> Result<Vec<Mutation>, Ho
             FileInput::Link(link) => super::write_file::link_inline(
                 host,
                 &mut mutation,
-                link.path,
+                &link.path,
                 link.name,
                 link.media_type,
             )
             .map_err(|error| error.at(index))?,
             FileInput::Clear => {
-                mutation.inline_write = Some(fold_db::record_value::InlineWrite::Clear)
+                mutation.inline_write = Some(fold_db::record_value::InlineWrite::Clear);
             }
             FileInput::Absent => {}
         }

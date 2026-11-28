@@ -54,11 +54,11 @@ pub(super) async fn link_file(
 pub(super) fn link_inline(
     host: &Host,
     mutation: &mut Mutation,
-    path: String,
+    path: &str,
     name: Option<String>,
     media_type: Option<String>,
 ) -> Result<(), HostError> {
-    let real = outside_home(host, &path)?;
+    let real = outside_home(host, path)?;
     let meta = std::fs::metadata(&real).map_err(|_| bad(UNUSABLE_FILE))?;
     if !meta.is_file() {
         return Err(bad(UNUSABLE_FILE));
