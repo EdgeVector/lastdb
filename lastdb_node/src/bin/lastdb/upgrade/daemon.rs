@@ -129,11 +129,11 @@ fn target(socket: &Path) -> DatabaseTarget {
     }
 }
 
-/// Read one record and hash its canonical JSON response.
+/// Read one record and hash its canonical payload.
 ///
-/// Query records use hash maps for fields and metadata. A daemon restart can therefore
-/// change their JSON member order without changing the record. Sort every object before
-/// hashing so the updater compares the record value rather than that incidental order.
+/// The read reply is deliberately not part of this digest. Its key, revision, file,
+/// author, cursor, and future metadata can change independently of record content.
+/// Query record fields use hash maps, so sort every payload object before hashing.
 pub(super) fn record_hash(
     socket: &Path,
     schema: &str,
@@ -142,9 +142,23 @@ pub(super) fn record_hash(
 ) -> Result<String, String> {
     let item = crate::v1_records::record_item(schema, hash, range, None);
     let page = crate::v1_records::read_page(&target(socket), &item, SOCKET_TIMEOUT)?;
-    let records = canonical_json(&page["records"]);
-    let bytes = serde_json::to_vec(&records).map_err(|e| e.to_string())?;
+    let payload = sample_record_payload(&page)?;
+    let bytes = serde_json::to_vec(&canonical_json(payload)).map_err(|e| e.to_string())?;
     Ok(fold_db::hex::hex_lower(Sha256::digest(&bytes)))
+}
+
+/// The explicit read-reply allowlist for upgrade verification: the sample's payload.
+fn sample_record_payload(page: &Value) -> Result<&Value, String> {
+    let records = page
+        .get("records")
+        .and_then(Value::as_array)
+        .ok_or("sample read has no records")?;
+    let [record] = records.as_slice() else {
+        return Err("sample read did not return exactly one record".into());
+    };
+    record
+        .get("record")
+        .ok_or("sample read has no record payload".into())
 }
 
 fn canonical_json(value: &Value) -> Value {
