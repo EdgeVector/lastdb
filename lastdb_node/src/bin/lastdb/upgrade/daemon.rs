@@ -129,11 +129,14 @@ fn target(socket: &Path) -> DatabaseTarget {
     }
 }
 
-/// Read one record and hash its canonical JSON response.
+/// Read one record and hash its stored value: the key, the revision and the fields.
 ///
-/// Query records use hash maps for fields and metadata. A daemon restart can therefore
-/// change their JSON member order without changing the record. Sort every object before
-/// hashing so the updater compares the record value rather than that incidental order.
+/// The hash before the stop comes from the old daemon and the hash after the start from
+/// the new one, so it must not cover the shape of the read reply. A release may add a
+/// reply member to every record (v48 added `inline_file`), and that is not a change to
+/// the record. Only `key`, `revision` and `record` are compared; a write to the record
+/// changes its revision. Objects are sorted first, because query records use hash maps
+/// and a restart can change their member order without changing the record.
 pub(super) fn record_hash(
     socket: &Path,
     schema: &str,
@@ -142,8 +145,15 @@ pub(super) fn record_hash(
 ) -> Result<String, String> {
     let item = crate::v1_records::record_item(schema, hash, range, None);
     let page = crate::v1_records::read_page(&target(socket), &item, SOCKET_TIMEOUT)?;
-    let records = canonical_json(&page["records"]);
-    let bytes = serde_json::to_vec(&records).map_err(|e| e.to_string())?;
+    let records = page["records"]
+        .as_array()
+        .ok_or("the sample read reply has no records array")?;
+    let stored: Vec<Value> = records
+        .iter()
+        .map(|r| json!({ "key": r["key"], "revision": r["revision"], "record": r["record"] }))
+        .collect();
+    let canonical = canonical_json(&Value::Array(stored));
+    let bytes = serde_json::to_vec(&canonical).map_err(|e| e.to_string())?;
     Ok(fold_db::hex::hex_lower(Sha256::digest(&bytes)))
 }
 

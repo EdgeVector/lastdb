@@ -29,7 +29,7 @@ use fold_db::storage::disk_backup::accepted::{
     Entry, EntryFile, Error as SpoolError, UploadIdentity, UploadPosition,
 };
 use fold_db::storage::disk_pack::PackRuntime;
-use mutation_log::{entry_hash, DataBody, SignedEntry};
+use mutation_log::{entry_hash, SignedEntry};
 
 use super::{apply, normalize_error, Ctx};
 use crate::host::cloud_sync::BlockedUploadStatus;
@@ -299,20 +299,17 @@ fn signed_entry(ctx: &Ctx<'_>, item: Entry) -> Result<(SignedEntry, Option<Entry
     const BAD: &str = "a spool entry is not a signed entry of this device";
     let entry: SignedEntry = serde_json::from_slice(&item.signed).map_err(|_| BAD.to_owned())?;
     let header = entry.header();
-    if header.writer_seq != item.sequence
+    if header.database_id != ctx.database
+        || header.writer_seq != item.sequence
         || header.node_key != ctx.identity.node_key
         || header.device_id != ctx.identity.device_id
     {
         return Err(BAD.into());
     }
-    let SignedEntry::Data {
-        body: DataBody { file: named, .. },
-        ..
-    } = &entry
-    else {
-        return Err(BAD.into());
+    let named = match &entry {
+        SignedEntry::Data { body, .. } => body.file.as_ref().map(|file| file.sha256.to_hex()),
+        _ => None,
     };
-    let named = named.as_ref().map(|file| file.sha256.to_hex());
     if named != item.file.as_ref().map(|file| file.sha256.clone()) {
         return Err("a spool entry names another file than the spool holds".into());
     }
@@ -328,6 +325,9 @@ async fn finish(
     relay_head: &mut u64,
 ) -> Result<(), String> {
     if !*birth_known {
+        if ctx.node_hex != ctx.publisher_hex {
+            return Err("the relay has no verified publisher birth".into());
+        }
         let stored = client
             .append(&ctx.database_id, std::slice::from_ref(&ctx.birth_entry))
             .await?;
@@ -344,7 +344,11 @@ async fn finish(
         &ctx.database_id,
         &batch.entries,
         &files,
-        Transport::SegmentAfter(*relay_head),
+        if ctx.node_hex == ctx.publisher_hex {
+            Transport::SegmentAfter(*relay_head)
+        } else {
+            Transport::Inline
+        },
     )
     .await?;
     let last = batch.entries.last().ok_or("a batch holds no entry")?;

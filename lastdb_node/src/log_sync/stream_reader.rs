@@ -17,6 +17,29 @@ pub(super) struct StreamReader {
     buffered: VecDeque<SignedEntry>,
 }
 
+/// Merge bounded pages by signed Lamport order while retaining the caller's per-stream state.
+pub(super) async fn next_ordered<C>(
+    database: &str,
+    client: &RelayClient,
+    cursors: &mut [C],
+    reader_of: fn(&mut C) -> &mut StreamReader,
+) -> Result<Option<(usize, SignedEntry)>, String> {
+    let mut earliest = None;
+    for (index, cursor) in cursors.iter_mut().enumerate() {
+        let reader = reader_of(cursor);
+        reader.fill(database, client).await?;
+        if let Some(order) = reader.front() {
+            let candidate = (order, index);
+            earliest = Some(earliest.map_or(candidate, |held| std::cmp::min(held, candidate)));
+        }
+    }
+    Ok(earliest.and_then(|(_, index)| {
+        reader_of(&mut cursors[index])
+            .pop()
+            .map(|entry| (index, entry))
+    }))
+}
+
 impl StreamReader {
     pub(super) fn new(writer: &str, device: &str, first: u64, through: Option<u64>) -> Self {
         Self {

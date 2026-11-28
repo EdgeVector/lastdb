@@ -1,12 +1,11 @@
 //! Route authorization helpers for signed share requests.
 //!
 //! Membership is decided from each member's own signed entry on the service.
-//! These helpers cover native create and the settings set path. They do not
-//! rebuild a whole-list grant document.
+//! These helpers cover native create. They do not rebuild a whole-list
+//! grant document.
 
 use super::{
     account_key_matches, NativeDatabase, NodeReadToken, ShareEnvironment, ShareHttpMethod,
-    ShareSettings, SHARE_SETTINGS_SET_PATH,
 };
 use crate::ProtocolError;
 
@@ -64,24 +63,6 @@ pub fn authorize_native_create(
     } else {
         Ok(())
     }
-}
-
-/// Authorize `POST` [`SHARE_SETTINGS_SET_PATH`].
-///
-/// This sits beside member set ([`super::SHARE_MEMBER_SET_PATH`]): the statement's
-/// publisher signature is the authorization, and this crate does not verify
-/// it. Verify the signature over the digest hex before this call. There is
-/// no [`NodeReadToken`] grant. A member signature is not this check.
-///
-/// `previous` is absent when the database has no settings yet.
-pub fn authorize_settings_set(
-    previous: Option<&ShareSettings>,
-    next: &ShareSettings,
-    method: ShareHttpMethod,
-    path: &str,
-) -> Result<(), ProtocolError> {
-    require_post(method, path, SHARE_SETTINGS_SET_PATH)?;
-    next.validate_successor_of(previous)
 }
 
 fn require_publisher_key(token: &NodeReadToken) -> Result<(), ProtocolError> {

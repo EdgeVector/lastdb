@@ -109,25 +109,15 @@ async fn merge(
     cursors: &mut [Cursor],
     applied: &mut Applied,
 ) -> Result<(), String> {
-    loop {
-        for cursor in &mut *cursors {
-            cursor.reader.fill(&ctx.database_id, client).await?;
-        }
-        let Some(at) = cursors
-            .iter()
-            .enumerate()
-            .filter_map(|(at, cursor)| cursor.reader.front().map(|key| (key, at)))
-            .min()
-            .map(|(_, at)| at)
-        else {
-            return Ok(());
-        };
-        let cursor = &mut cursors[at];
-        let Some(entry) = cursor.reader.pop() else {
-            return Ok(());
-        };
-        apply_entry(ctx, client, cursor, &entry, applied).await?;
+    while let Some((index, entry)) =
+        crate::log_sync::stream_reader::next_ordered(&ctx.database_id, client, cursors, |cursor| {
+            &mut cursor.reader
+        })
+        .await?
+    {
+        apply_entry(ctx, client, &mut cursors[index], &entry, applied).await?;
     }
+    Ok(())
 }
 
 async fn apply_entry(

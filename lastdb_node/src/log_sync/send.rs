@@ -2,7 +2,7 @@
 
 use super::record_files::sha256_hex;
 use super::relay::RelayClient;
-use mutation_log::{entry_hash, SignedEntry};
+use mutation_log::{entry_hash, SignedEntry, StreamKind, SEALED_NAMESPACE};
 use relay_protocol::SegmentAppend;
 use std::path::Path;
 
@@ -26,20 +26,40 @@ pub(super) async fn send_batch(
             expect_all(client.append(database_id, entries).await?, entries.len())?;
         }
         Transport::SegmentAfter(head) => {
-            let (held, unsent): (Vec<_>, Vec<_>) = entries
-                .iter()
-                .partition(|entry| entry.header().writer_seq <= head);
-            if !held.is_empty() {
-                client.segment_entries_held(database_id, &held)?;
-            }
-            if !unsent.is_empty() {
-                send_segment(database_id, client, &unsent).await?;
+            let mut left = entries;
+            while let Some(first) = left.first() {
+                let segment = segment_entry(first);
+                let n = left
+                    .iter()
+                    .take_while(|entry| segment_entry(entry) == segment)
+                    .count();
+                let (run, rest) = left.split_at(n);
+                if segment {
+                    let at = run.partition_point(|entry| entry.header().writer_seq <= head);
+                    let (held, unsent) = run.split_at(at);
+                    if !held.is_empty() {
+                        client
+                            .segment_entries_held(database_id, &held.iter().collect::<Vec<_>>())?;
+                    }
+                    if !unsent.is_empty() {
+                        send_segment(database_id, client, &unsent.iter().collect::<Vec<_>>())
+                            .await?;
+                    }
+                } else {
+                    expect_all(client.append(database_id, run).await?, run.len())?;
+                }
+                left = rest;
             }
         }
     }
     // Reclaim may have run between the first upload and the append that names the blob.
     // Retire the local spool only after every named file is present after acknowledgment.
     put_files(client, database_id, files).await
+}
+
+/// Grants, leases, proposals and decisions with their own entry kind need per-entry admission.
+fn segment_entry(entry: &SignedEntry) -> bool {
+    matches!(entry, SignedEntry::Data { body, .. } if body.stream == StreamKind::Direct && body.namespace == SEALED_NAMESPACE)
 }
 
 async fn put_files(
