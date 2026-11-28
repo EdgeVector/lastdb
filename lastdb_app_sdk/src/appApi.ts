@@ -123,6 +123,10 @@ function mutationBody(mutation: Api.WriteItem): Record<string, unknown> {
   if (mutation.file !== undefined) {
     body.file = mutation.file === null ? null : fileLinkBody(mutation.file);
   }
+  if (mutation.inline_file !== undefined) {
+    body.inline_file =
+      mutation.inline_file === null ? null : fileLinkBody(mutation.inline_file);
+  }
   if (mutation.op === 'replace') body.revision = mutation.revision;
   return body;
 }
@@ -197,6 +201,33 @@ function parseFile(value: JsonValue | undefined, body: unknown): Api.FileInfo | 
   return file;
 }
 
+function parseInlineFile(value: JsonValue | undefined, body: unknown): Api.InlineFileInfo | null {
+  if (value === undefined) throw invalid('app API returned a record with no inline_file', body);
+  if (value === null) return null;
+  if (
+    !isObject(value) ||
+    !('name' in value) ||
+    !('media_type' in value) ||
+    !('size' in value)
+  ) {
+    throw invalid('app API returned an invalid inline_file', body);
+  }
+  const size = value['size'];
+  if (
+    typeof size !== 'number' ||
+    !Number.isSafeInteger(size) ||
+    size < 0 ||
+    size > 65536
+  ) {
+    throw invalid('app API returned an invalid inline_file', body);
+  }
+  return {
+    name: textOrNull(value['name'], body),
+    media_type: textOrNull(value['media_type'], body),
+    size,
+  };
+}
+
 /** A missing key is absent. Null is not the contract: the node omits the key. */
 function parseAuthor(value: JsonValue | undefined, body: unknown): string | undefined {
   if (value === undefined) return undefined;
@@ -214,6 +245,7 @@ function parseRecord(value: JsonValue, body: unknown): Api.Record {
     revision: value['revision'],
     record: value['record'],
     file: parseFile(value['file'], body),
+    inline_file: parseInlineFile(value['inline_file'], body),
   };
   const createdBy = parseAuthor(value['created_by'], body);
   const updatedBy = parseAuthor(value['updated_by'], body);
