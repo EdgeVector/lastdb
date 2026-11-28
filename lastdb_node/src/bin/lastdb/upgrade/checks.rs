@@ -113,15 +113,27 @@ pub(super) fn check_code_signature(dir: &Path, notarized: bool) -> Result<(), St
         if !detail.stderr.contains("Authority=Developer ID Application") {
             return Err(refused(format!("{name} is not signed with a Developer ID")));
         }
+        // `--type execute` only assesses app bundles and rejects every bare Mach-O ("does
+        // not seem to be an app"); `--type open` with the primary-signature context assesses
+        // the binary itself and names the notarization as its source.
         let assess = procs::run(
             Path::new("spctl"),
-            &["--assess", "--type", "execute", text],
+            &[
+                "--assess",
+                "--type",
+                "open",
+                "--context",
+                "context:primary-signature",
+                "-vv",
+                text,
+            ],
             Duration::from_secs(120),
         )
         .map_err(StageError::Refused)?;
-        if !assess.ok {
+        if !assess.ok || !assess.stderr.contains("source=Notarized Developer ID") {
             return Err(refused(format!(
-                "{name} is not notarized (spctl --assess failed)"
+                "{name} is not notarized (spctl --assess: {})",
+                assess.stderr.trim()
             )));
         }
     }
