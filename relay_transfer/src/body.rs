@@ -1,4 +1,5 @@
-//! Streaming `reqwest::Body` constructors for file and in-memory blob uploads.
+//! Streaming `reqwest::Body` constructors for file and in-memory blob uploads. Each counts the
+//! bytes the transport has taken, so a stalled upload can be told from a slow one.
 
 use std::os::unix::fs::FileExt;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -7,7 +8,7 @@ use std::sync::Arc;
 /// Bytes read or sliced per chunk of an upload.
 const CHUNK_BYTES: usize = 64 * 1024;
 
-pub(super) enum UploadSource {
+pub enum UploadSource {
     File {
         file: Arc<std::fs::File>,
         start: u64,
@@ -17,7 +18,7 @@ pub(super) enum UploadSource {
 }
 
 impl UploadSource {
-    pub(super) fn body(&self, taken: Arc<AtomicU64>) -> reqwest::Body {
+    pub fn body(&self, taken: Arc<AtomicU64>) -> reqwest::Body {
         match self {
             Self::File { file, start, size } => file_body(Arc::clone(file), *start, *size, taken),
             Self::Bytes(data) => bytes_body(Arc::clone(data), taken),

@@ -1,7 +1,9 @@
-//! Relay client: OpenAPI `nodeSignature` over `log.*` and `blob.*`, plus presigned transfers.
+//! Relay client: OpenAPI `nodeSignature` over `log.*` and `blob.*`. The presigned transfers go
+//! through [`relay_transfer`], the node's own uploader, so this proof measures what users run.
 
 use std::collections::BTreeMap;
-use std::time::Duration;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use app_identity_crypto::{hex_lower, sign, SigningKey};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -12,6 +14,7 @@ use relay_protocol::{
     headers, BlobGet, BlobGetRequest, BlobPut, BlobPutRequest, BlobPutStage, Endpoint, LogAppend,
     LogAppendRequest, LogRead, LogReadRequest, LogStreams, LogStreamsRequest, ReadItem,
 };
+use reqwest::header::{HeaderName, HeaderValue};
 use sha2::{Digest, Sha256};
 
 use crate::identity::{nonce_hex, now_ms, Actor};
@@ -21,7 +24,7 @@ const APPEND_BATCH: usize = 90;
 /// Largest `log.read` page the relay protocol allows.
 pub const READ_LIMIT: u32 = 90;
 
-/// Shared HTTP client for relay calls and presigned transfers.
+/// Shared HTTP client for relay calls. Presigned transfers use [`relay_transfer`] clients.
 pub fn http_client() -> Result<reqwest::Client, String> {
     // trace-egress: public — relay origin comes from RELAY_URL; only signed headers, no secrets.
     reqwest::Client::builder()
@@ -165,18 +168,44 @@ impl RelayClient {
 
     /// `blob.put` begin, presigned upload, commit.
     pub async fn blob_put(&self, sha256: &str, body: Bytes) -> Result<(), String> {
+        self.blob_put_timed(sha256, Arc::from(body.as_ref()))
+            .await
+            .map(|_| ())
+    }
+
+    /// [`Self::blob_put`] with the time of each stage and every try of the upload.
+    pub async fn blob_put_timed(
+        &self,
+        sha256: &str,
+        body: Arc<[u8]>,
+    ) -> Result<BlobPutTiming, String> {
         let size = body.len() as u64;
+        let started = Instant::now();
         let begin = self
             .call::<BlobPut>(&self.blob_put_request(sha256, size, BlobPutStage::Begin))
             .await?;
+        let begin_seconds = started.elapsed().as_secs_f64();
         if begin.upload.is_none() && begin.sha256 == sha256 {
-            return Ok(());
+            return Ok(BlobPutTiming {
+                begin_seconds,
+                ..BlobPutTiming::default()
+            });
         }
         let upload = begin.upload.ok_or("blob.put begin has no upload.url")?;
-        self.upload(&upload.url, &upload.headers, body).await?;
+        let put_started = Instant::now();
+        let attempts = self
+            .upload(&upload.url, &upload.headers, body, size)
+            .await?;
+        let put_seconds = put_started.elapsed().as_secs_f64();
+        let commit_started = Instant::now();
         self.call::<BlobPut>(&self.blob_put_request(sha256, size, BlobPutStage::Commit))
             .await?;
-        Ok(())
+        Ok(BlobPutTiming {
+            begin_seconds,
+            put_seconds,
+            commit_seconds: commit_started.elapsed().as_secs_f64(),
+            attempts,
+        })
     }
 
     /// `blob.get` then presigned download.
@@ -212,7 +241,10 @@ impl RelayClient {
                     return serde_json::from_str(&text)
                         .map_err(|e| format!("relay {path} json: {e}"));
                 }
-                Err(failure) if failure.retryable => last = failure.message,
+                Err(failure) if failure.retryable => {
+                    eprintln!("relay {path} try {}: {}", attempt + 1, failure.message);
+                    last = failure.message;
+                }
                 Err(failure) => return Err(failure.message),
             }
         }
@@ -272,37 +304,46 @@ impl RelayClient {
         ]
     }
 
+    /// The presigned PUT through [`relay_transfer::put_presigned`]: stall detection, a fresh
+    /// connection and a bounded retry. Every try is printed to stderr and returned.
     async fn upload(
         &self,
         url: &str,
         headers: &BTreeMap<String, String>,
-        body: Bytes,
-    ) -> Result<(), String> {
-        let mut last = String::new();
-        for attempt in 0..ATTEMPTS {
-            if attempt > 0 {
-                backoff(attempt).await;
+        body: Arc<[u8]>,
+        size: u64,
+    ) -> Result<Vec<relay_transfer::Attempt>, String> {
+        let mut signed = Vec::with_capacity(headers.len());
+        for (name, value) in headers {
+            if name.eq_ignore_ascii_case("content-length") {
+                continue;
             }
-            let mut req = self.http.put(url).body(body.clone());
-            for (name, value) in headers {
-                if name.eq_ignore_ascii_case("content-length") {
-                    continue;
-                }
-                req = req.header(name.as_str(), value.as_str());
-            }
-            match req.send().await {
-                Ok(resp) if resp.status().is_success() => return Ok(()),
-                Ok(resp) => {
-                    let status = resp.status();
-                    last = format!("blob upload HTTP {status}");
-                    if !retry_status(status) {
-                        return Err(last);
-                    }
-                }
-                Err(e) => last = format!("blob upload: {e}"),
-            }
+            let name = HeaderName::from_bytes(name.as_bytes())
+                .map_err(|e| format!("presigned header name {name}: {e}"))?;
+            let value = HeaderValue::from_str(value)
+                .map_err(|e| format!("presigned header {name}: {e}"))?;
+            signed.push((name, value));
         }
-        Err(last)
+        let client = relay_transfer::upload_client()?;
+        let source = relay_transfer::UploadSource::Bytes(body);
+        let place = relay_transfer::place(url);
+        let note = |tried: u32, attempt: &relay_transfer::Attempt| {
+            eprintln!(
+                "blob upload try {tried} to {place}: {} after {:.3}s with {} of {size} bytes sent; trying again",
+                attempt.outcome, attempt.seconds, attempt.sent_bytes
+            );
+        };
+        let uploaded = relay_transfer::put_presigned(&client, url, &signed, &source, size, &note)
+            .await
+            .map_err(|failed| format!("{} ({} tries)", failed.message, failed.attempts.len()))?;
+        if !uploaded.status.is_success() {
+            return Err(format!(
+                "blob upload HTTP {} ({} tries)",
+                uploaded.status,
+                uploaded.attempts.len()
+            ));
+        }
+        Ok(uploaded.attempts)
     }
 
     async fn download(
@@ -310,32 +351,46 @@ impl RelayClient {
         url: &str,
         headers: &BTreeMap<String, String>,
     ) -> Result<Bytes, String> {
+        let client = relay_transfer::download_client()?;
         let mut last = String::new();
-        for attempt in 0..ATTEMPTS {
-            if attempt > 0 {
-                backoff(attempt).await;
+        for tried in 1..=relay_transfer::UPLOAD_TRIES {
+            if tried > 1 {
+                tokio::time::sleep(relay_transfer::upload_backoff(tried - 1)).await;
             }
-            let mut req = self.http.get(url);
+            let mut req = client.get(url);
             for (name, value) in headers {
                 req = req.header(name.as_str(), value.as_str());
             }
             match req.send().await {
                 Ok(resp) if resp.status().is_success() => match resp.bytes().await {
                     Ok(bytes) => return Ok(bytes),
-                    Err(e) => last = format!("blob download body: {e}"),
+                    Err(e) => {
+                        last = format!("blob download body: {}", relay_transfer::describe(e, url))
+                    }
                 },
                 Ok(resp) => {
                     let status = resp.status();
                     last = format!("blob download HTTP {status}");
-                    if !retry_status(status) {
+                    if !relay_transfer::is_retryable_store_status(status) {
                         return Err(last);
                     }
                 }
-                Err(e) => last = format!("blob download: {e}"),
+                Err(e) => last = format!("blob download: {}", relay_transfer::describe(e, url)),
             }
+            eprintln!("blob download try {tried}: {last}");
         }
         Err(last)
     }
+}
+
+/// The stages of one `blob.put`: begin and commit are relay calls, put is the presigned upload.
+#[derive(Debug, Default)]
+pub struct BlobPutTiming {
+    pub begin_seconds: f64,
+    pub put_seconds: f64,
+    pub commit_seconds: f64,
+    /// Every try of the presigned upload; empty when the relay already held the blob.
+    pub attempts: Vec<relay_transfer::Attempt>,
 }
 
 fn retry_status(status: reqwest::StatusCode) -> bool {

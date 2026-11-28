@@ -95,6 +95,24 @@ def cleanup_line(report: dict) -> str:
     return f"cleanup: deleted {total}. " + " | ".join(parts)
 
 
+def blob_lines(report: dict) -> list[str]:
+    """One `blob:` line per bundle put: begin, the presigned PUT with each try, commit."""
+    lines = []
+    if report.get("blobs_seconds") is not None:
+        lines.append(f"blob: all bundles in {report['blobs_seconds']:.3f}s")
+    for put in report.get("blob_puts") or []:
+        tries = "; ".join(
+            f"{a.get('outcome')} after {a.get('seconds', 0):.3f}s with {a.get('sent_bytes')} bytes sent"
+            for a in put.get("attempts") or []
+        )
+        lines.append(
+            f"blob: bundle {put.get('index')}: {put.get('bytes')} bytes, begin {put.get('begin_seconds', 0):.3f}s, "
+            f"put {put.get('put_seconds', 0):.3f}s [{tries or 'relay already held it'}], "
+            f"commit {put.get('commit_seconds', 0):.3f}s"
+        )
+    return lines
+
+
 def problems(report: dict, expect_streams: bool, blob_file_bytes: int | None) -> list[str]:
     found: list[str] = []
     if expect_streams and report.get("streams_steps") != STREAMS_STEPS:
@@ -157,6 +175,8 @@ def main() -> int:
         f"blob_file_stream={report.get('blob_file_stream')}"
     )
     print(line)
+    for blob in blob_lines(report):
+        print(blob)
     if expect_cleanup or report.get("cleanup") is not None:
         print(cleanup_line(report))
     for item in found:

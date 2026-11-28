@@ -1359,6 +1359,7 @@ dependencies = [
  "observability",
  "rand 0.8.8",
  "relay_protocol",
+ "relay_transfer",
  "reqwest 0.12.28",
  "rustix",
  "schema_types",
@@ -1883,6 +1884,16 @@ dependencies = [
  "schemars",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "relay_transfer"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "rand 0.8.8",
+ "reqwest 0.12.28",
+ "tokio",
 ]
 
 [[package]]
@@ -2466,6 +2477,7 @@ dependencies = [
  "mutation_log",
  "rand 0.8.8",
  "relay_protocol",
+ "relay_transfer",
  "reqwest 0.12.28",
  "serde_json",
  "sha2",

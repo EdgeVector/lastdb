@@ -240,6 +240,8 @@ async fn prove(
             "generate_encrypt_cpu_seconds": up.cpu_seconds,
             "database_id": up.invite.database_id.to_hex(),
             "streams_steps": streams_steps,
+            "blobs_seconds": up.blobs_seconds,
+            "blob_puts": up.blob_puts,
             "blob_file_stream": blob_file,
         }),
     })

@@ -6,30 +6,28 @@
 //! bytes pass, and renames it into place only when the size and SHA-256 match.
 //! Memory use does not depend on the size of the blob.
 //!
-//! A transfer fails when the connection stalls, not when it is slow: a download
-//! when no byte arrives for `STALL_TIMEOUT`, an upload when the transport takes
-//! no byte of the body (or sends no answer after the last one) for that long.
-//! No minimum rate is assumed.
+//! A transfer fails when the connection stalls, not when it is slow (see [`relay_transfer`],
+//! the one uploader of the node and the relay e2e proof).
 
-mod body;
 mod download;
 mod reclaim;
 mod url_guard;
 
-use body::UploadSource;
 pub(super) use reclaim::{Dropped, HeadAt, DROP_BATCH, DROP_HEADS};
+use relay_transfer::UploadSource;
+pub(super) use relay_transfer::{
+    describe, is_retryable_store_status, upload_backoff, UPLOAD_TRIES,
+};
 
 use std::path::Path;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 
 use relay_protocol::{BlobPut, BlobPutRequest, BlobPutStage, ErrorCode};
 use reqwest::header::{HeaderName, HeaderValue};
 use tokio::fs;
 use tokio::io::AsyncSeekExt;
 
-use super::relay::{CallError, RelayClient, STALL_TIMEOUT};
+use super::relay::{CallError, RelayClient};
 
 /// Starts the error of a `blob.put` begin that the relay refused for the size of the blob.
 /// The relay answered HTTP 400 with code `invalid_request` and field `bytes`: it holds a limit
@@ -41,81 +39,6 @@ fn is_size_refusal(error: &CallError) -> bool {
     error
         .refusal(400)
         .is_some_and(|answer| answer.code == ErrorCode::InvalidRequest && answer.field == "bytes")
-}
-
-/// The error with its causes (`source` chain), since reqwest alone says "error sending request",
-/// and the place: scheme, host and path of the URL. A presigned URL carries its signature and
-/// credential in the query, so the query is never printed.
-pub(super) fn describe(error: reqwest::Error, url: &str) -> String {
-    use std::error::Error as _;
-    let error = error.without_url();
-    let mut text = error.to_string();
-    let mut cause = error.source();
-    while let Some(next) = cause {
-        text.push_str(": ");
-        text.push_str(&next.to_string());
-        cause = next.source();
-    }
-    format!("{text} (for {})", place(url))
-}
-
-/// `scheme://host[:port]/path` of a URL, without the query or the fragment.
-pub(super) fn place(url: &str) -> String {
-    match reqwest::Url::parse(url) {
-        Ok(url) => format!(
-            "{}://{}{}{}",
-            url.scheme(),
-            url.host_str().unwrap_or("?"),
-            url.port().map_or(String::new(), |port| format!(":{port}")),
-            url.path()
-        ),
-        Err(_) => "an unreadable URL".to_owned(),
-    }
-}
-
-/// An upload or download is tried at most this many times in all, after waits of 0.5 s and 1 s,
-/// each cut to a random value between half and all of it.
-pub(super) const UPLOAD_TRIES: u32 = 3;
-
-pub(super) fn upload_backoff(tried: u32) -> Duration {
-    use rand::Rng;
-    let full = Duration::from_millis(500) * tried;
-    rand::thread_rng().gen_range(full / 2..=full)
-}
-
-pub(super) fn is_retryable_store_status(status: reqwest::StatusCode) -> bool {
-    matches!(status.as_u16(), 408 | 429 | 500 | 502 | 503 | 504)
-}
-
-/// What the kernel may still hold unsent when the transport has taken the last byte of a body, and
-/// the rate at which that tail is assumed to drain.
-const TAIL_BYTES: u64 = 4 << 20;
-const TAIL_FLOOR_BYTES_PER_SECOND: u64 = 64 << 10;
-
-/// Fails when `taken`, the bytes the transport has taken from an upload body, does not move for
-/// [`STALL_TIMEOUT`]. Once the whole body is taken it waits for the answer that long, plus the
-/// time the tail in the send buffer needs at the floor rate.
-async fn stalled(taken: &AtomicU64, size: u64, url: &str) -> String {
-    let tail = Duration::from_secs(size.min(TAIL_BYTES) / TAIL_FLOOR_BYTES_PER_SECOND);
-    let (mut last, mut moved) = (0, Instant::now());
-    loop {
-        tokio::time::sleep(Duration::from_secs(1)).await;
-        let now = taken.load(Ordering::Relaxed);
-        let allowed = if now >= size {
-            STALL_TIMEOUT + tail
-        } else {
-            STALL_TIMEOUT
-        };
-        if now != last {
-            (last, moved) = (now, Instant::now());
-        } else if moved.elapsed() >= allowed {
-            return format!(
-                "blob upload stalled for {} s with {last} of {size} bytes sent (for {})",
-                moved.elapsed().as_secs(),
-                place(url)
-            );
-        }
-    }
 }
 
 enum RawSource<'a> {
@@ -241,36 +164,25 @@ impl RelayClient {
         source: &UploadSource,
         size: u64,
     ) -> Result<(), String> {
-        let mut tried = 0;
-        let (status, final_url) = loop {
-            tried += 1;
-            match self.put_once(url, headers, source, size).await {
-                Ok((status, _)) if tried < UPLOAD_TRIES && is_retryable_store_status(status) => {
-                    tracing::warn!(
-                        target: "lastdbd::log_sync",
-                        status = status.as_u16(),
-                        tried,
-                        "blob upload received transient store status; sending the blob again"
-                    );
-                    tokio::time::sleep(upload_backoff(tried)).await;
-                }
-                Ok(done) => break done,
-                Err(error) if tried < UPLOAD_TRIES => {
-                    tracing::warn!(
-                        target: "lastdbd::log_sync",
-                        %error,
-                        tried,
-                        "blob upload failed before an answer; sending the blob again"
-                    );
-                    tokio::time::sleep(upload_backoff(tried)).await;
-                }
-                Err(error) => return Err(error),
-            }
+        let warn = |tried: u32, attempt: &relay_transfer::Attempt| {
+            tracing::warn!(
+                target: "lastdbd::log_sync",
+                outcome = %attempt.outcome,
+                seconds = attempt.seconds,
+                sent_bytes = attempt.sent_bytes,
+                tried,
+                "blob upload got a transient store status or no answer; sending the blob again"
+            );
         };
+        let uploaded =
+            relay_transfer::put_presigned(&self.transfer, url, headers, source, size, &warn)
+                .await
+                .map_err(|failed| failed.message)?;
+        let status = uploaded.status;
         if status.is_redirection() {
             return Err(format!("blob upload unexpected redirect HTTP {status}"));
         }
-        url_guard::validate_presigned_url(&self.base, &final_url)?;
+        url_guard::validate_presigned_url(&self.base, &uploaded.final_url)?;
         if !status.is_success() {
             return Err(format!("blob upload HTTP {status}"));
         }
@@ -304,38 +216,5 @@ impl RelayClient {
                 Err(error.message)
             }
         }
-    }
-
-    async fn put_once(
-        &self,
-        url: &str,
-        headers: &[(HeaderName, HeaderValue)],
-        source: &UploadSource,
-        size: u64,
-    ) -> Result<(reqwest::StatusCode, String), String> {
-        let taken = Arc::new(AtomicU64::new(0));
-        let body = source.body(Arc::clone(&taken));
-        let mut upload = self
-            .transfer
-            .put(url)
-            .header("content-length", size)
-            .body(body);
-        for (name, value) in headers {
-            upload = upload.header(name, value);
-        }
-        let started = Instant::now();
-        let sent = tokio::select! {
-            sent = upload.send() => sent,
-            message = stalled(&taken, size, url) => return Err(message),
-        };
-        sent.map(|response| (response.status(), response.url().as_str().to_owned()))
-            .map_err(|e| {
-                format!(
-                    "blob upload: {} after {} s with {} of {size} bytes sent",
-                    describe(e, url),
-                    started.elapsed().as_secs(),
-                    taken.load(Ordering::Relaxed)
-                )
-            })
     }
 }

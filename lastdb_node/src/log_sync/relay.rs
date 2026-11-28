@@ -17,8 +17,6 @@ use relay_protocol::{
 /// Bound a hung peer so the sync loop can return and re-push the log.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
-/// A blob transfer fails when it makes no progress for this long, however slow the link.
-pub(super) const STALL_TIMEOUT: Duration = Duration::from_secs(30);
 /// CI probe budget: request timeout plus a little slack.
 const HUNG_PEER_BUDGET: Duration = Duration::from_secs(45);
 
@@ -36,7 +34,7 @@ pub(super) struct RelayClient {
     pub(super) http: reqwest::Client,
     /// Presigned upload client: no total/read timeout (watched by `blob_transfer`), no idle pool.
     pub(super) transfer: reqwest::Client,
-    /// Presigned download client: [`STALL_TIMEOUT`] per read, no idle pool.
+    /// Presigned download client: [`relay_transfer::STALL_TIMEOUT`] per read, no idle pool.
     pub(super) download: reqwest::Client,
     /// The account of what this device put, for a client that syncs a home. A client that only
     /// reads has none.
@@ -62,24 +60,8 @@ impl RelayClient {
             .pool_max_idle_per_host(0)
             .build()
             .map_err(|e| format!("relay http client: {e}"))?;
-        // trace-egress: public — presigned blob URLs; the signed headers go only to the relay.
-        let transfer = reqwest::Client::builder()
-            .connect_timeout(CONNECT_TIMEOUT)
-            .redirect(reqwest::redirect::Policy::none())
-            // A fresh connection for each upload: a body cannot be sent again on a pooled
-            // connection that the store closed while it was idle ("connection closed before
-            // message completed").
-            .pool_max_idle_per_host(0)
-            .build()
-            .map_err(|e| format!("relay http client: {e}"))?;
-        // trace-egress: public — presigned blob URLs; the signed headers go only to the relay.
-        let download = reqwest::Client::builder()
-            .connect_timeout(CONNECT_TIMEOUT)
-            .read_timeout(STALL_TIMEOUT)
-            .redirect(reqwest::redirect::Policy::none())
-            .pool_max_idle_per_host(0)
-            .build()
-            .map_err(|e| format!("relay http client: {e}"))?;
+        let transfer = relay_transfer::upload_client()?;
+        let download = relay_transfer::download_client()?;
         Ok(Self {
             base: base.trim_end_matches('/').to_owned(),
             signing_key,

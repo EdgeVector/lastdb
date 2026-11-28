@@ -30,7 +30,7 @@ Environment (flags exist for each):
 | `RELAY_URL` | required | Relay origin, set by the proof script |
 | `LASTDB_RELAY_E2E_TOTAL_BYTES` | 300 MiB | Synthetic record text to upload |
 | `LASTDB_RELAY_E2E_CONCURRENCY` | 4 | Blobs in flight, clamped to 1..=8 |
-| `LASTDB_RELAY_E2E_LIMIT_SECONDS` | 60 | Each phase must finish under this. The CI run against the Exemem DEV relay sets 180 (DEV upload throughput varies); the reference_relay run keeps 60 |
+| `LASTDB_RELAY_E2E_LIMIT_SECONDS` | 60 | Each phase must finish under this |
 | `LASTDB_RELAY_E2E_WORK_DIR` | temp dir | Scratch FoldDB for the restore; removed on exit |
 | `LASTDB_RELAY_E2E_STREAMS` | off | `true` also proves `log.streams` (see "Opt-in steps") |
 | `LASTDB_RELAY_E2E_BLOB_FILE_BYTES` | 0 (off) | Also puts and gets one generated file of this size through the blob routes, from and to disk |
@@ -56,6 +56,12 @@ the limit. Failures print `{"ok": false, "error": "..."}` and exit 1.
 `upload_seconds` covers key and birth setup, generating and encrypting every bundle, `blob.put` of every blob,
 and `log.append` of the chain. `restore_seconds` covers stream discovery, `log.read`, `blob.get`, decrypt,
 `AcceptEntry` and the FoldDB materialize. Checks run after the timer stops.
+
+`blobs_seconds` is the wall time of the bundle puts alone. `blob_puts` has one object per bundle: `index`,
+`bytes`, `begin_seconds`, `put_seconds` and `commit_seconds`, and `attempts`, each try of the presigned PUT with
+its `seconds`, `sent_bytes` and `outcome` (`HTTP 200`, `HTTP 503`, or the stall or transport error). The PUT goes
+through `relay_transfer`, the uploader the node uses: a fresh connection each time, a failure after 30 s without
+progress, and at most 3 tries. stderr prints the same per bundle, and each retried relay call.
 
 ## Cleanup
 
