@@ -187,14 +187,14 @@ pub fn author_heads(
     Ok(entry)
 }
 
-/// Author a snapshot entry. The positions are sorted by device id.
+/// Author a snapshot entry. The positions are sorted by signer and device.
 pub fn author_snapshot(
     ctx: &AuthorCtx,
     signing_key: &SigningKey,
     mut body: SnapshotBody,
 ) -> Result<SignedEntry, EncodeError> {
     body.through
-        .sort_by_key(|position| position.device_id.to_bytes());
+        .sort_by_key(|position| position.stream_id(ctx.node_key));
     let mut entry = SignedEntry::Snapshot {
         header: ctx.header_unsigned(),
         namespace: "snapshot".into(),

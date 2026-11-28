@@ -108,7 +108,11 @@ async fn snapshot_requested(ctx: &Ctx<'_>) {
 }
 
 fn check_stream_coverage(streams: &[RelayStream], snapshot: &SnapshotBody) -> Result<(), String> {
-    if snapshot.through.iter().any(|at| at.writer_key.is_some()) {
+    if snapshot
+        .through
+        .iter()
+        .any(|at| at.publisher_device().is_none())
+    {
         return Err("reclaim needs the stream listing of every snapshot writer".into());
     }
     let mut seen_devices = BTreeSet::new();
@@ -118,7 +122,10 @@ fn check_stream_coverage(streams: &[RelayStream], snapshot: &SnapshotBody) -> Re
         }
     }
     for at in snapshot.through.iter().filter(|at| at.writer_seq > 0) {
-        let hex = at.device_id.to_hex();
+        let hex = at
+            .publisher_device()
+            .ok_or("reclaim needs all snapshot writers")?
+            .to_hex();
         let covered = streams
             .iter()
             .any(|stream| stream.device_id == hex && stream.head_seq >= at.writer_seq);
@@ -146,12 +153,11 @@ impl TailReader<'_, '_> {
             let pos = stream.head_seq.saturating_sub(1);
             (pos, (pos == 0).then_some(EntryHash::ZERO))
         } else {
-            match self
-                .snapshot
-                .through
-                .iter()
-                .find(|at| at.device_id.to_hex() == stream.device_id && at.writer_seq > 0)
-            {
+            match self.snapshot.through.iter().find(|at| {
+                at.publisher_device()
+                    .is_some_and(|dev| dev.to_hex() == stream.device_id)
+                    && at.writer_seq > 0
+            }) {
                 Some(at) => (at.writer_seq, Some(at.entry_hash)),
                 None => (0, Some(EntryHash::ZERO)),
             }
