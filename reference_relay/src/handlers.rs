@@ -52,17 +52,6 @@ impl AppState {
         gate::authorize_read(&grants, db, caller)
     }
 
-    async fn check_log_read(
-        &self,
-        db: &DatabaseId,
-        caller: &NodeKey,
-        writer_key: &str,
-        all_devices: bool,
-    ) -> ApiResult<()> {
-        let grants = self.grants.lock().await;
-        gate::authorize_log_read(&grants, db, caller, writer_key, all_devices)
-    }
-
     pub(crate) async fn check_blob_put(&self, db: &DatabaseId, caller: &NodeKey) -> ApiResult<()> {
         let grants = self.grants.lock().await;
         gate::authorize_blob_put(&grants, db, caller)
@@ -111,13 +100,7 @@ pub(crate) async fn log_read(
     let caller = verified.node_key;
     let db = gate::parse_id(&req.database_id, "database_id")?;
     let position = read_position(&req)?;
-    let (writer_key, all_devices) = match &position {
-        ReadPosition::Device { writer_key, .. } => (writer_key.as_str(), false),
-        ReadPosition::Writer { writer_key, .. } => (writer_key.as_str(), true),
-    };
-    state
-        .check_log_read(&db, &caller, writer_key, all_devices)
-        .await?;
+    state.check_read(&db, &caller).await?;
     let limit = read_limit(req.limit)?;
     let (stored, cursor) = match position {
         ReadPosition::Device {
@@ -176,9 +159,7 @@ pub(crate) async fn log_streams(
     let caller = verified.node_key;
     let db = gate::parse_id(&req.database_id, "database_id")?;
     require_hex64(&req.writer_key, "writer_key")?;
-    state
-        .check_log_read(&db, &caller, &req.writer_key, true)
-        .await?;
+    state.check_read(&db, &caller).await?;
     let streams = state.store.list_streams(&req.database_id, &req.writer_key);
     Ok(Json(LogStreamsAnswer { streams }))
 }

@@ -8,8 +8,7 @@ use super::history_store::HistoryMap;
 use super::materialize::{self, DatabaseCtx};
 use super::relay::RelayClient;
 
-/// Pull one device stream (`device_id` set). Used for the publisher's known
-/// devices so a revoked member can still read through the signed revoke.
+/// Pull one known publisher device stream starting after the local head.
 async fn pull_stream(
     client: &RelayClient,
     histories: &HistoryMap,

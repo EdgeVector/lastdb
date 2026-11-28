@@ -36,20 +36,9 @@ impl GrantIndex {
         self.dbs.get(db)?.state.role_of(key)
     }
 
-    /// True when folded grants list `key` as `Role::Revoked`.
-    pub(crate) fn is_revoked(&self, db: &DatabaseId, key: &NodeKey) -> bool {
-        self.dbs.get(db).is_some_and(|d| {
-            d.state
-                .members()
-                .any(|(member, role)| member == *key && role == Role::Revoked)
-        })
-    }
-
-    /// True when an active `grant#any` / `read` is in force.
-    pub(crate) fn any_read(&self, db: &DatabaseId) -> bool {
-        self.dbs
-            .get(db)
-            .is_some_and(|d| d.state.any_role() == Some(Role::Read))
+    /// A member's explicit grant takes precedence over the public read grant.
+    pub(crate) fn may_read(&self, db: &DatabaseId, key: &NodeKey) -> bool {
+        self.dbs.get(db).is_some_and(|db| db.state.may_read(key))
     }
 
     /// True when any `grant` entry (`grant#any` or member grant) has been recorded for `db`.

@@ -117,7 +117,7 @@ pub(crate) fn personal_owner(
     if birth.owner != *caller {
         return Err(ApiError::forbidden("publisher"));
     }
-    if grants.any_read(db) || grants.has_grants(db) {
+    if grants.has_grants(db) {
         return Err(ApiError::forbidden("grant"));
     }
     Ok(())
