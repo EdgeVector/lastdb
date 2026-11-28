@@ -243,7 +243,7 @@ impl MutationManager {
         }
         let mut patched = as_mutation(&schema.name, live.key.clone(), Some(live.clone()));
         patched.imported_written_at = live.written_at();
-        apply_attachment_patch(&mut patched, mutation, deletes, parts);
+        apply_attachment_patch(&mut patched, &mutation, deletes, parts);
         let writer = live.updated_by.as_deref().unwrap_or(&stamp.writer_key);
         if schema.file_required && !has_file(&patched, Some(live)) {
             let saved = saved_from_live(live, writer);

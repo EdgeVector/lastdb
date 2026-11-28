@@ -153,7 +153,7 @@ pub(super) fn as_mutation(schema: &str, key: KeyValue, record: Option<StoredReco
 
 pub(super) fn apply_attachment_patch(
     patched: &mut Mutation,
-    mutation: Mutation,
+    mutation: &Mutation,
     deletes: bool,
     parts: ReplayAttachmentSlots,
 ) {
