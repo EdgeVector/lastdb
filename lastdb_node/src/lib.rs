@@ -11,6 +11,7 @@ pub mod jobs;
 pub mod lastdb_uds;
 pub mod log_sync;
 pub mod offline_home;
+pub(crate) mod owner_seal;
 pub(crate) mod personal_author;
 pub(crate) mod personal_identity;
 pub(crate) mod personal_seal;

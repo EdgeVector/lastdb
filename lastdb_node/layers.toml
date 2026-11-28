@@ -15,6 +15,7 @@ modules = [
   "database_birth",
   "device_identity",
   "offline_home",
+  "owner_seal",
   "personal_author",
   "personal_identity",
   "personal_seal",

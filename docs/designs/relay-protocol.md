@@ -46,8 +46,9 @@ reads the entry only when a `log.trim` names it.
 
 **What the relay can read.** In a personal database and in a shared database
 every `data` and `schema` payload is sealed with the database read key before
-it is signed. The relay sees the count, sizes and times of entries, and the
-fixed namespace `sealed`. Grant, birth, lease, heads and relays metadata stay
+it is signed, and a member's proposal is sealed to the owner's node key
+instead (`cloud-api.md`, "Proposals are sealed to the owner"). The relay sees
+the count, sizes and times of entries, and the fixed namespace `sealed`. Grant, birth, lease, heads and relays metadata stay
 signed plaintext so the relay can gate without opening content.
 
 File blobs may be dropped after a publisher
@@ -143,6 +144,13 @@ grant is **`write`**.
 for the signing `node_key`, or an active **`grant#any` / `read`**. Meaning of
 `grant#any`: **any caller with a valid request signature** may read — not
 unsigned/anonymous access. There is no unsigned public path.
+
+**Proposals on member streams.** Every reader may read every member stream,
+proposals included. Nodes need them: a publisher entry that incorporates or
+declines a proposal cites it in `seen_heads`, and a node holds that entry until
+it has the proposal. A proposal is sealed to the owner's node key, so other
+members see only that it exists, when, and its size (`cloud-api.md`,
+"Proposals are sealed to the owner").
 
 **What the relay verifies.** Two things, and no more:
 

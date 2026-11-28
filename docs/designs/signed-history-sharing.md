@@ -43,8 +43,8 @@ One window remains: a crash between step 1 and step 2 leaves a record with no en
 
 ## Proposal path
 
-1. A member calls `POST /api/databases/{id}/submissions` with an idempotency key. The node signs a `data` entry with `stream = proposal` on its own device stream, names the publisher grants it holds in `seen_heads`, and records the entry in `proposals.json` under the idempotency key. The same key with the same body returns the same entry; with a different body it is a conflict. A proposal carries the change (`create`, `replace` or `delete`) and the history entry it expects to find.
-2. The sync loop uploads the entry. The relay stores it when the member still holds `submit` or `write`.
+1. A member calls `POST /api/databases/{id}/submissions` with an idempotency key. The node seals the change to the owner's node key, not with the read key, so no other member can read it (`cloud-api.md`, "Proposals are sealed to the owner"). It signs a `data` entry with `stream = proposal` on its own device stream, names the publisher grants it holds in `seen_heads`, and records the entry in `proposals.json` under the idempotency key. The same key with the same body returns the same entry; with a different body it is a conflict. A proposal carries the change (`create`, `replace` or `delete`) and the history entry it expects to find.
+2. The sync loop uploads the entry. The relay stores it when the member still holds `submit` or `write`. Other members also receive it, since the publisher's decision cites it, but only as ciphertext they cannot open.
 3. The publisher pulls member streams and decides each undecided proposal once, in the order the members signed them (Lamport order):
    - Accepted: the store validates and commits the change, and the publisher signs a direct entry with `incorporated_from` naming the proposal. The proposing member is the record's writer.
    - Not accepted: the publisher signs a `heads` entry that cites the proposal. This happens when the grant does not allow it, or when the record is no longer the one the proposal expected.
@@ -100,4 +100,6 @@ inline file is still refused (`blob.put` is publisher or write-grant only).
 
 Shared `data` and `schema` entry payloads are sealed at write time with the
 database read key (the same key an open read link delivers). Only that sealed
-form is stored and uploaded. Bundles keep their own encrypted blobs.
+form is stored and uploaded. Proposals are the exception: they are sealed to
+the owner's node key, so only the owner's devices open them. Bundles keep their
+own encrypted blobs.

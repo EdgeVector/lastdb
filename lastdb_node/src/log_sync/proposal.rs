@@ -13,7 +13,9 @@ use std::path::Path;
 use std::sync::Arc;
 
 use cloud_backup_protocol::Id;
-use mutation_log::{author_data, data_record, Grantee, NodeKey, Role, StreamKind, VerifiedHistory};
+use mutation_log::{
+    author_data, data_record, DatabaseId, Grantee, NodeKey, Role, StreamKind, VerifiedHistory,
+};
 use serde_json::Value;
 use sha2::{Digest as _, Sha256};
 
@@ -23,10 +25,9 @@ use parse::{canonicalize_proposed, envelope, parse, Proposed};
 
 use super::chain_author::{self, Target};
 use super::chain_error::ChainError;
-use super::shared_key;
 use crate::host::Host;
+use crate::owner_seal::{seal_proposal, ProposalSlot};
 use crate::registered_share::{self, RegisteredShare};
-use crate::shared_seal;
 
 /// Share-write contribution failures, in the owner route's terms.
 #[derive(Debug)]
@@ -191,10 +192,10 @@ pub(super) fn author_proposal(
         database_id,
         identity: &identity,
     };
-    let sealer =
-        shared_key::sealer(host, database_id).map_err(|_| ContributionError::Unavailable)?;
+    let database = DatabaseId::from_hex(database_id).map_err(|_| ContributionError::Unavailable)?;
     chain_author::author_member(&super::histories_for(host), &target, |mut ctx, history| {
         require_submitter(history, &identity.node_key)?;
+        let owner = history.owner().ok_or(ChainError::Unconfirmed)?;
         if let Some((hash, lamport)) = history.birth_entry() {
             ctx.cite(hash, lamport);
         }
@@ -204,11 +205,17 @@ pub(super) fn author_proposal(
                 "this member cannot submit this shared mutation",
             ))?;
         ctx.cite(grant_hash, grant_lamport);
-        let body = shared_seal::seal_data(
-            &sealer,
-            ctx.node_key,
-            ctx.device_id,
-            ctx.next_writer_seq(),
+        // Sealed to the owner, not with the shared read key: no other member may
+        // read a proposal before the owner decides it.
+        let slot = ProposalSlot {
+            database,
+            owner,
+            node_key: ctx.node_key,
+            device_id: ctx.device_id,
+            writer_seq: ctx.next_writer_seq(),
+        };
+        let body = seal_proposal(
+            &slot,
             data_record(StreamKind::Proposal, namespace, record_key, value),
         )
         .map_err(|_| ChainError::Unconfirmed)?;

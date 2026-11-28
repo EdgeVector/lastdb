@@ -117,7 +117,9 @@ A device keeps **no full history**. It keeps:
 3. Seals `data` and `schema` payloads under the database read key with wire
    `namespace = "sealed"` (packing the real schema name inside the ciphertext
    for shared databases, with AAD bound to
-   `database_id || node_key || device_id || writer_seq`), then signs the entry,
+   `database_id || node_key || device_id || writer_seq`), then signs the entry.
+   A member's proposal is sealed to the owner's node key instead (see
+   "Data / schema / bundle"),
 4. **Applies locally** (same `AcceptEntry` + merge rules),
 5. Appends the signed entry to the **log**; entries past the upload cursor
    are pending.
@@ -220,6 +222,20 @@ a proposal (`stream=proposal`), citing the publisher grants it holds in
 `seen_heads`; a proposal changes nothing until the publisher signs a direct
 entry citing it in `incorporated_from`, or a `heads` entry declining it.
 Bundles never carry proposals or grant entries inside the blob.
+
+**Proposals are sealed to the owner.** Every member holds the read key, so a
+proposal sealed with it would be readable by every member before the owner
+decides it. A member therefore seals a proposal payload to the owner's node key:
+the Montgomery form of the owner's Ed25519 key is its X25519 key, the member makes
+a fresh X25519 key for each proposal, and HKDF-SHA256 (salt
+`lastdb:proposal-owner-seal:v1`, info `database_id || owner_key ||
+fresh_public`) gives the AES-256-GCM key. The payload is
+`fresh_public(32) || envelope`, with the same AAD as every sealed payload and the
+real namespace packed inside. Every owner device holds the node key and opens it;
+no member can. The owner declines a proposal that does not open this way
+(`lastdb_node/src/owner_seal.rs`). A publisher entry that incorporates a proposal
+is sealed with the read key as usual, so members read the change once the owner
+accepts it.
 
 **Birth:** first chained entry on a publisher device. ExeMem
 `manage`/`create` carries the full signed `BirthEntry`.

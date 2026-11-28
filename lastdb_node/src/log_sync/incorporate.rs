@@ -12,6 +12,9 @@
 //! create records and change the ones it created. A proposal whose expected
 //! record state no longer holds is not accepted. A failure that is not about
 //! the proposal (storage, signing) decides nothing, and the next turn retries.
+//!
+//! A proposal is sealed to the owner's node key (`crate::owner_seal`), so only
+//! the owner's devices can open it.
 
 use std::collections::HashMap;
 
@@ -27,6 +30,7 @@ use super::history_store::HistoryMap;
 use super::incorporate_publish::{decline, publish, Ready};
 use super::materialize;
 use crate::host::Host;
+use crate::owner_seal::OwnerOpener;
 
 /// Resolve every unresolved proposal on an owned shareable database.
 pub(super) async fn resolve_owned(
@@ -48,8 +52,9 @@ pub(super) async fn resolve_owned(
     if pending.is_empty() {
         return Ok(());
     }
+    let opener = OwnerOpener::new(&identity.signing_key, database_id)?;
     for entry in pending {
-        match decide(store, histories, database_id, &entry).await? {
+        match decide(store, histories, database_id, &opener, &entry).await? {
             Decision::Accept(ready) => {
                 // The store already holds the validated write from decide. An
                 // entry that cannot be signed leaves no record behind.
@@ -91,10 +96,13 @@ async fn decide(
     store: &FoldDB,
     histories: &HistoryMap,
     database_id: &str,
+    opener: &OwnerOpener,
     entry: &SignedEntry,
 ) -> Result<Decision, String> {
     let history = histories.snapshot(database_id)?;
-    let Some((namespace, payload)) = history.decode_data_entry(entry) else {
+    // A proposal opens only with the owner key. One sealed with the shared read
+    // key, which every member could read, is declined.
+    let Some((namespace, payload)) = opener.decode(entry) else {
         return Ok(Decision::Decline);
     };
     let Ok(intent) = parse_intent(&payload.value) else {
