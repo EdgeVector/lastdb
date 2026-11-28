@@ -266,7 +266,7 @@ jobs:
             --bin relay-protocol-openapi >"$RUNNER_TEMP/relay-protocol.openapi.json"
       - name: Keep the generated contract
         if: ${{ always() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: relay-protocol-openapi-${{ github.run_id }}
           path: ${{ runner.temp }}/relay-protocol.openapi.json
