@@ -1,4 +1,4 @@
-//! Share access v2 wire types for the mutation log, the proposal log, and share settings.
+//! Share access v2 wire types for the mutation log and the proposal log.
 //! Legacy share-access wire types. Live contract: docs/designs/cloud-api.md.
 //!
 //! A member entry names one Ed25519 node key that may read one shared database.
@@ -9,11 +9,6 @@
 //! a later entry restores it with an explicit regrant. v1 does not rotate
 //! keys. These types do no I/O, do not verify signatures, and do not cap the
 //! member count.
-//!
-//! [`ShareSettings`] is the one statement per database for who may read the
-//! mutation log, where a Submit append goes, and what a member may write for
-//! each schema. No statement means [`absent_share_settings`]: members read,
-//! members append proposals, and the member-write map is empty.
 //!
 //! A signed request uses the `LastDBNode` authorization scheme. The token is
 //! `NodeReadToken` JSON. The second segment is the raw 64-byte Ed25519
@@ -27,24 +22,15 @@
 mod entries;
 mod grant;
 mod members;
-mod settings;
 
 pub use entries::{
     MemberEntry, MemberGetRequest, MemberGetResponse, MemberListRequest, MemberListResponse,
     MemberSetRequest, MemberSetResponse, MEMBER_LIST_PAGE_MAX, MEMBER_SET_MAX,
     SHARE_MEMBER_GET_PATH, SHARE_MEMBER_LIST_PATH, SHARE_MEMBER_SET_PATH,
 };
-pub use grant::{
-    authorize_native_create, authorize_settings_set, ShareAccess, SignedRequestTarget,
-};
+pub use grant::{authorize_native_create, ShareAccess, SignedRequestTarget};
 pub use members::{
     Ed25519Signature, MemberListReadRequest, MemberListRevision, ShareMemberRole, ShareMemberState,
-};
-pub use settings::{
-    absent_share_settings, member_write_behaviour, MemberWriteBehaviour, ShareRead, ShareSettings,
-    ShareSettingsGetRequest, ShareSettingsGetResponse, ShareSettingsSetRequest,
-    ShareSettingsSetResponse, ShareWrite, MEMBER_WRITES_MAX, MEMBER_WRITE_SCHEMA_NAME_MAX_BYTES,
-    SHARE_SETTINGS_GET_PATH, SHARE_SETTINGS_SET_PATH,
 };
 
 use crate::primitives::exact_lower_hex;

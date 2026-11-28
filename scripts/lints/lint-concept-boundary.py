@@ -4,8 +4,8 @@
 Named presets (Share, Deliver, Org) and People ideas (circles, albums,
 comments, social/* schemas) belong only in the People app
 (EdgeVector/people). LastDB and ExeMem pass and enforce generic
-configuration: read members|anyone; each member's capability
-read|propose|write; member_writes owner_only|own_records|shared.
+configuration: one signed grant per member with role
+read|submit|write|revoked, and one write lease per database.
 
 This is a source check, not a unit test. Exit 0 on a clean tree, 1
 otherwise. Extend CONCEPTS to ban more app vocabulary later.
@@ -37,7 +37,7 @@ def _p(*exprs: str) -> tuple[re.Pattern[str], ...]:
 
 
 # Add new app concepts here. Keep patterns specific enough to avoid
-# protocol words such as ShareSettings or Delivery sequence.
+# protocol words such as ShareEnvironment or Delivery sequence.
 CONCEPTS: tuple[Concept, ...] = (
     Concept(
         concept_id="people.schema.social",
