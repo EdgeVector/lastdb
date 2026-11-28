@@ -57,6 +57,12 @@ These are the personal database's mechanisms as built. Every database would use 
 5. **Snapshot and reclaim.** Each database freezes a snapshot of its store, names it in a signed
    entry, and asks the relay to drop what the snapshot covers.
 
+Each signed snapshot identifies covered streams by writer key and device ID. Its publisher's key
+is the default. Two different writers can use the same device ID and retain independent sequence
+numbers, hashes and replay positions. An owner-only snapshot keeps its original signing bytes.
+Restore binds each stored head to its signed writer, device, sequence, hash and order. A cleanup
+request must account for all writers' streams before the relay can release any files.
+
 A personal database is this path with no grants: `AcceptEntry` counts only the owner's key.
 
 ## 4. What changes for shared databases
@@ -109,10 +115,9 @@ entry that cites a proposal they cannot hold, on the owner's signature alone. Th
    the owner and to each moderator (one content key, wrapped for each), and `AcceptEntry`
    counting a decision signed by a current moderator. That changes the entry format and `AcceptEntry`, so it would be a stage of
    its own.
-3. **Removing a member.** A removed member still holds the read key. The relay already refuses
-   it new entries, but a relay that routed wrongly would hand it content it can open. Rotating
-   the read key when a member leaves closes that. It matters more in an org, where members come
-   and go, and it is an open question here.
+3. **Removing a member.** ExeMem applies the publisher-signed revoke to every new read and write by
+   that identity, including publisher-stream reads and blob requests. LastDB retains the database
+   read key. A former member keeps the data it already downloaded (Tom, 2026-11-28).
 4. **Groups.** Not needed. People's preset sets a role on each member's grant, and the node and
    relay see only the grants.
 
@@ -129,10 +134,5 @@ changes the home copies records into a fresh home and updates `../home-format.md
    store for the `submit` rule.
 4. Snapshot and reclaim for shared databases.
 5. Files in shared databases.
-6. Read key rotation on member removal, if Tom chooses it.
 
 Moderators other than the owner are not a stage now (6.2).
-
-## 8. Open questions
-
-1. Rotate the read key when a member is removed?

@@ -39,8 +39,8 @@ pub enum EncodeError {
     /// Relays count out of 1..=32.
     #[error("relays count must be 1..=32")]
     BadRelaysCount,
-    /// Snapshot positions: more than 1024, or not strictly ascending by device id.
-    #[error("snapshot through must be at most 1024 positions, strictly ascending by device id")]
+    /// Invalid count, stream order, or redundant publisher qualifier.
+    #[error("snapshot through requires at most 1024 distinct streams ordered by signer and device, with the publisher implicit")]
     BadSnapshotThrough,
     /// Lease closed streams: more than 65535, or not strictly ascending by node key and device id.
     #[error(

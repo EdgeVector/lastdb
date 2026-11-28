@@ -78,7 +78,12 @@ pub(crate) async fn log_trim(
 
     let mut plans = Vec::with_capacity(snapshot.through.len() + 1);
     for pos in &snapshot.through {
-        let (dev, hash) = (pos.device_id.to_hex(), pos.entry_hash.to_hex());
+        let (dev, hash) = (
+            pos.publisher_device()
+                .ok_or_else(|| ApiError::invalid("through"))?
+                .to_hex(),
+            pos.entry_hash.to_hex(),
+        );
         plans.push(plan(&scope, &dev, pos.writer_seq, Some(&hash), false).await?);
     }
     plans.push(plan(&scope, &req.device_id, older, None, true).await?);
@@ -147,7 +152,10 @@ fn check_through_monotonic(
 ) -> ApiResult<BTreeMap<String, u64>> {
     let mut through_map = BTreeMap::new();
     for pos in &snapshot.through {
-        let dev = pos.device_id.to_hex();
+        let dev = pos
+            .publisher_device()
+            .ok_or_else(|| ApiError::invalid("through"))?
+            .to_hex();
         if pos.writer_seq == 0
             || dev == snapshot_device
             || through_map.insert(dev, pos.writer_seq).is_some()
@@ -196,8 +204,19 @@ pub(crate) async fn snapshot_entry(
     let SignedEntry::Snapshot { header, body, .. } = entry else {
         return Err(ApiError::invalid("kind"));
     };
-    if header.writer_seq != req.writer_seq || header.node_key.to_hex() != writer {
+    if header.writer_seq != req.writer_seq
+        || header.node_key.to_hex() != writer
+        || header.database_id.to_hex() != req.database_id
+        || header.device_id.to_hex() != req.device_id
+    {
         return Err(ApiError::invalid("kind"));
+    }
+    if body
+        .through
+        .iter()
+        .any(|pos| pos.publisher_device().is_none())
+    {
+        return Err(ApiError::invalid("through"));
     }
     Ok(body)
 }
