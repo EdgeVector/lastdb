@@ -1,5 +1,6 @@
 //! Mutation Manager — public write entry points, commit receipts, and native transaction commits.
 
+mod log_entry;
 mod replace;
 mod replay;
 mod write_records;
@@ -19,7 +20,8 @@ use crate::storage::disk_backup::accepted;
 use crate::storage::disk_pack::transaction;
 use crate::storage::disk_pack::transaction::phases::{self, Step};
 
-pub use crate::storage::format::metadata::{ReplayStamp, ReplayStreamHead};
+pub use crate::schema::types::LogRow;
+pub use crate::storage::format::metadata::{ReplayStamp, ReplayStreamHead, SIGNED_LOG_PAGE_MAX};
 pub use replay::ReplayAttachmentSlots;
 
 /// The author clock keeps `writer_id` in base64. Record authorship uses lowercase hex.
@@ -150,8 +152,12 @@ impl MutationManager {
                     .records()
                     .stage_accepted_mutations(&mutations, previous)
                     .await?;
+                let metadata = self.db_ops.metadata();
                 if let Some(head) = &signed {
-                    self.db_ops.metadata().stage_local_replay_head(head).await?;
+                    metadata.stage_local_replay_head(head).await?;
+                }
+                for mutation in &mutations {
+                    metadata.stage_signed_log_rows(&mutation.log_rows).await?;
                 }
                 Ok::<_, SchemaError>(())
             })

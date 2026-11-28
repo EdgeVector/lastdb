@@ -12,11 +12,13 @@ mod author;
 mod body;
 mod capture;
 mod disk;
+mod entry;
 
 pub use author::{CaptureAuthor, LocalEntry, SignedLocal};
 pub(crate) use capture::{capture_enabled, stage_records, stage_schema_drop, stage_schema_put};
 pub use disk::upload::{UploadIdentity, UploadPosition};
 pub(in crate::storage) use disk::{Change, Log, Note};
+pub(crate) use entry::stage_log_entry;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

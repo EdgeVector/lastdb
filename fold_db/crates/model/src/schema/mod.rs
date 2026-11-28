@@ -186,7 +186,7 @@ pub mod types {
 
     pub mod mutation {
         pub use crate::schema::mutation::{
-            FileWrite, FileWriteIssuer, LocalFileReference, Mutation, SealedRecordFile,
+            FileWrite, FileWriteIssuer, LocalFileReference, LogRow, Mutation, SealedRecordFile,
         };
     }
     pub mod operations {
@@ -209,7 +209,7 @@ pub mod types {
     pub use declarative_schemas::DeclarativeSchemaDefinition;
     pub use key_value::KeyValue;
     pub use mutation::{
-        FileWrite, FileWriteIssuer, LocalFileReference, Mutation, SealedRecordFile,
+        FileWrite, FileWriteIssuer, LocalFileReference, LogRow, Mutation, SealedRecordFile,
     };
     pub use operations::{MutationType, Query, SortOrder};
     pub use schema::{DeclarativeSchemaType as SchemaType, Schema};
