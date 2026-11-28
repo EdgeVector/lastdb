@@ -1,5 +1,6 @@
 name: People #57 Photo DEV dispatch
 
+# Re-dispatch after people #57 CI gate fix.
 # One-shot: use lastdb secrets.GH_PAT to start EdgeVector/people DEV sharing
 # on the people #57 branch against the #1956 squash on LastDB main. Close this
 # workflow (and its PR) after the People run is green; do not merge as product.
