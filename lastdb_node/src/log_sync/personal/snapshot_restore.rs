@@ -182,8 +182,7 @@ pub(super) async fn adopt(ctx: &Ctx<'_>, base: &SnapshotBase) -> Result<(), Stri
         .map(|position| ctx.stream_name(&position.device_id.to_hex()))
         .collect();
     let heads = ctx
-        .host
-        .db
+        .store
         .mutation_manager()
         .replay_stream_heads(&names)
         .await
