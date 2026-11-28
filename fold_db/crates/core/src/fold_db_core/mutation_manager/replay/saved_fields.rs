@@ -166,26 +166,28 @@ pub(super) fn apply_attachment_patch(
         }
         return;
     }
-    match (mutation.file_write, mutation.inline_write) {
-        (Some(fw @ (FileWrite::Put(_) | FileWrite::LocalPath(_))), _) if parts.file => {
-            patched.file = mutation.file;
-            patched.file_write = Some(fw);
-            patched.inline_write = Some(InlineWrite::Clear);
-        }
-        (_, Some(iw @ InlineWrite::Put(_))) if parts.inline => {
-            patched.file = None;
-            patched.file_write = Some(FileWrite::Clear);
-            patched.inline_write = Some(iw);
-        }
-        (Some(FileWrite::Clear), _) | (_, Some(InlineWrite::Clear)) => {
-            if parts.file {
+    if parts.file {
+        match &mutation.file_write {
+            Some(fw @ (FileWrite::Put(_) | FileWrite::LocalPath(_))) => {
+                patched.file = mutation.file.clone();
+                patched.file_write = Some(fw.clone());
+            }
+            Some(FileWrite::Clear) => {
                 patched.file = None;
                 patched.file_write = Some(FileWrite::Clear);
             }
-            if parts.inline {
+            None => {}
+        }
+    }
+    if parts.inline {
+        match &mutation.inline_write {
+            Some(iw @ InlineWrite::Put(_)) => {
+                patched.inline_write = Some(iw.clone());
+            }
+            Some(InlineWrite::Clear) => {
                 patched.inline_write = Some(InlineWrite::Clear);
             }
+            None => {}
         }
-        _ => {}
     }
 }

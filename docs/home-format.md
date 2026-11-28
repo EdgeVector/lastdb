@@ -109,8 +109,9 @@ in a snapshot.
 | `layout:keys` | `typed-ranges` | The key encoding of this home. |
 
 One record value holds the key, the alternate key values, the fields, a
-stamp, optional metadata (`created_by`, `updated_by`), and the marker of its
-file or inline file. A record has at most one live file.
+stamp, optional metadata (`created_by`, `updated_by`), and the markers of its
+external file and its inline file. Those two slots are independent: a record
+may hold a full file and a small inline file (a thumbnail) together.
 
 ### File blobs (`disk-cas`)
 

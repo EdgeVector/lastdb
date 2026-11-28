@@ -142,15 +142,9 @@ fn resolve_attachments(
     mutation: &Mutation,
     before: Option<&StoredRecord>,
 ) -> Result<(Option<FileMarker>, Option<FileMarker>, bool), SchemaError> {
-    if matches!(
-        mutation.file_write,
-        Some(FileWrite::Put(_) | FileWrite::LocalPath(_))
-    ) && matches!(mutation.inline_write, Some(InlineWrite::Put(_)))
-    {
-        return Err(SchemaError::InvalidData(
-            "a record cannot carry both a file and an inline file".into(),
-        ));
-    }
+    // External file and inline file are independent slots. A write that names
+    // only one leaves the other as it was. A photo may keep a full file and a
+    // thumbnail together.
     let keep_file = mutation.file_write.is_none() && mutation.inline_write.is_none();
     let file = match &mutation.file_write {
         Some(FileWrite::Put(f)) => {
@@ -167,14 +161,6 @@ fn resolve_attachments(
             }
             None
         }
-        None if mutation.inline_write.is_some() => {
-            if mutation.file.is_some() {
-                return Err(SchemaError::InvalidData(
-                    "an inline file write cannot carry a file marker".into(),
-                ));
-            }
-            None
-        }
         None => mutation
             .file
             .clone()
@@ -183,14 +169,8 @@ fn resolve_attachments(
     let inline_file = match &mutation.inline_write {
         Some(InlineWrite::Put(f)) => Some(f.marker.clone()),
         Some(InlineWrite::Clear) => None,
-        None if mutation.file_write.is_some() => None,
         None => before.and_then(|r| r.inline_file.clone()),
     };
-    if file.is_some() && inline_file.is_some() {
-        return Err(SchemaError::InvalidData(
-            "a record cannot carry both a file and an inline file".into(),
-        ));
-    }
     Ok((file, inline_file, keep_file))
 }
 

@@ -36,6 +36,7 @@ pub(crate) mod lease_status;
 mod materialize;
 mod mirror;
 mod personal;
+mod record_files;
 mod proposal;
 mod publish_state;
 mod pull;

@@ -291,19 +291,17 @@ impl MutationManager {
     }
 }
 
-/// Every attachment write or delete governs the single live attachment of a record,
-/// so both `FILE_SLOT` and `INLINE_SLOT` move together.
+/// A delete or purge clears both attachment slots. A file write moves only
+/// `FILE_SLOT`; an inline write moves only `INLINE_SLOT`.
 pub(in crate::fold_db_core::mutation_manager) fn slots_from(
     mutation_type: MutationType,
     has_file_write: bool,
     has_inline_write: bool,
 ) -> ReplayAttachmentSlots {
-    let touches = matches!(mutation_type, MutationType::Delete | MutationType::Purge)
-        || has_file_write
-        || has_inline_write;
+    let clears = matches!(mutation_type, MutationType::Delete | MutationType::Purge);
     ReplayAttachmentSlots {
-        file: touches,
-        inline: touches,
+        file: clears || has_file_write,
+        inline: clears || has_inline_write,
     }
 }
 
