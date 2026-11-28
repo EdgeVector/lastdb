@@ -25,7 +25,7 @@
 
 mod apply;
 mod apply_schema;
-mod body;
+use crate::accepted_body as body;
 mod database;
 use database::SyncDatabase;
 mod incoming;

@@ -25,6 +25,10 @@ pub trait SealOpener: Send + Sync + Debug {
     /// The plaintext of `sealed` for the entry with this header, or `None` when
     /// it does not open.
     fn open(&self, header: &EntryHeader, sealed: &[u8]) -> Option<Vec<u8>>;
+    /// Open a sealed database write as a record for the signed history view.
+    fn open_record(&self, header: &EntryHeader, sealed: &[u8]) -> Option<(String, Vec<u8>)>;
+    /// Open a sealed schema declaration for the signed history view.
+    fn open_schema(&self, header: &EntryHeader, sealed: &[u8]) -> Option<(String, Vec<u8>)>;
 }
 
 /// Pack a namespace and its bytes so both travel inside the sealed payload.
@@ -60,7 +64,7 @@ pub fn open_data_body(
     body: &DataBody,
 ) -> Option<(String, Vec<u8>)> {
     if body.namespace == SEALED_NAMESPACE {
-        return unpack_hiding_namespace(&opener?.open(header, &body.payload)?);
+        return opener?.open_record(header, &body.payload);
     }
     if opener.is_some() {
         return None;
@@ -78,7 +82,7 @@ pub fn open_schema_body(
     body: &SchemaBody,
 ) -> Option<(String, Vec<u8>)> {
     if body.namespace == SEALED_NAMESPACE {
-        return unpack_hiding_namespace(&opener?.open(header, &body.definition)?);
+        return opener?.open_schema(header, &body.definition);
     }
     if opener.is_some() {
         return None;

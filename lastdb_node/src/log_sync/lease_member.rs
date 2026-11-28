@@ -10,18 +10,17 @@ use std::cell::Cell;
 use std::path::Path;
 
 use mutation_log::{
-    author_data, data_record_with_file, AcceptOutcome, AuthorCtx, DatabaseId, EntryHash, LeaseView,
-    NodeKey, RejectReason, Role, StreamKind, VerifiedHistory,
+    AcceptOutcome, AuthorCtx, DatabaseId, EntryHash, LeaseView, NodeKey, RejectReason, Role,
+    VerifiedHistory,
 };
 
 use super::chain_author;
 use super::chain_error::ChainError;
 use super::history_store;
-use super::mirror::{encode_value, OwnedMutation};
+use super::mirror::OwnedMutation;
 use super::shared_key;
 use crate::host::Host;
 use crate::personal_seal::Sealer;
-use crate::shared_seal;
 
 /// The answer to a refused direct write, the same as for a database with no lease.
 pub(crate) const REFUSED: &str = "a received database is read only";
@@ -136,7 +135,7 @@ pub(crate) async fn mirror_received(
         Err(error) => {
             let keys: Vec<(String, String)> = signed
                 .iter()
-                .map(|item| (item.schema.clone(), item.record_key.clone()))
+                .map(|item| (item.mutation.schema_name.clone(), item.record_key.clone()))
                 .collect();
             if !super::materialize::revert_unsigned(host, database_id, &store, &keys).await {
                 return Err(ChainError::Unconfirmed);
@@ -152,10 +151,14 @@ async fn live_revisions(
 ) -> Vec<Option<String>> {
     let mut out = Vec::with_capacity(signed.len());
     for item in signed {
-        let rev = signed_history_materialize::read_revision(store, &item.schema, &item.record_key)
-            .await
-            .ok()
-            .flatten();
+        let rev = signed_history_materialize::read_revision(
+            store,
+            &item.mutation.schema_name,
+            &item.record_key,
+        )
+        .await
+        .ok()
+        .flatten();
         out.push(rev);
     }
     out
@@ -174,7 +177,7 @@ fn sign_all(
     for item in signed {
         let declared = store
             .schema_manager()
-            .get_schema_metadata(&item.schema)
+            .get_schema_metadata(&item.mutation.schema_name)
             .map_err(|_| ChainError::Unconfirmed)?
             .is_some();
         if !declared {
@@ -182,7 +185,8 @@ fn sign_all(
                 "schema is not declared on this database",
             ));
         }
-        let value = encode_value(item)
+        let value = item
+            .plain()
             .map_err(|_| ChainError::Invalid("the write does not carry its record fields"))?;
         encoded.push((item, value));
     }
@@ -249,7 +253,7 @@ fn stage_direct_batch(
             authored_at_ms: bctx.now_ms,
         };
         ctx.cite(bctx.cover.lease, bctx.cover.lamport);
-        let key = (item.schema.clone(), item.record_key.clone());
+        let key = (item.mutation.schema_name.clone(), item.record_key.clone());
         if let Some(winner) = next.records().get(&key) {
             ctx.cite(winner.entry, winner.position.lamport);
         }
@@ -262,21 +266,14 @@ fn stage_direct_batch(
             ctx.device_id,
             writer_seq,
         )?;
-        let body = shared_seal::seal_data(
+        let entry = crate::database_author::sign_direct(
+            &ctx,
+            bctx.identity,
             bctx.sealer,
-            ctx.node_key,
-            ctx.device_id,
-            writer_seq,
-            data_record_with_file(
-                StreamKind::Direct,
-                item.schema.clone(),
-                &item.record_key,
-                value,
-                file_ref,
-            ),
+            value,
+            file_ref,
+            None,
         )?;
-        let entry =
-            author_data(&ctx, &bctx.identity.signing_key, body).map_err(|e| e.to_string())?;
         match next.accept_entry(entry.clone()) {
             AcceptOutcome::Accept { .. } => batch.push(entry),
             AcceptOutcome::Reject { reason } => {

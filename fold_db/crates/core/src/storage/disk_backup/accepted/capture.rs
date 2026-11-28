@@ -16,15 +16,16 @@
 //! uncommitted writes (`precheck_accepted_queue`) stay. They read memory only.
 
 mod files;
+pub(super) use files::inline_section;
 
 use super::author::{CaptureAuthor, LocalEntry};
-use super::body::{self, RecordParts};
+use super::body;
 use super::disk::Note;
 use crate::schema::types::{LocalFileReference, Mutation, Schema};
 use crate::storage::disk_pack::{transaction, PackRuntime};
 use crate::storage::error::{StorageError, StorageResult};
 use lastdb_model::hex::sha256_hex;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -147,7 +148,7 @@ fn stage_schema_note(
         author.as_ref(),
         previous,
         authored_at_ms,
-        (mutation_id, body),
+        (mutation_id, &body::plain(body)?),
         None,
         None,
     )?;
@@ -161,14 +162,13 @@ fn signed_note(
     author: &dyn CaptureAuthor,
     previous: Option<&LocalEntry>,
     order: u64,
-    (mutation_id, body): (&str, &body::Body<'_>),
+    (mutation_id, plain): (&str, &[u8]),
     file: Option<&[u8]>,
     note: Option<&[u8]>,
 ) -> StorageResult<(Note, LocalEntry)> {
     let refused = |detail: String| {
         StorageError::InvalidOperation(format!("the write cannot be signed: {detail}"))
     };
-    let plain = body::plain(body)?;
     let seq = previous
         .map_or(Some(1), |held| held.seq.checked_add(1))
         .ok_or_else(|| invalid("the device stream sequence is exhausted"))?;
@@ -178,7 +178,7 @@ fn signed_note(
         .map_err(refused)?;
     let file_sha256 = sealed.as_deref().map(sha256_hex);
     let signed = author
-        .sign(previous, order, &plain, file_sha256.as_deref(), note)
+        .sign(previous, order, plain, file_sha256.as_deref(), note)
         .map_err(refused)?;
     let note = Note {
         seq,
@@ -202,25 +202,12 @@ async fn sign_mutation(
     previous: Option<&LocalEntry>,
 ) -> StorageResult<(Note, LocalEntry)> {
     let external = files::external_file(content_key, mutation, admit).await?;
-    let has_file = external.plain.is_some() || external.marker.is_some();
-    let sealed = external.sealed.clone();
-    let inline_file = files::inline_section(mutation)?;
-    let parts = RecordParts {
-        // File transport dominates when both attachment slots are written.
-        kind: body::kind_name(has_file, inline_file.is_some()),
-        action: body::action_name(mutation.mutation_type),
-        fields: mutation
-            .record_fields
-            .iter()
-            .map(|(name, value)| (name.clone(), value.clone()))
-            .collect::<BTreeMap<_, _>>(),
-        file: external
-            .present
-            .then(|| body::file_section(external.marker, sealed.as_deref(), external.cleared)),
-        inline_file,
-        definition_id: mutation.definition_id.as_deref(),
-    };
-    let canonical = body::record_body(mutation, &parts);
+    let plain = body::record_plain(
+        mutation,
+        external.marker,
+        external.sealed.as_deref(),
+        external.cleared,
+    )?;
     let order = mutation
         .imported_written_at
         .map(|time| time / 1_000_000)
@@ -229,7 +216,7 @@ async fn sign_mutation(
         author,
         previous,
         order,
-        (mutation.uuid.as_str(), &canonical),
+        (mutation.uuid.as_str(), &plain),
         external.plain.as_deref(),
         mutation.log_note.as_deref(),
     )

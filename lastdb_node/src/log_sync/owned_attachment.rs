@@ -59,14 +59,6 @@ impl OwnedFile {
         }
     }
 
-    pub fn section(&self) -> FileSection {
-        match self {
-            Self::Keep => FileSection::Keep,
-            Self::Clear => FileSection::Clear,
-            Self::Put { marker, .. } => FileSection::Put(marker.clone()),
-        }
-    }
-
     /// When a write omits the file, history still needs the retained attachment
     /// so a late joiner materializes the same record. Take the prior history
     /// Put's marker and the live store's plaintext.

@@ -133,6 +133,34 @@ pub(super) fn inline_clear() -> InlineSection<'static> {
     }
 }
 
+/// Canonical plaintext for a committed record, including alternate keys and both attachment slots.
+pub fn record_plain(
+    mutation: &Mutation,
+    marker: Option<&FileMarker>,
+    sealed_digest: Option<&str>,
+    cleared: bool,
+) -> StorageResult<Vec<u8>> {
+    let inline_file = super::capture::inline_section(mutation)?;
+    let parts = RecordParts {
+        kind: kind_name(marker.is_some(), inline_file.is_some()),
+        action: action_name(mutation.mutation_type),
+        fields: mutation
+            .record_fields
+            .iter()
+            .map(|(name, value)| (name.clone(), value.clone()))
+            .collect(),
+        file: (marker.is_some() || cleared).then(|| file_section(marker, sealed_digest, cleared)),
+        inline_file,
+        definition_id: mutation.definition_id.as_deref(),
+    };
+    plain(&record_body(mutation, &parts))
+}
+
+/// Canonical plaintext for a signed schema declaration.
+pub fn schema_plain(id: &str, name: &str, definition: &Value) -> StorageResult<Vec<u8>> {
+    plain(&schema_body(id, name, "put", Some(definition)))
+}
+
 pub(super) fn record_body<'a>(mutation: &'a Mutation, parts: &'a RecordParts<'a>) -> Body<'a> {
     Body {
         version: 1,

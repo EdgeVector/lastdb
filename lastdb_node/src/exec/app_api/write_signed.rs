@@ -1,8 +1,6 @@
 //! After FoldDB commits an `/v1/write` to an owned database or to the personal
 //! database, mirror it onto the signed log.
 
-use std::collections::HashMap;
-
 use fold_db::fold_db_core::FoldDB;
 use fold_db::record_replacement::RecordTarget;
 use fold_db::schema::types::{KeyValue, Mutation, MutationType};
@@ -12,15 +10,6 @@ use crate::exec::reply::HostError;
 use crate::host::Host;
 use crate::log_sync::owned_attachment::{OwnedFile, OwnedInline};
 use crate::log_sync::{mirror_owned_write, wake_loop, write_target, OwnedMutation};
-
-/// One write item's fields needed to author a signed `data` entry.
-pub(super) struct SignedInput<'a> {
-    pub(super) schema: &'a str,
-    pub(super) key: &'a KeyValue,
-    pub(super) op: MutationType,
-    pub(super) record: Option<&'a HashMap<String, Value>>,
-    pub(super) alternates: &'a signed_history_materialize::Alternates,
-}
 
 /// The 64-hex database id when `selector` names an owned shareable database or
 /// a received signed-log share.
@@ -119,43 +108,42 @@ pub(super) fn check_shared_mutation(
 }
 
 /// Capture canonical schema/key/fields/alternates for the signed-history mirror.
-pub(super) fn plan<'a>(
+pub(super) fn plan(
     store: &FoldDB,
-    items: impl IntoIterator<Item = SignedInput<'a>>,
-) -> Vec<OwnedMutation> {
-    items
-        .into_iter()
-        .filter_map(|item| {
-            let hash = item.key.hash.as_deref()?;
+    mutations: &[Mutation],
+) -> Result<Vec<OwnedMutation>, HostError> {
+    mutations
+        .iter()
+        .enumerate()
+        .map(|(index, mutation)| {
+            let hash = mutation
+                .key_value
+                .hash
+                .as_deref()
+                .ok_or_else(|| super::bad("shared write has no primary hash").at(index))?;
             let record_key = signed_history_materialize::canonical_record_key(
                 store,
-                item.schema,
+                &mutation.schema_name,
                 hash,
-                item.key.range.as_deref(),
+                mutation.key_value.range.as_deref(),
             )
-            .ok()
-            .or_else(|| mutation_log::join_record_key(hash, item.key.range.as_deref()))?;
-            let fields = item.record.map(|map| {
-                Value::Object(map.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
-            });
-            let alternates = if item.op == MutationType::Delete {
-                signed_history_materialize::Alternates::new()
-            } else {
-                signed_history_materialize::resolve_alternates(
+            .map_err(|error| super::bad(error).at(index))?;
+            let mut mutation = mutation.clone();
+            mutation.key_value =
+                signed_history_materialize::key_value(store, &mutation.schema_name, &record_key)
+                    .map_err(|error| super::bad(error).at(index))?;
+            if mutation.mutation_type != MutationType::Delete {
+                mutation.alternates = signed_history_materialize::resolve_alternates(
                     store,
-                    item.schema,
-                    item.alternates.clone(),
+                    &mutation.schema_name,
+                    mutation.alternates,
                 )
-                .unwrap_or_else(|_| item.alternates.clone())
-            };
-            Some(OwnedMutation {
-                schema: item.schema.to_owned(),
+                .map_err(|error| super::bad(error).at(index))?;
+            }
+            Ok(OwnedMutation {
+                mutation,
                 record_key,
-                fields,
-                op: item.op,
-                alternates,
                 file: OwnedFile::Keep,
-                inline: OwnedInline::Keep,
             })
         })
         .collect()
@@ -178,9 +166,11 @@ pub(super) async fn attach_files(
     }
     let histories = crate::log_sync::histories_for(host);
     for (item, mutation) in signed.iter_mut().zip(mutations.iter()) {
+        if mutation.mutation_type == MutationType::Delete {
+            continue;
+        }
         item.file = OwnedFile::from_mutation(mutation.file_write.as_ref(), mutation.file.as_ref())
             .map_err(super::bad)?;
-        item.inline = OwnedInline::from_mutation(mutation.inline_write.as_ref());
         item.file = item
             .file
             .clone()
@@ -188,16 +178,20 @@ pub(super) async fn attach_files(
                 &histories,
                 database_id,
                 store,
-                &item.schema,
+                &item.mutation.schema_name,
                 &item.record_key,
             )
             .await
             .map_err(super::bad)?;
-        item.inline = item
-            .inline
-            .clone()
-            .resolve_keep(&histories, database_id, &item.schema, &item.record_key)
-            .map_err(super::bad)?;
+        item.mutation.inline_write = OwnedInline::from_mutation(mutation.inline_write.as_ref())
+            .resolve_keep(
+                &histories,
+                database_id,
+                &item.mutation.schema_name,
+                &item.record_key,
+            )
+            .map_err(super::bad)?
+            .as_write();
     }
     Ok(())
 }
@@ -206,7 +200,7 @@ pub(super) async fn attach_files(
 fn keys_of(signed: &[OwnedMutation]) -> Vec<(String, String)> {
     signed
         .iter()
-        .map(|item| (item.schema.clone(), item.record_key.clone()))
+        .map(|item| (item.mutation.schema_name.clone(), item.record_key.clone()))
         .collect()
 }
 

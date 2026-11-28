@@ -1,9 +1,6 @@
 //! Sign the publisher's decision on a proposal: incorporate or decline.
 
-use mutation_log::{
-    author_data, author_heads, data_record, decode_signature_b64url, Hex32, IncorporatedFrom,
-    SignedEntry, StreamKind,
-};
+use mutation_log::{author_heads, decode_signature_b64url, Hex32, IncorporatedFrom, SignedEntry};
 use sha2::{Digest as _, Sha256};
 
 use super::chain_author::AuthorIdentity;
@@ -12,12 +9,11 @@ use super::chain_error::ChainError;
 use super::history_store::HistoryMap;
 use super::shared_key;
 use crate::host::Host;
-use crate::shared_seal;
 
 pub(super) struct Ready {
     pub(super) namespace: String,
     pub(super) key: String,
-    pub(super) value: Vec<u8>,
+    pub(super) plain: Vec<u8>,
 }
 
 /// Sign the accepting direct entry that cites `proposal`.
@@ -48,22 +44,8 @@ pub(super) fn publish(
         if let Some(winner) = history.records().get(&key) {
             ctx.cite(winner.entry, winner.position.lamport);
         }
-        let mut body = data_record(
-            StreamKind::Direct,
-            ready.namespace,
-            &ready.key,
-            &ready.value,
-        );
-        body.incorporated_from = Some(from);
-        let body = shared_seal::seal_data(
-            &sealer,
-            ctx.node_key,
-            ctx.device_id,
-            ctx.next_writer_seq(),
-            body,
-        )
-        .map_err(|_| ChainError::Unconfirmed)?;
-        author_data(&ctx, &identity.signing_key, body).map_err(|_| ChainError::Unconfirmed)
+        crate::database_author::sign_direct(&ctx, identity, &sealer, &ready.plain, None, Some(from))
+            .map_err(|_| ChainError::Unconfirmed)
     })
     .map(|_| ())
     .map_err(|e| e.reply().message.to_owned())

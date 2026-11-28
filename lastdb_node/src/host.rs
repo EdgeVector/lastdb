@@ -141,7 +141,7 @@ impl Host {
         // Each captured write is signed, when it commits, as the next entry of this device's
         // stream of the personal database. The store gets the author that seals and signs it.
         let capture_author = if capture_accepted {
-            let author = crate::personal_author::PersonalAuthor::of_home(home, &seed)?;
+            let author = crate::database_author::DatabaseAuthor::of_home(home, &seed)?;
             Some(Arc::new(author)
                 as Arc<
                     dyn fold_db::storage::disk_backup::accepted::CaptureAuthor,

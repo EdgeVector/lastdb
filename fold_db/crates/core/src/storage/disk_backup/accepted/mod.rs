@@ -11,6 +11,7 @@
 mod author;
 mod body;
 mod payload;
+pub use body::{record_plain, schema_plain};
 pub use payload::AcceptedBody;
 mod capture;
 mod disk;

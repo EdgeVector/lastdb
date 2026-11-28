@@ -12,12 +12,11 @@
 //! writes (see `personal`).
 
 use fold_db::fold_db_core::FoldDB;
-use fold_db::schema::types::MutationType;
+use fold_db::schema::types::Mutation;
 use mutation_log::{
-    author_data, author_schema, data_record_with_file, stream_id_of, AcceptOutcome, AuthorCtx,
-    DatabaseId, SchemaBody, SignedEntry, StreamKind, VerifiedHistory,
+    author_schema, stream_id_of, AcceptOutcome, AuthorCtx, DatabaseId, SchemaBody, SignedEntry,
+    VerifiedHistory,
 };
-use serde_json::Value;
 use std::path::Path;
 
 use super::birth::{self, BirthMaterial};
@@ -25,7 +24,7 @@ use super::chain_author;
 use super::chain_author::AuthorIdentity;
 use super::history_store;
 use super::materialize;
-use super::owned_attachment::{OwnedFile, OwnedInline};
+use super::owned_attachment::OwnedFile;
 use super::shared_key;
 use super::wake;
 use crate::host::Host;
@@ -34,13 +33,9 @@ use crate::shared_seal;
 
 /// One FoldDB mutation to carry as a signed direct `data` entry.
 pub struct OwnedMutation {
-    pub schema: String,
+    pub mutation: Mutation,
     pub record_key: String,
-    pub op: MutationType,
-    pub fields: Option<Value>,
-    pub alternates: signed_history_materialize::Alternates,
     pub file: OwnedFile,
-    pub inline: OwnedInline,
 }
 
 pub(super) struct MirrorCtx<'a> {
@@ -91,7 +86,7 @@ pub fn mirror_owned_write(
             let mut batch = Vec::with_capacity(mutations.len() + 2);
             ensure_birth(next, &ctx, &mut batch)?;
             for item in mutations {
-                ensure_schema(next, &ctx, &item.schema, &mut batch)?;
+                ensure_schema(next, &ctx, &item.mutation.schema_name, &mut batch)?;
                 author_one(next, &ctx, item, &mut batch)?;
             }
             Ok(batch)
@@ -213,23 +208,16 @@ fn schema_definition_matches(prior: &[u8], current: &fold_db::schema::types::Sch
     }
 }
 
-/// The value of a record in an entry: its fields, alternates, and attachment
-/// sections as JSON, or nothing for a delete.
-pub(super) fn encode_value(item: &OwnedMutation) -> Result<Vec<u8>, String> {
-    if item.op == MutationType::Delete {
-        return Ok(Vec::new());
+impl OwnedMutation {
+    pub(super) fn plain(&self) -> Result<Vec<u8>, String> {
+        let (marker, cleared) = match &self.file {
+            OwnedFile::Put { marker, .. } => (Some(marker), false),
+            OwnedFile::Clear => (None, true),
+            OwnedFile::Keep => (None, false),
+        };
+        fold_db::storage::disk_backup::accepted::record_plain(&self.mutation, marker, None, cleared)
+            .map_err(|error| error.to_string())
     }
-    let fields = item
-        .fields
-        .as_ref()
-        .ok_or_else(|| "owned write is missing record fields".to_owned())?;
-    let inline = item.inline.as_write();
-    signed_history_materialize::encode_record_value(
-        fields,
-        &item.alternates,
-        &item.file.section(),
-        inline.as_ref(),
-    )
 }
 
 fn author_one(
@@ -242,14 +230,14 @@ fn author_one(
     if let Some((hash, lamport)) = history.birth_entry() {
         author.cite(hash, lamport);
     }
-    if let Some((hash, lamport)) = history.schema_entry(&item.schema) {
+    if let Some((hash, lamport)) = history.schema_entry(&item.mutation.schema_name) {
         author.cite(hash, lamport);
     }
-    let key = (item.schema.clone(), item.record_key.clone());
+    let key = (item.mutation.schema_name.clone(), item.record_key.clone());
     if let Some(winner) = history.records().get(&key) {
         author.cite(winner.entry, winner.position.lamport);
     }
-    let value = encode_value(item)?;
+    let plain = item.plain()?;
     let writer_seq = author.next_writer_seq();
     let file_ref = item.file.stage(
         ctx.home,
@@ -259,20 +247,14 @@ fn author_one(
         ctx.identity.device_id,
         writer_seq,
     )?;
-    let body = shared_seal::seal_data(
+    let entry = crate::database_author::sign_direct(
+        &author,
+        ctx.identity,
         &ctx.sealer,
-        author.node_key,
-        author.device_id,
-        writer_seq,
-        data_record_with_file(
-            StreamKind::Direct,
-            item.schema.clone(),
-            &item.record_key,
-            &value,
-            file_ref,
-        ),
+        &plain,
+        file_ref,
+        None,
     )?;
-    let entry = author_data(&author, &ctx.identity.signing_key, body).map_err(|e| e.to_string())?;
     stage(history, batch, entry)
 }
 

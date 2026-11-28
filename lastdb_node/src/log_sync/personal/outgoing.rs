@@ -3,7 +3,7 @@
 //! Every commit lands in the spool before the caller is told, and it lands
 //! there finished: the store made the write the next entry of this device's
 //! stream in the transaction that committed it, sealed with the database read
-//! key and signed with the node key (`crate::personal_author`). A file that an
+//! key and signed with the node key (`crate::database_author`). A file that an
 //! entry names is in the spool beside it, sealed. The sender changes nothing in
 //! the store and signs nothing. It reads the entries past the acknowledged
 //! position, sends their files and then the entries as one log segment (`send`), asks the relay for each
