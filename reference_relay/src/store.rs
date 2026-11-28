@@ -38,7 +38,7 @@ impl Store {
         database_id: &str,
         writer_key: &str,
     ) -> Vec<relay_protocol::StreamHead> {
-        self.heads.list(database_id, writer_key)
+        self.heads.list(database_id, Some(writer_key))
     }
 
     pub(crate) fn root(&self) -> &Path {

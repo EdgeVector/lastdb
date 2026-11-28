@@ -8,9 +8,9 @@ use serde::{Deserialize, Serialize};
 pub struct SnapshotThrough {
     /// Signer of this stream. Omitted for a stream signed by the snapshot publisher.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub writer_key: Option<NodeKey>,
+    pub(crate) writer_key: Option<NodeKey>,
     /// Device id of the stream.
-    pub device_id: DeviceId,
+    pub(crate) device_id: DeviceId,
     /// Last `writer_seq` of that stream that the snapshot holds.
     pub writer_seq: u64,
     /// Hash of that entry.
@@ -20,6 +20,28 @@ pub struct SnapshotThrough {
 }
 
 impl SnapshotThrough {
+    /// Record a position with the publisher implicit in its wire form.
+    pub fn new(
+        publisher: NodeKey,
+        stream: crate::StreamId,
+        writer_seq: u64,
+        entry_hash: EntryHash,
+        order: u64,
+    ) -> Self {
+        Self {
+            writer_key: (stream.node_key != publisher).then_some(stream.node_key),
+            device_id: stream.device_id,
+            writer_seq,
+            entry_hash,
+            order,
+        }
+    }
+
+    /// The device of a publisher-only position. Single-writer consumers must decline other positions.
+    pub fn publisher_device(&self) -> Option<DeviceId> {
+        self.writer_key.is_none().then_some(self.device_id)
+    }
+
     /// Resolve a covered stream using the signer of the enclosing snapshot.
     pub fn stream_id(&self, publisher: NodeKey) -> crate::StreamId {
         crate::StreamId {

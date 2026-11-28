@@ -187,18 +187,25 @@ async fn drop_all(
     let mut attempt = 1;
     'fence: loop {
         let streams = client
-            .streams(publisher_hex)
+            .fence_streams(publisher_hex)
             .await
             .map_err(|e| format!("log/streams: {e}"))?;
         let snapshot_seq = streams
             .iter()
-            .find(|s| s.device_id == snapshot_device)
+            .find(|s| {
+                s.writer_key.as_deref().unwrap_or(publisher_hex) == publisher_hex
+                    && s.device_id == snapshot_device
+            })
             .map(|s| s.head_seq)
             .ok_or("log/streams does not list the cleanup snapshot stream")?;
         let heads: Vec<StreamPosition> = streams
             .iter()
-            .filter(|s| s.device_id != snapshot_device)
+            .filter(|s| {
+                s.writer_key.as_deref().unwrap_or(publisher_hex) != publisher_hex
+                    || s.device_id != snapshot_device
+            })
             .map(|s| StreamPosition {
+                writer_key: s.writer_key.clone().filter(|key| key != publisher_hex),
                 device_id: s.device_id.clone(),
                 writer_seq: s.head_seq,
             })
@@ -208,6 +215,7 @@ async fn drop_all(
             let request = BlobDropRequest {
                 database_id: client.database_hex.clone(),
                 snapshot: StreamPosition {
+                    writer_key: None,
                     device_id: snapshot_device.to_owned(),
                     writer_seq: snapshot_seq,
                 },

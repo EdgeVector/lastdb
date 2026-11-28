@@ -52,21 +52,15 @@ pub fn document() -> Value {
             "Store signed entries, or one log segment, on the caller's stream.",
         ),
         operation::<LogRead>("logRead", "Read one writer's entries."),
-        operation::<LogStreams>(
-            "logStreams",
-            "List one writer's device streams and how far each reaches.",
-        ),
+        operation::<LogStreams>("logStreams", "List stream heads by writer and device."),
         operation::<LogTrim>(
             "logTrim",
-            "Drop what a snapshot entry covers (personal database, publisher only).",
+            "Drop what a snapshot entry covers (publisher only).",
         ),
         operation::<BlobPut>("blobPut", "Begin or commit the upload of one blob."),
         operation::<BlobGet>("blobGet", "Get a presigned download of one blob."),
         operation::<BlobList>("blobList", "List the committed blobs of a database."),
-        operation::<BlobDrop>(
-            "blobDrop",
-            "Drop named blobs (personal database, publisher only).",
-        ),
+        operation::<BlobDrop>("blobDrop", "Drop named blobs (publisher only)."),
     ] {
         paths.insert(path, item);
     }

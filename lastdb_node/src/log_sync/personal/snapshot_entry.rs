@@ -58,15 +58,16 @@ pub(super) fn through_of(
         if head.seq == 0 {
             continue;
         }
-        through.push(SnapshotThrough {
-            writer_key: (writer != publisher).then_some(writer),
+        let stream = mutation_log::StreamId {
+            node_key: writer,
             device_id: DeviceId::from_hex(device)
                 .map_err(|_| "a stream head row has a bad device")?,
-            writer_seq: head.seq,
-            entry_hash: EntryHash::from_hex(&head.hash)
-                .map_err(|_| "a stream head row has a bad hash")?,
-            order: head.order,
-        });
+        };
+        let hash =
+            EntryHash::from_hex(&head.hash).map_err(|_| "a stream head row has a bad hash")?;
+        through.push(SnapshotThrough::new(
+            publisher, stream, head.seq, hash, head.order,
+        ));
     }
     through.sort_by_key(|position| position.stream_id(publisher));
     Ok(through)

@@ -159,9 +159,17 @@ pub(crate) async fn log_streams(
     require_hex64(&req.database_id, "database_id")?;
     let caller = verified.node_key;
     let db = gate::parse_id(&req.database_id, "database_id")?;
-    require_hex64(&req.writer_key, "writer_key")?;
-    state.check_read(&db, &caller).await?;
-    let streams = state.store.list_streams(&req.database_id, &req.writer_key);
+    let streams = if let Some(writer) = req.writer_key.as_deref() {
+        require_hex64(writer, "writer_key")?;
+        state.check_read(&db, &caller).await?;
+        state.store.list_streams(&req.database_id, writer)
+    } else {
+        let grants = state.grants.lock().await;
+        if grants.birth(&db).is_none_or(|birth| birth.owner != caller) {
+            return Err(ApiError::forbidden("publisher"));
+        }
+        state.store.heads.list(&req.database_id, None)
+    };
     Ok(Json(LogStreamsAnswer { streams }))
 }
 

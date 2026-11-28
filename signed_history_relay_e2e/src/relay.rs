@@ -55,6 +55,7 @@ pub struct RelayClient {
     node_key_hex: String,
     pub(crate) database_hex: String,
     device_hex: String,
+    revision: std::sync::Arc<std::sync::atomic::AtomicU32>,
 }
 
 impl RelayClient {
@@ -72,6 +73,7 @@ impl RelayClient {
             node_key_hex: actor.node_key_hex(),
             database_hex: database_id.to_hex(),
             device_hex: device_id.to_hex(),
+            revision: Default::default(),
         }
     }
 
@@ -141,9 +143,26 @@ impl RelayClient {
 
     /// `log.streams`: the device streams of `writer_key`, sorted by device id.
     pub async fn streams(&self, writer_key: &str) -> Result<Vec<StreamHead>, String> {
+        self.list_streams(Some(writer_key)).await
+    }
+
+    pub(crate) async fn fence_streams(&self, publisher: &str) -> Result<Vec<StreamHead>, String> {
+        let revision = self.revision.load(std::sync::atomic::Ordering::Relaxed);
+        let all = relay_protocol::supports(
+            Some(revision),
+            relay_protocol::Feature::WriterQualifiedStreams,
+        );
+        let streams = self.list_streams((!all).then_some(publisher)).await?;
+        if all && streams.iter().any(|head| head.writer_key.is_none()) {
+            return Err("database stream listing omitted the writer".into());
+        }
+        Ok(streams)
+    }
+
+    async fn list_streams(&self, writer_key: Option<&str>) -> Result<Vec<StreamHead>, String> {
         let request = LogStreamsRequest {
             database_id: self.database_hex.clone(),
-            writer_key: writer_key.to_owned(),
+            writer_key: writer_key.map(str::to_owned),
         };
         Ok(self.call::<LogStreams>(&request).await?.streams)
     }
@@ -233,6 +252,16 @@ impl RelayClient {
             retryable: true,
         })?;
         let status = resp.status();
+        if status.is_success() {
+            let revision = resp
+                .headers()
+                .get(relay_protocol::answer_headers::REVISION)
+                .and_then(|header| header.to_str().ok())
+                .and_then(relay_protocol::parse_revision)
+                .unwrap_or_default();
+            self.revision
+                .store(revision, std::sync::atomic::Ordering::Relaxed);
+        }
         let text = resp.text().await.map_err(|e| Failure {
             message: format!("relay {path} body: {e}"),
             retryable: true,
@@ -294,6 +323,16 @@ impl RelayClient {
                 Ok(resp) if resp.status().is_success() => return Ok(()),
                 Ok(resp) => {
                     let status = resp.status();
+                    if status.is_success() {
+                        let revision = resp
+                            .headers()
+                            .get(relay_protocol::answer_headers::REVISION)
+                            .and_then(|header| header.to_str().ok())
+                            .and_then(relay_protocol::parse_revision)
+                            .unwrap_or_default();
+                        self.revision
+                            .store(revision, std::sync::atomic::Ordering::Relaxed);
+                    }
                     last = format!("blob upload HTTP {status}");
                     if !retry_status(status) {
                         return Err(last);
@@ -326,6 +365,16 @@ impl RelayClient {
                 },
                 Ok(resp) => {
                     let status = resp.status();
+                    if status.is_success() {
+                        let revision = resp
+                            .headers()
+                            .get(relay_protocol::answer_headers::REVISION)
+                            .and_then(|header| header.to_str().ok())
+                            .and_then(relay_protocol::parse_revision)
+                            .unwrap_or_default();
+                        self.revision
+                            .store(revision, std::sync::atomic::Ordering::Relaxed);
+                    }
                     last = format!("blob download HTTP {status}");
                     if !retry_status(status) {
                         return Err(last);

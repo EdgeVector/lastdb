@@ -69,7 +69,7 @@ pub(super) async fn read_tail(
     snapshot: &SnapshotBody,
     previous: Option<Tail>,
 ) -> Result<Option<Tail>, String> {
-    check_stream_coverage(streams, snapshot)?;
+    check_stream_coverage(ctx.birth_entry.header().node_key, streams, snapshot)?;
     let mut tail = previous
         .filter(|tail| tail.snapshot_hash == snapshot_head.entry_hash)
         .unwrap_or_else(|| Tail {
@@ -107,21 +107,23 @@ async fn snapshot_requested(ctx: &Ctx<'_>) {
     }
 }
 
-fn check_stream_coverage(streams: &[RelayStream], snapshot: &SnapshotBody) -> Result<(), String> {
-    if snapshot.through.iter().any(|at| at.writer_key.is_some()) {
-        return Err("reclaim needs the stream listing of every snapshot writer".into());
-    }
-    let mut seen_devices = BTreeSet::new();
+fn check_stream_coverage(
+    publisher: mutation_log::NodeKey,
+    streams: &[RelayStream],
+    snapshot: &SnapshotBody,
+) -> Result<(), String> {
+    let mut seen_streams = BTreeSet::new();
     for stream in streams {
-        if !seen_devices.insert(stream.device_id.as_str()) {
+        if !seen_streams.insert((&stream.writer, &stream.device_id)) {
             return Err("the relay listed a device stream more than once".into());
         }
     }
     for at in snapshot.through.iter().filter(|at| at.writer_seq > 0) {
-        let hex = at.device_id.to_hex();
-        let covered = streams
-            .iter()
-            .any(|stream| stream.device_id == hex && stream.head_seq >= at.writer_seq);
+        let id = at.stream_id(publisher);
+        let hex = id.device_id.to_hex();
+        let covered = streams.iter().any(|stream| {
+            stream.is(&id.node_key.to_hex(), &hex) && stream.head_seq >= at.writer_seq
+        });
         if !covered {
             return Err(format!(
                 "the relay lacks stream {hex} through entry {} that the newest snapshot covers",
@@ -147,12 +149,10 @@ impl TailReader<'_, '_> {
                 let pos = stream.head_seq.saturating_sub(1);
                 (pos, (pos == 0).then_some(EntryHash::ZERO))
             } else {
-                match self
-                    .snapshot
-                    .through
-                    .iter()
-                    .find(|at| at.device_id.to_hex() == stream.device_id && at.writer_seq > 0)
-                {
+                match self.snapshot.through.iter().find(|at| {
+                    let id = at.stream_id(self.ctx.birth_entry.header().node_key);
+                    stream.is(&id.node_key.to_hex(), &id.device_id.to_hex()) && at.writer_seq > 0
+                }) {
                     Some(at) => (at.writer_seq, Some(at.entry_hash)),
                     None => (0, Some(EntryHash::ZERO)),
                 }
