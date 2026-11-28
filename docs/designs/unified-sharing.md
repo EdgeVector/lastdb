@@ -18,7 +18,7 @@ set of database writes, and permissions decide two things:
 |---|---|---|---|
 | Personal | None. Every device of the owner signs under the one node key | Every device of the owner | Nobody |
 | Share | One grant for each person, chosen by the owner | The owner, and `write` members under a live lease | `submit` members, and `write` members with no live lease |
-| Org | The same grants, set from People's Org preset, for many members | The same | The same |
+| Org | An owner, and the same grants, set from People's Org preset, for many members | The same | The same |
 
 Org is a share with more members and a preset of roles. It needs no code path of its own. What it
 does need beyond a share is in section 6.
@@ -94,16 +94,15 @@ everyone else, and its proposals are sealed to the owner anyway.
 
 1. **Many members.** This already works. A grant is one entry per member, and one lease covers
    every `write` member, so renewing does not grow with the number of members.
-2. **More than one moderator.** In a share, the owner's devices decide every proposal. An org
-   with one owner stalls while the owner is offline. Two choices:
-   - (a) Keep the owner as the only moderator. The owner keeps a device that is always on.
-   - (b) Add a `moderate` role. The owner grants it to a few members. A proposal is sealed to the
-     owner and to each moderator: one content key, wrapped for each recipient. `AcceptEntry`
-     counts an accepting or declining entry signed by a current moderator, as it does the
-     owner's. The relay lets moderators read the streams the owner reads.
-
-   Recommendation: (b), when an org needs it. It changes the entry format and `AcceptEntry`, so
-   it is a separate stage.
+2. **An owner, who is the only moderator** (Tom, 2026-11-28). An org has an owner, as every
+   database does: the node whose key signed its birth. The owner's devices decide every
+   proposal, as in a share. Proposals wait while every owner device is offline, so an org's
+   owner should keep one device that is usually on. Permissions can widen later. One way, if
+   it is needed: a `moderate` role the owner grants to a few members, with a proposal sealed to
+   the owner and to each moderator (one content key, wrapped for each), `AcceptEntry` counting
+   a decision signed by a current moderator, and the relay letting moderators read the streams
+   the owner reads. That changes the entry format and `AcceptEntry`, so it would be a stage of
+   its own.
 3. **Removing a member.** A removed member still holds the read key. The relay already refuses
    it new entries, but a relay that routed wrongly would hand it content it can open. Rotating
    the read key when a member leaves closes that. It matters more in an org, where members come
@@ -124,11 +123,11 @@ changes the home copies records into a fresh home and updates `../home-format.md
    store for the `submit` rule.
 4. Snapshot and reclaim for shared databases.
 5. Files in shared databases.
-6. Org moderators, if Tom chooses 6.2 (b).
-7. Read key rotation on member removal, if Tom chooses it.
+6. Read key rotation on member removal, if Tom chooses it.
+
+Moderators other than the owner are not a stage now (6.2).
 
 ## 8. Open questions
 
-1. Org moderators: 6.2 (a) or (b)?
-2. Rotate the read key when a member is removed?
-3. The Exemem relay needs the read rule of stage 1. Who changes it, and when?
+1. Rotate the read key when a member is removed?
+2. The Exemem relay needs the read rule of stage 1. Who changes it, and when?
